@@ -1,0 +1,4 @@
+using Microsoft.AspNetCore.Hosting;
+namespace LAC.Infrastructure;
+public interface IDocumentStorage { Task<string> SaveAsync(Stream content,string fileName,CancellationToken ct); Task<Stream?> OpenReadAsync(string storagePath,CancellationToken ct); }
+public sealed class LocalDocumentStorage(IWebHostEnvironment env) : IDocumentStorage { private readonly string _root=Path.Combine(env.ContentRootPath,"App_Data","documents"); public async Task<string> SaveAsync(Stream content,string fileName,CancellationToken ct) { Directory.CreateDirectory(_root); var safe=$"{Guid.NewGuid():N}-{Path.GetFileName(fileName)}"; var path=Path.Combine(_root,safe); await using var output=File.Create(path); await content.CopyToAsync(output,ct); return safe; } public Task<Stream?> OpenReadAsync(string storagePath,CancellationToken ct) { var p=Path.Combine(_root,storagePath); return Task.FromResult<Stream?>(File.Exists(p)?File.OpenRead(p):null); } }

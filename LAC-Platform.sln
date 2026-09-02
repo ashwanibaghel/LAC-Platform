@@ -1,0 +1,26 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LAC.Domain", "src\LAC.Domain\LAC.Domain.csproj", "{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LAC.Infrastructure", "src\LAC.Infrastructure\LAC.Infrastructure.csproj", "{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LAC.Api", "src\LAC.Api\LAC.Api.csproj", "{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A003}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LAC.Tests", "tests\LAC.Tests\LAC.Tests.csproj", "{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A004}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A002}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A002}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A003}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A003}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A004}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA4DB9D0-9D9C-4B29-9A31-4AB1CFE4A004}.Debug|Any CPU.Build.0 = Debug|Any CPU
+	EndGlobalSection
+EndGlobal
