@@ -76,6 +76,43 @@ public sealed class OwnershipService(LacDbContext db)
         return new(true, false, null, selected.KhatauniRecordId, selected.KhataId, owners);
     }
 
+    public async Task<IReadOnlyDictionary<Guid, RecordedOwnershipResult>> GetRecordedOwnershipBatchAsync(IEnumerable<Guid> khasraIds, CancellationToken ct)
+    {
+        var ids = khasraIds.Distinct().ToArray();
+        var results = ids.ToDictionary(id => id, _ => new RecordedOwnershipResult(false, false, "No verified recorded ownership is available for this context.", null, null, []));
+        if (ids.Length == 0) return results;
+
+        var candidates = await db.KhataKhasras.AsNoTracking()
+            .Where(x => ids.Contains(x.KhasraId) && x.Khata.KhatauniRecord.VerificationStatus == RevenueRecordVerificationStatus.Verified)
+            .Select(x => new { x.KhasraId, x.KhataId, x.Khata.KhatauniRecordId, x.Khata.KhatauniRecord.AsOfDate })
+            .ToListAsync(ct);
+
+        var selected = new Dictionary<Guid, (Guid KhataId, Guid KhatauniRecordId)>();
+        foreach (var group in candidates.GroupBy(x => x.KhasraId))
+        {
+            var dated = group.Where(x => x.AsOfDate is not null).OrderByDescending(x => x.AsOfDate).ToList();
+            if (dated.Count == 0 || (dated.Count > 1 && dated[0].AsOfDate == dated[1].AsOfDate))
+            {
+                results[group.Key] = new(false, true, "Latest recorded ownership cannot be determined automatically.", null, null, []);
+                continue;
+            }
+            selected[group.Key] = (dated[0].KhataId, dated[0].KhatauniRecordId);
+        }
+
+        var selectedKhataIds = selected.Values.Select(x => x.KhataId).ToArray();
+        var shares = await db.KhataPartyShares.AsNoTracking().Where(x => selectedKhataIds.Contains(x.KhataId))
+            .OrderBy(x => x.Party.DisplayName)
+            .Select(x => new { x.KhataId, Owner = new RecordedOwner(x.PartyId, x.Party.DisplayName, x.RawShareText, x.ShareNumerator, x.ShareDenominator) })
+            .ToListAsync(ct);
+
+        foreach (var (khasraId, record) in selected)
+        {
+            var owners = shares.Where(x => x.KhataId == record.KhataId).Select(x => x.Owner).ToList();
+            results[khasraId] = new(true, false, null, record.KhatauniRecordId, record.KhataId, owners);
+        }
+        return results;
+    }
+
     public async Task VerifyKhatauniAsync(Guid id, int expectedVersion, CancellationToken ct)
     {
         var record = await db.KhatauniRecords.Include(x => x.Khatas).ThenInclude(x => x.PartyShares).SingleOrDefaultAsync(x => x.Id == id, ct) ?? throw new OwnershipWorkflowException("Khatauni record was not found.", 404);

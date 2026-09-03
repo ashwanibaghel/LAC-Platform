@@ -1,0 +1,33 @@
+/* Shell layout intentionally keeps navigation independent from document scrolling. */
+.app-shell { min-height: 100vh; }
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  transition: width 160ms ease, flex-basis 160ms ease, padding 160ms ease;
+}
+
+.sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 34px 10px; }
+.sidebar-brand-row .brand { margin: 0; min-width: 0; }
+.sidebar-toggle { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid #d5dee6; border-radius: 6px; background: #fff; color: #486276; font-size: 17px; line-height: 1; }
+.sidebar-toggle:hover { background: #f3f7fa; border-color: #b8cbe0; color: #1e609e; }
+.sidebar nav a { display: flex; align-items: center; gap: 10px; }
+.sidebar nav i { width: 16px; color: currentColor; font-size: 17px; font-style: normal; line-height: 1; text-align: center; }
+
+.sidebar-collapsed .sidebar { width: 64px; flex-basis: 64px; padding: 22px 10px; }
+.sidebar-collapsed .sidebar-brand-row { margin-left: 1px; margin-right: 1px; }
+.sidebar-collapsed .brand strong, .sidebar-collapsed .sidebar nav a span { display: none; }
+.sidebar-collapsed .sidebar nav a { justify-content: center; padding: 10px 6px; }
+.sidebar-collapsed .sidebar nav i { width: auto; }
+.sidebar-collapsed .sidebar-toggle { position: absolute; right: -15px; top: 23px; z-index: 12; border-radius: 50%; box-shadow: 0 1px 4px #23394b1a; }
+
+@media (max-width: 680px) {
+  .sidebar { position: static; height: auto; overflow: visible; }
+  .sidebar-brand-row { margin: 0 0 12px; }
+  .sidebar-toggle { display: none; }
+  .sidebar-collapsed .sidebar { width: 100%; padding: 13px 16px; }
+  .sidebar-collapsed .brand strong, .sidebar-collapsed .sidebar nav a span { display: inline; }
+  .sidebar-collapsed .sidebar nav a { justify-content: flex-start; padding: 8px 9px; }
+}

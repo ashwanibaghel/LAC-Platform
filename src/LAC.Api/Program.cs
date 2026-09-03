@@ -1,15 +1,29 @@
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Npgsql;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddMemoryCache();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 if (!builder.Environment.IsEnvironment("Testing"))
-    builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+{
+    var configuredConnection = builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured.");
+    var connection = new NpgsqlConnectionStringBuilder(configuredConnection)
+    {
+        Pooling = true,
+        Timeout = 15,
+        CommandTimeout = 30,
+        KeepAlive = 30
+    };
+    builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => npgsql.EnableRetryOnFailure()));
+}
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
@@ -32,13 +46,21 @@ using (var scope = app.Services.CreateScope())
 
 var api = app.MapGroup("/api");
 
-api.MapGet("/districts", async (LacDbContext db, CancellationToken ct) =>
-    await db.Districts.AsNoTracking().OrderBy(x => x.Name).Select(x => new DistrictListItem(x.Id, x.Name, x.SubDivisions.Count)).ToListAsync(ct));
+api.MapGet("/districts", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
+    await cache.GetOrCreateAsync("administrative-districts", async entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
+        return await db.Districts.AsNoTracking().OrderBy(x => x.Name).Select(x => new DistrictListItem(x.Id, x.Name, x.SubDivisions.Count)).ToListAsync(ct);
+    }));
 
-api.MapGet("/districts/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/districts/{id:guid}", async (Guid id, LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
 {
-    var district = await db.Districts.AsNoTracking().Where(x => x.Id == id).Select(x => new DistrictDetail(x.Id, x.Name,
-        x.SubDivisions.OrderBy(s => s.Name).Select(s => new SubDivisionListItem(s.Id, s.Name, s.Villages.Count)).ToList())).FirstOrDefaultAsync(ct);
+    var district = await cache.GetOrCreateAsync($"administrative-district-{id}", async entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
+        return await db.Districts.AsNoTracking().Where(x => x.Id == id).Select(x => new DistrictDetail(x.Id, x.Name,
+            x.SubDivisions.OrderBy(s => s.Name).Select(s => new SubDivisionListItem(s.Id, s.Name, s.Villages.Count)).ToList())).FirstOrDefaultAsync(ct);
+    });
     return district is null ? NotFound("District", id) : Results.Ok(district);
 });
 
@@ -78,10 +100,11 @@ api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize
         khasras = khasras.Where(x => x.NormalizedNumber.Contains(term) || x.DisplayNumber.ToUpper().Contains(q.Trim().ToUpperInvariant()));
     }
     var result = await ToPageAsync(khasras.OrderBy(x => x.DisplayNumber).Select(KhasraListBaseItem.Selector), page, pageSize, ct);
+    var ownershipByKhasra = await ownership.GetRecordedOwnershipBatchAsync(result.Items.Select(x => x.Id), ct);
     var items = new List<KhasraListItem>();
     foreach (var item in result.Items)
     {
-        var recorded = await ownership.GetRecordedOwnershipAsync(item.Id, null, ct);
+        var recorded = ownershipByKhasra[item.Id];
         items.Add(new(item.Id, item.DisplayNumber, item.AreaBigha, item.AreaBiswa, item.AreaBiswansi, recorded.Found ? string.Join(", ", recorded.Owners.Select(x => x.DisplayName)) : recorded.IsAmbiguous ? "Ambiguous — review ownership" : "—", item.AcquisitionStatus, item.Awards));
     }
     return Results.Ok(new PageResponse<KhasraListItem>(items, result.Page, result.PageSize, result.TotalCount));

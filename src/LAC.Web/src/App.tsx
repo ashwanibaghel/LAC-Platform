@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ExportMenu } from './components/ExportMenu'
 import './index.css'
+import './sidebar.css'
 
 const api = '/api'
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number }
@@ -75,8 +76,9 @@ function GlobalSearch() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  const links = [['Home', '/'], ['Villages', '/villages'], ['Awards', '/awards'], ['Search', '/search']]
-  return <div className="app-shell"><aside className="sidebar"><Link className="brand" to="/"><span>LAC</span><strong>LAC Platform</strong></Link><nav aria-label="Primary navigation">{links.map(([label, to]) => <NavLink key={to} to={to} end={to === '/'}>{label}</NavLink>)}</nav></aside><div className="workspace"><header className="topbar"><div className="product-title">LAC Platform<small>Land Acquisition Cell</small></div><GlobalSearch /><div className="environment-badge">Development</div></header><main>{children}</main></div></div>
+  const [collapsed, setCollapsed] = useState(false)
+  const links = [['Home', '/', '⌂'], ['Awards', '/awards', '⌑'], ['Search', '/search', '⌕']]
+  return <div className={`app-shell ${collapsed ? 'sidebar-collapsed' : ''}`}><aside className="sidebar"><div className="sidebar-brand-row"><Link className="brand" to="/"><span>LAC</span><strong>LAC Platform</strong></Link><button className="sidebar-toggle" onClick={() => setCollapsed(value => !value)} aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'} aria-expanded={!collapsed}>☰</button></div><nav aria-label="Primary navigation">{links.map(([label, to, icon]) => <NavLink key={to} to={to} end={to === '/'} aria-label={label} title={collapsed ? label : undefined}><i aria-hidden="true">{icon}</i><span>{label}</span></NavLink>)}</nav></aside><div className="workspace"><header className="topbar"><div className="product-title">LAC Platform<small>Land Acquisition Cell</small></div><GlobalSearch /><div className="environment-badge">Development</div></header><main>{children}</main></div></div>
 }
 
 function Home() {
