@@ -13,9 +13,11 @@ if (!builder.Environment.IsEnvironment("Testing"))
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
+builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -66,7 +68,7 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
     return village is null ? NotFound("Village", id) : Results.Ok(village);
 });
 
-api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize, string? q, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize, string? q, LacDbContext db, OwnershipService ownership, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     var khasras = db.Khasras.AsNoTracking().Where(x => x.VillageId == id);
@@ -75,7 +77,14 @@ api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize
         var term = KhasraNumber.Normalize(q);
         khasras = khasras.Where(x => x.NormalizedNumber.Contains(term) || x.DisplayNumber.ToUpper().Contains(q.Trim().ToUpperInvariant()));
     }
-    return Results.Ok(await ToPageAsync(khasras.OrderBy(x => x.DisplayNumber).Select(KhasraListItem.Selector), page, pageSize, ct));
+    var result = await ToPageAsync(khasras.OrderBy(x => x.DisplayNumber).Select(KhasraListBaseItem.Selector), page, pageSize, ct);
+    var items = new List<KhasraListItem>();
+    foreach (var item in result.Items)
+    {
+        var recorded = await ownership.GetRecordedOwnershipAsync(item.Id, null, ct);
+        items.Add(new(item.Id, item.DisplayNumber, item.AreaBigha, item.AreaBiswa, item.AreaBiswansi, recorded.Found ? string.Join(", ", recorded.Owners.Select(x => x.DisplayName)) : recorded.IsAmbiguous ? "Ambiguous — review ownership" : "—", item.AcquisitionStatus, item.Awards));
+    }
+    return Results.Ok(new PageResponse<KhasraListItem>(items, result.Page, result.PageSize, result.TotalCount));
 });
 
 api.MapGet("/villages/{id:guid}/awards", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) =>
@@ -104,7 +113,7 @@ api.MapGet("/villages/{id:guid}/documents", async (Guid id, LacDbContext db, Can
 
 api.MapGet("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
-    var khasra = await db.Khasras.AsNoTracking().Where(x => x.Id == id).Select(x => new KhasraDetail(x.Id, x.DisplayNumber, x.NormalizedNumber, x.RectangleNumber, x.KillaNumber, x.SubdivisionNumber, x.TotalArea, x.AreaUnit, x.Remarks,
+    var khasra = await db.Khasras.AsNoTracking().Where(x => x.Id == id).Select(x => new KhasraDetail(x.Id, x.DisplayNumber, x.NormalizedNumber, x.RectangleNumber, x.KillaNumber, x.SubdivisionNumber, x.TotalArea, x.AreaUnit, x.AreaBigha, x.AreaBiswa, x.AreaBiswansi, x.Remarks,
         new VillageReference(x.Village.Id, x.Village.Name, new SubDivisionReference(x.Village.SubDivision.Id, x.Village.SubDivision.Name, new DistrictReference(x.Village.SubDivision.District.Id, x.Village.SubDivision.District.Name))),
         x.NotificationLinks.OrderBy(n => n.Notification.NotificationDate).Select(n => new NotificationLinkItem(n.Notification.Id, n.Notification.NotificationNumber, n.Notification.SectionType, n.Notification.NotificationDate, n.NotifiedArea, n.AreaUnit)).ToList(),
         x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList(),
@@ -224,6 +233,41 @@ api.MapPost("/villages/{id:guid}/khasras", async (Guid id, CreateKhasraRequest r
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
 });
 
+api.MapPost("/villages/{id:guid}/khasras/batch", async (Guid id, KhasraBatchRequest request, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+});
+api.MapPost("/villages/{id:guid}/khasras/import-preview", async (Guid id, IFormFile file, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    try { if (file.Length == 0) return Validation("file", "Select a non-empty .xlsx workbook."); await using var stream = file.OpenReadStream(); return Results.Ok(await workspace.PreviewAsync(id, stream, ct)); }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+    catch (Exception) { return Validation("file", "The workbook could not be read. Use a valid .xlsx file with the expected headers."); }
+});
+api.MapPost("/villages/{id:guid}/khasras/import", async (Guid id, KhasraBatchRequest request, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+});
+api.MapPut("/khasras/{id:guid}", async (Guid id, KhasraWorkspaceRow request, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    try { await workspace.UpdateAsync(id, request, ct); return Results.NoContent(); }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+});
+api.MapDelete("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.Id == id, ct); if (khasra is null) return NotFound("Khasra", id); db.Remove(khasra); await db.SaveChangesAsync(ct); return Results.NoContent();
+});
+api.MapGet("/villages/{id:guid}/khasras/export/{format}", async (Guid id, string format, string? q, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    try
+    {
+        var rows = await workspace.ExportRowsAsync(id, q, ct); var name = "village-khasras";
+        return format.ToLowerInvariant() switch { "xlsx" => Results.File(KhasraWorkspaceService.Excel(rows), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{name}.xlsx"), "csv" => Results.File(KhasraWorkspaceService.Csv(rows), "text/csv", $"{name}.csv"), "pdf" => Results.File(KhasraWorkspaceService.Pdf(rows), "application/pdf", $"{name}.pdf"), "docx" => Results.File(KhasraWorkspaceService.Docx(rows), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", $"{name}.docx"), _ => Validation("format", "Choose xlsx, csv, pdf, or docx.") };
+    }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+});
+
 api.MapPost("/notifications", async (CreateNotificationRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { var notification = await workflow.CreateNotificationAsync(request.SectionType, request.NotificationNumber, request.NotificationDate, request.Remarks, ct); return Results.Created($"/api/notifications/{notification.Id}", new IdResponse(notification.Id)); }
@@ -302,6 +346,7 @@ static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCod
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
+static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
     page = Math.Max(page, 0); pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
@@ -322,10 +367,11 @@ public sealed record SubDivisionReference(Guid Id, string Name, DistrictReferenc
 public sealed record VillageReference(Guid Id, string Name, SubDivisionReference SubDivision);
 public sealed record VillageDetail(Guid Id, string Name, SubDivisionReference SubDivision, int TotalKhasras, int LinkedAwards, int DocumentCount, bool LrAvailable);
 public sealed record AwardLinkItem(Guid Id, string AwardNumber, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
-public sealed record KhasraListItem(Guid Id, string DisplayNumber, decimal? TotalArea, string? AreaUnit, IReadOnlyList<AwardLinkItem> Awards) { public static readonly System.Linq.Expressions.Expression<Func<Khasra, KhasraListItem>> Selector = x => new KhasraListItem(x.Id, x.DisplayNumber, x.TotalArea, x.AreaUnit, x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList()); }
+public sealed record KhasraListBaseItem(Guid Id, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards) { public static readonly System.Linq.Expressions.Expression<Func<Khasra, KhasraListBaseItem>> Selector = x => new KhasraListBaseItem(x.Id, x.DisplayNumber, x.AreaBigha, x.AreaBiswa, x.AreaBiswansi, x.AwardLinks.Select(a => a.AcquisitionStatus).FirstOrDefault(s => s != null) ?? "Not recorded", x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList()); }
+public sealed record KhasraListItem(Guid Id, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string OwnerSummary, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards);
 public sealed record NotificationLinkItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate, decimal? Area, string? AreaUnit);
 public sealed record LrEntryItem(Guid Id, Guid VillageLrId, string RawKhasraText, string? RawAreaText, string? RawRemarks, string VerificationStatus);
-public sealed record KhasraDetail(Guid Id, string DisplayNumber, string NormalizedNumber, string? RectangleNumber, string? KillaNumber, string? SubdivisionNumber, decimal? TotalArea, string? AreaUnit, string? Remarks, VillageReference Village, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<AwardLinkItem> Awards, IReadOnlyList<LrEntryItem> LrEntries);
+public sealed record KhasraDetail(Guid Id, string DisplayNumber, string NormalizedNumber, string? RectangleNumber, string? KillaNumber, string? SubdivisionNumber, decimal? TotalArea, string? AreaUnit, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string? Remarks, VillageReference Village, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<AwardLinkItem> Awards, IReadOnlyList<LrEntryItem> LrEntries);
 public sealed record ProjectReference(Guid Id, string Name, string? RequiringAgency, string? ActRegime);
 public sealed record AwardListItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? ProjectName, string? RequiringAgency, int LinkedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<Award, AwardListItem>> Selector = x => new AwardListItem(x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Status, x.ActRegime, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, x.AcquisitionProject == null ? null : x.AcquisitionProject.RequiringAgency, x.KhasraLinks.Count); }
 public sealed record AwardKhasraItem(Guid Id, string DisplayNumber, string VillageName, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
@@ -339,6 +385,7 @@ public sealed record VillageLrListItem(Guid Id, string? RegisterReference, int E
 public sealed record VillageLrDetail(Guid Id, Guid VillageId, string? RegisterReference, string? Remarks, string VillageName, int TotalRows, int DraftCount, int NeedsReviewCount, int VerifiedCount, int CommittedCount, DocumentListItem? SourceDocument);
 public sealed record CreateVillageLrRequest(Guid VillageId, string? RegisterReference, string? Remarks);
 public sealed record CreateKhasraRequest(string DisplayNumber, decimal? TotalArea, string? AreaUnit, string? RectangleNumber, string? KillaNumber, string? SubdivisionNumber);
+public sealed record KhasraBatchRequest(IReadOnlyList<KhasraWorkspaceRow> Rows);
 public sealed record CreateNotificationRequest(string SectionType, string NotificationNumber, DateOnly? NotificationDate, string? Remarks);
 public sealed record CreateAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? ActRegime);
 public sealed record LrEntryRequest(int? RowNumber, string RawKhasraText, Guid? KhasraId, string? RawAreaText, decimal? ParsedArea, string? AreaUnit, Guid? Section4NotificationId, Guid? Section6NotificationId, Guid? AwardId, string? RawRemarks, VerificationStatus VerificationStatus)
