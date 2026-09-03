@@ -21,9 +21,9 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         var districts = await _client.GetFromJsonAsync<List<DistrictListItem>>("/api/districts");
         var district = Assert.Single(districts!);
         var districtDetail = await _client.GetFromJsonAsync<DistrictDetail>($"/api/districts/{district.Id}");
-        var subdivision = Assert.Single(districtDetail!.SubDivisions);
+        var subdivision = Assert.Single(districtDetail!.SubDivisions, item => item.Name == "Matiala");
         var subdivisionDetail = await _client.GetFromJsonAsync<SubDivisionDetail>($"/api/subdivisions/{subdivision.Id}?page=0&pageSize=25");
-        var village = Assert.Single(subdivisionDetail!.Villages.Items);
+        var village = Assert.Single(subdivisionDetail!.Villages.Items, item => item.Name == "GALIB PUR");
 
         var khasras = await _client.GetFromJsonAsync<PageResponse<KhasraListItem>>($"/api/villages/{village.Id}/khasras?page=0&pageSize=25&q=22%2F%2F2");
         var khasra = Assert.Single(khasras!.Items);
@@ -40,7 +40,7 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     {
         var search = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=22%2F%2F2");
         var khasra = Assert.Single(search!, item => item.Type == "Khasra");
-        Assert.Equal("Galibpur", khasra.Context);
+        Assert.Equal("GALIB PUR", khasra.Context);
         Assert.StartsWith("/khasras/", khasra.Route, StringComparison.Ordinal);
 
         var awards = await _client.GetFromJsonAsync<PageResponse<AwardListItem>>("/api/awards?page=0&pageSize=1&q=DEMO-AWARD");
@@ -54,8 +54,8 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     [Fact]
     public async Task Lr_register_exposes_preserved_source_rows_progress_and_review_queue()
     {
-        var villages = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=25");
-        var village = Assert.Single(villages!.Items);
+        var villages = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=100&q=GALIB");
+        var village = Assert.Single(villages!.Items, item => item.Name == "GALIB PUR");
         var registers = await _client.GetFromJsonAsync<List<VillageLrListItem>>($"/api/villages/{village.Id}/lrs");
         var register = Assert.Single(registers!);
 
