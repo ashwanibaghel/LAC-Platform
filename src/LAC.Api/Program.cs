@@ -46,6 +46,14 @@ using (var scope = app.Services.CreateScope())
 
 var api = app.MapGroup("/api");
 
+api.MapGet("/home", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
+    await cache.GetOrCreateAsync("administrative-home", async entry =>
+    {
+        entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
+        return await db.Districts.AsNoTracking().OrderBy(x => x.Name).Select(x => new DistrictDetail(x.Id, x.Name,
+            x.SubDivisions.OrderBy(s => s.Name).Select(s => new SubDivisionListItem(s.Id, s.Name, s.Villages.Count)).ToList())).FirstOrDefaultAsync(ct);
+    }));
+
 api.MapGet("/districts", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
     await cache.GetOrCreateAsync("administrative-districts", async entry =>
     {

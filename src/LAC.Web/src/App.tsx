@@ -123,13 +123,12 @@ function Shell({ children }: { children: ReactNode }) {
 }
 
 function Home() {
-  const districts = useApi<any[]>('/districts')
-  const first = districts.data?.[0]
-  const detail = useApi<any>(first ? `/districts/${first.id}` : undefined)
-  if (districts.loading || detail.loading) return <LoadingState />
-  if (districts.error || detail.error) return <ErrorState message={districts.error || detail.error || ''} />
-  if (!first || !detail.data) return <EmptyState title="No administrative hierarchy yet" detail="District records will appear here once available." />
-  return <><Breadcrumbs items={[{ label: 'Home' }]} /><PageHeader eyebrow="Land acquisition records" title="South West Delhi"><p>Begin with the administrative hierarchy, then follow connected land-records to their canonical detail pages.</p></PageHeader><section className="section"><div className="section-heading"><h2>Sub-divisions</h2><span>{first.subDivisionCount} available</span></div><DataTable headers={['Sub-division', 'Villages', '']}>{detail.data.subDivisions.map((subdivision: any) => <tr key={subdivision.id}><td><EntityLink to={route.subdivision(subdivision.id)}>{subdivision.name}</EntityLink></td><td>{subdivision.villageCount}</td><td><Link className="text-action" to={route.subdivision(subdivision.id)}>Open</Link></td></tr>)}</DataTable></section></>
+  const result = useApi<any>('/home')
+  if (result.loading) return <LoadingState />
+  if (result.error) return <ErrorState message={result.error} />
+  if (!result.data) return <EmptyState title="No administrative hierarchy yet" detail="District records will appear here once available." />
+  const district = result.data
+  return <><Breadcrumbs items={[{ label: 'Home' }]} /><PageHeader eyebrow="Land acquisition records" title={district.name}><p>Begin with the administrative hierarchy, then follow connected land-records to their canonical detail pages.</p></PageHeader><section className="section"><div className="section-heading"><h2>Sub-divisions</h2><span>{district.subDivisions.length} available</span></div><DataTable headers={['Sub-division', 'Villages', '']}>{district.subDivisions.map((subdivision: any) => <tr key={subdivision.id}><td><EntityLink to={route.subdivision(subdivision.id)}>{subdivision.name}</EntityLink></td><td>{subdivision.villageCount}</td><td><Link className="text-action" to={route.subdivision(subdivision.id)}>Open</Link></td></tr>)}</DataTable></section></>
 }
 
 function District() {

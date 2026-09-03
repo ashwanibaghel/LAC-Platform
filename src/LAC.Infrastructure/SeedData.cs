@@ -5,6 +5,8 @@ public static class SeedData
 {
  public static async Task SeedAsync(LacDbContext db, CancellationToken ct)
  {
+  var bootstrapComplete=await db.Districts.AsNoTracking().Where(x=>x.Name=="South West Delhi").Select(x=>new{SubDivisionCount=x.SubDivisions.Count,VillageCount=x.SubDivisions.SelectMany(s=>s.Villages).Count(),HasDemoOwnership=db.KhatauniRecords.Any(r=>r.ReferenceNumber=="DEMO-KHATAUNI-2024")}).SingleOrDefaultAsync(ct);
+  if(bootstrapComplete is {SubDivisionCount:4,VillageCount:76,HasDemoOwnership:true})return;
   if (!await db.Districts.AnyAsync(ct))
   {
    var d=new District{Name="South West Delhi"}; var s=new SubDivision{District=d,Name="Matiala"}; var v=new Village{SubDivision=s,Name="GALIB PUR"}; var p=new AcquisitionProject{Name="Demo Corridor Acquisition",RequiringAgency="Demo Requiring Agency",ActRegime="Land Acquisition Act (demo)"};
