@@ -50,6 +50,25 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Single(awards.Items);
         Assert.Equal("DEMO-AWARD-01", awards.Items[0].AwardNumber);
     }
+
+    [Fact]
+    public async Task Lr_register_exposes_preserved_source_rows_progress_and_review_queue()
+    {
+        var villages = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=25");
+        var village = Assert.Single(villages!.Items);
+        var registers = await _client.GetFromJsonAsync<List<VillageLrListItem>>($"/api/villages/{village.Id}/lrs");
+        var register = Assert.Single(registers!);
+
+        var detail = await _client.GetFromJsonAsync<VillageLrDetail>($"/api/village-lrs/{register.Id}");
+        var rows = await _client.GetFromJsonAsync<PageResponse<LrEntryDetailItem>>($"/api/village-lrs/{register.Id}/entries?page=0&pageSize=25");
+        var progress = await _client.GetFromJsonAsync<LrProgress>($"/api/villages/{village.Id}/lr-progress");
+        var review = await _client.GetFromJsonAsync<PageResponse<LrReviewItem>>("/api/lr-review?status=Verified&page=0&pageSize=25");
+
+        Assert.Equal(1, detail!.TotalRows);
+        Assert.Equal("22//2 min", Assert.Single(rows!.Items).RawKhasraText);
+        Assert.Equal(1, progress!.TotalRows);
+        Assert.Single(review!.Items);
+    }
 }
 
 public sealed class ApiFactory : WebApplicationFactory<Program>
