@@ -31,3 +31,8 @@
   .sidebar-collapsed .brand strong, .sidebar-collapsed .sidebar nav a span { display: inline; }
   .sidebar-collapsed .sidebar nav a { justify-content: flex-start; padding: 8px 9px; }
 }
+
+.rectangle-groups { display: grid; gap: 20px; }
+.rectangle-group { margin: 0; }
+.rectangle-group > h3 { margin: 0; padding: 9px 13px; border: 1px solid #d8e2eb; border-bottom: 0; border-radius: 7px 7px 0 0; background: #edf4fb; color: #284e70; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.rectangle-group .table-wrap { border-radius: 0 0 7px 7px; }

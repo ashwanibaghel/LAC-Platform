@@ -14,7 +14,7 @@ using System.Text;
 namespace LAC.Infrastructure;
 
 public sealed class KhasraWorkspaceException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
-public sealed record KhasraWorkspaceRow(string KhasraNumber, decimal? Bigha, int? Biswa, int? Biswansi, string? AwardNumber, DateOnly? AwardDate);
+public sealed record KhasraWorkspaceRow(string KhasraNumber, decimal? Bigha, int? Biswa, int? Biswansi, string? AwardNumber, DateOnly? AwardDate, string? RectangleNumber = null, string? Qualifier = null);
 public sealed record KhasraImportProblem(int RowNumber, string? KhasraNumber, string Message);
 public sealed record KhasraImportRowPreview(int RowNumber, string? KhasraNumber, string KhasraStatus, string AreaStatus, string AwardStatus, string AwardLinkStatus, string Result, string? Message, bool CanImport, KhasraWorkspaceRow? Row);
 public sealed record KhasraImportPreview(int TotalRows, int ValidRows, int InvalidRows, int NewKhasras, int ExistingKhasras, int NewAwards, int ExistingAwards, int AmbiguousAwards, int NewAwardLinks, int ExistingAwardLinks, int SkippedRows, IReadOnlyList<KhasraImportProblem> Problems, IReadOnlyList<KhasraWorkspaceRow> ImportableRows, IReadOnlyList<KhasraImportRowPreview> Rows);
@@ -27,10 +27,11 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
     {
         if (!await db.Villages.AnyAsync(x => x.Id == villageId, ct)) throw new KhasraWorkspaceException("Village was not found.", 404);
         using var xlsx = new XLWorkbook(workbook);
-        var sheet = xlsx.Worksheets.FirstOrDefault() ?? throw new KhasraWorkspaceException("The workbook has no worksheet.");
+        var sheet = xlsx.Worksheets.FirstOrDefault(x => x.Name.Equals("All Occurrences", StringComparison.OrdinalIgnoreCase)) ?? xlsx.Worksheets.FirstOrDefault() ?? throw new KhasraWorkspaceException("The workbook has no worksheet.");
         var header = sheet.FirstRowUsed() ?? throw new KhasraWorkspaceException("The worksheet is empty.");
         var map = header.CellsUsed().ToDictionary(c => Header(c.GetString()), c => c.Address.ColumnNumber, StringComparer.OrdinalIgnoreCase);
-        var required = new[] { "KHASRANO", "BIGHA", "BISWA", "BISWANSI", "AWARDNO", "AWARDDATE" };
+        var sourceFormat = map.ContainsKey("NORMALIZEDKHASRA") || map.ContainsKey("NORMALIZEDKHASRANO") || map.ContainsKey("NORMALIZEDKHASRANUMBER") || map.ContainsKey("NORMALIZE");
+        var required = sourceFormat ? new[] { "BIGHA", "BISWA", "BISWANSI", "AWARDNO", "AWARDDATE" } : new[] { "KHASRANO", "BIGHA", "BISWA", "BISWANSI", "AWARDNO", "AWARDDATE" };
         var missing = required.Where(x => !map.ContainsKey(x)).ToList();
         if (missing.Count > 0) throw new KhasraWorkspaceException($"Excel must contain exactly the canonical headers: Khasra No., Bigha, Biswa, Biswansi, Award No., Award Date. Missing: {string.Join(", ", missing)}.");
         var rows = new List<(int RowNumber, KhasraWorkspaceRow? Row, string? Problem)>();
@@ -40,10 +41,15 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
             if (values.All(string.IsNullOrWhiteSpace)) continue;
             try
             {
-                var item = new KhasraWorkspaceRow(Text(row, map, "KHASRANO") ?? "", Decimal(row, map, "BIGHA"), Integer(row, map, "BISWA"), Integer(row, map, "BISWANSI"), Text(row, map, "AWARDNO"), Date(row, map, "AWARDDATE"));
-                Validate(item); rows.Add((row.RowNumber(), item, null));
+                var number = sourceFormat ? TextAny(row, map, "NORMALIZEDKHASRANO", "NORMALIZEDKHASRANUMBER", "NORMALIZEDKHASRA", "NORMALIZE") : Text(row, map, "KHASRANO");
+                number ??= string.Empty;
+                var qualifier = sourceFormat ? Text(row, map, "QUALIFIER") : null;
+                var display = !string.IsNullOrWhiteSpace(qualifier) && !number.Contains(qualifier, StringComparison.OrdinalIgnoreCase) ? $"{number} {qualifier}" : number;
+                var rectangle = Text(row, map, "RECTANGLE") ?? Rectangle(number);
+                var item = new KhasraWorkspaceRow(display, Decimal(row, map, "BIGHA"), Integer(row, map, "BISWA"), Integer(row, map, "BISWANSI"), Text(row, map, "AWARDNO"), Date(row, map, "AWARDDATE"), rectangle, qualifier);
+                Validate(item); rows.Add((row.RowNumber() - header.RowNumber(), item, null));
             }
-            catch (KhasraWorkspaceException ex) { rows.Add((row.RowNumber(), null, ex.Message)); }
+            catch (KhasraWorkspaceException ex) { rows.Add((row.RowNumber() - header.RowNumber(), null, ex.Message)); }
         }
         return await PreviewRowsAsync(villageId, rows, ct);
     }
@@ -62,8 +68,8 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
             var result = new int[7];
             foreach (var row in importable)
             {
-                var normalized = KhasraNumber.Normalize(row.KhasraNumber);
-                var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.VillageId == villageId && x.NormalizedNumber == normalized, ct);
+                var normalized = BaseNormalized(row);
+                var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.VillageId == villageId && x.NormalizedNumber == normalized && x.Qualifier == row.Qualifier, ct);
                 if (khasra is null) { khasra = NewKhasra(villageId, row, normalized); db.Khasras.Add(khasra); result[0]++; }
                 else result[1]++;
                 if (!string.IsNullOrWhiteSpace(row.AwardNumber))
@@ -87,8 +93,8 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
     public async Task UpdateAsync(Guid khasraId, KhasraWorkspaceRow row, CancellationToken ct)
     {
         Validate(row); var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.Id == khasraId, ct) ?? throw new KhasraWorkspaceException("Khasra was not found.", 404);
-        var normalized = KhasraNumber.Normalize(row.KhasraNumber);
-        if (await db.Khasras.AnyAsync(x => x.VillageId == khasra.VillageId && x.NormalizedNumber == normalized && x.Id != khasra.Id, ct)) throw new KhasraWorkspaceException("This Khasra number already exists in the village.", 409);
+        var normalized = BaseNormalized(row);
+        if (await db.Khasras.AnyAsync(x => x.VillageId == khasra.VillageId && x.NormalizedNumber == normalized && x.Qualifier == row.Qualifier && x.Id != khasra.Id, ct)) throw new KhasraWorkspaceException("This Khasra number and qualifier already exist in the village.", 409);
         khasra.DisplayNumber = row.KhasraNumber.Trim(); khasra.NormalizedNumber = normalized; Apply(khasra, row);
         if (!string.IsNullOrWhiteSpace(row.AwardNumber))
         {
@@ -130,17 +136,18 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
             try
             {
                 if (parseError is not null) throw new KhasraWorkspaceException(parseError);
-                Validate(row!); var key = KhasraNumber.Normalize(row!.KhasraNumber);
-                if (!seen.Add(key)) throw new KhasraWorkspaceException("Duplicate Khasra number within this import; one row must represent one canonical Khasra.");
+                Validate(row!); var key = IdentityKey(row!);
+                if (!seen.Add(key)) throw new KhasraWorkspaceException("Duplicate Khasra number and qualifier within this import; one row must represent one canonical Khasra.");
                 checkedRows.Add((rowNumber, row, null, key));
             }
             catch (KhasraWorkspaceException ex) { checkedRows.Add((rowNumber, row, ex.Message, null)); }
         }
         var keys = checkedRows.Where(x => x.Key is not null).Select(x => x.Key!).ToList();
-        var existing = await db.Khasras.Where(x => x.VillageId == villageId && keys.Contains(x.NormalizedNumber)).ToDictionaryAsync(x => x.NormalizedNumber, ct);
+        var baseNumbers = checkedRows.Where(x => x.Key is not null).Select(x => BaseNormalized(x.Row!)).Distinct().ToList();
+        var existing = (await db.Khasras.Where(x => x.VillageId == villageId && baseNumbers.Contains(x.NormalizedNumber)).ToListAsync(ct)).ToDictionary(x => IdentityKey(x.NormalizedNumber, x.Qualifier));
         var awardNumbers = checkedRows.Where(x => x.Row?.AwardNumber is { Length: > 0 }).Select(x => x.Row!.AwardNumber!.Trim()).Distinct().ToList();
         var awards = await db.Awards.Where(x => awardNumbers.Contains(x.AwardNumber)).ToDictionaryAsync(x => x.AwardNumber, ct);
-        var existingLinks = await db.Set<AwardKhasra>().Where(x => keys.Contains(x.Khasra.NormalizedNumber) && x.Khasra.VillageId == villageId).Select(x => new { x.Khasra.NormalizedNumber, x.AwardId }).ToListAsync(ct);
+        var existingLinks = await db.Set<AwardKhasra>().Where(x => baseNumbers.Contains(x.Khasra.NormalizedNumber) && x.Khasra.VillageId == villageId).Select(x => new { x.Khasra.NormalizedNumber, x.Khasra.Qualifier, x.AwardId }).ToListAsync(ct);
         var previews = new List<KhasraImportRowPreview>(); var problems = new List<KhasraImportProblem>();
         foreach (var item in checkedRows)
         {
@@ -152,7 +159,7 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
                 if (awards.TryGetValue(row.AwardNumber.Trim(), out var award))
                 {
                     if (row.AwardDate is not null && award.AwardDate is not null && award.AwardDate != row.AwardDate) { awardStatus = "AWARD MATCH AMBIGUOUS"; blocked = true; message = "AWARD MATCH AMBIGUOUS: existing Award Number has a different date."; }
-                    else { awardStatus = "Existing Award"; linkStatus = khasraExists && existingLinks.Any(x => x.NormalizedNumber == item.Key && x.AwardId == award.Id) ? "Already Linked" : "New Award Link"; }
+                    else { awardStatus = "Existing Award"; linkStatus = khasraExists && existingLinks.Any(x => IdentityKey(x.NormalizedNumber, x.Qualifier) == item.Key && x.AwardId == award.Id) ? "Already Linked" : "New Award Link"; }
                 }
                 else { awardStatus = "New Award"; linkStatus = "New Award Link"; }
             }
@@ -161,12 +168,17 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
             if (blocked) problems.Add(new(item.RowNumber, row.KhasraNumber, message!));
         }
         var importable = previews.Where(x => x.CanImport).Select(x => x.Row!).ToList();
-        return new(rows.Count, importable.Count, previews.Count(x => !x.CanImport), previews.Count(x => x.KhasraStatus == "New Khasra"), previews.Count(x => x.KhasraStatus == "Existing Khasra"), previews.Count(x => x.AwardStatus == "New Award"), previews.Count(x => x.AwardStatus == "Existing Award"), previews.Count(x => x.AwardStatus == "AWARD MATCH AMBIGUOUS"), previews.Count(x => x.AwardLinkStatus == "New Award Link"), previews.Count(x => x.AwardLinkStatus == "Already Linked"), previews.Count(x => !x.CanImport), problems, importable, previews);
+        var newAwards = previews.Where(x => x.AwardStatus == "New Award").Select(x => x.Row!.AwardNumber!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        var existingAwards = previews.Where(x => x.AwardStatus == "Existing Award").Select(x => x.Row!.AwardNumber!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+        return new(rows.Count, importable.Count, previews.Count(x => !x.CanImport), previews.Count(x => x.KhasraStatus == "New Khasra"), previews.Count(x => x.KhasraStatus == "Existing Khasra"), newAwards, existingAwards, previews.Count(x => x.AwardStatus == "AWARD MATCH AMBIGUOUS"), previews.Count(x => x.AwardLinkStatus == "New Award Link"), previews.Count(x => x.AwardLinkStatus == "Already Linked"), previews.Count(x => !x.CanImport), problems, importable, previews);
     }
     private static void Validate(KhasraWorkspaceRow row) { if (string.IsNullOrWhiteSpace(row.KhasraNumber)) throw new KhasraWorkspaceException("Khasra Number is required."); if (row.KhasraNumber.IndexOfAny([',', ';']) >= 0) throw new KhasraWorkspaceException("One Excel row must contain one Khasra only; do not combine Khasra numbers."); if (row.Bigha is < 0 || row.Biswa is < 0 || row.Biswansi is < 0) throw new KhasraWorkspaceException("Area values cannot be negative."); if (row.AwardDate is not null && string.IsNullOrWhiteSpace(row.AwardNumber)) throw new KhasraWorkspaceException("Award Date requires Award Number."); }
-    private static Khasra NewKhasra(Guid villageId, KhasraWorkspaceRow row, string normalized) { var k = new Khasra { VillageId = villageId, DisplayNumber = row.KhasraNumber.Trim(), NormalizedNumber = normalized }; Apply(k, row); return k; }
-    private static void Apply(Khasra khasra, KhasraWorkspaceRow row) { khasra.AreaBigha = row.Bigha; khasra.AreaBiswa = row.Biswa; khasra.AreaBiswansi = row.Biswansi; }
-    private static string Header(string value) => new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant(); private static string? Text(IXLRow row, IReadOnlyDictionary<string, int> map, string key) => map.TryGetValue(key, out var i) && !row.Cell(i).IsEmpty() ? row.Cell(i).GetString().Trim() : null;
+    private static string BaseNormalized(KhasraWorkspaceRow row) => KhasraNumber.Normalize(string.IsNullOrWhiteSpace(row.Qualifier) ? row.KhasraNumber : row.KhasraNumber.Replace($" {row.Qualifier}", "", StringComparison.OrdinalIgnoreCase));
+    private static string IdentityKey(KhasraWorkspaceRow row) => IdentityKey(BaseNormalized(row), row.Qualifier);
+    private static string IdentityKey(string normalizedNumber, string? qualifier) => $"{normalizedNumber}|{qualifier?.Trim().ToUpperInvariant() ?? string.Empty}";
+    private static Khasra NewKhasra(Guid villageId, KhasraWorkspaceRow row, string normalized) { var k = new Khasra { VillageId = villageId, DisplayNumber = row.KhasraNumber.Trim(), NormalizedNumber = normalized, Qualifier = row.Qualifier }; Apply(k, row); return k; }
+    private static void Apply(Khasra khasra, KhasraWorkspaceRow row) { khasra.AreaBigha = row.Bigha; khasra.AreaBiswa = row.Biswa; khasra.AreaBiswansi = row.Biswansi; if (!string.IsNullOrWhiteSpace(row.Qualifier)) khasra.Qualifier = row.Qualifier.Trim(); if (!string.IsNullOrWhiteSpace(row.RectangleNumber)) khasra.RectangleNumber = row.RectangleNumber.Trim(); }
+    private static string Header(string value) => new string(value.Where(char.IsLetterOrDigit).ToArray()).ToUpperInvariant(); private static string? Text(IXLRow row, IReadOnlyDictionary<string, int> map, string key) => map.TryGetValue(key, out var i) && !row.Cell(i).IsEmpty() ? row.Cell(i).GetString().Trim() : null; private static string? TextAny(IXLRow row, IReadOnlyDictionary<string, int> map, params string[] keys) => keys.Select(key => Text(row, map, key)).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)); private static string? Rectangle(string? khasra) { var separator = khasra?.IndexOf("//", StringComparison.Ordinal) ?? -1; return separator > 0 ? khasra![..separator].Trim() : null; }
     private static decimal? Decimal(IXLRow row, IReadOnlyDictionary<string, int> map, string key) { var v = Text(row, map, key); return string.IsNullOrWhiteSpace(v) ? null : decimal.TryParse(v, NumberStyles.Number, CultureInfo.InvariantCulture, out var n) ? n : throw new KhasraWorkspaceException($"{key} must be numeric."); }
     private static int? Integer(IXLRow row, IReadOnlyDictionary<string, int> map, string key) { var v = Text(row, map, key); return string.IsNullOrWhiteSpace(v) ? null : int.TryParse(v, out var n) ? n : throw new KhasraWorkspaceException($"{key} must be a whole number."); }
     private static DateOnly? Date(IXLRow row, IReadOnlyDictionary<string, int> map, string key) { if (!map.TryGetValue(key, out var column) || row.Cell(column).IsEmpty()) return null; var cell = row.Cell(column); if (cell.TryGetValue<DateTime>(out var excelDate)) return DateOnly.FromDateTime(excelDate); var value = cell.GetString().Trim(); if (DateOnly.TryParseExact(value, ["dd/MM/yyyy", "dd-MM-yyyy"], CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)) return date; throw new KhasraWorkspaceException("Award Date must be DD/MM/YYYY (or an actual Excel date cell)."); }

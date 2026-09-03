@@ -32,7 +32,7 @@ builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.Wi
 
 var app = builder.Build();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
-app.UseExceptionHandler();
+if (app.Environment.IsDevelopment()) app.UseDeveloperExceptionPage(); else app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors();
@@ -113,7 +113,7 @@ api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize
     foreach (var item in result.Items)
     {
         var recorded = ownershipByKhasra[item.Id];
-        items.Add(new(item.Id, item.DisplayNumber, item.AreaBigha, item.AreaBiswa, item.AreaBiswansi, recorded.Found ? string.Join(", ", recorded.Owners.Select(x => x.DisplayName)) : recorded.IsAmbiguous ? "Ambiguous — review ownership" : "—", item.AcquisitionStatus, item.Awards));
+        items.Add(new(item.Id, item.RectangleNumber, item.DisplayNumber, item.AreaBigha, item.AreaBiswa, item.AreaBiswansi, recorded.Found ? string.Join(", ", recorded.Owners.Select(x => x.DisplayName)) : recorded.IsAmbiguous ? "Ambiguous — review ownership" : "—", item.AcquisitionStatus, item.Awards));
     }
     return Results.Ok(new PageResponse<KhasraListItem>(items, result.Page, result.PageSize, result.TotalCount));
 });
@@ -274,7 +274,7 @@ api.MapPost("/villages/{id:guid}/khasras/import-preview", async (Guid id, IFormF
     try { if (file.Length == 0) return Validation("file", "Select a non-empty .xlsx workbook."); await using var stream = file.OpenReadStream(); return Results.Ok(await workspace.PreviewAsync(id, stream, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
     catch (Exception) { return Validation("file", "The workbook could not be read. Use a valid .xlsx file with the expected headers."); }
-});
+}).DisableAntiforgery();
 api.MapPost("/villages/{id:guid}/khasras/import", async (Guid id, KhasraBatchRequest request, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
@@ -399,13 +399,13 @@ public sealed record SubDivisionReference(Guid Id, string Name, DistrictReferenc
 public sealed record VillageReference(Guid Id, string Name, SubDivisionReference SubDivision);
 public sealed record VillageDetail(Guid Id, string Name, SubDivisionReference SubDivision, int TotalKhasras, int LinkedAwards, int DocumentCount, bool LrAvailable);
 public sealed record AwardLinkItem(Guid Id, string AwardNumber, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
-public sealed record KhasraListBaseItem(Guid Id, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards) { public static readonly System.Linq.Expressions.Expression<Func<Khasra, KhasraListBaseItem>> Selector = x => new KhasraListBaseItem(x.Id, x.DisplayNumber, x.AreaBigha, x.AreaBiswa, x.AreaBiswansi, x.AwardLinks.Select(a => a.AcquisitionStatus).FirstOrDefault(s => s != null) ?? "Not recorded", x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList()); }
-public sealed record KhasraListItem(Guid Id, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string OwnerSummary, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards);
+public sealed record KhasraListBaseItem(Guid Id, string? RectangleNumber, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards) { public static readonly System.Linq.Expressions.Expression<Func<Khasra, KhasraListBaseItem>> Selector = x => new KhasraListBaseItem(x.Id, x.RectangleNumber, x.DisplayNumber, x.AreaBigha, x.AreaBiswa, x.AreaBiswansi, x.AwardLinks.Select(a => a.AcquisitionStatus).FirstOrDefault(s => s != null) ?? "Not recorded", x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList()); }
+public sealed record KhasraListItem(Guid Id, string? RectangleNumber, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string OwnerSummary, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards);
 public sealed record NotificationLinkItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate, decimal? Area, string? AreaUnit);
 public sealed record LrEntryItem(Guid Id, Guid VillageLrId, string RawKhasraText, string? RawAreaText, string? RawRemarks, string VerificationStatus);
 public sealed record KhasraDetail(Guid Id, string DisplayNumber, string NormalizedNumber, string? RectangleNumber, string? KillaNumber, string? SubdivisionNumber, decimal? TotalArea, string? AreaUnit, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string? Remarks, VillageReference Village, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<AwardLinkItem> Awards, IReadOnlyList<LrEntryItem> LrEntries);
 public sealed record ProjectReference(Guid Id, string Name, string? RequiringAgency, string? ActRegime);
-public sealed record AwardListItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? ProjectName, string? RequiringAgency, int LinkedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<Award, AwardListItem>> Selector = x => new AwardListItem(x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Status, x.ActRegime, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, x.AcquisitionProject == null ? null : x.AcquisitionProject.RequiringAgency, x.KhasraLinks.Count); }
+public sealed record AwardListItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? ProjectName, string? RequiringAgency, string? VillageNames, int LinkedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<Award, AwardListItem>> Selector = x => new AwardListItem(x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Status, x.ActRegime, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, x.AcquisitionProject == null ? null : x.AcquisitionProject.RequiringAgency, string.Join(", ", x.KhasraLinks.Select(link => link.Khasra.Village.Name).Distinct()), x.KhasraLinks.Count); }
 public sealed record AwardKhasraItem(Guid Id, string DisplayNumber, string VillageName, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
 public sealed record DocumentListItem(Guid Id, string OriginalFileName, string DocumentType, DateTimeOffset UploadedAt, string Status);
 public sealed record AwardDetail(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? Remarks, ProjectReference? Project, int LinkedKhasraCount, decimal? TotalAcquiredArea, IReadOnlyList<AwardKhasraItem> Khasras, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<DocumentListItem> Documents);
