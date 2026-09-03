@@ -9,19 +9,60 @@ const api = '/api'
 type Page<T> = { items: T[]; page: number; pageSize: number; totalCount: number }
 type State<T> = { loading: boolean; data?: T; error?: string }
 
+type CachedApiResponse = { expiresAt: number; data: unknown }
+const apiCache = new Map<string, CachedApiResponse>()
+const apiCachePrefix = 'lac-platform:api-cache:v1:'
+const apiCacheTtlMs = 5 * 60 * 1000
+
+function readCachedResponse<T>(requestPath?: string): T | undefined {
+  if (!requestPath) return undefined
+  const memory = apiCache.get(requestPath)
+  if (memory && memory.expiresAt > Date.now()) return memory.data as T
+  if (memory) apiCache.delete(requestPath)
+  try {
+    const stored = sessionStorage.getItem(apiCachePrefix + requestPath)
+    if (!stored) return undefined
+    const parsed = JSON.parse(stored) as CachedApiResponse
+    if (parsed.expiresAt <= Date.now()) { sessionStorage.removeItem(apiCachePrefix + requestPath); return undefined }
+    apiCache.set(requestPath, parsed)
+    return parsed.data as T
+  } catch { return undefined }
+}
+
+function cacheResponse<T>(requestPath: string, data: T) {
+  const entry: CachedApiResponse = { expiresAt: Date.now() + apiCacheTtlMs, data }
+  apiCache.set(requestPath, entry)
+  try { sessionStorage.setItem(apiCachePrefix + requestPath, JSON.stringify(entry)) } catch { /* Cache is optional when browser storage is unavailable. */ }
+}
+
+function clearApiCache() {
+  apiCache.clear()
+  try {
+    for (let index = sessionStorage.length - 1; index >= 0; index--) {
+      const key = sessionStorage.key(index)
+      if (key?.startsWith(apiCachePrefix)) sessionStorage.removeItem(key)
+    }
+  } catch { /* Cache invalidation is best-effort only. */ }
+}
+
 function useApi<T>(path?: string): State<T> {
-  const [state, setState] = useState<State<T>>({ loading: Boolean(path) })
+  const [state, setState] = useState<State<T>>(() => {
+    const cached = readCachedResponse<T>(path)
+    return cached === undefined ? { loading: Boolean(path) } : { loading: false, data: cached }
+  })
   useEffect(() => {
     if (!path) return
     const controller = new AbortController()
-    setState({ loading: true })
+    const cached = readCachedResponse<T>(path)
+    if (cached !== undefined) setState({ loading: false, data: cached })
+    else setState({ loading: true })
     fetch(api + path, { signal: controller.signal })
       .then(async response => {
         if (!response.ok) throw new Error((await response.json().catch(() => null))?.title || `Request failed (${response.status})`)
         return response.json() as Promise<T>
       })
-      .then(data => setState({ loading: false, data }))
-      .catch(error => { if (error.name !== 'AbortError') setState({ loading: false, error: error.message }) })
+      .then(data => { cacheResponse(path, data); setState({ loading: false, data }) })
+      .catch(error => { if (error.name !== 'AbortError' && cached === undefined) setState({ loading: false, error: error.message }) })
     return () => controller.abort()
   }, [path])
   return state
@@ -30,14 +71,14 @@ function useApi<T>(path?: string): State<T> {
 async function post<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(api + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.title || 'Could not save the record.')
-  return response.json()
+  const data = await response.json() as T; clearApiCache(); return data
 }
 async function put<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(api + path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || 'Could not update the LR row.')
-  return response.status === 204 ? {} as T : response.json()
+  const data = response.status === 204 ? {} as T : await response.json() as T; clearApiCache(); return data
 }
-async function upload<T>(path: string, file: File): Promise<T> { const form = new FormData(); form.append('file', file); const response = await fetch(api + path, { method: 'POST', body: form }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || 'Could not read the workbook.'); return response.json() }
+async function upload<T>(path: string, file: File): Promise<T> { const form = new FormData(); form.append('file', file); const response = await fetch(api + path, { method: 'POST', body: form }); if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || 'Could not read the workbook.'); const data = await response.json() as T; clearApiCache(); return data }
 
 const path = (base: string, params: Record<string, string | number | undefined>) => {
   const search = new URLSearchParams()
