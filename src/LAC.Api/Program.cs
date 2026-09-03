@@ -12,6 +12,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();
+builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
@@ -156,7 +157,8 @@ api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =
     var villages = await db.Villages.AsNoTracking().Where(x => x.Name.ToUpper().Contains(term)).Take(8).Select(x => new SearchResultItem("Village", x.Id, x.Name, x.SubDivision.Name, $"/villages/{x.Id}")).ToListAsync(ct);
     var khasras = await db.Khasras.AsNoTracking().Where(x => x.NormalizedNumber.Contains(normalizedKhasra) || x.DisplayNumber.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Khasra", x.Id, x.DisplayNumber, x.Village.Name, $"/khasras/{x.Id}")).ToListAsync(ct);
     var awards = await db.Awards.AsNoTracking().Where(x => x.AwardNumber.ToUpper().Contains(term)).Take(8).Select(x => new SearchResultItem("Award", x.Id, x.AwardNumber, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, $"/awards/{x.Id}")).ToListAsync(ct);
-    return Results.Ok(villages.Concat(khasras).Concat(awards));
+    var parties = await db.Parties.AsNoTracking().Where(x => x.DisplayName.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Recorded Party", x.Id, x.DisplayName, x.PartyType.ToString() + " · " + (x.KhataShares.Select(s => s.Khata.KhatauniRecord.Village.Name + " / " + s.Khata.KhataNumber).FirstOrDefault() ?? "No recorded holding"), $"/parties/{x.Id}")).ToListAsync(ct);
+    return Results.Ok(villages.Concat(khasras).Concat(awards).Concat(parties));
 });
 
 api.MapGet("/village-lrs/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
@@ -263,11 +265,43 @@ api.MapPost("/lr-entries/{id:guid}/commit", async (Guid id, CommitLrEntryRequest
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
 });
 
+api.MapGet("/villages/{id:guid}/khatauni", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Villages.AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
+    return Results.Ok(await db.KhatauniRecords.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.AsOfDate).ThenByDescending(x => x.RecordYearText).Select(KhatauniListItem.Selector).ToListAsync(ct));
+});
+api.MapGet("/khatauni/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var record = await db.KhatauniRecords.AsNoTracking().Include(x => x.Village).Include(x => x.SourceDocument).Include(x => x.Khatas).ThenInclude(x => x.KhasraLinks).Include(x => x.Khatas).ThenInclude(x => x.PartyShares).SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (record is null) return NotFound("Khatauni record", id);
+    return Results.Ok(new KhatauniDetail(record.Id, record.VillageId, record.Village.Name, record.ReferenceNumber, record.RecordYearText, record.AsOfDate, record.EffectiveFrom, record.EffectiveTo, record.Remarks, record.VerificationStatus.ToString(), record.Version, record.SourceDocumentId, record.SourceDocument?.OriginalFileName, record.Khatas.Count, record.Khatas.Sum(k => k.KhasraLinks.Count), record.Khatas.SelectMany(k => k.PartyShares).Select(s => s.PartyId).Distinct().Count(), record.Khatas.OrderBy(k => k.KhataNumber).Select(k => new KhataSummary(k.Id, k.KhataNumber, k.KhasraLinks.Count, k.PartyShares.Count, OwnershipService.ValidateShares(k.PartyShares).Message, k.PartyShares.All(s => s.VerificationStatus == RevenueRecordVerificationStatus.Verified))).ToList()));
+});
+api.MapGet("/khatas/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var khata = await db.Khatas.AsNoTracking().Include(x => x.KhatauniRecord).ThenInclude(x => x.Village).Include(x => x.KhasraLinks).ThenInclude(x => x.Khasra).Include(x => x.PartyShares).ThenInclude(x => x.Party).SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (khata is null) return NotFound("Khata", id);
+    var validation = OwnershipService.ValidateShares(khata.PartyShares);
+    return Results.Ok(new KhataDetail(khata.Id, khata.KhataNumber, khata.RawKhataNumber, khata.Remarks, khata.KhatauniRecordId, khata.KhatauniRecord.ReferenceNumber, khata.KhatauniRecord.VillageId, khata.KhatauniRecord.Village.Name, khata.KhasraLinks.OrderBy(x => x.Khasra.DisplayNumber).Select(x => new KhataKhasraItem(x.KhasraId, x.Khasra.DisplayNumber, x.RecordedArea, x.RawAreaText, x.AreaUnit)).ToList(), khata.PartyShares.OrderBy(x => x.Party.DisplayName).Select(x => new PartyShareItem(x.Id, x.PartyId, x.Party.DisplayName, x.RawShareText, x.ShareNumerator, x.ShareDenominator, x.VerificationStatus.ToString(), x.Version)).ToList(), validation.Message));
+});
+api.MapGet("/khasras/{id:guid}/ownership", async (Guid id, DateOnly? asOfDate, OwnershipService ownership, CancellationToken ct) => Results.Ok(await ownership.GetRecordedOwnershipAsync(id, asOfDate, ct)));
+api.MapGet("/khasras/{id:guid}/ownership-history", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.KhataKhasras.AsNoTracking().Where(x => x.KhasraId == id).OrderByDescending(x => x.Khata.KhatauniRecord.AsOfDate).Select(x => new OwnershipHistoryItem(x.Khata.KhatauniRecordId, x.KhataId, x.Khata.KhatauniRecord.ReferenceNumber, x.Khata.KhatauniRecord.RecordYearText, x.Khata.KhatauniRecord.AsOfDate, x.Khata.KhataNumber, x.Khata.KhatauniRecord.VerificationStatus.ToString())).ToListAsync(ct)));
+api.MapGet("/parties/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+ var p = await db.Parties.AsNoTracking().Where(x => x.Id == id).Select(x => new PartyDetail(x.Id, x.PartyType.ToString(), x.DisplayName, x.FatherOrSpouseName, x.AddressText, x.Remarks, x.Version, x.KhataShares.Select(s => new PartyHoldingItem(s.Khata.KhatauniRecord.VillageId, s.Khata.KhatauniRecord.Village.Name, s.Khata.KhatauniRecordId, s.Khata.KhatauniRecord.ReferenceNumber, s.KhataId, s.Khata.KhataNumber, s.Khata.KhasraLinks.Select(k => new KhasraReference(k.KhasraId, k.Khasra.DisplayNumber)).ToList(), s.RawShareText, s.ShareNumerator, s.ShareDenominator)).ToList())).FirstOrDefaultAsync(ct); return p is null ? NotFound("Party", id) : Results.Ok(p);
+});
+api.MapPost("/khatauni", async (CreateKhatauniRequest request, LacDbContext db, CancellationToken ct) => { if (request.VillageId == Guid.Empty || !await db.Villages.AnyAsync(x => x.Id == request.VillageId, ct)) return NotFound("Village", request.VillageId); var record = new KhatauniRecord { VillageId = request.VillageId, ReferenceNumber = request.ReferenceNumber?.Trim(), RecordYearText = request.RecordYearText?.Trim(), AsOfDate = request.AsOfDate, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks?.Trim(), VerificationStatus = request.VerificationStatus }; db.KhatauniRecords.Add(record); await db.SaveChangesAsync(ct); return Results.Created($"/api/khatauni/{record.Id}", new IdResponse(record.Id)); });
+api.MapPost("/khatauni/{id:guid}/khatas", async (Guid id, CreateKhataRequest request, OwnershipService ownership, CancellationToken ct) => { try { var khata = await ownership.CreateKhataAsync(id, request.KhataNumber, request.RawKhataNumber, request.Remarks, ct); return Results.Created($"/api/khatas/{khata.Id}", new IdResponse(khata.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
+api.MapPost("/khatas/{id:guid}/khasras", async (Guid id, LinkKhataKhasraRequest request, OwnershipService ownership, CancellationToken ct) => { try { var link = await ownership.LinkKhasraAsync(id, request.KhasraId, request.RawKhasraText, request.RecordedArea, request.RawAreaText, request.AreaUnit, request.Remarks, ct); return Results.Created($"/api/khatas/{id}/khasras/{link.Id}", new IdResponse(link.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
+api.MapPost("/parties", async (CreatePartyRequest request, OwnershipService ownership, CancellationToken ct) => { try { var party = await ownership.CreatePartyAsync(request.PartyType, request.DisplayName, request.FatherOrSpouseName, request.AddressText, request.Remarks, ct); return Results.Created($"/api/parties/{party.Id}", new IdResponse(party.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
+api.MapPost("/khatas/{id:guid}/shares", async (Guid id, AddShareRequest request, OwnershipService ownership, CancellationToken ct) => { try { var share = await ownership.AddShareAsync(id, request.PartyId, request.RawShareText, request.ShareNumerator, request.ShareDenominator, request.Remarks, request.VerificationStatus, ct); return Results.Created($"/api/khatas/{id}/shares/{share.Id}", new IdResponse(share.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
+api.MapPost("/khatauni/{id:guid}/verify", async (Guid id, VerifyKhatauniRequest request, OwnershipService ownership, CancellationToken ct) => { try { await ownership.VerifyKhatauniAsync(id, request.ExpectedVersion, ct); return Results.NoContent(); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
+
 app.Run();
 
 static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: $"{entityName} not found", detail: $"No {entityName.ToLowerInvariant()} exists for id {id}.");
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
+static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
     page = Math.Max(page, 0); pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
@@ -324,3 +358,19 @@ public sealed record LrReviewItem(Guid Id, Guid VillageLrId, Guid VillageId, str
 }
 public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int Verified, int Committed);
 public sealed record IdResponse(Guid Id);
+public sealed record KhatauniListItem(Guid Id, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string VerificationStatus, int KhataCount, int RecordedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<KhatauniRecord, KhatauniListItem>> Selector = x => new(x.Id, x.ReferenceNumber, x.RecordYearText, x.AsOfDate, x.VerificationStatus.ToString(), x.Khatas.Count, x.Khatas.SelectMany(k => k.KhasraLinks).Count()); }
+public sealed record KhataSummary(Guid Id, string KhataNumber, int KhasraCount, int OwnerCount, string ShareValidation, bool IsVerified);
+public sealed record KhatauniDetail(Guid Id, Guid VillageId, string VillageName, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, string? Remarks, string VerificationStatus, int Version, Guid? SourceDocumentId, string? SourceDocumentName, int TotalKhatas, int TotalLinkedKhasras, int TotalRecordedParties, IReadOnlyList<KhataSummary> Khatas);
+public sealed record KhataKhasraItem(Guid KhasraId, string DisplayNumber, decimal? RecordedArea, string? RawAreaText, string? AreaUnit);
+public sealed record PartyShareItem(Guid Id, Guid PartyId, string DisplayName, string? RawShareText, int? ShareNumerator, int? ShareDenominator, string VerificationStatus, int Version);
+public sealed record KhataDetail(Guid Id, string KhataNumber, string? RawKhataNumber, string? Remarks, Guid KhatauniRecordId, string? KhatauniReference, Guid VillageId, string VillageName, IReadOnlyList<KhataKhasraItem> Khasras, IReadOnlyList<PartyShareItem> Owners, string ShareValidation);
+public sealed record OwnershipHistoryItem(Guid KhatauniRecordId, Guid KhataId, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string KhataNumber, string VerificationStatus);
+public sealed record KhasraReference(Guid Id, string DisplayNumber);
+public sealed record PartyHoldingItem(Guid VillageId, string VillageName, Guid KhatauniRecordId, string? KhatauniReference, Guid KhataId, string KhataNumber, IReadOnlyList<KhasraReference> Khasras, string? RawShareText, int? ShareNumerator, int? ShareDenominator);
+public sealed record PartyDetail(Guid Id, string PartyType, string DisplayName, string? FatherOrSpouseName, string? AddressText, string? Remarks, int Version, IReadOnlyList<PartyHoldingItem> Holdings);
+public sealed record CreateKhatauniRequest(Guid VillageId, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, string? Remarks, RevenueRecordVerificationStatus VerificationStatus = RevenueRecordVerificationStatus.Draft);
+public sealed record CreateKhataRequest(string KhataNumber, string? RawKhataNumber, string? Remarks);
+public sealed record LinkKhataKhasraRequest(Guid KhasraId, string? RawKhasraText, decimal? RecordedArea, string? RawAreaText, string? AreaUnit, string? Remarks);
+public sealed record CreatePartyRequest(PartyType PartyType, string DisplayName, string? FatherOrSpouseName, string? AddressText, string? Remarks);
+public sealed record AddShareRequest(Guid PartyId, string? RawShareText, int? ShareNumerator, int? ShareDenominator, string? Remarks, RevenueRecordVerificationStatus VerificationStatus = RevenueRecordVerificationStatus.Draft);
+public sealed record VerifyKhatauniRequest(int ExpectedVersion);
