@@ -249,6 +249,7 @@ api.MapPost("/villages/{id:guid}/khasras/import", async (Guid id, KhasraBatchReq
     try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
 });
+api.MapGet("/villages/{id:guid}/khasras/import-template", (Guid id) => Results.File(KhasraWorkspaceService.ImportTemplate(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "village-khasra-import-template.xlsx"));
 api.MapPut("/khasras/{id:guid}", async (Guid id, KhasraWorkspaceRow request, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { await workspace.UpdateAsync(id, request, ct); return Results.NoContent(); }
