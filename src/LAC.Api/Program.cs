@@ -107,7 +107,15 @@ api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize
         var term = KhasraNumber.Normalize(q);
         khasras = khasras.Where(x => x.NormalizedNumber.Contains(term) || x.DisplayNumber.ToUpper().Contains(q.Trim().ToUpperInvariant()));
     }
-    var result = await ToPageAsync(khasras.OrderBy(x => x.DisplayNumber).Select(KhasraListBaseItem.Selector), page, pageSize, ct);
+    // Rectangle numbers are stored as text to preserve the official source value. Sort numeric-looking
+    // values by digit length then text so 1, 2, …, 10 are ordered naturally before pagination.
+    var result = await ToPageAsync(khasras
+        .OrderBy(x => x.RectangleNumber == null)
+        .ThenBy(x => x.RectangleNumber == null ? 0 : x.RectangleNumber.Length)
+        .ThenBy(x => x.RectangleNumber)
+        .ThenBy(x => x.DisplayNumber.Length)
+        .ThenBy(x => x.DisplayNumber)
+        .Select(KhasraListBaseItem.Selector), page, pageSize, ct);
     var ownershipByKhasra = await ownership.GetRecordedOwnershipBatchAsync(result.Items.Select(x => x.Id), ct);
     var items = new List<KhasraListItem>();
     foreach (var item in result.Items)
