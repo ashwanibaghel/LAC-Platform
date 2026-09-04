@@ -16,7 +16,7 @@ public sealed class KhasraWorkspaceTests
         var first = await service.ImportAsync(village.Id, rows, default); var second = await service.ImportAsync(village.Id, rows, default);
         Assert.Equal(2, first.CreatedKhasras); Assert.Equal(1, first.CreatedAwards); Assert.Equal(2, first.CreatedAwardLinks);
         Assert.Equal(2, second.ReusedKhasras); Assert.Equal(0, second.CreatedAwardLinks);
-        Assert.Equal(2, await db.Khasras.CountAsync()); Assert.Single(await db.Awards.ToListAsync()); Assert.Equal(2, await db.Set<AwardKhasra>().CountAsync());
+        Assert.Equal(2, await db.Khasras.CountAsync()); Assert.Single(await db.Awards.ToListAsync()); Assert.Single(await db.AwardVillages.ToListAsync()); Assert.Equal(2, await db.Set<AwardKhasra>().CountAsync());
         var saved = await db.Khasras.SingleAsync(x => x.DisplayNumber == "10//2"); Assert.Equal(1m, saved.AreaBigha); Assert.Equal(10, saved.AreaBiswa); Assert.Equal(5, saved.AreaBiswansi);
     }
 

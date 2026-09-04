@@ -179,6 +179,20 @@ api.MapGet("/awards/{id:guid}", async (Guid id, LacDbContext db, CancellationTok
     return award is null ? NotFound("Award", id) : Results.Ok(award);
 });
 
+api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var item = await db.Awards.AsNoTracking().Where(x => x.Id == id).Select(x => new AwardWorkspaceOverview(
+        x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Purpose, x.ActRegime, x.Status, x.Remarks,
+        x.AcquisitionProject == null ? null : new ProjectReference(x.AcquisitionProject.Id, x.AcquisitionProject.Name, x.AcquisitionProject.RequiringAgency, x.AcquisitionProject.ActRegime),
+        x.VillageLinks.Select(v => new VillageReference(v.Village.Id, v.Village.Name, new SubDivisionReference(v.Village.SubDivision.Id, v.Village.SubDivision.Name, new DistrictReference(v.Village.SubDivision.District.Id, v.Village.SubDivision.District.Name)))).ToList(),
+        x.KhasraLinks.Count, x.NotificationLinks.Count, db.PossessionEvents.Count(p => p.AwardId == x.Id), db.Set<CourtCaseAward>().Count(c => c.AwardId == x.Id), db.Claims.Count(c => c.AwardId == x.Id), db.Set<AwardAreaIssue>().Count(i => i.AwardId == x.Id && i.Status != "Resolved"), x.DocumentRelationships.Count,
+        x.KhasraLinks.Any() ? "Available" : "Not Added", x.NotificationLinks.Any() ? "Available" : "Not Added", db.PossessionEvents.Any(p => p.AwardId == x.Id) ? "Partial" : "Not Added", db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id) ? "Available" : "Not Added", db.Claims.Any(c => c.AwardId == x.Id) ? "Available" : "Not Added"
+    )).FirstOrDefaultAsync(ct);
+    if (item is null) return NotFound("Award", id);
+    if (item.Villages.Count == 0) item = item with { Villages = await db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).Select(x => new VillageReference(x.Khasra.Village.Id, x.Khasra.Village.Name, new SubDivisionReference(x.Khasra.Village.SubDivision.Id, x.Khasra.Village.SubDivision.Name, new DistrictReference(x.Khasra.Village.SubDivision.District.Id, x.Khasra.Village.SubDivision.District.Name)))).Distinct().ToListAsync(ct) };
+    return Results.Ok(item);
+});
+
 api.MapGet("/notifications", async (int page, int pageSize, string? q, LacDbContext db, CancellationToken ct) =>
 {
     var notifications = db.Notifications.AsNoTracking().AsQueryable();
@@ -332,17 +346,80 @@ api.MapPost("/awards/{id:guid}/khasras", async (Guid id, AwardFoundationKhasraRe
     try { return Results.Ok(await workflow.LinkKhasraAsync(id, new(request.VillageId, request.KhasraNumber, request.Qualifier, request.RecordedTotalAreaBigha, request.RecordedTotalAreaBiswa, request.RecordedTotalAreaBiswansi, request.AwardedAreaBigha, request.AwardedAreaBiswa, request.AwardedAreaBiswansi, request.RelationshipStatus, request.Remarks), ct)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
 });
+api.MapPost("/awards/{id:guid}/khasras/import-preview", async (Guid id, Guid villageId, IFormFile file, LacDbContext db, KhasraWorkspaceService workspace, CancellationToken ct) =>
+{
+    if (!await db.AwardVillages.AnyAsync(x => x.AwardId == id && x.VillageId == villageId, ct)) return Validation("villageId", "Select a Village linked to this Award.");
+    if (file.Length == 0) return Validation("file", "Choose a non-empty Excel workbook.");
+    try { await using var stream = file.OpenReadStream(); return Results.Ok(await workspace.PreviewAsync(villageId, stream, ct)); }
+    catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
+}).DisableAntiforgery();
+
+api.MapPost("/awards/{id:guid}/notifications/{notificationId:guid}", async (Guid id, Guid notificationId, AwardWorkflowService workflow, CancellationToken ct) => { try { await workflow.LinkNotificationAsync(id, notificationId, ct); return Results.NoContent(); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } });
+api.MapGet("/awards/{id:guid}/notifications", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.AwardNotifications.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.Notification.NotificationDate).Select(x => new AwardNotificationWorkspaceItem(x.NotificationId, x.Notification.NotificationNumber, x.Notification.SectionType, x.Notification.NotificationDate)).ToListAsync(ct)));
+api.MapPost("/awards/{id:guid}/possession-events", async (Guid id, CreatePossessionEventRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.AddPossessionAsync(id, request.PossessionDate, request.EventType, request.Status, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/possession-events/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } });
+api.MapGet("/awards/{id:guid}/possession-events", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.PossessionEvents.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.PossessionDate).Select(x => new AwardPossessionWorkspaceItem(x.Id, x.PossessionDate, x.EventType, x.Status, x.KhasraLinks.Count)).ToListAsync(ct)));
+api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.CreateCourtCaseAsync(id, request.CaseNumber, request.CourtName, request.CaseType, request.FiledDate, request.CurrentStatus, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/court-cases/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } });
+api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Set<CourtCaseAward>().AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.CourtCase.FiledDate).Select(x => new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CourtCase.CaseNumber, x.CourtCase.CourtName, x.CourtCase.CurrentStatus, db.Set<CourtCaseKhasra>().Count(k => k.CourtCaseId == x.CourtCaseId))).ToListAsync(ct)));
+api.MapGet("/awards/{id:guid}/claims", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Claims.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.ClaimDate).Select(x => new AwardClaimItem(x.Id, x.ClaimReference, x.ClaimDate, x.ClaimantParty == null ? null : x.ClaimantParty.DisplayName, x.ClaimedRateAmount, x.ClaimedAmount, x.Status, db.Set<ClaimKhasra>().Count(k => k.ClaimId == x.Id))), page, pageSize, ct)));
+
+api.MapPost("/awards/{id:guid}/claims", async (Guid id, CreateAwardClaimRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    var khasraIds = request.KhasraIds?.Distinct().ToArray() ?? [];
+    var valid = await db.Set<AwardKhasra>().Where(x => x.AwardId == id && khasraIds.Contains(x.KhasraId)).Select(x => x.KhasraId).ToListAsync(ct);
+    if (valid.Count != khasraIds.Length) return Validation("khasraIds", "Every claim Khasra must already be linked to this Award.");
+    var claim = new Claim { AwardId = id, ClaimReference = Clean(request.ClaimReference), ClaimDate = request.ClaimDate, ClaimText = Clean(request.ClaimText), ClaimedRateAmount = request.ClaimedRateAmount, ClaimedRateUnit = Clean(request.ClaimedRateUnit), ClaimedAmount = request.ClaimedAmount, Status = Clean(request.Status), Remarks = Clean(request.Remarks) };
+    db.Claims.Add(claim); foreach (var khasraId in valid) db.Add(new ClaimKhasra { Claim = claim, KhasraId = khasraId });
+    await db.SaveChangesAsync(ct); return Results.Created($"/api/claims/{claim.Id}", new IdResponse(claim.Id));
+});
+api.MapPost("/awards/{id:guid}/land-classes", async (Guid id, CreateAwardLandClassRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    if (string.IsNullOrWhiteSpace(request.Code)) return Validation("code", "Land classification code is required.");
+    if (await db.Set<AwardLandClass>().AnyAsync(x => x.AwardId == id && x.Code == request.Code.Trim(), ct)) return Validation("code", "This land classification already exists for the Award.");
+    var item = new AwardLandClass { AwardId = id, Code = request.Code.Trim(), Description = Clean(request.Description) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-land-classes/{item.Id}", new IdResponse(item.Id));
+});
+api.MapPost("/awards/{id:guid}/valuation-rules", async (Guid id, CreateAwardValuationRuleRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    if (request.AwardLandClassId is not null && !await db.Set<AwardLandClass>().AnyAsync(x => x.Id == request.AwardLandClassId && x.AwardId == id, ct)) return Validation("awardLandClassId", "Land class must belong to this Award.");
+    var item = new AwardValuationRule { AwardId = id, AwardLandClassId = request.AwardLandClassId, RuleType = Clean(request.RuleType) ?? "Other", RateAmount = request.RateAmount, RateUnit = Clean(request.RateUnit), ReferenceDate = request.ReferenceDate, LegalSection = Clean(request.LegalSection), Description = Clean(request.Description) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-valuation-rules/{item.Id}", new IdResponse(item.Id));
+});
+api.MapPost("/awards/{id:guid}/compensation-rules", async (Guid id, CreateAwardCompensationRuleRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    var item = new AwardCompensationRule { AwardId = id, RuleType = Clean(request.RuleType) ?? "Other", RatePercent = request.RatePercent, RateAmount = request.RateAmount, LegalSection = Clean(request.LegalSection), BasisDescription = Clean(request.BasisDescription), StartEvent = Clean(request.StartEvent), EndEvent = Clean(request.EndEvent), Remarks = Clean(request.Remarks) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-compensation-rules/{item.Id}", new IdResponse(item.Id));
+});
+api.MapPost("/awards/{id:guid}/area-issues", async (Guid id, CreateAwardAreaIssueRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    if (request.KhasraId is not null && !await db.Set<AwardKhasra>().AnyAsync(x => x.AwardId == id && x.KhasraId == request.KhasraId, ct)) return Validation("khasraId", "Khasra must already be linked to this Award.");
+    var item = new AwardAreaIssue { AwardId = id, KhasraId = request.KhasraId, IssueType = Clean(request.IssueType) ?? "Other", NotificationAreaBigha = request.NotificationAreaBigha, FieldBookAreaBigha = request.FieldBookAreaBigha, DifferenceBigha = request.DifferenceBigha, Status = Clean(request.Status) ?? "Open", CorrigendumReference = Clean(request.CorrigendumReference), CorrigendumDate = request.CorrigendumDate, Remarks = Clean(request.Remarks) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-area-issues/{item.Id}", new IdResponse(item.Id));
+});
+api.MapPost("/awards/{id:guid}/supplementary-matters", async (Guid id, CreateAwardSupplementaryMatterRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    var item = new AwardSupplementaryMatter { AwardId = id, MatterType = Clean(request.MatterType) ?? "Other", Status = Clean(request.Status) ?? "Pending", Description = Clean(request.Description), SupplementaryAwardId = request.SupplementaryAwardId }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-supplementary-matters/{item.Id}", new IdResponse(item.Id));
+});
+api.MapGet("/awards/{id:guid}/export/{format}", async (Guid id, string format, LacDbContext db, CancellationToken ct) =>
+{
+    var award = await db.Awards.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (award is null) return NotFound("Award", id);
+    var rows = await db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).OrderBy(x => x.Khasra.RectangleNumber).ThenBy(x => x.Khasra.DisplayNumber).Select(x => new KhasraExportRow(x.Khasra.DisplayNumber, x.AwardedAreaBigha, x.AwardedAreaBiswa, x.AwardedAreaBiswansi, "", x.RelationshipStatus ?? "Recorded", award.AwardNumber)).ToListAsync(ct);
+    var name = $"award-{award.AwardNumber}";
+    return format.ToLowerInvariant() switch { "xlsx" => Results.File(KhasraWorkspaceService.Excel(rows), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"{name}.xlsx"), "csv" => Results.File(KhasraWorkspaceService.Csv(rows), "text/csv", $"{name}.csv"), "pdf" => Results.File(KhasraWorkspaceService.Pdf(rows), "application/pdf", $"{name}.pdf"), "docx" => Results.File(KhasraWorkspaceService.Docx(rows), "application/vnd.openxmlformats-officedocument.wordprocessingml.document", $"{name}.docx"), _ => Validation("format", "Choose xlsx, csv, pdf, or docx.") };
+});
 
 api.MapPost("/khasra-review-flags/{id:guid}/resolve", async (Guid id, ResolveKhasraReviewRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { await workflow.ResolveReviewFlagAsync(id, request.ResolvedBy, ct); return Results.NoContent(); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
 });
+api.MapGet("/khasras/{id:guid}/review-flags", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.KhasraReviewFlags.AsNoTracking().Where(x => x.KhasraId == id && x.Status == "Open").OrderByDescending(x => x.CreatedAt).Select(x => new KhasraReviewFlagItem(x.Id, x.Status, x.ReasonCode, x.Message, x.RelatedAwardId, x.RelatedAward == null ? null : x.RelatedAward.AwardNumber)).ToListAsync(ct)));
 
 api.MapGet("/awards/{id:guid}/khasras", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) =>
 {
-    var rows = db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).OrderBy(x => x.Khasra.Village.Name).ThenBy(x => x.Khasra.RectangleNumber).ThenBy(x => x.Khasra.DisplayNumber)
-        .Select(x => new AwardWorkspaceKhasraItem(x.Id, x.Khasra.Id, x.Khasra.DisplayNumber, x.Khasra.Village.Name, x.Khasra.AreaBigha, x.Khasra.AreaBiswa, x.Khasra.AreaBiswansi, x.RecordedTotalAreaBigha, x.RecordedTotalAreaBiswa, x.RecordedTotalAreaBiswansi, x.AwardedAreaBigha, x.AwardedAreaBiswa, x.AwardedAreaBiswansi, x.RelationshipStatus, db.KhasraReviewFlags.Any(f => f.KhasraId == x.KhasraId && f.Status == "Open")));
+    var rows = db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).OrderBy(x => x.Khasra.Village.Name).ThenBy(x => x.Khasra.RectangleNumber == null).ThenBy(x => x.Khasra.RectangleNumber!.Length).ThenBy(x => x.Khasra.RectangleNumber).ThenBy(x => x.Khasra.DisplayNumber)
+        .Select(x => new AwardWorkspaceKhasraItem(x.Id, x.Khasra.Id, x.Khasra.DisplayNumber, x.Khasra.Village.Name, x.Khasra.RectangleNumber, x.Khasra.AreaBigha, x.Khasra.AreaBiswa, x.Khasra.AreaBiswansi, x.RecordedTotalAreaBigha, x.RecordedTotalAreaBiswa, x.RecordedTotalAreaBiswansi, x.AwardedAreaBigha, x.AwardedAreaBiswa, x.AwardedAreaBiswansi, x.RelationshipStatus, db.KhasraReviewFlags.Where(f => f.KhasraId == x.KhasraId && f.Status == "Open").Select(f => (Guid?)f.Id).FirstOrDefault()));
     return Results.Ok(await ToPageAsync(rows, page, pageSize, ct));
 });
 
@@ -414,6 +491,7 @@ static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
 static IResult AwardWorkflowProblem(AwardWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award workflow validation", detail: exception.Message);
+static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
     page = Math.Max(page, 0); pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
@@ -458,7 +536,21 @@ public sealed record CreateAwardRequest(string AwardNumber, DateOnly? AwardDate,
 public sealed record AwardFoundationCreateRequest(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
 public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
 public sealed record ResolveKhasraReviewRequest(string? ResolvedBy);
-public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, bool NeedsMasterReview);
+public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, string? RectangleNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, Guid? ReviewFlagId);
+public sealed record KhasraReviewFlagItem(Guid Id, string Status, string ReasonCode, string? Message, Guid? RelatedAwardId, string? RelatedAwardNumber);
+public sealed record AwardWorkspaceOverview(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Purpose, string? ActRegime, string Status, string? Remarks, ProjectReference? Project, IReadOnlyList<VillageReference> Villages, int KhasraCount, int NotificationCount, int PossessionEventCount, int CourtCaseCount, int ClaimCount, int OpenAreaIssueCount, int DocumentCount, string KhasrasData, string NotificationsData, string PossessionData, string LitigationData, string ClaimsData);
+public sealed record CreatePossessionEventRequest(DateOnly? PossessionDate, string? EventType, string? Status, string? Remarks, IReadOnlyList<Guid> KhasraIds);
+public sealed record CreateAwardCourtCaseRequest(string CaseNumber, string CourtName, string? CaseType, DateOnly? FiledDate, string? CurrentStatus, string? Remarks, IReadOnlyList<Guid> KhasraIds);
+public sealed record AwardNotificationWorkspaceItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate);
+public sealed record AwardPossessionWorkspaceItem(Guid Id, DateOnly? PossessionDate, string? EventType, string? Status, int KhasraCount);
+public sealed record AwardCourtCaseWorkspaceItem(Guid Id, string CaseNumber, string CourtName, string? Status, int KhasraCount);
+public sealed record AwardClaimItem(Guid Id, string? ClaimReference, DateOnly? ClaimDate, string? ClaimantName, decimal? ClaimedRateAmount, decimal? ClaimedAmount, string? Status, int KhasraCount);
+public sealed record CreateAwardClaimRequest(string? ClaimReference, DateOnly? ClaimDate, string? ClaimText, decimal? ClaimedRateAmount, string? ClaimedRateUnit, decimal? ClaimedAmount, string? Status, string? Remarks, IReadOnlyList<Guid>? KhasraIds);
+public sealed record CreateAwardLandClassRequest(string Code, string? Description);
+public sealed record CreateAwardValuationRuleRequest(Guid? AwardLandClassId, string? RuleType, decimal? RateAmount, string? RateUnit, DateOnly? ReferenceDate, string? LegalSection, string? Description);
+public sealed record CreateAwardCompensationRuleRequest(string? RuleType, decimal? RatePercent, decimal? RateAmount, string? LegalSection, string? BasisDescription, string? StartEvent, string? EndEvent, string? Remarks);
+public sealed record CreateAwardAreaIssueRequest(Guid? KhasraId, string? IssueType, decimal? NotificationAreaBigha, decimal? FieldBookAreaBigha, decimal? DifferenceBigha, string? Status, string? CorrigendumReference, DateOnly? CorrigendumDate, string? Remarks);
+public sealed record CreateAwardSupplementaryMatterRequest(string? MatterType, string? Status, string? Description, Guid? SupplementaryAwardId);
 public sealed record LrEntryRequest(int? RowNumber, string RawKhasraText, Guid? KhasraId, string? RawAreaText, decimal? ParsedArea, string? AreaUnit, Guid? Section4NotificationId, Guid? Section6NotificationId, Guid? AwardId, string? RawRemarks, VerificationStatus VerificationStatus)
 {
     public LrRowInput ToInput() => new(RowNumber, RawKhasraText, KhasraId, RawAreaText, ParsedArea, AreaUnit, Section4NotificationId, Section6NotificationId, AwardId, RawRemarks, VerificationStatus);

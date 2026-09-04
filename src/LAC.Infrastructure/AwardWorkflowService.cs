@@ -60,6 +60,38 @@ public sealed class AwardWorkflowService(LacDbContext db)
         await db.SaveChangesAsync(ct);
     }
 
+    public async Task LinkNotificationAsync(Guid awardId, Guid notificationId, CancellationToken ct)
+    {
+        if (!await db.Awards.AnyAsync(x => x.Id == awardId, ct)) throw new AwardWorkflowException("Award was not found.", 404);
+        if (!await db.Notifications.AnyAsync(x => x.Id == notificationId, ct)) throw new AwardWorkflowException("Notification was not found.", 404);
+        if (await db.AwardNotifications.AnyAsync(x => x.AwardId == awardId && x.NotificationId == notificationId, ct)) return;
+        db.Add(new AwardNotification { AwardId = awardId, NotificationId = notificationId });
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardNotification), EntityId = awardId, Action = "AwardNotificationLinked", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<PossessionEvent> AddPossessionAsync(Guid awardId, DateOnly? possessionDate, string? eventType, string? status, string? remarks, IReadOnlyList<Guid> khasraIds, CancellationToken ct)
+    {
+        if (!await db.Awards.AnyAsync(x => x.Id == awardId, ct)) throw new AwardWorkflowException("Award was not found.", 404);
+        var valid = await db.Set<AwardKhasra>().Where(x => x.AwardId == awardId && khasraIds.Contains(x.KhasraId)).Select(x => x.KhasraId).ToListAsync(ct);
+        if (valid.Count != khasraIds.Distinct().Count()) throw new AwardWorkflowException("Every possession Khasra must already be linked to this Award.");
+        var item = new PossessionEvent { AwardId = awardId, PossessionDate = possessionDate, EventType = Clean(eventType), Status = Clean(status), Remarks = Clean(remarks) };
+        db.Add(item); foreach (var khasraId in valid) db.Add(new PossessionKhasra { PossessionEvent = item, KhasraId = khasraId });
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(PossessionEvent), EntityId = item.Id, Action = "PossessionEventAdded", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct); return item;
+    }
+
+    public async Task<CourtCase> CreateCourtCaseAsync(Guid awardId, string caseNumber, string courtName, string? caseType, DateOnly? filedDate, string? currentStatus, string? remarks, IReadOnlyList<Guid> khasraIds, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(caseNumber) || string.IsNullOrWhiteSpace(courtName)) throw new AwardWorkflowException("Case number and court name are required.");
+        if (!await db.Awards.AnyAsync(x => x.Id == awardId, ct)) throw new AwardWorkflowException("Award was not found.", 404);
+        var valid = await db.Set<AwardKhasra>().Where(x => x.AwardId == awardId && khasraIds.Contains(x.KhasraId)).Select(x => x.KhasraId).ToListAsync(ct);
+        if (valid.Count != khasraIds.Distinct().Count()) throw new AwardWorkflowException("Every affected Khasra must already be linked to this Award.");
+        var item = new CourtCase { CaseNumber = caseNumber.Trim(), CourtName = courtName.Trim(), CaseType = Clean(caseType), FiledDate = filedDate, CurrentStatus = Clean(currentStatus), Remarks = Clean(remarks) };
+        db.Add(item); db.Add(new CourtCaseAward { CourtCase = item, AwardId = awardId }); foreach (var khasraId in valid) db.Add(new CourtCaseKhasra { CourtCase = item, KhasraId = khasraId });
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(CourtCase), EntityId = item.Id, Action = "CourtCaseCreatedAndLinkedToAward", ChangedAt = DateTimeOffset.UtcNow }); await db.SaveChangesAsync(ct); return item;
+    }
+
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static string RemoveQualifier(string value, string? qualifier) => qualifier is null ? value : value.EndsWith($" {qualifier}", StringComparison.OrdinalIgnoreCase) ? value[..^(qualifier.Length + 1)] : value;
     private static string? Rectangle(string value) { var i = value.IndexOf("//", StringComparison.Ordinal); return i > 0 ? value[..i] : null; }

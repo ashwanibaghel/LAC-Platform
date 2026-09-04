@@ -39,5 +39,14 @@ public sealed class AwardWorkflowTests
         Assert.Equal(result.KhasraId, (await db.Khasras.SingleAsync()).Id); Assert.Equal("Resolved", (await db.KhasraReviewFlags.SingleAsync()).Status); Assert.Contains(await db.AuditLogs.ToListAsync(), x => x.Action == "KhasraMasterReviewResolved");
     }
 
+    [Fact]
+    public async Task Possession_is_partial_evidence_and_can_only_link_award_khasras()
+    {
+        await using var db = Db(); var village = new Village { Name = "Fictional Village" }; var khasra = new Khasra { Village = village, DisplayNumber = "7//1", NormalizedNumber = "7//1" }; db.AddRange(village, khasra); await db.SaveChangesAsync();
+        var service = new AwardWorkflowService(db); var award = await service.CreateAsync(new("TEST-AWARD-04", village.Id, null, null, null, null, null, null), default); await service.LinkKhasraAsync(award.Id, new(village.Id, "7//1", null, null, null, null, 1m, 0, null, null, null), default);
+        var possession = await service.AddPossessionAsync(award.Id, new DateOnly(2026, 1, 1), "Memo", "Partial", null, [khasra.Id], default);
+        Assert.Equal("Partial", possession.Status); Assert.Single(await db.Set<PossessionKhasra>().Where(x => x.PossessionEventId == possession.Id).ToListAsync()); Assert.NotEqual("Possessed", (await db.Awards.SingleAsync(x => x.Id == award.Id)).Status);
+    }
+
     private static LacDbContext Db() => new(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
 }

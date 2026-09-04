@@ -103,6 +103,7 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
                         result[2]++;
                     }
                     else result[3]++;
+                    if (!db.AwardVillages.Local.Any(x => x.AwardId == award.Id && x.VillageId == villageId) && !await db.AwardVillages.AnyAsync(x => x.AwardId == award.Id && x.VillageId == villageId, ct)) db.Add(new AwardVillage { Award = award, VillageId = villageId });
                     linksToCreate.Add((award, khasra));
                 }
 
