@@ -1,0 +1,66 @@
+using LAC.Domain;
+using Microsoft.EntityFrameworkCore;
+
+namespace LAC.Infrastructure;
+
+public sealed class AwardWorkflowException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
+public sealed record AwardCreateInput(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
+public sealed record AwardKhasraInput(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
+public sealed record AwardKhasraLinkResult(Guid KhasraId, bool CreatedKhasra, bool CreatedReviewFlag, bool CreatedAwardLink);
+
+public sealed class AwardWorkflowService(LacDbContext db)
+{
+    public async Task<Award> CreateAsync(AwardCreateInput input, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.AwardNumber)) throw new AwardWorkflowException("Award number is required.");
+        if (!await db.Villages.AnyAsync(x => x.Id == input.VillageId, ct)) throw new AwardWorkflowException("Village was not found.", 404);
+        if (input.AcquisitionProjectId is not null && !await db.AcquisitionProjects.AnyAsync(x => x.Id == input.AcquisitionProjectId, ct)) throw new AwardWorkflowException("Acquisition project was not found.", 404);
+        var award = new Award { AwardNumber = input.AwardNumber.Trim(), AwardDate = input.AwardDate, AwardType = Clean(input.AwardType), ActRegime = Clean(input.ActRegime), Purpose = Clean(input.Purpose), AcquisitionProjectId = input.AcquisitionProjectId, Remarks = Clean(input.Remarks) };
+        db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = input.VillageId });
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(Award), EntityId = award.Id, Action = "AwardCreatedWithVillage", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct); return award;
+    }
+
+    public async Task<AwardKhasraLinkResult> LinkKhasraAsync(Guid awardId, AwardKhasraInput input, CancellationToken ct)
+    {
+        var award = await db.Awards.SingleOrDefaultAsync(x => x.Id == awardId, ct) ?? throw new AwardWorkflowException("Award was not found.", 404);
+        if (!await db.AwardVillages.AnyAsync(x => x.AwardId == awardId && x.VillageId == input.VillageId, ct)) throw new AwardWorkflowException("The selected Village is not linked to this Award.");
+        if (string.IsNullOrWhiteSpace(input.KhasraNumber)) throw new AwardWorkflowException("Khasra number is required.");
+        var qualifier = Clean(input.Qualifier);
+        var baseNumber = KhasraNumber.Normalize(RemoveQualifier(input.KhasraNumber, qualifier));
+        var display = qualifier is null || input.KhasraNumber.Contains(qualifier, StringComparison.OrdinalIgnoreCase) ? input.KhasraNumber.Trim() : $"{input.KhasraNumber.Trim()} {qualifier}";
+        var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.VillageId == input.VillageId && x.NormalizedNumber == baseNumber && x.Qualifier == qualifier, ct);
+        var created = khasra is null;
+        if (created)
+        {
+            khasra = new Khasra { VillageId = input.VillageId, DisplayNumber = display, NormalizedNumber = baseNumber, Qualifier = qualifier, RectangleNumber = Rectangle(baseNumber) };
+            db.Add(khasra);
+        }
+        var link = await db.Set<AwardKhasra>().SingleOrDefaultAsync(x => x.AwardId == awardId && x.KhasraId == khasra!.Id, ct);
+        var createdLink = link is null;
+        if (createdLink) { link = new AwardKhasra { AwardId = awardId, Khasra = khasra! }; db.Add(link); }
+        link!.RecordedTotalAreaBigha = input.RecordedTotalAreaBigha; link.RecordedTotalAreaBiswa = input.RecordedTotalAreaBiswa; link.RecordedTotalAreaBiswansi = input.RecordedTotalAreaBiswansi; link.AwardedAreaBigha = input.AwardedAreaBigha; link.AwardedAreaBiswa = input.AwardedAreaBiswa; link.AwardedAreaBiswansi = input.AwardedAreaBiswansi; link.RelationshipStatus = Clean(input.RelationshipStatus); link.Remarks = Clean(input.Remarks);
+        var flagCreated = false;
+        if (created)
+        {
+            db.Add(new KhasraReviewFlag { Khasra = khasra!, RelatedAward = award, ReasonCode = "DiscoveredFromAwardNotInVillageMaster", Status = "Open", Message = $"This Khasra was discovered while entering Award {award.AwardNumber} and was not present in the Village master data." });
+            flagCreated = true;
+            db.AuditLogs.Add(new AuditLog { EntityType = nameof(Khasra), EntityId = khasra!.Id, Action = "KhasraCreatedFromAwardNeedsMasterReview", ChangedAt = DateTimeOffset.UtcNow });
+        }
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardKhasra), EntityId = link.Id, Action = createdLink ? "AwardKhasraLinked" : "AwardKhasraUpdated", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct); return new(khasra!.Id, created, flagCreated, createdLink);
+    }
+
+    public async Task ResolveReviewFlagAsync(Guid flagId, string? resolvedBy, CancellationToken ct)
+    {
+        var flag = await db.KhasraReviewFlags.SingleOrDefaultAsync(x => x.Id == flagId, ct) ?? throw new AwardWorkflowException("Khasra review flag was not found.", 404);
+        if (flag.Status == "Resolved") return;
+        flag.Status = "Resolved"; flag.ResolvedAt = DateTimeOffset.UtcNow; flag.ResolvedBy = Clean(resolvedBy);
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(KhasraReviewFlag), EntityId = flag.Id, Action = "KhasraMasterReviewResolved", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static string RemoveQualifier(string value, string? qualifier) => qualifier is null ? value : value.EndsWith($" {qualifier}", StringComparison.OrdinalIgnoreCase) ? value[..^(qualifier.Length + 1)] : value;
+    private static string? Rectangle(string value) { var i = value.IndexOf("//", StringComparison.Ordinal); return i > 0 ? value[..i] : null; }
+}

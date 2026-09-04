@@ -28,6 +28,7 @@ builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
+builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
@@ -320,6 +321,31 @@ api.MapPost("/awards", async (CreateAwardRequest request, LrWorkflowService work
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
 });
 
+api.MapPost("/awards/foundation", async (AwardFoundationCreateRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
+{
+    try { var award = await workflow.CreateAsync(new(request.AwardNumber, request.VillageId, request.AwardDate, request.AwardType, request.ActRegime, request.Purpose, request.AcquisitionProjectId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
+    catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
+});
+
+api.MapPost("/awards/{id:guid}/khasras", async (Guid id, AwardFoundationKhasraRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
+{
+    try { return Results.Ok(await workflow.LinkKhasraAsync(id, new(request.VillageId, request.KhasraNumber, request.Qualifier, request.RecordedTotalAreaBigha, request.RecordedTotalAreaBiswa, request.RecordedTotalAreaBiswansi, request.AwardedAreaBigha, request.AwardedAreaBiswa, request.AwardedAreaBiswansi, request.RelationshipStatus, request.Remarks), ct)); }
+    catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
+});
+
+api.MapPost("/khasra-review-flags/{id:guid}/resolve", async (Guid id, ResolveKhasraReviewRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
+{
+    try { await workflow.ResolveReviewFlagAsync(id, request.ResolvedBy, ct); return Results.NoContent(); }
+    catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
+});
+
+api.MapGet("/awards/{id:guid}/khasras", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) =>
+{
+    var rows = db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).OrderBy(x => x.Khasra.Village.Name).ThenBy(x => x.Khasra.RectangleNumber).ThenBy(x => x.Khasra.DisplayNumber)
+        .Select(x => new AwardWorkspaceKhasraItem(x.Id, x.Khasra.Id, x.Khasra.DisplayNumber, x.Khasra.Village.Name, x.Khasra.AreaBigha, x.Khasra.AreaBiswa, x.Khasra.AreaBiswansi, x.RecordedTotalAreaBigha, x.RecordedTotalAreaBiswa, x.RecordedTotalAreaBiswansi, x.AwardedAreaBigha, x.AwardedAreaBiswa, x.AwardedAreaBiswansi, x.RelationshipStatus, db.KhasraReviewFlags.Any(f => f.KhasraId == x.KhasraId && f.Status == "Open")));
+    return Results.Ok(await ToPageAsync(rows, page, pageSize, ct));
+});
+
 api.MapPost("/village-lrs/{id:guid}/entries", async (Guid id, LrEntryRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { var saved = await workflow.CreateAsync(id, request.ToInput(), ct); return Results.Created($"/api/lr-entries/{saved.Id}", saved); }
@@ -387,6 +413,7 @@ static IResult Validation(string field, string message) => Results.ValidationPro
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
+static IResult AwardWorkflowProblem(AwardWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award workflow validation", detail: exception.Message);
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
     page = Math.Max(page, 0); pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
@@ -428,6 +455,10 @@ public sealed record CreateKhasraRequest(string DisplayNumber, decimal? TotalAre
 public sealed record KhasraBatchRequest(IReadOnlyList<KhasraWorkspaceRow> Rows);
 public sealed record CreateNotificationRequest(string SectionType, string NotificationNumber, DateOnly? NotificationDate, string? Remarks);
 public sealed record CreateAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? ActRegime);
+public sealed record AwardFoundationCreateRequest(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
+public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
+public sealed record ResolveKhasraReviewRequest(string? ResolvedBy);
+public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, bool NeedsMasterReview);
 public sealed record LrEntryRequest(int? RowNumber, string RawKhasraText, Guid? KhasraId, string? RawAreaText, decimal? ParsedArea, string? AreaUnit, Guid? Section4NotificationId, Guid? Section6NotificationId, Guid? AwardId, string? RawRemarks, VerificationStatus VerificationStatus)
 {
     public LrRowInput ToInput() => new(RowNumber, RawKhasraText, KhasraId, RawAreaText, ParsedArea, AreaUnit, Section4NotificationId, Section6NotificationId, AwardId, RawRemarks, VerificationStatus);

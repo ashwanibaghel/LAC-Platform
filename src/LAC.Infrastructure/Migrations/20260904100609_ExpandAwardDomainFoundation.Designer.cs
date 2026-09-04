@@ -3,6 +3,7 @@ using System;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LAC.Infrastructure.Migrations
 {
     [DbContext(typeof(LacDbContext))]
-    partial class LacDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260904100609_ExpandAwardDomainFoundation")]
+    partial class ExpandAwardDomainFoundation
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
