@@ -60,6 +60,14 @@ public sealed class AwardIngestionTests
         await service.CommitAsync(session.Id, [candidate.Id], null, default); Assert.Single(await db.Notifications.ToListAsync()); Assert.Single(await db.AwardNotifications.Where(x => x.AwardId == award.Id && x.NotificationId == notification.Id).ToListAsync());
     }
 
+    [Fact]
+    public async Task Award_ingestion_never_treats_a_khasra_derived_village_as_an_award_village()
+    {
+        await using var db = Db(); var village = new Village { Name = "Legacy Village" }; var award = new Award { AwardNumber = "LEGACY-AWARD" }; var khasra = new Khasra { Village = village, DisplayNumber = "1//1", NormalizedNumber = "1//1" }; db.AddRange(village, award, khasra, new AwardKhasra { Award = award, Khasra = khasra }); await db.SaveChangesAsync();
+        var service = Service(db);
+        await Assert.ThrowsAsync<AwardIngestionException>(() => service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Excel, award.Id, village.Id, null, null, null, [Candidate("1//1", null, null)], default));
+    }
+
     private static IngestionCandidateInput Candidate(string number, string? qualifier, decimal? canonicalArea) => new(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(new AwardKhasraCandidate(number, qualifier, canonicalArea, null, null, null, null, null, null, null, null)));
     private static AwardIngestionService Service(LacDbContext db) => new(db, new AwardWorkflowService(db));
     private static LacDbContext Db() => new(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);

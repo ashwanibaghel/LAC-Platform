@@ -215,9 +215,9 @@ function StatusBadge({
 }) {
   return <span className={`status ${tone || "neutral"}`}>{children}</span>;
 }
-function EntityLink({ to, children }: { to: string; children: ReactNode }) {
+function EntityLink({ to, children, className = "" }: { to: string; children: ReactNode; className?: string }) {
   return (
-    <Link className="entity-link" to={to}>
+    <Link className={`entity-link ${className}`} to={to}>
       {children}
     </Link>
   );
@@ -1735,7 +1735,7 @@ function Award() {
       <PageHeader
         eyebrow="Award workspace"
         title={a.awardNumber}
-        actions={<div className="khasra-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><EntityLink to={`/awards/${id}/ingestion`}>Import / Review Data</EntityLink>{a?.villages?.[0] && <a className="secondary-button" href={`/api/villages/${a.villages[0].id}/khasras/import-template`}>Download Template</a>}<button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
+        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><EntityLink to={`/awards/${id}/ingestion`} className="secondary-button">Upload / Import</EntityLink><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
       >
         <p>
           {[
@@ -1749,36 +1749,9 @@ function Award() {
             .join(" · ")}
         </p>
       </PageHeader>
-      <section className="detail-grid">
-        <InfoSection
-          title="Award identity"
-          rows={[
-            [
-              "Village(s)",
-              a.villages.map((v: any) => (
-                <EntityLink key={v.id} to={route.village(v.id)}>
-                  {v.name}
-                </EntityLink>
-              )),
-            ],
-            [
-              "Project / agency",
-              a.project?.name || a.project?.requiringAgency || "—",
-            ],
-            ["Remarks", a.remarks || "—"],
-          ]}
-        />
-        <InfoSection
-          title="Record data"
-          rows={[
-            ["Core details", "Available"],
-            ["Khasras", a.khasrasData],
-            ["Notifications", a.notificationsData],
-            ["Possession", a.possessionData],
-            ["Litigation", a.litigationData],
-            ["Claims", a.claimsData],
-          ]}
-        />
+      <section className="award-summary">
+        <div className="award-facts"><strong>Village{a.villages.length === 1 ? "" : "s"}</strong><span>{a.villages.map((v: any, i: number) => <Fragment key={v.id}>{i > 0 && ", "}<EntityLink to={route.village(v.id)}>{v.name}</EntityLink></Fragment>)}</span>{a.project?.name && <><strong>Project</strong><span>{a.project.name}</span></>}{a.purpose && <><strong>Purpose</strong><span>{a.purpose}</span></>}{a.actRegime && <><strong>Act / nature</strong><span>{a.actRegime}</span></>}</div>
+        <details className="completeness"><summary>Record completeness <b>{[a.khasrasData, a.notificationsData, a.possessionData, a.litigationData, a.claimsData].filter((x: string) => x !== "Not Added").length} of 5 data areas available</b></summary><div className="metric-row"><span>Khasras: {a.khasrasData}</span><span>Notifications: {a.notificationsData}</span><span>Possession: {a.possessionData}</span><span>Litigation: {a.litigationData}</span><span>Claims: {a.claimsData}</span></div></details>
       </section>
       <section className="section">
         <div className="section-heading">
@@ -1789,7 +1762,7 @@ function Award() {
               master area.
             </span>
           </div>
-          <div className="inline-control"><select value={rectangle} onChange={e => setRectangle(e.target.value)}><option value="">All rectangles</option>{rectangles.map(value => <option key={value} value={value}>{value === "Other" ? "Other / Rectangle Not Identified" : `Rectangle ${value}`}</option>)}</select><span>{a.khasraCount} linked</span></div>
+          <div className="award-khasra-toolbar"><span>{a.khasraCount} linked</span><input aria-label="Search Khasras" placeholder="Search Khasra" /><select value={rectangle} onChange={e => setRectangle(e.target.value)}><option value="">All rectangles</option>{rectangles.map(value => <option key={value} value={value}>{value === "Other" ? "Other / Rectangle Not Identified" : `Rectangle ${value}`}</option>)}</select><select aria-label="Review state"><option>All review states</option><option>Needs review</option><option>Reviewed</option></select></div>
         </div>
         {rows.length ? (
           <>
@@ -1905,7 +1878,6 @@ function AwardKhasraPanel({
   const [recorded, setRecorded] = useState("");
   const [awarded, setAwarded] = useState("");
   const [message, setMessage] = useState("");
-  const [preview, setPreview] = useState<any>();
   const save = async () => {
     try {
       await post(`/awards/${award.id}/khasras`, {
@@ -1927,7 +1899,7 @@ function AwardKhasraPanel({
     }
   };
   return (
-    <section className="workspace-panel">
+    <aside className="workflow-drawer" aria-label="Add or link Khasra"><section className="workspace-panel">
       <div className="panel-title">
         <h3>Add / Link Khasra</h3>
         <button onClick={onClose}>Close</button>
@@ -1936,9 +1908,6 @@ function AwardKhasraPanel({
         Existing canonical Khasra is reused. A missing one is added to the
         selected Village master and marked for review.
       </p>
-      <label className="secondary-button file-button">Preview Award Excel<input type="file" accept=".xlsx" onChange={async e => { const file = e.target.files?.[0]; if (!file) return; try { setPreview(await upload(`/awards/${award.id}/khasras/import-preview?villageId=${villageId}`, file)); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not preview workbook."); } }} /></label>
-      {preview && <div className="metric-row"><span>{preview.totalRows} source rows</span><span>{preview.validRows} ready</span><span>{preview.invalidRows} blocked</span><span>{preview.newKhasras} new khasras</span><span>{preview.existingKhasras} existing khasras</span></div>}
-      {preview && <p className="hint">Preview only: no workbook row is imported from this panel until the Award import commit endpoint is explicitly approved and completed.</p>}
       <div className="field-grid">
         <label>
           Village
@@ -1982,13 +1951,14 @@ function AwardKhasraPanel({
           />
         </label>
       </div>
+      {number.trim() && <p className="form-message">{qualifier ? `${number.trim()} ${qualifier.trim()}` : number.trim()} will be matched against the selected Village. Existing master records are reused; a new record is marked for master review.</p>}
       <div className="form-footer">
         <button onClick={save} disabled={!villageId || !number.trim()}>
           Save link
         </button>
       </div>
       {message && <p className="form-message">{message}</p>}
-    </section>
+    </section></aside>
   );
 }
 
@@ -2019,7 +1989,8 @@ function AwardRelatedPanel({ award, khasras, onClose, onSaved }: { award: any; k
     } catch (e) { setMessage(e instanceof Error ? e.message : "Could not save the related record."); }
   };
   const needsKhasras = ["possession", "court", "claim", "area-issue"].includes(kind);
-  return <section className="workspace-panel"><div className="panel-title"><h3>Add Related Record</h3><button onClick={onClose}>Close</button></div><p>These records are linked to this Award without inferring legal status. Khasra-dependent records may only use existing Award Khasras.</p><div className="field-grid"><label>Record type<select value={kind} onChange={e => { setKind(e.target.value); setReference(""); setDetail(""); setAmountValue(""); }}><option value="notification">Notification</option><option value="possession">Possession Event</option><option value="court">Court Case</option><option value="claim">Claim</option><option value="land-class">Land Classification</option><option value="valuation">Valuation Rule</option><option value="compensation">Compensation Rule</option><option value="area-issue">Area Issue</option><option value="supplementary">Supplementary Matter</option></select></label>{kind === "notification" ? <label>Canonical Notification<select value={reference} onChange={e => setReference(e.target.value)}><option value="">Select Notification</option>{notifications.data?.items.map(n => <option key={n.id} value={n.id}>{n.notificationNumber} · Section {n.sectionType}</option>)}</select></label> : <label>{kind === "court" ? "Case number" : kind === "land-class" ? "Classification code" : kind === "claim" ? "Claim reference" : "Type / reference"}<input value={reference} onChange={e => setReference(e.target.value)} /></label>}<label>{kind === "court" ? "Court name" : "Description / status"}<input value={detail} onChange={e => setDetail(e.target.value)} /></label>{["claim", "valuation", "compensation", "area-issue"].includes(kind) && <label>{kind === "compensation" ? "Rate percent" : "Amount / difference"}<input value={amountValue} onChange={e => setAmountValue(e.target.value)} inputMode="decimal" /></label>}</div>{needsKhasras && <fieldset className="award-khasra-picker"><legend>Affected Award Khasras</legend>{khasras.length ? khasras.map(k => <label key={k.khasraId}><input type="checkbox" checked={selectedKhasras.includes(k.khasraId)} onChange={() => toggle(k.khasraId)} /> {k.displayNumber} · {k.villageName}</label>) : <span className="hint">Link a Khasra before recording this type of related record.</span>}</fieldset>}<div className="form-footer"><span className="hint">Only populated record types appear in the Award overview.</span><button onClick={save} disabled={(needsKhasras && !selectedKhasras.length) || (kind === "court" && (!reference.trim() || !detail.trim()))}>Save related record</button></div>{message && <p className="form-message">{message}</p>}</section>;
+  const labels: Record<string, string> = { notification: "Notification", possession: "Possession Event", court: "Court Case", claim: "Claim", "land-class": "Land Classification", valuation: "Valuation Rule", compensation: "Compensation Rule", "area-issue": "Area Issue / Corrigendum", supplementary: "Supplementary Matter" };
+  return <aside className="workflow-drawer" aria-label="Add related Award record"><section className="workspace-panel"><div className="panel-title"><h3>Add Related Record</h3><button onClick={onClose}>Close</button></div><p>Choose a record type, then complete only the fields relevant to that record. Court cases do not infer any legal restraint.</p><div className="related-menu">{Object.entries(labels).map(([value, label]) => <button key={value} className={kind === value ? "active" : ""} onClick={() => { setKind(value); setReference(""); setDetail(""); setAmountValue(""); }}>{label}</button>)}</div><div className="field-grid">{kind === "notification" ? <label>Canonical Notification<select value={reference} onChange={e => setReference(e.target.value)}><option value="">Select Notification</option>{notifications.data?.items.map(n => <option key={n.id} value={n.id}>{n.notificationNumber} · Section {n.sectionType}</option>)}</select></label> : <label>{kind === "court" ? "Case number" : kind === "land-class" ? "Classification code" : kind === "claim" ? "Claim reference" : kind === "possession" ? "Event type" : "Rule / matter type"}<input value={reference} onChange={e => setReference(e.target.value)} /></label>}<label>{kind === "court" ? "Court name" : kind === "claim" ? "Claim details" : kind === "possession" ? "Event status" : "Details"}<input value={detail} onChange={e => setDetail(e.target.value)} /></label>{["claim", "valuation", "compensation", "area-issue"].includes(kind) && <label>{kind === "compensation" ? "Rate percent" : kind === "valuation" ? "Rate amount" : "Amount / difference"}<input value={amountValue} onChange={e => setAmountValue(e.target.value)} inputMode="decimal" /></label>}</div>{needsKhasras && <fieldset className="award-khasra-picker"><legend>Affected Award Khasras</legend>{khasras.length ? khasras.map(k => <label key={k.khasraId}><input type="checkbox" checked={selectedKhasras.includes(k.khasraId)} onChange={() => toggle(k.khasraId)} /> {k.displayNumber} · {k.villageName}</label>) : <span className="hint">Link a Khasra before recording this type of related record.</span>}</fieldset>}<div className="form-footer"><span className="hint">Only populated record types appear in the Award overview.</span><button onClick={save} disabled={(needsKhasras && !selectedKhasras.length) || (kind === "court" && (!reference.trim() || !detail.trim()))}>Save {labels[kind]}</button></div>{message && <p className="form-message">{message}</p>}</section></aside>;
 }
 
 function AwardIngestion() {
@@ -2027,10 +1998,10 @@ function AwardIngestion() {
   useEffect(() => { if (!villageId && linkedVillages.data?.length) setVillageId(linkedVillages.data[0].villageId); }, [linkedVillages.data, villageId]);
   if (award.loading || linkedVillages.loading) return <LoadingState />; if (award.error || linkedVillages.error || !award.data || !linkedVillages.data) return <ErrorState message={award.error || linkedVillages.error || "Award could not be loaded."} />; const a = award.data;
   const create = async () => { try { if (!villageId || !number.trim()) throw new Error("Select a directly linked Award Village and enter a Khasra number."); const payload = { khasraNumber: number, qualifier: qualifier || null, canonicalAreaBigha: canonicalArea === "" ? null : Number(canonicalArea), canonicalAreaBiswa: null, canonicalAreaBiswansi: null, recordedAreaBigha: recordedArea === "" ? null : Number(recordedArea), recordedAreaBiswa: null, recordedAreaBiswansi: null, awardedAreaBigha: awardedArea === "" ? null : Number(awardedArea), awardedAreaBiswa: null, awardedAreaBiswansi: null }; const result: any = await post("/award-ingestion-sessions", { sourceType: "Manual", targetAwardId: id, selectedVillageId: villageId, sourceDocumentId: null, createdBy: null, remarks: null, candidates: [{ candidateType: "AwardKhasra", payloadJson: JSON.stringify(payload) }] }); navigate(`/awards/${id}/ingestion/${result.id}`); } catch (e) { setMessage(e instanceof Error ? e.message : "Could not create ingestion preview."); } };
-  return <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: a.awardNumber, to: route.award(id) }, { label: "Import review" }]} /><PageHeader eyebrow="Staging only · no canonical write" title="Import Review"><p>Create durable candidates first. Canonical Award and Village data changes only after explicit review and commit.</p></PageHeader><section className="workspace-panel"><h2>Manual candidate preview</h2><p>Excel, documents, OCR, and future approved AI use this same candidate contract. This form creates staging data only.</p>{linkedVillages.data.length === 0 ? <p className="form-message">This Award has no directly linked Village. Link a Village in the Award foundation before staging Khasras.</p> : <><div className="field-grid"><label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}>{linkedVillages.data.map(v => <option key={v.villageId} value={v.villageId}>{v.name}</option>)}</select></label><label>Khasra number<input value={number} onChange={e => setNumber(e.target.value)} placeholder="e.g. 2//22/1" /></label><label>Qualifier<input value={qualifier} onChange={e => setQualifier(e.target.value)} placeholder="min" /></label><label>Canonical / Village Bigha<input value={canonicalArea} onChange={e => setCanonicalArea(e.target.value)} inputMode="decimal" /></label><label>Award recorded Bigha<input value={recordedArea} onChange={e => setRecordedArea(e.target.value)} inputMode="decimal" /></label><label>Area awarded Bigha<input value={awardedArea} onChange={e => setAwardedArea(e.target.value)} inputMode="decimal" /></label></div><div className="form-footer"><span className="hint">Only directly linked Award Villages can be committed.</span><button onClick={create}>Create Preview</button></div></>}{message && <p className="form-message">{message}</p>}</section></>;
+  return <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: a.awardNumber, to: route.award(id) }, { label: "Import Award Data" }]} /><PageHeader eyebrow="Award data" title="Import Award Data"><p>Review incoming Award information before adding it to official records.</p></PageHeader><section className="import-intro"><h2>Review before adding</h2><p>Nothing will be added to official records until you review and confirm it. Start with a Khasra record below; bulk Excel upload will use the same review process.</p>{linkedVillages.data.length === 0 ? <p className="form-message">This Award does not yet have an Award Village. Add the Village to the Award before importing Khasras.</p> : <><div className="field-grid"><label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}>{linkedVillages.data.map(v => <option key={v.villageId} value={v.villageId}>{v.name}</option>)}</select></label><label>Khasra number<input value={number} onChange={e => setNumber(e.target.value)} placeholder="e.g. 2//22/1" /></label><label>Qualifier<input value={qualifier} onChange={e => setQualifier(e.target.value)} placeholder="min" /></label><label>Village master Bigha<input value={canonicalArea} onChange={e => setCanonicalArea(e.target.value)} inputMode="decimal" /></label><label>Award recorded Bigha<input value={recordedArea} onChange={e => setRecordedArea(e.target.value)} inputMode="decimal" /></label><label>Area awarded Bigha<input value={awardedArea} onChange={e => setAwardedArea(e.target.value)} inputMode="decimal" /></label></div><div className="form-footer"><span className="hint">Village master area and Award area remain separate.</span><button onClick={create}>Review Incoming Record</button></div></>}{message && <p className="form-message">{message}</p>}</section></>;
 }
 function AwardIngestionReview() {
-  const { id = "", sessionId = "" } = useParams(); const [refresh, setRefresh] = useState(0); const [selected, setSelected] = useState<string[]>([]); const [message, setMessage] = useState(""); const summary = useApi<any>(`/award-ingestion-sessions/${sessionId}?r=${refresh}`); const candidates = useApi<Page<any>>(path(`/award-ingestion-sessions/${sessionId}/candidates`, { page: 0, pageSize: 100, r: refresh })); if (summary.loading || candidates.loading) return <LoadingState />; if (summary.error || candidates.error || !summary.data || !candidates.data) return <ErrorState message={summary.error || candidates.error || "Could not load session."} />; const toggle = (candidateId: string) => setSelected(values => values.includes(candidateId) ? values.filter(x => x !== candidateId) : [...values, candidateId]); const commit = async () => { try { setMessage(""); await post(`/award-ingestion-sessions/${sessionId}/commit`, { candidateIds: selected, committedBy: "Award workspace" }); setSelected([]); setRefresh(x => x + 1); } catch (e) { setMessage(e instanceof Error ? e.message : "Commit failed."); } }; return <><Breadcrumbs items={[{ label: "Award", to: route.award(id) }, { label: "Import review" }]} /><PageHeader eyebrow={`Source: ${summary.data.sourceType}`} title="Import Review" actions={<button onClick={commit} disabled={!selected.length}>Commit Selected Ready Records</button>}><p>Session {summary.data.status}. Preview metadata stays in staging; only committed candidates become canonical operational records.</p></PageHeader><div className="metric-row">{Object.entries(summary.data.counts).map(([status, count]) => <span key={status}>{count as ReactNode} {status}</span>)}</div><section className="section"><h2>Candidates</h2><DataTable headers={["Commit", "Section", "Incoming", "Canonical match", "Result", "Review"]}>{candidates.data.items.map(candidate => <tr key={candidate.id}><td>{candidate.status === "Ready" ? <input type="checkbox" checked={selected.includes(candidate.id)} onChange={() => toggle(candidate.id)} /> : "—"}</td><td>{candidate.candidateType}</td><td><code>{candidate.payloadJson}</code></td><td>{candidate.canonicalEntityType || "Planned new canonical record"}</td><td><StatusBadge tone={candidate.status === "Conflict" ? "warning" : candidate.status === "Ready" ? "success" : undefined}>{candidate.status}</StatusBadge></td><td>{candidate.status === "Conflict" ? <button className="link-button" onClick={async () => { await post(`/award-ingestion-candidates/${candidate.id}/resolve`, { action: "KeepExisting" }); setRefresh(x => x + 1); }}>Keep existing master area</button> : candidate.validationIssuesJson || "—"}</td></tr>)}</DataTable>{message && <p className="form-message">{message}</p>}</section></>;
+  const { id = "", sessionId = "" } = useParams(); const [refresh, setRefresh] = useState(0); const [selected, setSelected] = useState<string[]>([]); const [message, setMessage] = useState(""); const summary = useApi<any>(`/award-ingestion-sessions/${sessionId}?r=${refresh}`); const candidates = useApi<Page<any>>(path(`/award-ingestion-sessions/${sessionId}/candidates`, { page: 0, pageSize: 100, r: refresh })); if (summary.loading || candidates.loading) return <LoadingState />; if (summary.error || candidates.error || !summary.data || !candidates.data) return <ErrorState message={summary.error || candidates.error || "Could not load session."} />; const toggle = (candidateId: string) => setSelected(values => values.includes(candidateId) ? values.filter(x => x !== candidateId) : [...values, candidateId]); const commit = async () => { try { setMessage(""); await post(`/award-ingestion-sessions/${sessionId}/commit`, { candidateIds: selected, committedBy: "Award workspace" }); setSelected([]); setRefresh(x => x + 1); } catch (e) { setMessage(e instanceof Error ? e.message : "Could not add selected records."); } }; const incoming = (candidate: any) => { try { const value = JSON.parse(candidate.payloadJson); return value.khasraNumber ? `${value.khasraNumber}${value.qualifier ? ` ${value.qualifier}` : ""}` : value.notificationNumber || value.caseNumber || value.claimReference || candidate.candidateType; } catch { return candidate.candidateType; } }; return <><Breadcrumbs items={[{ label: "Award", to: route.award(id) }, { label: "Review Imported Data" }]} /><PageHeader eyebrow={`Source: ${summary.data.sourceType}`} title="Review Imported Data" actions={<button onClick={commit} disabled={!selected.length}>Add Reviewed Records</button>}><p>Only records marked ready and selected below will be added. Conflicts, ambiguous records, and invalid records stay for review.</p></PageHeader><div className="review-summary">{Object.entries(summary.data.counts).map(([status, count]) => <span key={status}><b>{count as ReactNode}</b>{status}</span>)}</div><section className="import-section"><div className="import-section-header"><h3>Incoming Records</h3><span className="hint">{candidates.data.totalCount} records in this review</span></div><DataTable headers={["Add", "Section", "Incoming record", "Existing match", "Result", "Review"]}>{candidates.data.items.map(candidate => <tr key={candidate.id}><td>{candidate.status === "Ready" ? <input type="checkbox" checked={selected.includes(candidate.id)} onChange={() => toggle(candidate.id)} /> : "—"}</td><td>{candidate.candidateType === "AwardKhasra" ? "Khasras" : candidate.candidateType}</td><td>{incoming(candidate)}</td><td>{candidate.canonicalEntityType || "New record"}</td><td><StatusBadge tone={candidate.status === "Conflict" ? "warning" : candidate.status === "Ready" ? "success" : undefined}>{candidate.status === "Ready" ? "Ready to Add" : candidate.status}</StatusBadge></td><td>{candidate.status === "Conflict" ? <button className="link-button" onClick={async () => { await post(`/award-ingestion-candidates/${candidate.id}/resolve`, { action: "KeepExisting" }); setRefresh(x => x + 1); }}>Keep existing master area</button> : candidate.validationIssuesJson || "—"}</td></tr>)}</DataTable>{message && <p className="form-message">{message}</p>}</section></>;
 }
 function Notifications() {
   const [page, setPage] = useState(0);

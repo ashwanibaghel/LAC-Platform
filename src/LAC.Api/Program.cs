@@ -190,7 +190,6 @@ api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, Cance
         x.KhasraLinks.Any() ? "Available" : "Not Added", x.NotificationLinks.Any() ? "Available" : "Not Added", db.PossessionEvents.Any(p => p.AwardId == x.Id) ? "Partial" : "Not Added", db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id) ? "Available" : "Not Added", db.Claims.Any(c => c.AwardId == x.Id) ? "Available" : "Not Added"
     )).FirstOrDefaultAsync(ct);
     if (item is null) return NotFound("Award", id);
-    if (item.Villages.Count == 0) item = item with { Villages = await db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).Select(x => new VillageReference(x.Khasra.Village.Id, x.Khasra.Village.Name, new SubDivisionReference(x.Khasra.Village.SubDivision.Id, x.Khasra.Village.SubDivision.Name, new DistrictReference(x.Khasra.Village.SubDivision.District.Id, x.Khasra.Village.SubDivision.District.Name)))).Distinct().ToListAsync(ct) };
     return Results.Ok(item);
 });
 
