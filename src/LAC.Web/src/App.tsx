@@ -1952,9 +1952,9 @@ function AwardKhasraPanel({
           />
         </label>
       </div>
-      {number.trim() && (match.loading ? <p className="form-message">Searching Village Khasra…</p> : match.error ? <p className="form-message">Could not check this Khasra yet. Please correct the number or try again.</p> : match.data?.isExisting ? <><p className="form-message">✓ Existing Khasra found in {award.villages.find((v: any) => v.id === villageId)?.name}. This master record will be linked to the Award.</p><AreaInputGroup label="Canonical / Village Master Area" readOnly value={{ bigha: String(match.data.canonicalAreaBigha ?? ""), biswa: String(match.data.canonicalAreaBiswa ?? ""), biswansi: String(match.data.canonicalAreaBiswansi ?? "") }} /></> : <><p className="form-message">New Khasra. This Khasra will be added to {award.villages.find((v: any) => v.id === villageId)?.name} and marked for master review.</p><AreaInputGroup label="Canonical / Village Master Area (optional)" value={canonical} onChange={setCanonical} /></>)}
-      <AreaInputGroup label="Award Recorded Total Area" value={recorded} onChange={setRecorded} />
-      <AreaInputGroup label="Area Awarded" value={awarded} onChange={setAwarded} />
+      {number.trim() && (match.loading ? <p className="form-message">Searching Village Khasra…</p> : match.error ? <p className="form-message">Could not check this Khasra yet. Please correct the number or try again.</p> : match.data?.isExisting ? <><p className="form-message">✓ Existing Khasra found in {award.villages.find((v: any) => v.id === villageId)?.name}. This master record will be linked to the Award.</p><AreaInputGroup label="Village Master Area" readOnly value={{ bigha: String(match.data.canonicalAreaBigha ?? ""), biswa: String(match.data.canonicalAreaBiswa ?? ""), biswansi: String(match.data.canonicalAreaBiswansi ?? "") }} /></> : <><p className="form-message">New Khasra. This Khasra will be added to {award.villages.find((v: any) => v.id === villageId)?.name} and marked for master review.</p><AreaInputGroup label="Village Master Area (optional)" value={canonical} onChange={setCanonical} /></>)}
+      <AreaInputGroup label="Total Area Recorded in Award" value={recorded} onChange={setRecorded} />
+      <AreaInputGroup label="Area Awarded in this Award" value={awarded} onChange={setAwarded} />
       <div className="form-footer">
         <button className="secondary-button" onClick={onClose}>Cancel</button>
         <button onClick={save} disabled={!villageId || !number.trim() || match.loading || Boolean(match.error)}>
