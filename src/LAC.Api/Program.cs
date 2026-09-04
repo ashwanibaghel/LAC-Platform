@@ -18,11 +18,11 @@ if (!builder.Environment.IsEnvironment("Testing"))
     var connection = new NpgsqlConnectionStringBuilder(configuredConnection)
     {
         Pooling = true,
-        Timeout = 15,
-        CommandTimeout = 30,
+        Timeout = 6,
+        CommandTimeout = 15,
         KeepAlive = 30
     };
-    builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => npgsql.EnableRetryOnFailure()));
+    builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();

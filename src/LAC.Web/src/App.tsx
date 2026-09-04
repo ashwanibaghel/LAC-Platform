@@ -27,6 +27,7 @@ type CachedApiResponse = { expiresAt: number; data: unknown };
 const apiCache = new Map<string, CachedApiResponse>();
 const apiCachePrefix = "lac-platform:api-cache:v1:";
 const apiCacheTtlMs = 5 * 60 * 1000;
+const apiRequestTimeoutMs = 8_000;
 
 function readCachedResponse<T>(requestPath?: string): T | undefined {
   if (!requestPath) return undefined;
@@ -83,6 +84,8 @@ function useApi<T>(path?: string): State<T> {
   useEffect(() => {
     if (!path) return;
     const controller = new AbortController();
+    let timedOut = false;
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, apiRequestTimeoutMs);
     const cached = readCachedResponse<T>(path);
     if (cached !== undefined) setState({ loading: false, data: cached });
     else setState({ loading: true });
@@ -100,10 +103,14 @@ function useApi<T>(path?: string): State<T> {
         setState({ loading: false, data });
       })
       .catch((error) => {
-        if (error.name !== "AbortError" && cached === undefined)
-          setState({ loading: false, error: error.message });
+        if (cached === undefined) {
+          setState({ loading: false, error: timedOut ? "The data service is taking too long to respond. Please try again." : error.message });
+        }
+      })
+      .finally(() => {
+        window.clearTimeout(timeout);
       });
-    return () => controller.abort();
+    return () => { window.clearTimeout(timeout); controller.abort(); };
   }, [path]);
   return state;
 }
@@ -1707,10 +1714,10 @@ function Award() {
   const workspace = useApi<Page<any>>(
     path(`/awards/${id}/khasras`, { page, pageSize: 25, r: refresh }),
   );
-  const notifications = useApi<any[]>(`/awards/${id}/notifications?r=${refresh}`);
-  const possession = useApi<any[]>(`/awards/${id}/possession-events?r=${refresh}`);
-  const courtCases = useApi<any[]>(`/awards/${id}/court-cases?r=${refresh}`);
-  const claims = useApi<Page<any>>(path(`/awards/${id}/claims`, { page: 0, pageSize: 25, r: refresh }));
+  const notifications = useApi<any[]>(overview.data?.notificationCount > 0 ? `/awards/${id}/notifications?r=${refresh}` : undefined);
+  const possession = useApi<any[]>(overview.data?.possessionEventCount > 0 ? `/awards/${id}/possession-events?r=${refresh}` : undefined);
+  const courtCases = useApi<any[]>(overview.data?.courtCaseCount > 0 ? `/awards/${id}/court-cases?r=${refresh}` : undefined);
+  const claims = useApi<Page<any>>(overview.data?.claimCount > 0 ? path(`/awards/${id}/claims`, { page: 0, pageSize: 25, r: refresh }) : undefined);
   if (overview.loading || workspace.loading) return <LoadingState />;
   if (overview.error || workspace.error)
     return <ErrorState message={overview.error || workspace.error || ""} />;
