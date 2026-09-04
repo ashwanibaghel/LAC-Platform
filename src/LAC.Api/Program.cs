@@ -29,6 +29,7 @@ builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddScoped<AwardWorkflowService>();
+builder.Services.AddScoped<AwardIngestionService>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
@@ -193,6 +194,16 @@ api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, Cance
     return Results.Ok(item);
 });
 
+// This deliberately exposes only the direct AwardVillage relationship.  The workspace
+// overview may display Khasra-derived villages for navigation, but those are not valid
+// targets for a transactional Award ingestion commit.
+api.MapGet("/awards/{id:guid}/ingestion-villages", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    return Results.Ok(await db.AwardVillages.AsNoTracking().Where(x => x.AwardId == id)
+        .OrderBy(x => x.Village.Name).Select(x => new { x.VillageId, x.Village.Name }).ToListAsync(ct));
+});
+
 api.MapGet("/notifications", async (int page, int pageSize, string? q, LacDbContext db, CancellationToken ct) =>
 {
     var notifications = db.Notifications.AsNoTracking().AsQueryable();
@@ -340,6 +351,17 @@ api.MapPost("/awards/foundation", async (AwardFoundationCreateRequest request, A
     try { var award = await workflow.CreateAsync(new(request.AwardNumber, request.VillageId, request.AwardDate, request.AwardType, request.ActRegime, request.Purpose, request.AcquisitionProjectId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
 });
+
+api.MapPost("/award-ingestion-sessions", async (CreateAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) =>
+{
+    try { var session = await ingestion.CreatePreviewFromJsonAsync(request.SourceType, request.TargetAwardId, request.SelectedVillageId, request.SourceDocumentId, request.CreatedBy, request.Remarks, request.Candidates, ct); return Results.Created($"/api/award-ingestion-sessions/{session.Id}", new IdResponse(session.Id)); }
+    catch (AwardIngestionException ex) { return IngestionProblem(ex); }
+});
+api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
+api.MapGet("/awards/{id:guid}/ingestion-sessions", async (Guid id, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => Results.Ok(await ingestion.GetHistoryAsync(id, page, pageSize, ct)));
+api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
+api.MapPost("/award-ingestion-candidates/{id:guid}/resolve", async (Guid id, ResolveAwardIngestionCandidateRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.ResolveAsync(id, request.Action, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, CommitAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.CommitAsync(id, request.CandidateIds, request.CommittedBy, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 
 api.MapPost("/awards/{id:guid}/khasras", async (Guid id, AwardFoundationKhasraRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
@@ -491,6 +513,7 @@ static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
 static IResult AwardWorkflowProblem(AwardWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award workflow validation", detail: exception.Message);
+static IResult IngestionProblem(AwardIngestionException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award ingestion validation", detail: exception.Message);
 static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
@@ -534,6 +557,9 @@ public sealed record KhasraBatchRequest(IReadOnlyList<KhasraWorkspaceRow> Rows);
 public sealed record CreateNotificationRequest(string SectionType, string NotificationNumber, DateOnly? NotificationDate, string? Remarks);
 public sealed record CreateAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? ActRegime);
 public sealed record AwardFoundationCreateRequest(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
+public sealed record CreateAwardIngestionSessionRequest(AwardIngestionSourceType SourceType, Guid? TargetAwardId, Guid? SelectedVillageId, Guid? SourceDocumentId, string? CreatedBy, string? Remarks, IReadOnlyList<IngestionCandidateInput> Candidates);
+public sealed record ResolveAwardIngestionCandidateRequest(string Action);
+public sealed record CommitAwardIngestionSessionRequest(IReadOnlyList<Guid> CandidateIds, string? CommittedBy);
 public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
 public sealed record ResolveKhasraReviewRequest(string? ResolvedBy);
 public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, string? RectangleNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, Guid? ReviewFlagId);
