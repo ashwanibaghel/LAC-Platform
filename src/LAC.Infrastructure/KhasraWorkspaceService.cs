@@ -62,32 +62,76 @@ public sealed class KhasraWorkspaceService(LacDbContext db)
         var preview = await PreviewRowsAsync(villageId, rows, ct);
         var importable = preview.ImportableRows;
         if (importable.Count == 0) return new(0, 0, 0, 0, 0, 0, preview.TotalRows);
-        IDbContextTransaction? transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
-        try
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync<KhasraImportResult>(async () =>
         {
+            await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
             var result = new int[7];
-            foreach (var row in importable)
+            try
             {
-                var normalized = BaseNormalized(row);
-                var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.VillageId == villageId && x.NormalizedNumber == normalized && x.Qualifier == row.Qualifier, ct);
-                if (khasra is null) { khasra = NewKhasra(villageId, row, normalized); db.Khasras.Add(khasra); result[0]++; }
-                else result[1]++;
-                if (!string.IsNullOrWhiteSpace(row.AwardNumber))
+                var baseNumbers = importable.Select(BaseNormalized).Distinct().ToList();
+                var existingKhasras = (await db.Khasras
+                    .Where(x => x.VillageId == villageId && baseNumbers.Contains(x.NormalizedNumber))
+                    .ToListAsync(ct))
+                    .ToDictionary(x => IdentityKey(x.NormalizedNumber, x.Qualifier));
+                var awardNumbers = importable.Where(x => !string.IsNullOrWhiteSpace(x.AwardNumber))
+                    .Select(x => x.AwardNumber!.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var awards = (await db.Awards.Where(x => awardNumbers.Contains(x.AwardNumber)).ToListAsync(ct))
+                    .ToDictionary(x => x.AwardNumber, StringComparer.OrdinalIgnoreCase);
+                var linksToCreate = new List<(Award Award, Khasra Khasra)>();
+
+                foreach (var row in importable)
                 {
-                    var award = await db.Awards.SingleOrDefaultAsync(x => x.AwardNumber == row.AwardNumber.Trim(), ct);
-                    if (award is null) { award = new Award { AwardNumber = row.AwardNumber.Trim(), AwardDate = row.AwardDate, Status = "Draft" }; db.Awards.Add(award); result[2]++; }
+                    var normalized = BaseNormalized(row);
+                    var key = IdentityKey(normalized, row.Qualifier);
+                    if (!existingKhasras.TryGetValue(key, out var khasra))
+                    {
+                        khasra = NewKhasra(villageId, row, normalized);
+                        db.Khasras.Add(khasra);
+                        existingKhasras.Add(key, khasra);
+                        result[0]++;
+                    }
+                    else result[1]++;
+
+                    if (string.IsNullOrWhiteSpace(row.AwardNumber)) continue;
+                    var awardNumber = row.AwardNumber.Trim();
+                    if (!awards.TryGetValue(awardNumber, out var award))
+                    {
+                        award = new Award { AwardNumber = awardNumber, AwardDate = row.AwardDate, Status = "Draft" };
+                        db.Awards.Add(award);
+                        awards.Add(awardNumber, award);
+                        result[2]++;
+                    }
                     else result[3]++;
-                    await db.SaveChangesAsync(ct);
-                    if (!await db.Set<AwardKhasra>().AnyAsync(x => x.AwardId == award.Id && x.KhasraId == khasra.Id, ct)) { db.Add(new AwardKhasra { AwardId = award.Id, KhasraId = khasra.Id }); result[4]++; }
+                    linksToCreate.Add((award, khasra));
+                }
+
+                await db.SaveChangesAsync(ct);
+                var khasraIds = linksToCreate.Select(x => x.Khasra.Id).Distinct().ToList();
+                var awardIds = linksToCreate.Select(x => x.Award.Id).Distinct().ToList();
+                var existingLinks = (await db.Set<AwardKhasra>()
+                    .Where(x => khasraIds.Contains(x.KhasraId) && awardIds.Contains(x.AwardId))
+                    .Select(x => new { x.AwardId, x.KhasraId }).ToListAsync(ct))
+                    .Select(x => (x.AwardId, x.KhasraId)).ToHashSet();
+                foreach (var (award, khasra) in linksToCreate)
+                {
+                    if (existingLinks.Add((award.Id, khasra.Id)))
+                    {
+                        db.Add(new AwardKhasra { AwardId = award.Id, KhasraId = khasra.Id });
+                        result[4]++;
+                    }
                     else result[5]++;
                 }
+                await db.SaveChangesAsync(ct);
+                if (transaction is not null) await transaction.CommitAsync(ct);
+                return new(result[0], result[1], result[2], result[3], result[4], result[5], preview.InvalidRows);
             }
-            await db.SaveChangesAsync(ct);
-            if (transaction is not null) await transaction.CommitAsync(ct);
-            return new(result[0], result[1], result[2], result[3], result[4], result[5], preview.InvalidRows);
-        }
-        catch { if (transaction is not null) await transaction.RollbackAsync(ct); throw; }
-        finally { if (transaction is not null) await transaction.DisposeAsync(); }
+            catch
+            {
+                if (transaction is not null) await transaction.RollbackAsync(ct);
+                throw;
+            }
+        });
     }
 
     public async Task UpdateAsync(Guid khasraId, KhasraWorkspaceRow row, CancellationToken ct)
