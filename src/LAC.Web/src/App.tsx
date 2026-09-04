@@ -1870,6 +1870,11 @@ function Award() {
     </>
   );
 }
+function AreaInputGroup({ label, value, onChange, readOnly = false }: { label: string; value: { bigha: string; biswa: string; biswansi: string }; onChange?: (value: { bigha: string; biswa: string; biswansi: string }) => void; readOnly?: boolean }) {
+  const field = (key: "bigha" | "biswa" | "biswansi", caption: string, integer = false) => <label>{caption}<input value={value[key]} readOnly={readOnly} inputMode="decimal" onChange={e => { if (!readOnly) onChange?.({ ...value, [key]: integer ? e.target.value.replace(/[^0-9]/g, "") : e.target.value }); }} /></label>;
+  return <fieldset className="area-fieldset"><legend>{label}</legend><div className="area-inputs">{field("bigha", "Bigha")}{field("biswa", "Biswa", true)}{field("biswansi", "Biswansi", true)}</div></fieldset>;
+}
+
 function AwardKhasraPanel({
   award,
   onClose,
@@ -1882,23 +1887,31 @@ function AwardKhasraPanel({
   const [villageId, setVillageId] = useState(award.villages[0]?.id || "");
   const [number, setNumber] = useState("");
   const [qualifier, setQualifier] = useState("");
-  const [recorded, setRecorded] = useState("");
-  const [awarded, setAwarded] = useState("");
+  const [canonical, setCanonical] = useState({ bigha: "", biswa: "", biswansi: "" });
+  const [recorded, setRecorded] = useState({ bigha: "", biswa: "", biswansi: "" });
+  const [awarded, setAwarded] = useState({ bigha: "", biswa: "", biswansi: "" });
   const [message, setMessage] = useState("");
+  const matchPath = villageId && number.trim() ? path(`/awards/${award.id}/khasras/match`, { villageId, khasraNumber: number.trim(), qualifier: qualifier.trim() || undefined }) : undefined;
+  const match = useApi<any>(matchPath);
+  const numberOrNull = (value: string) => value.trim() === "" ? null : Number(value);
+  const integerOrNull = (value: string) => value.trim() === "" ? null : Number(value);
   const save = async () => {
     try {
       await post(`/awards/${award.id}/khasras`, {
         villageId,
         khasraNumber: number,
         qualifier: qualifier || null,
-        recordedTotalAreaBigha: recorded === "" ? null : Number(recorded),
-        recordedTotalAreaBiswa: null,
-        recordedTotalAreaBiswansi: null,
-        awardedAreaBigha: awarded === "" ? null : Number(awarded),
-        awardedAreaBiswa: null,
-        awardedAreaBiswansi: null,
+        recordedTotalAreaBigha: numberOrNull(recorded.bigha),
+        recordedTotalAreaBiswa: integerOrNull(recorded.biswa),
+        recordedTotalAreaBiswansi: integerOrNull(recorded.biswansi),
+        awardedAreaBigha: numberOrNull(awarded.bigha),
+        awardedAreaBiswa: integerOrNull(awarded.biswa),
+        awardedAreaBiswansi: integerOrNull(awarded.biswansi),
         relationshipStatus: "Recorded",
         remarks: null,
+        canonicalAreaBigha: match.data?.isExisting ? null : numberOrNull(canonical.bigha),
+        canonicalAreaBiswa: match.data?.isExisting ? null : integerOrNull(canonical.biswa),
+        canonicalAreaBiswansi: match.data?.isExisting ? null : integerOrNull(canonical.biswansi),
       });
       onSaved();
     } catch (e) {
@@ -1911,12 +1924,9 @@ function AwardKhasraPanel({
         <h3>Add / Link Khasra</h3>
         <button onClick={onClose}>Close</button>
       </div>
-      <p>
-        Existing canonical Khasra is reused. A missing one is added to the
-        selected Village master and marked for review.
-      </p>
+      <p>Link an existing Village Khasra, or add a missing Khasra for master review.</p>
       <div className="field-grid">
-        <label>
+        <label className="span-two">
           Village
           <select
             value={villageId}
@@ -1931,7 +1941,7 @@ function AwardKhasraPanel({
         </label>
         <label>
           Khasra Number
-          <input value={number} onChange={(e) => setNumber(e.target.value)} />
+          <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 22//2/1" />
         </label>
         <label>
           Qualifier
@@ -1941,27 +1951,14 @@ function AwardKhasraPanel({
             placeholder="min"
           />
         </label>
-        <label>
-          Award recorded Bigha
-          <input
-            value={recorded}
-            onChange={(e) => setRecorded(e.target.value)}
-            inputMode="decimal"
-          />
-        </label>
-        <label>
-          Area awarded Bigha
-          <input
-            value={awarded}
-            onChange={(e) => setAwarded(e.target.value)}
-            inputMode="decimal"
-          />
-        </label>
       </div>
-      {number.trim() && <p className="form-message">{qualifier ? `${number.trim()} ${qualifier.trim()}` : number.trim()} will be matched against the selected Village. Existing master records are reused; a new record is marked for master review.</p>}
+      {number.trim() && (match.loading ? <p className="form-message">Searching Village Khasra…</p> : match.error ? <p className="form-message">Could not check this Khasra yet. Please correct the number or try again.</p> : match.data?.isExisting ? <><p className="form-message">✓ Existing Khasra found in {award.villages.find((v: any) => v.id === villageId)?.name}. This master record will be linked to the Award.</p><AreaInputGroup label="Canonical / Village Master Area" readOnly value={{ bigha: String(match.data.canonicalAreaBigha ?? ""), biswa: String(match.data.canonicalAreaBiswa ?? ""), biswansi: String(match.data.canonicalAreaBiswansi ?? "") }} /></> : <><p className="form-message">New Khasra. This Khasra will be added to {award.villages.find((v: any) => v.id === villageId)?.name} and marked for master review.</p><AreaInputGroup label="Canonical / Village Master Area (optional)" value={canonical} onChange={setCanonical} /></>)}
+      <AreaInputGroup label="Award Recorded Total Area" value={recorded} onChange={setRecorded} />
+      <AreaInputGroup label="Area Awarded" value={awarded} onChange={setAwarded} />
       <div className="form-footer">
-        <button onClick={save} disabled={!villageId || !number.trim()}>
-          Save link
+        <button className="secondary-button" onClick={onClose}>Cancel</button>
+        <button onClick={save} disabled={!villageId || !number.trim() || match.loading || Boolean(match.error)}>
+          Add to Award
         </button>
       </div>
       {message && <p className="form-message">{message}</p>}

@@ -136,7 +136,7 @@ public sealed class AwardIngestionService(LacDbContext db, AwardWorkflowService 
                     var payload = Deserialize<AwardKhasraCandidate>(candidate);
                     var revalidated = await AnalyzeAsync(session, payload, candidate.Sequence, ct);
                     if (revalidated.Status == AwardIngestionCandidateStatus.Conflict && candidate.ResolutionAction is not "KeepExisting" and not "SkipField") { candidate.Status = AwardIngestionCandidateStatus.Conflict; candidate.ConflictDetailsJson = revalidated.ConflictDetailsJson; continue; }
-                    var result = await awards.LinkKhasraAsync(session.TargetAwardId.Value, new(session.SelectedVillageId.Value, payload.KhasraNumber, payload.Qualifier, payload.RecordedAreaBigha, payload.RecordedAreaBiswa, payload.RecordedAreaBiswansi, payload.AwardedAreaBigha, payload.AwardedAreaBiswa, payload.AwardedAreaBiswansi, "Recorded", null), ct);
+                    var result = await awards.LinkKhasraAsync(session.TargetAwardId.Value, new(session.SelectedVillageId.Value, payload.KhasraNumber, payload.Qualifier, payload.RecordedAreaBigha, payload.RecordedAreaBiswa, payload.RecordedAreaBiswansi, payload.AwardedAreaBigha, payload.AwardedAreaBiswa, payload.AwardedAreaBiswansi, "Recorded", null, payload.CanonicalAreaBigha, payload.CanonicalAreaBiswa, payload.CanonicalAreaBiswansi), ct);
                     candidate.CanonicalEntityId = result.KhasraId; candidate.CanonicalEntityType = nameof(Khasra); candidate.Status = AwardIngestionCandidateStatus.Committed; candidate.UpdatedAt = DateTimeOffset.UtcNow;
                     if (result.CreatedKhasra) created++; else reused++; if (result.CreatedReviewFlag) flags++;
                 }

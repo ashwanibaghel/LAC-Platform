@@ -5,8 +5,9 @@ namespace LAC.Infrastructure;
 
 public sealed class AwardWorkflowException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
 public sealed record AwardCreateInput(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
-public sealed record AwardKhasraInput(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
+public sealed record AwardKhasraInput(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks, decimal? CanonicalAreaBigha = null, int? CanonicalAreaBiswa = null, int? CanonicalAreaBiswansi = null);
 public sealed record AwardKhasraLinkResult(Guid KhasraId, bool CreatedKhasra, bool CreatedReviewFlag, bool CreatedAwardLink);
+public sealed record AwardKhasraMatchResult(bool IsExisting, string? DisplayNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi);
 
 public sealed class AwardWorkflowService(LacDbContext db)
 {
@@ -33,7 +34,7 @@ public sealed class AwardWorkflowService(LacDbContext db)
         var created = khasra is null;
         if (created)
         {
-            khasra = new Khasra { VillageId = input.VillageId, DisplayNumber = display, NormalizedNumber = baseNumber, Qualifier = qualifier, RectangleNumber = Rectangle(baseNumber) };
+            khasra = new Khasra { VillageId = input.VillageId, DisplayNumber = display, NormalizedNumber = baseNumber, Qualifier = qualifier, RectangleNumber = Rectangle(baseNumber), AreaBigha = input.CanonicalAreaBigha, AreaBiswa = input.CanonicalAreaBiswa, AreaBiswansi = input.CanonicalAreaBiswansi };
             db.Add(khasra);
         }
         var link = await db.Set<AwardKhasra>().SingleOrDefaultAsync(x => x.AwardId == awardId && x.KhasraId == khasra!.Id, ct);
@@ -49,6 +50,16 @@ public sealed class AwardWorkflowService(LacDbContext db)
         }
         db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardKhasra), EntityId = link.Id, Action = createdLink ? "AwardKhasraLinked" : "AwardKhasraUpdated", ChangedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct); return new(khasra!.Id, created, flagCreated, createdLink);
+    }
+
+    public async Task<AwardKhasraMatchResult> MatchKhasraAsync(Guid awardId, Guid villageId, string khasraNumber, string? qualifier, CancellationToken ct)
+    {
+        if (!await db.AwardVillages.AnyAsync(x => x.AwardId == awardId && x.VillageId == villageId, ct)) throw new AwardWorkflowException("The selected Village is not linked to this Award.");
+        if (string.IsNullOrWhiteSpace(khasraNumber)) throw new AwardWorkflowException("Khasra number is required.");
+        var cleanQualifier = Clean(qualifier);
+        var normalized = KhasraNumber.Normalize(RemoveQualifier(khasraNumber, cleanQualifier));
+        var khasra = await db.Khasras.AsNoTracking().SingleOrDefaultAsync(x => x.VillageId == villageId && x.NormalizedNumber == normalized && x.Qualifier == cleanQualifier, ct);
+        return khasra is null ? new(false, null, null, null, null) : new(true, khasra.DisplayNumber, khasra.AreaBigha, khasra.AreaBiswa, khasra.AreaBiswansi);
     }
 
     public async Task ResolveReviewFlagAsync(Guid flagId, string? resolvedBy, CancellationToken ct)

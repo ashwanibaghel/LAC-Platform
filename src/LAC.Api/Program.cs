@@ -364,7 +364,12 @@ api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, Commit
 
 api.MapPost("/awards/{id:guid}/khasras", async (Guid id, AwardFoundationKhasraRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
-    try { return Results.Ok(await workflow.LinkKhasraAsync(id, new(request.VillageId, request.KhasraNumber, request.Qualifier, request.RecordedTotalAreaBigha, request.RecordedTotalAreaBiswa, request.RecordedTotalAreaBiswansi, request.AwardedAreaBigha, request.AwardedAreaBiswa, request.AwardedAreaBiswansi, request.RelationshipStatus, request.Remarks), ct)); }
+    try { return Results.Ok(await workflow.LinkKhasraAsync(id, new(request.VillageId, request.KhasraNumber, request.Qualifier, request.RecordedTotalAreaBigha, request.RecordedTotalAreaBiswa, request.RecordedTotalAreaBiswansi, request.AwardedAreaBigha, request.AwardedAreaBiswa, request.AwardedAreaBiswansi, request.RelationshipStatus, request.Remarks, request.CanonicalAreaBigha, request.CanonicalAreaBiswa, request.CanonicalAreaBiswansi), ct)); }
+    catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
+});
+api.MapGet("/awards/{id:guid}/khasras/match", async (Guid id, Guid villageId, string khasraNumber, string? qualifier, AwardWorkflowService workflow, CancellationToken ct) =>
+{
+    try { return Results.Ok(await workflow.MatchKhasraAsync(id, villageId, khasraNumber, qualifier, ct)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
 });
 api.MapPost("/awards/{id:guid}/khasras/import-preview", async (Guid id, Guid villageId, IFormFile file, LacDbContext db, KhasraWorkspaceService workspace, CancellationToken ct) =>
@@ -559,7 +564,7 @@ public sealed record AwardFoundationCreateRequest(string AwardNumber, Guid Villa
 public sealed record CreateAwardIngestionSessionRequest(AwardIngestionSourceType SourceType, Guid? TargetAwardId, Guid? SelectedVillageId, Guid? SourceDocumentId, string? CreatedBy, string? Remarks, IReadOnlyList<IngestionCandidateInput> Candidates);
 public sealed record ResolveAwardIngestionCandidateRequest(string Action);
 public sealed record CommitAwardIngestionSessionRequest(IReadOnlyList<Guid> CandidateIds, string? CommittedBy);
-public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks);
+public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks, decimal? CanonicalAreaBigha = null, int? CanonicalAreaBiswa = null, int? CanonicalAreaBiswansi = null);
 public sealed record ResolveKhasraReviewRequest(string? ResolvedBy);
 public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, string? RectangleNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, Guid? ReviewFlagId);
 public sealed record KhasraReviewFlagItem(Guid Id, string Status, string ReasonCode, string? Message, Guid? RelatedAwardId, string? RelatedAwardNumber);

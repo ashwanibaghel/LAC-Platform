@@ -40,6 +40,24 @@ public sealed class AwardWorkflowTests
     }
 
     [Fact]
+    public async Task Live_match_returns_existing_master_area_and_link_does_not_overwrite_it()
+    {
+        await using var db = Db(); var village = new Village { Name = "Fictional Village" }; var master = new Khasra { Village = village, DisplayNumber = "8//2", NormalizedNumber = "8//2", AreaBigha = 4m, AreaBiswa = 16, AreaBiswansi = 2 }; db.AddRange(village, master); await db.SaveChangesAsync(); var service = new AwardWorkflowService(db); var award = await service.CreateAsync(new("TEST-AWARD-AREA", village.Id, null, null, null, null, null, null), default);
+        var match = await service.MatchKhasraAsync(award.Id, village.Id, "8//2", null, default);
+        Assert.True(match.IsExisting); Assert.Equal(4m, match.CanonicalAreaBigha); Assert.Equal(16, match.CanonicalAreaBiswa);
+        await service.LinkKhasraAsync(award.Id, new(village.Id, "8//2", null, 3m, 12, 1, 2m, 10, 0, "Recorded", null, 9m, 1, 1), default);
+        var savedMaster = await db.Khasras.SingleAsync(x => x.Id == master.Id); var link = await db.Set<AwardKhasra>().SingleAsync(); Assert.Equal(4m, savedMaster.AreaBigha); Assert.Equal(16, savedMaster.AreaBiswa); Assert.Equal(3m, link.RecordedTotalAreaBigha); Assert.Equal(2m, link.AwardedAreaBigha);
+    }
+
+    [Fact]
+    public async Task New_award_khasra_accepts_optional_master_area_and_creates_review_flag()
+    {
+        await using var db = Db(); var village = new Village { Name = "Fictional Village" }; db.Add(village); await db.SaveChangesAsync(); var service = new AwardWorkflowService(db); var award = await service.CreateAsync(new("TEST-AWARD-NEW-AREA", village.Id, null, null, null, null, null, null), default);
+        var result = await service.LinkKhasraAsync(award.Id, new(village.Id, "9//4", "min", 3m, 8, 1, 2m, 5, 0, "Recorded", null, 4m, 16, 2), default);
+        var master = await db.Khasras.SingleAsync(); Assert.True(result.CreatedKhasra); Assert.True(result.CreatedReviewFlag); Assert.Equal("min", master.Qualifier); Assert.Equal(4m, master.AreaBigha); Assert.Equal(16, master.AreaBiswa); Assert.Single(await db.KhasraReviewFlags.ToListAsync());
+    }
+
+    [Fact]
     public async Task Possession_is_partial_evidence_and_can_only_link_award_khasras()
     {
         await using var db = Db(); var village = new Village { Name = "Fictional Village" }; var khasra = new Khasra { Village = village, DisplayNumber = "7//1", NormalizedNumber = "7//1" }; db.AddRange(village, khasra); await db.SaveChangesAsync();
