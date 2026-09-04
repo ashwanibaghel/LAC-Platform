@@ -160,6 +160,13 @@ async function upload<T>(path: string, file: File): Promise<T> {
   clearApiCache();
   return data;
 }
+async function uploadAwardPdf<T>(targetAwardId: string | undefined, selectedVillageId: string | undefined, file: File): Promise<T> {
+  const form = new FormData(); form.append("file", file);
+  const query = new URLSearchParams(); if (targetAwardId) query.set("targetAwardId", targetAwardId); if (selectedVillageId) query.set("selectedVillageId", selectedVillageId);
+  const response = await fetch(`${api}/award-pdf-extractions${query.size ? `?${query}` : ""}`, { method: "POST", body: form });
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "Could not queue the Award PDF.");
+  clearApiCache(); return response.json() as Promise<T>;
+}
 
 const path = (
   base: string,
@@ -1627,7 +1634,7 @@ function Awards() {
   return (
     <>
       <Breadcrumbs items={[{ label: "Awards" }]} />
-      <PageHeader eyebrow="Acquisition awards" title="Awards" />
+      <PageHeader eyebrow="Acquisition awards" title="Awards" actions={<EntityLink to="/awards/import-pdf" className="secondary-button">Import Award PDF</EntityLink>} />
       <section className="section">
         <div className="section-heading">
           <h2>Award register</h2>
@@ -1709,6 +1716,7 @@ function Award() {
   const [refresh, setRefresh] = useState(0);
   const [adding, setAdding] = useState(false);
   const [related, setRelated] = useState(false);
+  const [pdfImport, setPdfImport] = useState(false);
   const [rectangle, setRectangle] = useState("");
   const overview = useApi<any>(`/awards/${id}/workspace?r=${refresh}`);
   const workspace = useApi<Page<any>>(
@@ -1742,7 +1750,7 @@ function Award() {
       <PageHeader
         eyebrow="Award workspace"
         title={a.awardNumber}
-        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><EntityLink to={`/awards/${id}/ingestion`} className="secondary-button">Upload / Import</EntityLink><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
+        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><button className="secondary-button" onClick={() => setPdfImport(true)}>Import / Review Data ▾</button><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
       >
         <p>
           {[
@@ -1867,8 +1875,18 @@ function Award() {
         />
       )}
       {related && <AwardRelatedPanel award={a} khasras={rows} onClose={() => setRelated(false)} onSaved={() => { setRelated(false); setRefresh(x => x + 1); }} />}
+      {pdfImport && <AwardPdfImportPanel award={a} onClose={() => setPdfImport(false)} />}
     </>
   );
+}
+function AwardPdfImportPanel({ award, onClose }: { award?: any; onClose?: () => void }) {
+  const navigate = useNavigate(); const [file, setFile] = useState<File>(); const [villageId, setVillageId] = useState(award?.villages?.length === 1 ? award.villages[0].id : ""); const [jobId, setJobId] = useState(""); const [message, setMessage] = useState(""); const [tick, setTick] = useState(0); const history = useApi<any[]>(award ? `/awards/${award.id}/pdf-extractions` : undefined);
+  const job = useApi<any>(jobId ? `/award-pdf-extractions/${jobId}?r=${tick}` : undefined);
+  useEffect(() => { if (!jobId || !job.data || ["NeedsReview", "Completed", "Failed", "Cancelled"].includes(job.data.status)) return; const timer = window.setTimeout(() => setTick(x => x + 1), 1200); return () => window.clearTimeout(timer); }, [jobId, job.data, tick]);
+  useEffect(() => { if (award && job.data?.ingestionSessionId) navigate(`/awards/${award.id}/ingestion/${job.data.ingestionSessionId}`); }, [award, job.data?.ingestionSessionId, navigate]);
+  const submit = async () => { try { if (!file) throw new Error("Choose a PDF file."); setMessage(""); const result: any = await uploadAwardPdf(award?.id, villageId || undefined, file); setJobId(result.jobId); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not queue the PDF."); } };
+  const body = <section className="workspace-panel"><div className="panel-title"><h3>Upload Award PDF</h3>{onClose && <button onClick={onClose}>Close</button>}</div><p>PDF extraction prepares a review session only. It never writes Award, Khasra, or other official records until a reviewer commits selected candidates.</p>{!jobId ? <><div className="field-grid"><label>Award context<input readOnly value={award?.awardNumber || "No Award selected — identity will be reviewed"} /></label>{award?.villages?.length ? <label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}><option value="">Not selected</option>{award.villages.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label> : null}<label className="span-two">PDF file<input type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0])} /></label></div><div className="form-footer"><span className="hint">Use dummy/artificial documents in development only.</span><button onClick={submit}>Process Award PDF</button></div></> : job.loading ? <LoadingState label="Processing Award…" /> : job.error ? <ErrorState message={job.error} /> : <div className="review-summary"><span><b>{job.data.processedPages}{job.data.totalPages ? ` of ${job.data.totalPages}` : ""}</b>pages processed</span><span><b>{job.data.status}</b>{job.data.currentStage || "Processing Award"}</span>{job.data.errorMessage && <span><b>Needs attention</b>{job.data.errorMessage}</span>}</div>}{award && history.data?.length ? <section className="import-section"><div className="import-section-header"><h3>Previous imports</h3><span className="hint">Return to a completed review at any time.</span></div>{history.data.map(item => <p key={item.id}><StatusBadge>{item.status}</StatusBadge>{" "}{item.totalPages ? `${item.processedPages} of ${item.totalPages} pages` : "Awaiting PDF analysis"}{item.ingestionSessionId && <>{" · "}<EntityLink to={`/awards/${award.id}/ingestion/${item.ingestionSessionId}`}>Open review</EntityLink></>}</p>)}</section> : null}{message && <p className="form-message">{message}</p>}</section>;
+  return onClose ? <aside className="workflow-drawer" aria-label="Upload Award PDF">{body}</aside> : <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: "Import Award PDF" }]} /><PageHeader eyebrow="Award data" title="Import Award PDF"><p>Upload a document first; Award identity is always reviewed before it becomes canonical data.</p></PageHeader>{body}</>;
 }
 function AreaInputGroup({ label, value, onChange, readOnly = false }: { label: string; value: { bigha: string; biswa: string; biswansi: string }; onChange?: (value: { bigha: string; biswa: string; biswansi: string }) => void; readOnly?: boolean }) {
   const field = (key: "bigha" | "biswa" | "biswansi", caption: string, integer = false) => <label>{caption}<input value={value[key]} readOnly={readOnly} inputMode="decimal" onChange={e => { if (!readOnly) onChange?.({ ...value, [key]: integer ? e.target.value.replace(/[^0-9]/g, "") : e.target.value }); }} /></label>;
@@ -2757,6 +2775,7 @@ function App() {
           <Route path="/khatas/:id" element={<Khata />} />
           <Route path="/parties/:id" element={<Party />} />
           <Route path="/awards" element={<Awards />} />
+          <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
           <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
           <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
           <Route path="/awards/:id" element={<Award />} />
