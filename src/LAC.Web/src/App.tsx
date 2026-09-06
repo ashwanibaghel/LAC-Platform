@@ -191,14 +191,13 @@ const path = (
   });
   return `${base}${search.size ? `?${search}` : ""}`;
 };
-const date = (value?: string | null) =>
-  value
-    ? new Intl.DateTimeFormat("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(new Date(`${value}T00:00:00`))
-    : "—";
+const date = (value?: string | null) => {
+  if (!value) return "—";
+  const raw = String(value);
+  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw + "T00:00:00" : raw);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
+};
 const amount = (value?: number | null, unit?: string | null) =>
   value == null ? "—" : `${value} ${unit || ""}`.trim();
 const route = {
