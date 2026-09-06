@@ -21,6 +21,7 @@
 .evidence-workbench{position:fixed;inset:20px;z-index:80;display:grid;grid-template-columns:minmax(340px,.7fr) minmax(480px,1.3fr);background:white;border:1px solid #d6e0e8;box-shadow:0 0 0 100vmax #15253860,0 24px 70px #0b213344;border-radius:14px;overflow:hidden;font-family:system-ui,sans-serif}
 .evidence-editor{overflow:auto;padding:24px;display:flex;flex-direction:column;gap:15px;min-width:0}
 .evidence-editor h2{font-size:21px;letter-spacing:-.5px;margin:0;font-weight:650;color:#213548}
+.evidence-editor .review-step{display:block;margin-bottom:5px}.review-guide{padding:13px 14px;border:1px solid #cfe1ee;border-left:3px solid #397ba7;border-radius:8px;background:#f3f8fb}.review-guide strong{display:block;font-size:12px;color:#245a7e;margin-bottom:4px}.review-guide p{font-size:12px;line-height:1.55;color:#4f687b}.review-action-hint{flex-basis:100%;font-size:11px;color:#718293;order:3}
 .evidence-editor .panel-title{padding-bottom:16px;border-bottom:1px solid #e6ecf1;align-items:center}
 .evidence-editor .panel-title button{background:white;color:#526477;border-color:#dae3eb;min-height:32px;padding:7px 11px}
 .evidence-editor .field-grid{gap:12px}.evidence-editor fieldset{padding:14px;border:1px solid #e0e7ee;border-radius:9px;margin:0}
