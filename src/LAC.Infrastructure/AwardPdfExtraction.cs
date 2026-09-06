@@ -144,7 +144,7 @@ public sealed class AwardPdfJobQueue : IAwardPdfJobQueue
     public ValueTask EnqueueAsync(Guid jobId, CancellationToken ct) => _channel.Writer.WriteAsync(jobId, ct);
     public IAsyncEnumerable<Guid> DequeueAllAsync(CancellationToken ct) => _channel.Reader.ReadAllAsync(ct);
 }
-public sealed record AwardPdfUploadResult(Guid JobId, Guid DocumentId);
+public sealed record AwardPdfUploadResult(Guid? JobId, Guid DocumentId);
 public sealed record AwardPdfJobSummary(Guid Id, AwardDocumentExtractionJobStatus Status, Guid DocumentId, Guid? IngestionSessionId, Guid? TargetAwardId, int? TotalPages, int ProcessedPages, string? CurrentStage, string? ErrorMessage, DateTimeOffset CreatedAt, DateTimeOffset? CompletedAt);
 
 public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage storage, IAwardPdfJobQueue queue)
@@ -168,8 +168,17 @@ public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage 
         else await storage.DeleteAsync(saved.StoragePath, ct);
         if (targetAwardId is Guid owner && !await db.DocumentAwards.AnyAsync(x => x.DocumentId == document.Id && x.AwardId == owner, ct))
             db.DocumentAwards.Add(new DocumentAward { Document = document, AwardId = owner });
-        var job = new AwardDocumentExtractionJob { Document = document, TargetAwardId = targetAwardId, SelectedVillageId = selectedVillageId, CurrentStage = "Reading document" };
-        db.AwardDocumentExtractionJobs.Add(job); await db.SaveChangesAsync(ct); await queue.EnqueueAsync(job.Id, ct); return new(job.Id, document.Id);
+        await db.SaveChangesAsync(ct);
+        return new(null, document.Id);
+    }
+    public async Task<AwardPdfUploadResult> AnalyzeAsync(Guid documentId, Guid targetAwardId, Guid? selectedVillageId, CancellationToken ct)
+    {
+        if (!await db.DocumentAwards.AnyAsync(x=>x.DocumentId==documentId && x.AwardId==targetAwardId,ct)) throw new AwardIngestionException("This document is not linked to the selected Award.",404);
+        if (selectedVillageId is not null && !await db.AwardVillages.AnyAsync(x=>x.AwardId==targetAwardId && x.VillageId==selectedVillageId,ct)) throw new AwardIngestionException("Choose a Village linked to this Award.");
+        var active=await db.AwardDocumentExtractionJobs.Where(x=>x.DocumentId==documentId && x.TargetAwardId==targetAwardId && (x.Status==AwardDocumentExtractionJobStatus.Queued || x.Status==AwardDocumentExtractionJobStatus.Extracting || x.Status==AwardDocumentExtractionJobStatus.Analyzing || x.Status==AwardDocumentExtractionJobStatus.BuildingCandidates)).Select(x=>(Guid?)x.Id).FirstOrDefaultAsync(ct);
+        if(active is Guid existing) return new(existing,documentId);
+        var job=new AwardDocumentExtractionJob{DocumentId=documentId,TargetAwardId=targetAwardId,SelectedVillageId=selectedVillageId,CurrentStage="Waiting to analyze"};
+        db.AwardDocumentExtractionJobs.Add(job);await db.SaveChangesAsync(ct);await queue.EnqueueAsync(job.Id,ct);return new(job.Id,documentId);
     }
     public async Task<AwardPdfJobSummary> GetAsync(Guid jobId, CancellationToken ct) => await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x => x.Id == jobId).Select(x => new AwardPdfJobSummary(x.Id, x.Status, x.DocumentId, x.IngestionSessionId, x.TargetAwardId, x.TotalPages, x.ProcessedPages, x.CurrentStage, x.ErrorMessage, x.CreatedAt, x.CompletedAt)).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("PDF extraction job was not found.", 404);
     public async Task<IReadOnlyList<AwardPdfJobSummary>> GetForAwardAsync(Guid awardId, CancellationToken ct) => await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x => x.TargetAwardId == awardId).OrderByDescending(x => x.CreatedAt).Take(20).Select(x => new AwardPdfJobSummary(x.Id, x.Status, x.DocumentId, x.IngestionSessionId, x.TargetAwardId, x.TotalPages, x.ProcessedPages, x.CurrentStage, x.ErrorMessage, x.CreatedAt, x.CompletedAt)).ToListAsync(ct);

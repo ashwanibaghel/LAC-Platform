@@ -7,9 +7,34 @@ namespace LAC.Infrastructure;
 public sealed record VerifyExtractedFactRequest(string VerifiedBy, string? CorrectedPayloadJson, string Action = "Confirm");
 public sealed record ConfirmExactRequest(string VerifiedBy, int ExpectedCount, int? SourcePage = null);
 public sealed record CommitVerifiedRequest(string VerifiedBy,int ExpectedCount);
+public sealed record ReviewContextRequest(Guid AwardId, Guid VillageId, string VerifiedBy);
 
 public sealed partial class AwardIngestionService
 {
+    public async Task SetReviewContextAsync(Guid sessionId, ReviewContextRequest request, CancellationToken ct)
+    {
+        RequireReviewer(request.VerifiedBy);
+        var session = await db.AwardIngestionSessions.Include(x=>x.Candidates).SingleOrDefaultAsync(x=>x.Id==sessionId,ct) ?? throw new AwardIngestionException("Review not found.",404);
+        if(session.Candidates.Any(x=>x.VerifiedAt!=null || x.Status==AwardIngestionCandidateStatus.Committed)) throw new AwardIngestionException("This review already contains verified records; its context cannot be changed.",409);
+        if(!await db.AwardVillages.AnyAsync(x=>x.AwardId==request.AwardId && x.VillageId==request.VillageId,ct)) throw new AwardIngestionException("Choose a Village linked to this Award.");
+        if(session.SourceDocumentId is null) throw new AwardIngestionException("This review has no source document.");
+        var old=JsonSerializer.Serialize(new {session.TargetAwardId,session.SelectedVillageId},Json);
+        session.TargetAwardId=request.AwardId; session.SelectedVillageId=request.VillageId;
+        foreach(var row in session.Candidates.Where(x=>x.Status!=AwardIngestionCandidateStatus.Skipped && x.Status!=AwardIngestionCandidateStatus.Rejected))
+        {
+            var checkedRow=await AnalyzeAsync(session,DeserializeInput(new(row.CandidateType,row.StructuredPayloadJson)),row.Sequence,ct);
+            if(row.Status!=AwardIngestionCandidateStatus.Conflict && row.Status!=AwardIngestionCandidateStatus.DuplicateInBatch) row.Status=checkedRow.Status;
+            row.CanonicalEntityId=checkedRow.CanonicalEntityId;row.CanonicalEntityType=checkedRow.CanonicalEntityType;
+            row.ValidationIssuesJson=checkedRow.ValidationIssuesJson;
+            if(row.Status==AwardIngestionCandidateStatus.Ready && EvidenceRequiresReview(row.SourceLocatorJson,out var warning)){row.Status=AwardIngestionCandidateStatus.NeedsReview;row.ValidationIssuesJson=JsonSerializer.Serialize(new[]{warning},Json);}
+            await RefreshEvidenceMetadataAsync(row,ct);
+        }
+        if(!await db.DocumentAwards.AnyAsync(x=>x.DocumentId==session.SourceDocumentId && x.AwardId==request.AwardId,ct)) db.DocumentAwards.Add(new(){DocumentId=session.SourceDocumentId.Value,AwardId=request.AwardId});
+        var jobs=await db.AwardDocumentExtractionJobs.Where(x=>x.IngestionSessionId==session.Id).ToListAsync(ct);
+        foreach(var job in jobs){job.TargetAwardId=request.AwardId;job.SelectedVillageId=request.VillageId;}
+        db.AuditLogs.Add(new(){EntityType=nameof(AwardIngestionSession),EntityId=session.Id,Action="ReviewContextConfirmed",ChangedBy=request.VerifiedBy.Trim(),OldValues=old,NewValues=JsonSerializer.Serialize(new{session.TargetAwardId,session.SelectedVillageId},Json)});
+        await db.SaveChangesAsync(ct);
+    }
     public async Task<IngestionCommitResult> CommitVerifiedAsync(Guid sessionId,CommitVerifiedRequest request,CancellationToken ct)
     {
         RequireReviewer(request.VerifiedBy);
@@ -29,11 +54,12 @@ public sealed partial class AwardIngestionService
 
     public async Task<object> GetReviewOverviewAsync(Guid sessionId,CancellationToken ct)
     {
-        var session = await db.AwardIngestionSessions.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==sessionId,ct) ?? throw new AwardIngestionException("Review not found.",404);
+        var session = await db.AwardIngestionSessions.AsNoTracking().Where(x=>x.Id==sessionId).Select(x=>new {x.Id,x.TargetAwardId,x.SelectedVillageId,x.SourceDocumentId,DocumentName=x.SourceDocument==null?null:x.SourceDocument.OriginalFileName,AwardNumber=x.TargetAward==null?null:x.TargetAward.AwardNumber,VillageName=x.SelectedVillage==null?null:x.SelectedVillage.Name}).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("Review not found.",404);
         var q=db.AwardIngestionCandidates.AsNoTracking().Where(x=>x.SessionId==sessionId);
         var sections=await q.GroupBy(x=>new{x.CandidateType,x.Status,x.SafeToConfirm,Verified=x.VerifiedAt!=null}).Select(g=>new{g.Key.CandidateType,g.Key.Status,g.Key.SafeToConfirm,g.Key.Verified,Count=g.Count()}).ToListAsync(ct);
         var pages=await q.Where(x=>x.CandidateType==AwardIngestionCandidateType.AwardKhasra).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
-        return new {session.Id,session.TargetAwardId,session.SelectedVillageId,session.SourceDocumentId,Sections=sections,Pages=pages};
+        var job=await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x=>x.IngestionSessionId==sessionId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Status,x.TotalPages,x.ProcessedPages}).FirstOrDefaultAsync(ct);
+        return new {session.Id,session.TargetAwardId,session.SelectedVillageId,session.SourceDocumentId,session.DocumentName,session.AwardNumber,session.VillageName,AnalysisStatus=job?.Status,TotalPages=job?.TotalPages,ProcessedPages=job?.ProcessedPages,Sections=sections,Pages=pages};
     }
 
     public async Task<int> ConfirmExactAsync(Guid sessionId,ConfirmExactRequest request,CancellationToken ct)
@@ -60,6 +86,8 @@ public sealed partial class AwardIngestionService
         try { payload=DeserializeInput(new(row.CandidateType,json)); }
         catch(JsonException) { throw new AwardIngestionException("The corrected values are not valid structured data."); }
         ValidateReviewPayload(payload);
+        if(payload is AwardVillageCandidate village && !await db.Villages.AnyAsync(x=>x.Id==row.Session.SelectedVillageId && x.Name==village.VillageName,ct)) throw new AwardIngestionException("Select the official Village spelling confirmed for this review.");
+        if(payload is AwardCoreCandidate core && await db.Awards.AnyAsync(x=>x.Id!=row.Session.TargetAwardId && x.AwardNumber==core.AwardNumber.Trim(),ct)) throw new AwardIngestionException("Another Award already uses this Award number. Keep the existing record or correct the source value.");
         var checkedRow=await AnalyzeAsync(row.Session,payload,row.Sequence,ct);
         if(checkedRow.Status is AwardIngestionCandidateStatus.Invalid or AwardIngestionCandidateStatus.Ambiguous or AwardIngestionCandidateStatus.Conflict) throw new AwardIngestionException("This value conflicts with existing records. Correct it or retain the existing value before confirmation.");
         if(payload is AwardKhasraCandidate k)
@@ -124,6 +152,8 @@ public sealed partial class AwardIngestionService
         static void Area(decimal? b,int? w,int? s) {if(b<0 || w is <0 or >19 || s is <0 or >19) throw new AwardIngestionException("Area values are outside the supported range.");}
         switch(payload)
         {
+            case AwardCoreCandidate a when !string.IsNullOrWhiteSpace(a.AwardNumber): break;
+            case AwardVillageCandidate v when !string.IsNullOrWhiteSpace(v.VillageName): break;
             case AwardKhasraCandidate k:
                 if(!new StrictKhasraParser().TryParse(k.KhasraNumber+(Clean(k.Qualifier) is string q?" "+q:""),out _,out _)) throw new AwardIngestionException("Enter a valid Khasra identifier; no digits will be guessed.");
                 Area(k.CanonicalAreaBigha,k.CanonicalAreaBiswa,k.CanonicalAreaBiswansi); Area(k.RecordedAreaBigha,k.RecordedAreaBiswa,k.RecordedAreaBiswansi); Area(k.AwardedAreaBigha,k.AwardedAreaBiswa,k.AwardedAreaBiswansi); break;
@@ -143,6 +173,18 @@ public sealed partial class AwardIngestionService
     private async Task<bool> CommitVerifiedRelatedAsync(AwardIngestionSession session,AwardIngestionCandidate candidate,CancellationToken ct)
     {
         var payload=DeserializeInput(new(candidate.CandidateType,candidate.StructuredPayloadJson)); ValidateReviewPayload(payload);
+        if(payload is AwardCoreCandidate core)
+        {
+            var award=await db.Awards.SingleAsync(x=>x.Id==session.TargetAwardId,ct);
+            if(await db.Awards.AnyAsync(x=>x.Id!=award.Id && x.AwardNumber==core.AwardNumber.Trim(),ct)) throw new AwardIngestionException("Another Award already uses this Award number.",409);
+            award.AwardNumber=core.AwardNumber.Trim(); award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
+            candidate.CanonicalEntityId=award.Id;candidate.CanonicalEntityType=nameof(Award);candidate.Status=AwardIngestionCandidateStatus.Committed;return true;
+        }
+        if(payload is AwardVillageCandidate village)
+        {
+            if(!await db.AwardVillages.AnyAsync(x=>x.AwardId==session.TargetAwardId && x.VillageId==session.SelectedVillageId && x.Village.Name==village.VillageName,ct)) throw new AwardIngestionException("The confirmed Award Village no longer matches.",409);
+            candidate.CanonicalEntityId=session.TargetAwardId; candidate.CanonicalEntityType=nameof(Award);candidate.Status=AwardIngestionCandidateStatus.Committed;return true;
+        }
         OfficialRecord? record=payload switch
         {
             PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status},
@@ -185,6 +227,8 @@ public sealed partial class AwardIngestionService
             var evidence=new SourceEvidence{DocumentId=session.SourceDocumentId!.Value,PageNumber=page,FactName=field.Name,ConfirmedValueJson=field.Value.GetRawText(),ExtractedSnippet=candidate.RawSourceText,VerifiedAt=candidate.VerifiedAt!.Value,VerifiedBy=candidate.VerifiedBy!};
             switch(candidate.CandidateType)
             {
+                case AwardIngestionCandidateType.AwardCore:evidence.AwardId=session.TargetAwardId;break;
+                case AwardIngestionCandidateType.AwardVillage:evidence.AwardId=session.TargetAwardId;break;
                 case AwardIngestionCandidateType.AwardKhasra:evidence.AwardKhasraId=linkId;break;
                 case AwardIngestionCandidateType.Notification:evidence.NotificationId=candidate.CanonicalEntityId;break;
                 case AwardIngestionCandidateType.PossessionEvent:evidence.PossessionEventId=candidate.CanonicalEntityId;break;

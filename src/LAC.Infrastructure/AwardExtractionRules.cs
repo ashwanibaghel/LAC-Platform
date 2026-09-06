@@ -155,17 +155,25 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
 
     private void ExtractAwardIdentity(IReadOnlyList<DocumentLine> lines, ICollection<ExtractionCandidate> output)
     {
+        DocumentLine? unreadableLabel = null;
         foreach (var line in lines)
         {
             var labelText = line.Text.Split([':', '#'], 2)[0];
             var label = matcher.MatchHeading(labelText, AwardDocumentConcept.AwardNumber);
             if (label.Kind == TextMatchKind.None || ContainsNegativeAwardContext(line.Text)) continue;
             var value = ValueAfterLabel(line.Text, label.MatchedAlias);
-            if (string.IsNullOrWhiteSpace(value) || !Regex.IsMatch(value, @"^[A-Za-z0-9][A-Za-z0-9/.-]{1,49}$")) continue;
+            if (string.IsNullOrWhiteSpace(value) || !Regex.IsMatch(value, @"^[A-Za-z0-9][A-Za-z0-9/.-]{1,49}$")) { unreadableLabel ??= line; continue; }
             var nearbyDate = lines.Where(other => other.PageNumber == line.PageNumber && Math.Abs(other.Baseline - line.Baseline) < 80m).Select(other => ExtractDate(other.Text)).FirstOrDefault(date => date is not null);
             Add(output, new AwardCoreCandidate(value, nearbyDate, null, null), line.PageNumber, "AwardIdentity", $"{label.Kind} Award Number label", ["Award Number label", "strict identifier syntax"], [] , line.Text);
-            break;
+            return;
         }
+        // When an Award label exists but its value is unreadable, preserve the
+        // explicit review task rather than inventing digits.  Documents with no
+        // Award identity label remain neutral evidence rather than false findings.
+        if (unreadableLabel is null) return;
+        Add(output, new AwardCoreCandidate("", null, null, null), unreadableLabel.PageNumber,
+            "AwardIdentity", "Award number could not be read with strict syntax", [],
+            ["Award number needs confirmation from the source document; no value was guessed."], unreadableLabel.Text);
     }
 
     private void ExtractNotifications(IReadOnlyList<DocumentLine> lines, ICollection<ExtractionCandidate> output)

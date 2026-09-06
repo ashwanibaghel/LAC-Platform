@@ -393,6 +393,7 @@ api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext 
 api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct)));
 api.MapGet("/awards/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardId==id || (x.AwardKhasra!=null && x.AwardKhasra.AwardId==id) || (x.PossessionEvent!=null && x.PossessionEvent.AwardId==id) || (x.NotificationId!=null && db.AwardNotifications.Any(n=>n.AwardId==id && n.NotificationId==x.NotificationId)),page??0,ct)));
 api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
+api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
 api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
 api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
 api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
@@ -403,6 +404,11 @@ api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId
     try { await using var stream = file.OpenReadStream(); var result = await extraction.QueueUploadAsync(stream, file.FileName, file.ContentType, targetAwardId, selectedVillageId, null, ct); return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}", result); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 }).DisableAntiforgery();
+api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/analyze", async (Guid awardId,Guid documentId,Guid? villageId,AwardPdfExtractionService extraction,CancellationToken ct) =>
+{
+    try { var result=await extraction.AnalyzeAsync(documentId,awardId,villageId,ct);return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}",result); }
+    catch(AwardIngestionException ex){return IngestionProblem(ex);}
+});
 api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct)));
 api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardPdfJobRunner runner, CancellationToken ct) => { try { return Results.Ok(await runner.ReanalyzeAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });

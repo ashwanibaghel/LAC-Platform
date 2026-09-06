@@ -56,6 +56,16 @@ public sealed class AwardExtractionRuleEngineTests
     }
 
     [Fact]
+    public void Unreadable_award_label_becomes_a_review_item_without_guessed_digits()
+    {
+        var candidate=Assert.Single(Engine().Extract(Page("Award No: 30/20?2-2003"), Context()));
+        var payload=JsonSerializer.Deserialize<AwardCoreCandidate>(candidate.Input.PayloadJson)!;
+        Assert.Equal(AwardIngestionCandidateType.AwardCore,candidate.Input.CandidateType);
+        Assert.Equal("",payload.AwardNumber);
+        Assert.Contains(candidate.Evidence.Warnings,warning=>warning.Contains("no value was guessed",StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Exact_master_match_is_evidence_not_digit_correction()
     {
         var pages = TablePage("Khasra No", "Total Area", "Area Awarded", ["22//2/7", "1-2-3", "0-10-0"]);

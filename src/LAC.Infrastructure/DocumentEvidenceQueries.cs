@@ -15,7 +15,8 @@ public static class DocumentEvidenceQueries
             Job=db.AwardDocumentExtractionJobs.Where(j=>j.DocumentId==x.DocumentId && j.TargetAwardId==awardId).OrderByDescending(j=>j.CreatedAt).Select(j=>new {j.Id,j.Status,j.ProcessedPages,j.TotalPages,j.IngestionSessionId,j.ErrorMessage,
                 Attention=db.AwardIngestionCandidates.Count(c=>c.SessionId==j.IngestionSessionId && c.VerifiedAt==null && !c.SafeToConfirm && c.Status!=AwardIngestionCandidateStatus.Committed && c.Status!=AwardIngestionCandidateStatus.Skipped),
                 Reviewed=db.AwardIngestionCandidates.Any(c=>c.SessionId==j.IngestionSessionId) && !db.AwardIngestionCandidates.Any(c=>c.SessionId==j.IngestionSessionId && c.VerifiedAt==null && c.Status!=AwardIngestionCandidateStatus.Skipped && c.Status!=AwardIngestionCandidateStatus.Committed)
-            }).FirstOrDefault()
+            }).FirstOrDefault(),
+            Villages=x.Award.VillageLinks.Select(v=>new {v.VillageId,v.Village.Name}).ToList()
         }).ToListAsync(ct);
     }
     public static async Task<IngestionPage<EvidenceView>> ReadAsync(LacDbContext db,Expression<Func<SourceEvidence,bool>> target,int page,CancellationToken ct)

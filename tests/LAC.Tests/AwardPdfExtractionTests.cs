@@ -25,11 +25,15 @@ public sealed class AwardPdfExtractionTests
         Assert.Equal(award.Id, link.AwardId); Assert.Equal(first.DocumentId, link.DocumentId);
         Assert.Empty(await db.AwardDocumentPageExtractions.ToListAsync());
         Assert.Empty(await db.AwardIngestionCandidates.ToListAsync());
-        Assert.Equal(AwardDocumentExtractionJobStatus.Queued, (await service.GetAsync(first.JobId, default)).Status);
+        Assert.Null(first.JobId);
+        Assert.Empty(await db.AwardDocumentExtractionJobs.ToListAsync());
         Assert.NotNull(await DocumentEvidenceQueries.AwardDocumentsAsync(db, award.Id, default));
         var second = await service.QueueUploadAsync(new MemoryStream(bytes), "same-content.pdf", "application/pdf", award.Id, null, "Test officer", default);
         Assert.Equal(first.DocumentId, second.DocumentId);
         Assert.Single(await db.Documents.ToListAsync()); Assert.Single(await db.DocumentAwards.ToListAsync());
+        var analysis = await service.AnalyzeAsync(first.DocumentId, award.Id, null, default);
+        Assert.NotNull(analysis.JobId);
+        Assert.Equal(AwardDocumentExtractionJobStatus.Queued, (await service.GetAsync(analysis.JobId!.Value, default)).Status);
     }
 
     [Theory]

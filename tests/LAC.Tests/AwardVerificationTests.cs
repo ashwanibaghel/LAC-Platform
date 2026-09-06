@@ -9,6 +9,31 @@ namespace LAC.Tests;
 public sealed class AwardVerificationTests
 {
     [Fact]
+    public async Task Older_upload_can_select_context_without_reupload_or_canonical_writes()
+    {
+        await using var f=await Fixture.Create();
+        var s=await f.Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,null,null,f.Document.Id,null,null,[f.KhasraInput()],default);
+        await f.Service.SetReviewContextAsync(s.Id,new(f.Award.Id,f.Village.Id,"Officer"),default);
+        Assert.Equal(f.Award.Id,s.TargetAwardId);Assert.Equal(f.Village.Id,s.SelectedVillageId);
+        var c=await f.Db.AwardIngestionCandidates.SingleAsync();Assert.Equal(1,c.SourcePage);Assert.True(c.SafeToConfirm);
+        Assert.Single(await f.Db.Documents.ToListAsync());Assert.Single(await f.Db.DocumentAwards.ToListAsync());
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Null(c.VerifiedAt);
+    }
+
+    [Fact]
+    public async Task Village_confirmation_checks_official_spelling_and_preserves_evidence()
+    {
+        await using var f=await Fixture.Create();var s=await f.Preview(f.Input(new AwardVillageCandidate("OCR spelling",null)));
+        var c=await f.Db.AwardIngestionCandidates.SingleAsync();
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.VerifyFactAsync(c.Id,new("Officer",null),default));
+        await f.Service.VerifyFactAsync(c.Id,new("Officer",JsonSerializer.Serialize(new AwardVillageCandidate(f.Village.Name,f.Village.Name))),default);
+        Assert.NotNull(c.VerifiedAt);Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.SetReviewContextAsync(s.Id,new(f.Award.Id,f.Village.Id,"Officer"),default));
+        await f.Service.CommitVerifiedAsync(s.Id,new("Officer",1),default);
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.DocumentId==f.Document.Id && e.PageNumber==1);
+    }
+
+    [Fact]
     public async Task Exact_group_confirmation_is_human_verification_not_canonical_commit()
     {
         await using var f=await Fixture.Create();
