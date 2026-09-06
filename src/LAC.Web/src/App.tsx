@@ -2083,7 +2083,7 @@ function AwardIngestionReview() {
   const [busy, setBusy] = useState(false);
   const summary = useApi<any>(`/award-ingestion-sessions/${sessionId}/overview?r=${refresh}`);
   const records = useApi<Page<any>>(path(`/award-ingestion-sessions/${sessionId}/candidates`, {page,pageSize:25,bucket,type:type || undefined,sourcePage:sourcePage || undefined,r:refresh}));
-  if (summary.error) return <ErrorState message={summary.error} />;
+  if (summary.error) return <div className="review-workspace"><Breadcrumbs items={[{label:"Awards",to:"/awards"},...(id?[{label:"Award",to:route.award(id)}]:[]),{label:"Document review"}]} /><section className="workspace-panel stale-review-panel"><h2>This document review is no longer available</h2><p>The saved review session could not be found. This usually happens when an older analysis was re-analyzed or its temporary review was cleared. No canonical Award data was deleted by this page.</p><Link className="primary-link" to={id?"/awards/"+id+"/ingestion":"/awards"}>{id?"Return to Award document review":"Return to Awards"}</Link></section></div>;
   if (!summary.data) return <LoadingState />;
   const s = summary.data;
   const groups: any[] = s.sections;
