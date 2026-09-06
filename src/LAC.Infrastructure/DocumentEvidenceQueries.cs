@@ -12,7 +12,7 @@ public static class DocumentEvidenceQueries
         return await db.DocumentAwards.AsNoTracking().Where(x=>x.AwardId==awardId).OrderByDescending(x=>x.Document.UploadedAt).Select(x=>new {
             x.Document.Id,x.Document.OriginalFileName,x.Document.DocumentType,x.Document.Sha256Hash,x.Document.FileSize,
             SourceUrl="/api/documents/"+x.DocumentId+"/content",
-            Job=db.AwardDocumentExtractionJobs.Where(j=>j.DocumentId==x.DocumentId && j.TargetAwardId==awardId).OrderByDescending(j=>j.CreatedAt).Select(j=>new {j.Id,j.Status,j.ProcessedPages,j.TotalPages,j.IngestionSessionId,j.ErrorMessage,
+            Job=db.AwardDocumentExtractionJobs.Where(j=>j.DocumentId==x.DocumentId && j.TargetAwardId==awardId).OrderByDescending(j=>j.CreatedAt).Select(j=>new {j.Id,j.Status,j.ProcessedPages,j.TotalPages,j.StartedAt,j.CurrentStage,j.IngestionSessionId,j.ErrorMessage,
                 Attention=db.AwardIngestionCandidates.Count(c=>c.SessionId==j.IngestionSessionId && c.VerifiedAt==null && !c.SafeToConfirm && c.Status!=AwardIngestionCandidateStatus.Committed && c.Status!=AwardIngestionCandidateStatus.Skipped),
                 Reviewed=db.AwardIngestionCandidates.Any(c=>c.SessionId==j.IngestionSessionId) && !db.AwardIngestionCandidates.Any(c=>c.SessionId==j.IngestionSessionId && c.VerifiedAt==null && c.Status!=AwardIngestionCandidateStatus.Skipped && c.Status!=AwardIngestionCandidateStatus.Committed)
             }).FirstOrDefault(),

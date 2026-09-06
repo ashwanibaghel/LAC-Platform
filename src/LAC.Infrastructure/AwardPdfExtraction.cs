@@ -206,11 +206,12 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         if(job.Status is AwardDocumentExtractionJobStatus.Queued or AwardDocumentExtractionJobStatus.Extracting or AwardDocumentExtractionJobStatus.Analyzing or AwardDocumentExtractionJobStatus.BuildingCandidates)
             throw new AwardIngestionException("This document is still processing. Saved-page re-analysis is available after processing finishes.",409);
         if (job.Pages.Count == 0) throw new AwardIngestionException("This document has no saved page evidence to re-analyze.");
-        job.Status = AwardDocumentExtractionJobStatus.Analyzing; job.CurrentStage = "Re-analyzing saved page evidence"; job.ErrorMessage = null; job.ExtractorVersion = AwardExtractionRuleSet.Version; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
+        job.Status = AwardDocumentExtractionJobStatus.Analyzing; job.CurrentStage = "Re-analyzing saved page evidence"; job.ErrorMessage = null; job.ExtractorVersion = AwardExtractionRuleSet.Version; job.StartedAt = DateTimeOffset.UtcNow; job.ProcessedPages = 0; job.TotalPages = job.Pages.Count; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
         try
         {
             var pages = job.Pages.OrderBy(page => page.PageNumber).Select(page => new NormalizedDocumentPage(page.PageNumber, page.Width, page.Height, page.ExtractionMethod, page.NormalizedText, JsonSerializer.Deserialize<List<DocumentToken>>(page.StructuredLayoutJson) ?? [], page.OcrConfidence, page.WarningMessage)).ToList();
             var inputs = await BuildCandidatesAsync(pages, job, ct);
+            job.ProcessedPages = pages.Count; job.CurrentStage = "Preparing review"; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
             var session = await ingestion.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, job.TargetAwardId, job.SelectedVillageId, job.DocumentId, "PDF extraction", $"Re-analyzed using {AwardExtractionRuleSet.Version}; review every candidate before commit.", inputs, ct);
             job.IngestionSessionId = session.Id; job.Status = AwardDocumentExtractionJobStatus.NeedsReview; job.CurrentStage = "Review ready"; job.CompletedAt = DateTimeOffset.UtcNow; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
         }
@@ -236,6 +237,7 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
                 if (savedPages.TryGetValue(pageNo, out var savedPage))
                 {
                     pages.Add(new(savedPage.PageNumber, savedPage.Width, savedPage.Height, savedPage.ExtractionMethod, savedPage.NormalizedText, JsonSerializer.Deserialize<List<DocumentToken>>(savedPage.StructuredLayoutJson) ?? [], savedPage.OcrConfidence, savedPage.WarningMessage));
+                    job.ProcessedPages = pageNo; job.CurrentStage = $"Reading document ({pageNo} of {pdf.NumberOfPages} pages)"; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
                     continue;
                 }
                 var page = pdf.GetPage(pageNo); var text = page.Text?.Trim() ?? "";
