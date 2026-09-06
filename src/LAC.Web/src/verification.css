@@ -28,6 +28,7 @@
 .evidence-editor legend{padding:0 6px;font-size:12px;font-weight:650;color:#3c566c}.evidence-editor fieldset .field-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 .evidence-editor p{font-size:13px;line-height:1.65;margin:0;color:#637487}.evidence-editor .review-reason{background:#f4f7fa;border-radius:8px;padding:12px 14px;color:#4c6174}
 .evidence-editor details{border-top:1px solid #e8edf2;padding-top:14px;font-size:12px;color:#65788a}.evidence-editor summary{cursor:pointer;font-weight:600}
+.source-spotlight{display:grid;gap:8px;padding:13px 14px;border:1px solid #ead99b;border-left:3px solid #d7a92c;border-radius:8px;background:#fffaf0}.source-spotlight>div{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:#80691e;text-transform:uppercase;letter-spacing:.55px}.source-spotlight mark{display:block;padding:9px 10px;border-radius:6px;background:#fff0a8;color:#4d3b08;font:600 13px/1.5 system-ui,sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}.source-spotlight small{font-size:11px;line-height:1.45;color:#806f43}
 .evidence-editor .form-footer{position:sticky;bottom:-24px;display:flex;flex-wrap:wrap;gap:9px;margin-top:auto;background:#fff;padding:16px 0 18px;border-top:1px solid #e4ebf1;box-shadow:0 -12px 20px #ffffffed}
 .evidence-editor .review-officer{flex-basis:100%}.review-officer input{max-width:250px}
 .evidence-editor .form-footer button[type="button"]{background:white;color:#375973;border-color:#d5e0e9}.evidence-editor .review-blocker{padding:12px;background:#fff6e8;color:#895b20;border-radius:8px}
