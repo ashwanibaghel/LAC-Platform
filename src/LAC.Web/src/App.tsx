@@ -2090,9 +2090,12 @@ function AwardIngestionReview() {
   const count = (predicate: (g:any)=>boolean) => groups.filter(predicate).reduce((sum,g)=>sum+g.count,0);
   const exact = count(g=>g.safeToConfirm && !g.verified && g.status==="Ready");
   const verified = count(g=>g.verified && g.status==="Ready");
+  const committed = count(g=>g.status==="Committed");
+  const skipped = count(g=>g.status==="Skipped" || g.status==="Rejected");
   const conflicts = count(g=>["Conflict","Ambiguous","DuplicateInBatch"].includes(g.status));
   const unreadable = count(g=>g.status==="Invalid");
   const attention = count(g=>!g.safeToConfirm && !g.verified && !["Committed","Skipped","Rejected"].includes(g.status));
+  const pending = exact + attention + conflicts + unreadable;
   const exactSelection = sourcePage ? s.pages.find((p:any)=>String(p.page)===sourcePage)?.exact || 0 : exact;
   const changed = () => {setPage(0);setRefresh(v=>v+1);};
   const runConfirm = async () => {
@@ -2113,8 +2116,9 @@ function AwardIngestionReview() {
     {!s.targetAwardId && <ReviewContextPicker sessionId={sessionId} reviewer={reviewer} onReviewer={setReviewer} onSaved={changed}/>}
     {s.targetAwardId && <div className="review-context-line"><span>Review linked to <Link to={route.award(s.targetAwardId)}>Award workspace</Link></span><span>Original PDF retained · analysis status: {s.analysisStatus||"Review ready"}</span></div>}
     <div className="verification-summary">
-      {[["exact","Exact matches",exact],["attention","Need attention",attention],["conflict","Conflicts",conflicts],["unreadable","Could not read",unreadable],["verified","Human verified",verified]].map(([value,label,total])=><button key={String(value)} aria-pressed={bucket===value} onClick={()=>{setBucket(String(value));setPage(0);}}><b>{total}</b>{label}</button>)}
+      {[["exact","Exact matches",exact],["attention","Need attention",attention],["conflict","Conflicts",conflicts],["unreadable","Could not read",unreadable],["verified","Human verified",verified],["committed","Committed",committed]].map(([value,label,total])=><button key={String(value)} aria-pressed={bucket===value} onClick={()=>{setBucket(String(value));setPage(0);}}><b>{total}</b>{label}</button>)}
     </div>
+    <section className="verification-status-note" aria-label="Review progress"><div><strong>{pending}</strong><span>still needs a decision</span></div><div><strong>{verified}</strong><span>verified and waiting for commit</span></div><div><strong>{committed}</strong><span>already committed to official records</span></div>{skipped>0&&<div><strong>{skipped}</strong><span>skipped / set aside</span></div>}<p>Verification is saved immediately and this page can be left safely. Commit only the human-verified records; committed items remain auditable here and are not re-created.</p></section>
     <div className="verification-toolbar">
       <label>Section<select value={type} onChange={e=>{setType(e.target.value);setPage(0);}}><option value="">All sections</option>{Array.from(new Set(groups.map(g=>g.candidateType))).map(t=><option key={String(t)} value={String(t)}>{reviewSectionName(String(t))} · {count(g=>g.candidateType===t)}</option>)}</select></label>
       <label>Source page<select value={sourcePage} onChange={e=>{setSourcePage(e.target.value);setPage(0);}}><option value="">All pages</option>{s.pages.filter((p:any)=>p.page).map((p:any)=><option key={p.page} value={p.page}>Page {p.page} · {p.count} Khasras · {p.exact} exact</option>)}</select></label>
@@ -2125,7 +2129,7 @@ function AwardIngestionReview() {
     </div>
     {confirmAction && <section className="workspace-panel" role="alertdialog" aria-label="Confirm reviewed group"><h3>{confirmAction==="exact"?"Confirm exact Khasra matches":"Commit human-verified records"}</h3><p>{confirmAction==="exact"?`${exactSelection} existing Khasras will be confirmed for linking. 0 new Khasras. 0 uncertain rows or conflicts included. This step verifies only; commit remains separate.`:`${verified} human-verified records will be committed. Their document, page, confirmed values and your verification will be preserved permanently.`}</p><button disabled={busy} onClick={runConfirm}>Confirm</button> <button disabled={busy} onClick={()=>setConfirmAction(undefined)}>Cancel</button></section>}
     {message && <p className="form-message" role="alert">{message}</p>}
-    {records.error ? <ErrorState message={records.error}/> : records.data ? <section className="section"><h2>{bucket==="attention"?"Items needing your attention":bucket==="exact"?"Exact matches":bucket==="verified"?"Human-verified records":"Review items"}</h2>
+    {records.error ? <ErrorState message={records.error}/> : records.data ? <section className="section"><h2>{bucket==="attention"?"Items needing your attention":bucket==="exact"?"Exact matches":bucket==="verified"?"Human-verified records":bucket==="committed"?"Committed records":"Review items"}</h2>
       <DataTable headers={["Section","Detected value","Source page","Review","Action"]}>{records.data.items.map(c=><tr key={c.id}><td>{reviewSectionName(c.candidateType)}</td><td>{display(c)}</td><td>{c.sourcePage || (()=>{try{const source=JSON.parse(c.sourceLocatorJson||"{}");return source.Page||source.page||"Not identified";}catch{return "Not identified";}})()}</td><td>{c.verifiedAt?`Verified by ${c.verifiedBy}`:c.safeToConfirm?"Exact match":c.status==="Conflict"?"Conflict":c.status==="Invalid"?"Could not read":"Needs attention"}</td><td><button className="link-button" onClick={()=>setActive(c)}>{c.verifiedAt?"View source":"Review / correct"}</button></td></tr>)}</DataTable>
       {records.data.items.length===0 && <p>No items in this group.</p>}
       <Pagination {...records.data} onChange={setPage}/>

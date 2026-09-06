@@ -106,6 +106,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
             "conflict"=>query.Where(x=>x.Status==AwardIngestionCandidateStatus.Conflict || x.Status==AwardIngestionCandidateStatus.Ambiguous || x.Status==AwardIngestionCandidateStatus.DuplicateInBatch),
             "unreadable"=>query.Where(x=>x.Status==AwardIngestionCandidateStatus.Invalid),
             "verified"=>query.Where(x=>x.VerifiedAt!=null && x.Status!=AwardIngestionCandidateStatus.Committed),
+            "committed"=>query.Where(x=>x.Status==AwardIngestionCandidateStatus.Committed),
             _=>query};
         return await ToPageAsync(query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence).Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy)), page, pageSize, ct);
     }

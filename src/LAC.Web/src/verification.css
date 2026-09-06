@@ -8,6 +8,9 @@
 .verification-summary button{flex:1;display:flex;align-items:center;justify-content:center;gap:9px;border:0;border-radius:8px;background:transparent;color:#596c7d;font:500 13px/1.4 system-ui,sans-serif;padding:12px 10px;cursor:pointer}
 .verification-summary button[aria-pressed="true"]{background:#fff;color:#174d7b;box-shadow:0 1px 4px #24394d16}
 .verification-summary b{font-size:16px;font-variant-numeric:tabular-nums}
+.verification-status-note{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:11px 13px;border:1px solid #dce7ee;border-radius:9px;background:#f7fafc;color:#526879;font-size:12px}
+.verification-status-note>div{display:flex;align-items:baseline;gap:5px;padding-right:10px;border-right:1px solid #dce5eb}
+.verification-status-note>div:last-of-type{border-right:0}.verification-status-note strong{font-size:16px;color:#234e70;font-variant-numeric:tabular-nums}.verification-status-note span{white-space:nowrap}.verification-status-note p{flex-basis:100%;margin:0;color:#6a7d8c;line-height:1.45}
 .verification-toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:16px 0 22px}
 .verification-toolbar label,.evidence-editor label{display:grid;gap:7px;font-size:12px;font-weight:600;color:#526477;min-width:0}
 .verification-toolbar input,.verification-toolbar select,.evidence-editor input,.evidence-editor select,.evidence-editor textarea{box-sizing:border-box;width:100%;min-height:39px;padding:9px 11px;border:1px solid #d5dfe8;border-radius:7px;background:#fff;color:#213548;font:400 14px/1.4 system-ui,sans-serif;outline:none}
