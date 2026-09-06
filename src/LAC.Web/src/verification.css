@@ -1,0 +1,18 @@
+.verification-summary { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+.verification-summary button { text-align:left; padding:10px 14px; background:white; color:#233b50; border:1px solid #d8e2ec; }
+.verification-summary button[aria-pressed="true"] { border-color:#21649e; background:#edf5fc; }
+.verification-summary b { display:block; font-size:20px; }
+.verification-toolbar { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin:12px 0; }
+.verification-toolbar label { display:grid; gap:4px; }
+.evidence-workbench { position:fixed; inset:60px 16px 16px max(16px, 8vw); z-index:30; display:grid; grid-template-columns:minmax(300px, .8fr) minmax(400px,1.3fr); background:white; border:1px solid #c9d8e7; box-shadow:0 8px 40px #152e4d33; border-radius:8px; overflow:hidden; }
+.evidence-editor { overflow:auto; padding:18px; }
+.evidence-editor h2 { font-size:20px; margin:0; }
+.evidence-editor .field-grid { gap:10px; }
+.evidence-editor .form-footer { position:sticky; bottom:0; background:white; padding:10px 0; }
+.evidence-viewer { display:flex; flex-direction:column; background:#edf1f5; border-left:1px solid #d8e2ec; min-width:0; }
+.evidence-viewer header { padding:10px; display:flex; justify-content:space-between; gap:10px; }
+.evidence-viewer iframe { width:100%; flex:1; border:0; min-height:300px; }
+.source-note { font-size:12px; color:#4b637a; margin:6px 0; }
+.document-line { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:10px 0; border-bottom:1px solid #e5ebf2; }
+.document-line strong { min-width:180px; }
+@media(max-width:800px){.evidence-workbench{inset:6px;grid-template-columns:1fr;overflow:auto}.evidence-viewer{min-height:65vh}.evidence-editor{overflow:visible}}

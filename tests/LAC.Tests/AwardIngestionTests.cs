@@ -61,6 +61,16 @@ public sealed class AwardIngestionTests
     }
 
     [Fact]
+    public async Task Evidence_warning_prevents_an_automatic_ready_khasra()
+    {
+        await using var db = Db(); var village = new Village { Name = "Fictional Village" }; var award = new Award { AwardNumber = "FICTIONAL-AWARD" }; db.AddRange(village, award, new AwardVillage { Award = award, Village = village }); await db.SaveChangesAsync();
+        var evidence = JsonSerializer.Serialize(new CandidateEvidence(1, AwardExtractionRuleSet.Version, "KhasraTable", "Test", ["table"], ["Area columns could not be safely interpreted."]));
+        var input = new IngestionCandidateInput(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(new AwardKhasraCandidate("4//12", null, null, null, null, null, null, null, null, null, null)), evidence);
+        var session = await Service(db).CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, null, null, null, [input], default);
+        Assert.Equal(AwardIngestionCandidateStatus.NeedsReview, (await db.AwardIngestionCandidates.SingleAsync(x => x.SessionId == session.Id)).Status);
+    }
+
+    [Fact]
     public async Task Award_ingestion_never_treats_a_khasra_derived_village_as_an_award_village()
     {
         await using var db = Db(); var village = new Village { Name = "Legacy Village" }; var award = new Award { AwardNumber = "LEGACY-AWARD" }; var khasra = new Khasra { Village = village, DisplayNumber = "1//1", NormalizedNumber = "1//1" }; db.AddRange(village, award, khasra, new AwardKhasra { Award = award, Khasra = khasra }); await db.SaveChangesAsync();

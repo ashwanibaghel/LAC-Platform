@@ -1,0 +1,113 @@
+using System.Text.Json;
+using LAC.Domain;
+using LAC.Infrastructure;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace LAC.Tests;
+
+public sealed class AwardVerificationTests
+{
+    [Fact]
+    public async Task Exact_group_confirmation_is_human_verification_not_canonical_commit()
+    {
+        await using var f=await Fixture.Create();
+        var session=await f.Preview(f.KhasraInput());
+        Assert.True((await f.Db.AwardIngestionCandidates.SingleAsync()).SafeToConfirm);
+        Assert.Equal(1,await f.Service.ConfirmExactAsync(session.Id,new("Test officer",1),default));
+        var c=await f.Db.AwardIngestionCandidates.SingleAsync();Assert.NotNull(c.VerifiedAt);Assert.Equal("Test officer",c.VerifiedBy);
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData(.97,false)]
+    [InlineData(.99,true)]
+    public async Task Numeric_uncertainty_never_enters_safe_group(decimal confidence,bool safe)
+    {
+        await using var f=await Fixture.Create();var session=await f.Preview(f.KhasraInput() with {Confidence=confidence});
+        Assert.Equal(safe,(await f.Db.AwardIngestionCandidates.SingleAsync()).SafeToConfirm);
+        if(!safe) await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.ConfirmExactAsync(session.Id,new("Officer",1),default));
+    }
+
+    [Fact]
+    public async Task Evidence_warning_and_conflicting_batch_block_every_affected_exact_match()
+    {
+        await using var f=await Fixture.Create();var warning=f.KhasraInput() with {SourceLocatorJson=JsonSerializer.Serialize(new CandidateEvidence(1,"test","KhasraTable","Test",[],["Last digit unclear"]))};
+        await f.Preview(warning);Assert.False((await f.Db.AwardIngestionCandidates.SingleAsync()).SafeToConfirm);
+        var session=await f.Preview(f.KhasraInput(),f.KhasraInput(3));
+        var rows=await f.Db.AwardIngestionCandidates.Where(x=>x.SessionId==session.Id).ToListAsync();
+        Assert.All(rows,x=>{Assert.False(x.SafeToConfirm);Assert.Equal(AwardIngestionCandidateStatus.Conflict,x.Status);});
+    }
+
+    [Fact]
+    public async Task Document_commit_requires_human_verification_and_cannot_use_legacy_resolve_bypass()
+    {
+        await using var f=await Fixture.Create();var session=await f.Preview(f.KhasraInput());var row=await f.Db.AwardIngestionCandidates.SingleAsync();
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.CommitAsync(session.Id,[row.Id],"Officer",default));
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.ResolveAsync(row.Id,"KeepExisting",default));
+        Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Verified_khasra_fact_retains_document_page_values_after_staging_purge()
+    {
+        await using var f=await Fixture.Create();var session=await f.Preview(f.KhasraInput());
+        await f.Service.ConfirmExactAsync(session.Id,new("Officer",1),default);await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        var link=await f.Db.Set<AwardKhasra>().SingleAsync();Assert.Equal(f.Khasra.Id,link.KhasraId);Assert.Equal(2,link.RecordedTotalAreaBigha);Assert.Equal(1,link.AwardedAreaBigha);Assert.Equal(4,f.Khasra.AreaBigha);
+        var evidence=await f.Db.SourceEvidence.Where(x=>x.FactName=="awardedAreaBigha").SingleAsync();Assert.Equal(link.Id,evidence.AwardKhasraId);Assert.Equal(f.Document.Id,evidence.DocumentId);Assert.Equal(1,evidence.PageNumber);Assert.Equal("1",evidence.ConfirmedValueJson);
+        f.Db.AwardIngestionCandidates.RemoveRange(await f.Db.AwardIngestionCandidates.ToListAsync());f.Db.AwardIngestionSessions.Remove(session);await f.Db.SaveChangesAsync();
+        Assert.NotEmpty(await f.Db.SourceEvidence.ToListAsync());Assert.Single(await f.Db.Documents.ToListAsync());
+        var view=await DocumentEvidenceQueries.ReadAsync(f.Db,x=>x.AwardKhasraId==link.Id,0,default);Assert.All(view.Items,x=>Assert.Equal($"/api/documents/{f.Document.Id}/content#page=1",x.SourceUrl));
+    }
+
+    [Fact]
+    public async Task Verified_notification_and_possession_have_permanent_typed_evidence()
+    {
+        await using var f=await Fixture.Create();var inputs=new[]{f.Input(new NotificationCandidate("Section 4","FIC/20",new(2026,1,1))),f.Input(new PossessionEventCandidate(new(2026,2,1),"Partial",null))};
+        var session=await f.Preview(inputs);
+        foreach(var c in await f.Db.AwardIngestionCandidates.ToListAsync())await f.Service.VerifyFactAsync(c.Id,new("Officer",null),default);
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",2),default);
+        var notification=await f.Db.Notifications.SingleAsync();var possession=await f.Db.PossessionEvents.SingleAsync();
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.NotificationId==notification.Id && e.DocumentId==f.Document.Id && e.PageNumber==1);
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.PossessionEventId==possession.Id && e.DocumentId==f.Document.Id && e.PageNumber==1);
+        Assert.Empty(await f.Db.Set<PossessionKhasra>().ToListAsync());Assert.Equal("Draft",f.Award.Status);
+    }
+
+    [Fact]
+    public async Task Reanalysis_differences_do_not_overwrite_verified_award_areas()
+    {
+        await using var f=await Fixture.Create();var first=await f.Preview(f.KhasraInput());await f.Service.ConfirmExactAsync(first.Id,new("Officer",1),default);await f.Service.CommitVerifiedAsync(first.Id,new("Officer",1),default);
+        var second=await f.Preview(f.KhasraInput(9));var row=await f.Db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==second.Id);
+        Assert.False(row.SafeToConfirm);await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.VerifyFactAsync(row.Id,new("Officer",null),default));
+        Assert.Equal(2,(await f.Db.Set<AwardKhasra>().SingleAsync()).RecordedTotalAreaBigha);Assert.NotEmpty(await f.Db.SourceEvidence.ToListAsync());Assert.Equal(9,JsonSerializer.Deserialize<AwardKhasraCandidate>(row.StructuredPayloadJson,new JsonSerializerOptions(JsonSerializerDefaults.Web))!.RecordedAreaBigha);
+    }
+
+    [Fact]
+    public async Task Changed_verified_payload_cannot_be_committed()
+    {
+        await using var f=await Fixture.Create();var s=await f.Preview(f.KhasraInput());await f.Service.ConfirmExactAsync(s.Id,new("Officer",1),default);
+        var c=await f.Db.AwardIngestionCandidates.SingleAsync();c.StructuredPayloadJson=f.KhasraInput(8).PayloadJson;await f.Db.SaveChangesAsync();
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.CommitVerifiedAsync(s.Id,new("Officer",1),default));
+    }
+
+    [Fact]
+    public async Task Multiple_documents_support_same_canonical_fact_without_duplicate_khasra()
+    {
+        await using var f=await Fixture.Create();var first=await f.Preview(f.KhasraInput());await f.Service.ConfirmExactAsync(first.Id,new("Officer",1),default);await f.Service.CommitVerifiedAsync(first.Id,new("Officer",1),default);
+        var other=new Document{OriginalFileName="fictional-second.pdf",StoragePath="fictional-second.pdf"};f.Db.Documents.Add(other);var job=new AwardDocumentExtractionJob{Document=other,TargetAward=f.Award,SelectedVillage=f.Village};f.Db.Add(job);f.Db.Add(new AwardDocumentPageExtraction{Job=job,PageNumber=1});await f.Db.SaveChangesAsync();
+        var s=await f.Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,f.Award.Id,f.Village.Id,other.Id,null,null,[f.KhasraInput()],default);await f.Service.ConfirmExactAsync(s.Id,new("Second officer",1),default);await f.Service.CommitVerifiedAsync(s.Id,new("Second officer",1),default);
+        Assert.Single(await f.Db.Khasras.ToListAsync());Assert.Single(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Equal(2,await f.Db.SourceEvidence.Select(x=>x.DocumentId).Distinct().CountAsync());
+    }
+
+    private sealed class Fixture : IAsyncDisposable
+    {
+        public LacDbContext Db {get;}=new(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        public Village Village {get;}=new(){Name="Fictional"}; public Award Award {get;}=new(){AwardNumber="FIC-VERIFY"}; public Document Document {get;}=new(){OriginalFileName="fictional.pdf",StoragePath="fictional.pdf"}; public Khasra Khasra {get;private set;}=null!;
+        public AwardIngestionService Service=>new(Db,new AwardWorkflowService(Db));
+        public static async Task<Fixture> Create(){var f=new Fixture();f.Khasra=new(){Village=f.Village,NormalizedNumber="4//12",DisplayNumber="4//12 min",Qualifier="min",AreaBigha=4};var job=new AwardDocumentExtractionJob{Document=f.Document,TargetAward=f.Award,SelectedVillage=f.Village};f.Db.AddRange(f.Village,f.Award,f.Document,f.Khasra,new AwardVillage{Award=f.Award,Village=f.Village},job,new AwardDocumentPageExtraction{Job=job,PageNumber=1});await f.Db.SaveChangesAsync();return f;}
+        public IngestionCandidateInput Input(IAwardIngestionCandidatePayload p)=>new(p.CandidateType,JsonSerializer.Serialize(p,p.GetType()),JsonSerializer.Serialize(new CandidateEvidence(1,"test","KhasraTable","Verified geometry",["known Award Village","strict Khasra grammar"],[])),"Fictional source evidence",1m);
+        public IngestionCandidateInput KhasraInput(decimal recorded=2)=>Input(new AwardKhasraCandidate("4//12","min",null,null,null,recorded,2,null,1,1,null));
+        public Task<AwardIngestionSession> Preview(params IngestionCandidateInput[] inputs)=>Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,Award.Id,Village.Id,Document.Id,null,null,inputs,default);
+        public ValueTask DisposeAsync()=>Db.DisposeAsync();
+    }
+}

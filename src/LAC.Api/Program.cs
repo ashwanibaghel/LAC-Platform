@@ -6,6 +6,10 @@ using Npgsql;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
+var pdfMaxFileSizeMb = Math.Clamp(builder.Configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024);
+var pdfMaxRequestBytes = pdfMaxFileSizeMb * 1024L * 1024L;
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = pdfMaxRequestBytes);
+builder.Services.Configure<Microsoft.AspNetCore.Builder.IISServerOptions>(options => options.MaxRequestBodySize = pdfMaxRequestBytes);
 builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -22,8 +26,10 @@ if (!builder.Environment.IsEnvironment("Testing"))
         CommandTimeout = 15,
         KeepAlive = 30
     };
+    if (connection.Host?.Contains("supabase", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("Supabase is not a local-first runtime database. Configure ConnectionStrings__DefaultConnection for local PostgreSQL at 127.0.0.1.");
     builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
+builder.Services.AddSingleton<LocalStoragePaths>();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
@@ -31,8 +37,13 @@ builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddScoped<AwardIngestionService>();
 builder.Services.AddSingleton<IAwardPdfJobQueue, AwardPdfJobQueue>();
-builder.Services.AddScoped<IOcrEngine, UnavailableOcrEngine>();
+builder.Services.AddScoped<IOcrEngine, TesseractOcrEngine>();
 builder.Services.AddSingleton<IAwardSectionClassifier, AwardSectionClassifier>();
+builder.Services.AddSingleton<TextConceptMatcher>();
+builder.Services.AddSingleton<StrictKhasraParser>();
+builder.Services.AddSingleton<StrictDateParser>();
+builder.Services.AddSingleton<StrictAreaParser>();
+builder.Services.AddSingleton<AwardExtractionRuleEngine>();
 builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -61,6 +72,14 @@ api.MapGet("/home", async (LacDbContext db, IMemoryCache cache, CancellationToke
         return await db.Districts.AsNoTracking().OrderBy(x => x.Name).Select(x => new DistrictDetail(x.Id, x.Name,
             x.SubDivisions.OrderBy(s => s.Name).Select(s => new SubDivisionListItem(s.Id, s.Name, s.Villages.Count)).ToList())).FirstOrDefaultAsync(ct);
     }));
+
+api.MapGet("/health", async (LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    var databaseReachable = await db.Database.CanConnectAsync(ct); var documentStorage = storage.GetHealth();
+    return (databaseReachable && documentStorage.Writable)
+        ? Results.Ok(new { status = "Healthy", database = "Reachable", documentStorage = new { writable = true, freeBytes = documentStorage.FreeBytes, totalBytes = documentStorage.TotalBytes } })
+        : Results.Json(new { status = "Degraded", database = databaseReachable ? "Reachable" : "Unavailable", documentStorage = new { writable = documentStorage.Writable, freeBytes = documentStorage.FreeBytes, totalBytes = documentStorage.TotalBytes } }, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
 
 api.MapGet("/districts", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
     await cache.GetOrCreateAsync("administrative-districts", async entry =>
@@ -226,6 +245,13 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
 });
 
 api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Documents.AsNoTracking().OrderByDescending(x => x.UploadedAt).Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status)), page, pageSize, ct)));
+api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    if (document is null) return Results.NotFound();
+    var stream = await storage.OpenReadAsync(document.StoragePath, ct);
+    return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+});
 
 api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =>
 {
@@ -362,17 +388,28 @@ api.MapPost("/award-ingestion-sessions", async (CreateAwardIngestionSessionReque
     try { var session = await ingestion.CreatePreviewFromJsonAsync(request.SourceType, request.TargetAwardId, request.SelectedVillageId, request.SourceDocumentId, request.CreatedBy, request.Remarks, request.Candidates, ct); return Results.Created($"/api/award-ingestion-sessions/{session.Id}", new IdResponse(session.Id)); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 });
+api.MapGet("/awards/{id:guid}/documents", async (Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.AwardDocumentsAsync(db,id,ct)));
+api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardKhasra!=null && x.AwardKhasra.KhasraId==id,page??0,ct)));
+api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct)));
+api.MapGet("/awards/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardId==id || (x.AwardKhasra!=null && x.AwardKhasra.AwardId==id) || (x.PossessionEvent!=null && x.PossessionEvent.AwardId==id) || (x.NotificationId!=null && db.AwardNotifications.Any(n=>n.AwardId==id && n.NotificationId==x.NotificationId)),page??0,ct)));
+api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
+api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}});
 api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId, Guid? selectedVillageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {
     if (file.Length == 0) return Validation("file", "Choose a non-empty PDF.");
+    if (file.Length > pdfMaxRequestBytes) return Validation("file", $"PDF exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
     try { await using var stream = file.OpenReadStream(); var result = await extraction.QueueUploadAsync(stream, file.FileName, file.ContentType, targetAwardId, selectedVillageId, null, ct); return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}", result); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
-});
+}).DisableAntiforgery();
 api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
+api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct)));
+api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardPdfJobRunner runner, CancellationToken ct) => { try { return Results.Ok(await runner.ReanalyzeAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapGet("/awards/{id:guid}/pdf-extractions", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetForAwardAsync(id, ct)));
 api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapGet("/awards/{id:guid}/ingestion-sessions", async (Guid id, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => Results.Ok(await ingestion.GetHistoryAsync(id, page, pageSize, ct)));
-api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
+api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, string? bucket, int? sourcePage, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct, bucket, sourcePage)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapPost("/award-ingestion-candidates/{id:guid}/resolve", async (Guid id, ResolveAwardIngestionCandidateRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.ResolveAsync(id, request.Action, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, CommitAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.CommitAsync(id, request.CandidateIds, request.CommittedBy, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 

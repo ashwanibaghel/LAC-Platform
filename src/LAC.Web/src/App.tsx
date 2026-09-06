@@ -13,6 +13,7 @@ import {
 import { ExportMenu } from "./components/ExportMenu";
 import "./index.css";
 import "./sidebar.css";
+import "./verification.css";
 
 const api = "/api";
 type Page<T> = {
@@ -28,6 +29,18 @@ const apiCache = new Map<string, CachedApiResponse>();
 const apiCachePrefix = "lac-platform:api-cache:v1:";
 const apiCacheTtlMs = 5 * 60 * 1000;
 const apiRequestTimeoutMs = 8_000;
+
+// Explicit local recovery clears only this application's cached API responses and job pointer.
+if (new URLSearchParams(window.location.search).get("resetCache") === "1") {
+  try {
+    for (const key of Object.keys(sessionStorage)) {
+      if (key.startsWith("lac-platform:api-cache:") || key.startsWith("lac.awardPdfJob.")) sessionStorage.removeItem(key);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete("resetCache");
+    window.history.replaceState(null, "", url);
+  } catch { /* Recovery remains optional when browser storage is unavailable. */ }
+}
 
 function readCachedResponse<T>(requestPath?: string): T | undefined {
   if (!requestPath) return undefined;
@@ -1552,6 +1565,7 @@ function Khasra() {
         )}
       </section>
       <section className="section">
+        <PermanentSourceLines endpoint={`/khasras/${id}/evidence`} />
         <h2>Source / LR information</h2>
         {k.lrEntries.length ? (
           <DataTable
@@ -1875,17 +1889,40 @@ function Award() {
         />
       )}
       {related && <AwardRelatedPanel award={a} khasras={rows} onClose={() => setRelated(false)} onSaved={() => { setRelated(false); setRefresh(x => x + 1); }} />}
-      {pdfImport && <AwardPdfImportPanel award={a} onClose={() => setPdfImport(false)} />}
+      <AwardDocumentsSection key={`${id}-${refresh}`} awardId={id} />
+      <PermanentSourceLines endpoint={`/awards/${id}/evidence`} />
+      {pdfImport && <AwardPdfImportPanel award={a} onClose={() => {setPdfImport(false);setRefresh(v=>v+1);}} />}
     </>
   );
 }
+function AwardDocumentsSection({awardId}:{awardId:string}) {
+  const [tick,setTick]=useState(()=>Date.now()); const [message,setMessage]=useState("");
+  const result=useApi<any[]>(`/awards/${awardId}/documents?r=${tick}`);
+  useEffect(()=>{const timer=window.setInterval(()=>setTick(Date.now()),5000);return()=>window.clearInterval(timer);},[]);
+  const analyze=async(id:string)=>{try{setMessage("Re-analyzing saved evidence. Existing verified values will not be replaced.");await post(`/award-pdf-extractions/${id}/reanalyze`,{});setTick(Date.now());setMessage("");}catch(e){setMessage(e instanceof Error?e.message:"Re-analysis failed.");}};
+  if(result.error)return <section className="section"><h2>Documents</h2><p role="alert">{result.error}</p></section>;
+  if(!result.data?.length)return null;
+  return <section className="section"><h2>Documents</h2>{result.data.map(doc=>{const j=doc.job;const processing=j&&["Queued","Extracting","Analyzing","BuildingCandidates"].includes(j.status);return <div className="document-line" key={doc.id}><strong>{doc.originalFileName}</strong><span>{processing?`Processing in background · ${j.processedPages} / ${j.totalPages||"…"} pages`:j?.status==="Failed"?"Processing failed":j?.reviewed?"Reviewed":j?.ingestionSessionId?`Review ready · ${j.attention} need attention`:"Stored"}</span><a href={doc.sourceUrl} target="_blank" rel="noreferrer">View PDF</a>{j?.ingestionSessionId&&<Link to={`/awards/${awardId}/ingestion/${j.ingestionSessionId}`}>Review extracted data</Link>}{j&&!processing&&<button className="link-button" onClick={()=>analyze(j.id)}>Re-analyze</button>}</div>;})}{message&&<p className="form-message">{message}</p>}</section>;
+}
+
+function PermanentSourceLines({endpoint}:{endpoint:string}) {
+  const [page,setPage]=useState(0);const result=useApi<Page<any>>(path(endpoint,{page}));
+  if(!result.data?.items.length)return null;
+  const groups = new Map<string,any[]>();
+  result.data.items.forEach(e=>{const key=`${e.documentId}:${e.pageNumber}:${e.verifiedAt}`;groups.set(key,[...(groups.get(key)||[]),e]);});
+  const factLabel=(name:string)=>({recordedAreaBigha:"Total Area Recorded in Award — Bigha",recordedAreaBiswa:"Total Area Recorded in Award — Biswa",recordedAreaBiswansi:"Total Area Recorded in Award — Biswansi",awardedAreaBigha:"Area Awarded — Bigha",awardedAreaBiswa:"Area Awarded — Biswa",awardedAreaBiswansi:"Area Awarded — Biswansi"} as Record<string,string>)[name]||name.replace(/([A-Z])/g," $1");
+  return <section className="section"><h2>Verified sources</h2>{Array.from(groups).map(([key,values])=>{const e=values[0];return <details key={key} className="source-note"><summary>{e.documentName} · Page {e.pageNumber} · Verified {date(e.verifiedAt)} · <a href={e.sourceUrl} target="_blank" rel="noreferrer">View source</a></summary><p>Verified by {e.verifiedBy}</p><dl>{values.map(f=><div key={f.id}><dt>{factLabel(f.factName)}</dt><dd>{String(JSON.parse(f.confirmedValueJson))}</dd></div>)}</dl></details>;})}<Pagination {...result.data} onChange={setPage}/></section>;
+}
+
 function AwardPdfImportPanel({ award, onClose }: { award?: any; onClose?: () => void }) {
-  const navigate = useNavigate(); const [file, setFile] = useState<File>(); const [villageId, setVillageId] = useState(award?.villages?.length === 1 ? award.villages[0].id : ""); const [jobId, setJobId] = useState(""); const [message, setMessage] = useState(""); const [tick, setTick] = useState(0); const history = useApi<any[]>(award ? `/awards/${award.id}/pdf-extractions` : undefined);
+  const navigate = useNavigate(); const jobStorageKey = award ? `lac.awardPdfJob.${award.id}` : "lac.awardPdfJob.standalone"; const [file, setFile] = useState<File>(); const [villageId, setVillageId] = useState(award?.villages?.length === 1 ? award.villages[0].id : ""); const [jobId, setJobId] = useState(() => award ? "" : sessionStorage.getItem(jobStorageKey) || ""); const [message, setMessage] = useState(""); const [tick, setTick] = useState(0); const history = useApi<any[]>(award ? `/awards/${award.id}/pdf-extractions` : "/award-pdf-extractions/recent");
   const job = useApi<any>(jobId ? `/award-pdf-extractions/${jobId}?r=${tick}` : undefined);
   useEffect(() => { if (!jobId || !job.data || ["NeedsReview", "Completed", "Failed", "Cancelled"].includes(job.data.status)) return; const timer = window.setTimeout(() => setTick(x => x + 1), 1200); return () => window.clearTimeout(timer); }, [jobId, job.data, tick]);
-  useEffect(() => { if (award && job.data?.ingestionSessionId) navigate(`/awards/${award.id}/ingestion/${job.data.ingestionSessionId}`); }, [award, job.data?.ingestionSessionId, navigate]);
-  const submit = async () => { try { if (!file) throw new Error("Choose a PDF file."); setMessage(""); const result: any = await uploadAwardPdf(award?.id, villageId || undefined, file); setJobId(result.jobId); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not queue the PDF."); } };
-  const body = <section className="workspace-panel"><div className="panel-title"><h3>Upload Award PDF</h3>{onClose && <button onClick={onClose}>Close</button>}</div><p>PDF extraction prepares a review session only. It never writes Award, Khasra, or other official records until a reviewer commits selected candidates.</p>{!jobId ? <><div className="field-grid"><label>Award context<input readOnly value={award?.awardNumber || "No Award selected — identity will be reviewed"} /></label>{award?.villages?.length ? <label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}><option value="">Not selected</option>{award.villages.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label> : null}<label className="span-two">PDF file<input type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0])} /></label></div><div className="form-footer"><span className="hint">Use dummy/artificial documents in development only.</span><button onClick={submit}>Process Award PDF</button></div></> : job.loading ? <LoadingState label="Processing Award…" /> : job.error ? <ErrorState message={job.error} /> : <div className="review-summary"><span><b>{job.data.processedPages}{job.data.totalPages ? ` of ${job.data.totalPages}` : ""}</b>pages processed</span><span><b>{job.data.status}</b>{job.data.currentStage || "Processing Award"}</span>{job.data.errorMessage && <span><b>Needs attention</b>{job.data.errorMessage}</span>}</div>}{award && history.data?.length ? <section className="import-section"><div className="import-section-header"><h3>Previous imports</h3><span className="hint">Return to a completed review at any time.</span></div>{history.data.map(item => <p key={item.id}><StatusBadge>{item.status}</StatusBadge>{" "}{item.totalPages ? `${item.processedPages} of ${item.totalPages} pages` : "Awaiting PDF analysis"}{item.ingestionSessionId && <>{" · "}<EntityLink to={`/awards/${award.id}/ingestion/${item.ingestionSessionId}`}>Open review</EntityLink></>}</p>)}</section> : null}{message && <p className="form-message">{message}</p>}</section>;
+  const reviewPath = job.data?.ingestionSessionId ? (award?.id || job.data.targetAwardId ? `/awards/${award?.id || job.data.targetAwardId}/ingestion/${job.data.ingestionSessionId}` : `/award-ingestion-sessions/${job.data.ingestionSessionId}/review`) : undefined;
+  useEffect(() => { if (reviewPath && !award) navigate(reviewPath); }, [reviewPath, navigate, award]);
+  const submit = async () => { try { if (!file) throw new Error("Choose a PDF file."); setMessage(""); const result: any = await uploadAwardPdf(award?.id, villageId || undefined, file); sessionStorage.setItem(jobStorageKey, result.jobId); setJobId(result.jobId); if(award && onClose) onClose(); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not queue the PDF."); } };
+  const reanalyze = async (id: string) => { try { setMessage(""); const result: any = await post(`/award-pdf-extractions/${id}/reanalyze`, {}); sessionStorage.setItem(jobStorageKey, result.id); setJobId(result.id); setTick(x => x + 1); } catch (error) { setMessage(error instanceof Error ? error.message : "Could not re-analyze the saved evidence."); } };
+  const body = <section className="workspace-panel"><div className="panel-title"><h3>Upload Award PDF</h3>{onClose && <button onClick={onClose}>Close</button>}</div><p>PDF extraction prepares a review session only. It never writes Award, Khasra, or other official records until a reviewer commits selected candidates.</p>{!jobId ? <><div className="field-grid"><label>Award context<input readOnly value={award?.awardNumber || "No Award selected — identity will be reviewed"} /></label>{award?.villages?.length ? <label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}><option value="">Not selected</option>{award.villages.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}</select></label> : null}<label className="span-two">PDF file<input type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0])} /></label></div><div className="form-footer"><span className="hint">Use dummy/artificial documents in development only.</span><button onClick={submit}>Process Award PDF</button></div></> : job.error ? <ErrorState message={`Could not read extraction progress: ${job.error}. Your saved pages are retained. Refresh to reconnect.`} /> : job.loading || !job.data ? <LoadingState label="Checking extraction progress…" /> : <div className="review-summary"><span><b>{job.data.processedPages}{job.data.totalPages ? ` of ${job.data.totalPages}` : ""}</b>pages processed</span><span><b>{job.data.status}</b>{job.data.currentStage || "Processing Award"}</span>{reviewPath && <button onClick={() => navigate(reviewPath)}>Open review</button>}<button className="secondary-button" onClick={() => reanalyze(job.data.id)}>Re-analyze saved evidence</button>{job.data.errorMessage && <span><b>Needs attention</b>{job.data.errorMessage}</span>}</div>}{history.data?.length ? <section className="import-section"><div className="import-section-header"><h3>{award ? "Previous imports" : "Recent PDF reviews"}</h3><span className="hint">Return to a completed review at any time.</span></div>{history.data.map(item => { const itemReviewPath = item.ingestionSessionId ? (item.targetAwardId ? `/awards/${item.targetAwardId}/ingestion/${item.ingestionSessionId}` : `/award-ingestion-sessions/${item.ingestionSessionId}/review`) : undefined; return <p key={item.id}><StatusBadge>{item.status}</StatusBadge>{" "}{item.totalPages ? `${item.processedPages} of ${item.totalPages} pages` : "Awaiting PDF analysis"}{itemReviewPath && <>{" · "}<EntityLink to={itemReviewPath}>Open review</EntityLink></>} <button className="link-button" onClick={() => reanalyze(item.id)}>Re-analyze</button></p>; })}</section> : null}{message && <p className="form-message">{message}</p>}</section>;
   return onClose ? <aside className="workflow-drawer" aria-label="Upload Award PDF">{body}</aside> : <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: "Import Award PDF" }]} /><PageHeader eyebrow="Award data" title="Import Award PDF"><p>Upload a document first; Award identity is always reviewed before it becomes canonical data.</p></PageHeader>{body}</>;
 }
 function AreaInputGroup({ label, value, onChange, readOnly = false }: { label: string; value: { bigha: string; biswa: string; biswansi: string }; onChange?: (value: { bigha: string; biswa: string; biswansi: string }) => void; readOnly?: boolean }) {
@@ -2023,8 +2060,89 @@ function AwardIngestion() {
   return <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: a.awardNumber, to: route.award(id) }, { label: "Import Award Data" }]} /><PageHeader eyebrow="Award data" title="Import Award Data"><p>Review incoming Award information before adding it to official records.</p></PageHeader><section className="import-intro"><h2>Review before adding</h2><p>Nothing will be added to official records until you review and confirm it. Start with a Khasra record below; bulk Excel upload will use the same review process.</p>{linkedVillages.data.length === 0 ? <p className="form-message">This Award does not yet have an Award Village. Add the Village to the Award before importing Khasras.</p> : <><div className="field-grid"><label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}>{linkedVillages.data.map(v => <option key={v.villageId} value={v.villageId}>{v.name}</option>)}</select></label><label>Khasra number<input value={number} onChange={e => setNumber(e.target.value)} placeholder="e.g. 2//22/1" /></label><label>Qualifier<input value={qualifier} onChange={e => setQualifier(e.target.value)} placeholder="min" /></label><label>Village master Bigha<input value={canonicalArea} onChange={e => setCanonicalArea(e.target.value)} inputMode="decimal" /></label><label>Award recorded Bigha<input value={recordedArea} onChange={e => setRecordedArea(e.target.value)} inputMode="decimal" /></label><label>Area awarded Bigha<input value={awardedArea} onChange={e => setAwardedArea(e.target.value)} inputMode="decimal" /></label></div><div className="form-footer"><span className="hint">Village master area and Award area remain separate.</span><button onClick={create}>Review Incoming Record</button></div></>}{message && <p className="form-message">{message}</p>}</section></>;
 }
 function AwardIngestionReview() {
-  const { id = "", sessionId = "" } = useParams(); const [refresh, setRefresh] = useState(0); const [selected, setSelected] = useState<string[]>([]); const [message, setMessage] = useState(""); const summary = useApi<any>(`/award-ingestion-sessions/${sessionId}?r=${refresh}`); const candidates = useApi<Page<any>>(path(`/award-ingestion-sessions/${sessionId}/candidates`, { page: 0, pageSize: 100, r: refresh })); if (summary.loading || candidates.loading) return <LoadingState />; if (summary.error || candidates.error || !summary.data || !candidates.data) return <ErrorState message={summary.error || candidates.error || "Could not load session."} />; const toggle = (candidateId: string) => setSelected(values => values.includes(candidateId) ? values.filter(x => x !== candidateId) : [...values, candidateId]); const commit = async () => { try { setMessage(""); await post(`/award-ingestion-sessions/${sessionId}/commit`, { candidateIds: selected, committedBy: "Award workspace" }); setSelected([]); setRefresh(x => x + 1); } catch (e) { setMessage(e instanceof Error ? e.message : "Could not add selected records."); } }; const incoming = (candidate: any) => { try { const value = JSON.parse(candidate.payloadJson); return value.khasraNumber ? `${value.khasraNumber}${value.qualifier ? ` ${value.qualifier}` : ""}` : value.notificationNumber || value.caseNumber || value.claimReference || candidate.candidateType; } catch { return candidate.candidateType; } }; return <><Breadcrumbs items={[{ label: "Award", to: route.award(id) }, { label: "Review Imported Data" }]} /><PageHeader eyebrow={`Source: ${summary.data.sourceType}`} title="Review Imported Data" actions={<button onClick={commit} disabled={!selected.length}>Add Reviewed Records</button>}><p>Only records marked ready and selected below will be added. Conflicts, ambiguous records, and invalid records stay for review.</p></PageHeader><div className="review-summary">{Object.entries(summary.data.counts).map(([status, count]) => <span key={status}><b>{count as ReactNode}</b>{status}</span>)}</div><section className="import-section"><div className="import-section-header"><h3>Incoming Records</h3><span className="hint">{candidates.data.totalCount} records in this review</span></div><DataTable headers={["Add", "Section", "Incoming record", "Existing match", "Result", "Review"]}>{candidates.data.items.map(candidate => <tr key={candidate.id}><td>{candidate.status === "Ready" ? <input type="checkbox" checked={selected.includes(candidate.id)} onChange={() => toggle(candidate.id)} /> : "—"}</td><td>{candidate.candidateType === "AwardKhasra" ? "Khasras" : candidate.candidateType}</td><td>{incoming(candidate)}</td><td>{candidate.canonicalEntityType || "New record"}</td><td><StatusBadge tone={candidate.status === "Conflict" ? "warning" : candidate.status === "Ready" ? "success" : undefined}>{candidate.status === "Ready" ? "Ready to Add" : candidate.status}</StatusBadge></td><td>{candidate.status === "Conflict" ? <button className="link-button" onClick={async () => { await post(`/award-ingestion-candidates/${candidate.id}/resolve`, { action: "KeepExisting" }); setRefresh(x => x + 1); }}>Keep existing master area</button> : candidate.validationIssuesJson || "—"}</td></tr>)}</DataTable>{message && <p className="form-message">{message}</p>}</section></>;
+  const { id = "", sessionId = "" } = useParams();
+  const [refresh, setRefresh] = useState(0);
+  const [bucket, setBucket] = useState("attention");
+  const [type, setType] = useState("");
+  const [page, setPage] = useState(0);
+  const [sourcePage, setSourcePage] = useState("");
+  const [reviewer, setReviewer] = useState("");
+  const [message, setMessage] = useState("");
+  const [active, setActive] = useState<any>();
+  const [confirmAction, setConfirmAction] = useState<"exact" | "commit">();
+  const [busy, setBusy] = useState(false);
+  const summary = useApi<any>(`/award-ingestion-sessions/${sessionId}/overview?r=${refresh}`);
+  const records = useApi<Page<any>>(path(`/award-ingestion-sessions/${sessionId}/candidates`, {page,pageSize:25,bucket,type:type || undefined,sourcePage:sourcePage || undefined,r:refresh}));
+  if (summary.error) return <ErrorState message={summary.error} />;
+  if (!summary.data) return <LoadingState />;
+  const s = summary.data;
+  const groups: any[] = s.sections;
+  const count = (predicate: (g:any)=>boolean) => groups.filter(predicate).reduce((sum,g)=>sum+g.count,0);
+  const exact = count(g=>g.safeToConfirm && !g.verified && g.status==="Ready");
+  const verified = count(g=>g.verified && g.status==="Ready");
+  const conflicts = count(g=>["Conflict","Ambiguous","DuplicateInBatch"].includes(g.status));
+  const unreadable = count(g=>g.status==="Invalid");
+  const attention = count(g=>!g.safeToConfirm && !g.verified && !["Committed","Skipped","Rejected"].includes(g.status));
+  const exactSelection = sourcePage ? s.pages.find((p:any)=>String(p.page)===sourcePage)?.exact || 0 : exact;
+  const changed = () => {setPage(0);setRefresh(v=>v+1);};
+  const runConfirm = async () => {
+    if (!reviewer.trim()) {setMessage("Enter the verifying officer's name.");return;}
+    setBusy(true);setMessage("");
+    try {
+      await post(`/award-ingestion-sessions/${sessionId}/${confirmAction==="exact"?"confirm-exact":"commit-verified"}`,{verifiedBy:reviewer.trim(),expectedCount:confirmAction==="exact"?exactSelection:verified,sourcePage:sourcePage?Number(sourcePage):null});
+      setConfirmAction(undefined);setBucket(confirmAction==="exact"?"verified":"attention");changed();
+    } catch(e) {setMessage(e instanceof Error?e.message:"Confirmation failed.");} finally {setBusy(false);}
+  };
+  const payload = (c:any) => {try{return JSON.parse(c.payloadJson);}catch{return {};}};
+  const display = (c:any) => {const p=payload(c);return p.khasraNumber ? `${p.khasraNumber}${p.qualifier?` ${p.qualifier}`:""}` : p.notificationNumber || p.awardNumber || p.villageName || p.caseNumber || p.claimReference || p.possessionDate || p.category || p.ruleType || p.matterType || "Source finding";};
+  const reason = (c:any) => {try {const e=JSON.parse(c.sourceLocatorJson||"{}");return (e.Warnings||e.warnings||[]).join(" ") || e.Reason || e.reason || "Check source and confirm.";}catch{return "Check source and confirm.";}};
+  return <>
+    <Breadcrumbs items={[{label:"Awards",to:"/awards"},...(s.targetAwardId?[{label:"Award",to:route.award(s.targetAwardId)}]:[]),{label:"Document review"}]} />
+    <PageHeader eyebrow="Human-verified data" title="Award PDF Review"><p>Review what needs attention. Exact matches can be confirmed together; nothing is committed automatically.</p></PageHeader>
+    {!s.targetAwardId && <p className="form-message">This older upload has no Award context. Its evidence remains readable; upload from the relevant Award workspace to enable matching and verification.</p>}
+    <div className="verification-summary">
+      {[["exact","Exact matches",exact],["attention","Need attention",attention],["conflict","Conflicts",conflicts],["unreadable","Could not read",unreadable],["verified","Human verified",verified]].map(([value,label,total])=><button key={String(value)} aria-pressed={bucket===value} onClick={()=>{setBucket(String(value));setPage(0);}}><b>{total}</b>{label}</button>)}
+    </div>
+    <div className="verification-toolbar">
+      <label>Section<select value={type} onChange={e=>{setType(e.target.value);setPage(0);}}><option value="">All sections</option>{Array.from(new Set(groups.map(g=>g.candidateType))).map(t=><option key={String(t)} value={String(t)}>{reviewSectionName(String(t))} · {count(g=>g.candidateType===t)}</option>)}</select></label>
+      <label>Source page<select value={sourcePage} onChange={e=>{setSourcePage(e.target.value);setPage(0);}}><option value="">All pages</option>{s.pages.filter((p:any)=>p.page).map((p:any)=><option key={p.page} value={p.page}>Page {p.page} · {p.count} Khasras · {p.exact} exact</option>)}</select></label>
+      <label>Verifying officer<input value={reviewer} onChange={e=>setReviewer(e.target.value)} placeholder="Your name" autoComplete="name" /></label>
+      <button disabled={!s.targetAwardId || !exactSelection || busy} onClick={()=>setConfirmAction("exact")}>Confirm {exactSelection} exact matches</button>
+      <button disabled={!s.targetAwardId || !verified || busy} onClick={()=>setConfirmAction("commit")}>Commit {verified} verified records</button>
+    </div>
+    {confirmAction && <section className="workspace-panel" role="alertdialog" aria-label="Confirm reviewed group"><h3>{confirmAction==="exact"?"Confirm exact Khasra matches":"Commit human-verified records"}</h3><p>{confirmAction==="exact"?`${exactSelection} existing Khasras will be confirmed for linking. 0 new Khasras. 0 uncertain rows or conflicts included. This step verifies only; commit remains separate.`:`${verified} human-verified records will be committed. Their document, page, confirmed values and your verification will be preserved permanently.`}</p><button disabled={busy} onClick={runConfirm}>Confirm</button> <button disabled={busy} onClick={()=>setConfirmAction(undefined)}>Cancel</button></section>}
+    {message && <p className="form-message" role="alert">{message}</p>}
+    {records.error ? <ErrorState message={records.error}/> : records.data ? <section className="section"><h2>{bucket==="attention"?"Items needing your attention":bucket==="exact"?"Exact matches":bucket==="verified"?"Human-verified records":"Review items"}</h2>
+      <DataTable headers={["Section","Detected value","Source page","Review","Action"]}>{records.data.items.map(c=><tr key={c.id}><td>{reviewSectionName(c.candidateType)}</td><td>{display(c)}</td><td>{c.sourcePage || "See evidence"}</td><td>{c.verifiedAt?`Verified by ${c.verifiedBy}`:c.safeToConfirm?"Exact match":c.status==="Conflict"?"Conflict":c.status==="Invalid"?"Could not read":"Needs attention"}</td><td><button className="link-button" onClick={()=>setActive(c)}>{c.verifiedAt?"View source":"Review / correct"}</button></td></tr>)}</DataTable>
+      {records.data.items.length===0 && <p>No items in this group.</p>}
+      <Pagination {...records.data} onChange={setPage}/>
+      {active && <FactVerificationDrawer candidate={active} documentId={s.sourceDocumentId} awardId={s.targetAwardId || id} reviewer={reviewer} reason={reason(active)} onClose={()=>setActive(undefined)} onSaved={()=>{setActive(undefined);changed();}}/>}
+    </section>:<LoadingState/>}
+  </>;
 }
+
+function reviewSectionName(type:string) {return ({AwardKhasra:"Khasras",AwardCore:"Award details",AwardVillage:"Village",Notification:"Notifications",PossessionEvent:"Possession",CourtCase:"Court cases",Claim:"Claims",AwardLandClass:"Land classification",AwardValuationRule:"Valuation",AwardCompensationRule:"Compensation",AwardAreaIssue:"Area issues",AwardSupplementaryMatter:"Supplementary matters",UnmappedAwardFinding:"Other / narrative evidence"} as Record<string,string>)[type] || type;}
+
+function FactVerificationDrawer({candidate,documentId,awardId,reviewer,reason,onClose,onSaved}:{candidate:any;documentId:string;awardId:string;reviewer:string;reason:string;onClose:()=>void;onSaved:()=>void}) {
+  const [value,setValue]=useState<any>(()=>{try{return JSON.parse(candidate.payloadJson);}catch{return {};}});
+  const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);
+  let locator:any={};try{locator=JSON.parse(candidate.sourceLocatorJson||"{}");}catch{/* No guessed source. */}
+  const page=candidate.sourcePage || locator.Page || locator.page;
+  const source=page&&documentId?`${api}/documents/${documentId}/content#page=${page}`:undefined;
+  const supported=["AwardKhasra","Notification","PossessionEvent","CourtCase","Claim","AwardLandClass","AwardValuationRule","AwardCompensationRule","AwardAreaIssue","AwardSupplementaryMatter"].includes(candidate.candidateType);
+  useEffect(()=>{const close=(event:KeyboardEvent)=>{if(event.key==="Escape")onClose();};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close);},[onClose]);
+  const field=(key:string,label:string,kind:"text"|"number"|"date"="text")=><label key={key}>{label}<input type={kind} step={kind==="number"?"any":undefined} value={value[key]??""} onChange={e=>setValue({...value,[key]:e.target.value===""?null:kind==="number"?Number(e.target.value):e.target.value})}/></label>;
+  const area=(prefix:string,label:string)=><fieldset><legend>{label}</legend><div className="field-grid">{field(prefix+"Bigha","Bigha","number")}{field(prefix+"Biswa","Biswa","number")}{field(prefix+"Biswansi","Biswansi","number")}</div></fieldset>;
+  const save=async(action:string)=>{setBusy(true);setMessage("");try{await post(`/award-ingestion-candidates/${candidate.id}/verify`,{verifiedBy:reviewer,correctedPayloadJson:JSON.stringify(value),action});onSaved();}catch(e){setMessage(e instanceof Error?e.message:"Could not verify.");}finally{setBusy(false);}};
+  return <aside className="evidence-workbench" role="dialog" aria-modal="true" aria-label="Verify source fact"><form className="evidence-editor" onSubmit={e=>{e.preventDefault();if(supported&&!busy)void save("Confirm");}}>
+    <div className="panel-title"><h2>{reviewSectionName(candidate.candidateType)}</h2><button type="button" onClick={onClose}>Close</button></div><p>{reason}</p>{(locator.PossibleCanonicalMatch||locator.possibleCanonicalMatch)&&<p>Possible master: {locator.PossibleCanonicalMatch||locator.possibleCanonicalMatch}. Enter that identifier yourself to link it; no digit is changed automatically.</p>}
+    {candidate.candidateType==="AwardKhasra"?<><div className="field-grid">{field("khasraNumber","Khasra number")}{field("qualifier","Qualifier")}</div>{area("recordedArea","Total Area Recorded in Award")}{area("awardedArea","Area Awarded in this Award")}<p className="hint">Village Master Area is separate and will not be edited here. A missing Khasra will be flagged for master review.</p></>:candidate.candidateType==="Notification"?<div className="field-grid">{field("sectionType","Section")}{field("notificationNumber","Notification number")}{field("notificationDate","Notification date","date")}</div>:candidate.candidateType==="PossessionEvent"?<><div className="field-grid">{field("possessionDate","Possession date","date")}{field("eventType","Event description")}{field("status","Recorded possession status")}</div><p>No affected parcels are inferred. Link the specific Khasras in the Award possession workflow; this does not change Award status.</p></>:candidate.candidateType==="CourtCase"?<><div className="field-grid">{field("caseNumber","Case number")}{field("courtName","Court")}{field("caseType","Case type")}</div><p>This confirms the case reference only, not a stay or affected parcels.</p></>:candidate.candidateType==="Claim"?<><div className="field-grid">{field("claimReference","Claim reference")}{field("claimDate","Claim date","date")}</div><label>Claim text<textarea value={value.claimText||""} onChange={e=>setValue({...value,claimText:e.target.value})}/></label><p>Names do not identify or merge Parties automatically.</p></>:candidate.candidateType==="AwardLandClass"?<div className="field-grid">{field("code","Class code")}{field("description","Description")}</div>:candidate.candidateType==="AwardValuationRule"?<div className="field-grid">{field("ruleType","Valuation rule")}{field("rateAmount","Rate amount","number")}{field("rateUnit","Rate unit")}{field("legalSection","Legal section")}</div>:candidate.candidateType==="AwardCompensationRule"?<div className="field-grid">{field("ruleType","Compensation rule")}{field("ratePercent","Rate percent","number")}{field("rateAmount","Amount","number")}{field("legalSection","Legal section")}</div>:candidate.candidateType==="AwardAreaIssue"?<div className="field-grid">{field("issueType","Issue")}{field("notificationAreaBigha","Notification area (Bigha)","number")}{field("fieldBookAreaBigha","Field-book area (Bigha)","number")}{field("differenceBigha","Difference (Bigha)","number")}</div>:candidate.candidateType==="AwardSupplementaryMatter"?<div className="field-grid">{field("matterType","Matter")}{field("description","Description")}</div>:<p>{value.summary||"This is source evidence, not a structured record ready for confirmation."}</p>}
+    <details><summary>Original extracted text</summary><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{candidate.rawSourceText||value.extractedText||"No readable text."}</p></details>
+    {message&&<p role="alert" className="form-message">{message}</p>}
+    <div className="form-footer"><span className="hint">{reviewer?`Verifying as ${reviewer}`:"Enter your name on the review page first."}</span>{!candidate.verifiedAt&&<><button type="submit" disabled={busy||!supported||!awardId||!reviewer.trim()}>Confirm values</button>{candidate.candidateType==="AwardKhasra"&&<button type="button" disabled={busy||!awardId||!reviewer.trim()} onClick={()=>save("LinkExisting")}>Link existing</button>}<button type="button" disabled={busy||!reviewer.trim()} onClick={()=>save("Skip")}>Skip</button></>}</div>
+  </form><section className="evidence-viewer"><header><strong>Source · Page {page||"not identified"}</strong>{source&&<a href={source} target="_blank" rel="noreferrer">Open full PDF</a>}</header>{source?<iframe key={source} src={source} title={`Original PDF, initially page ${page}`}/>:<p>No valid document page is available. Confirmation is blocked.</p>}</section></aside>;
+}
+
 function Notifications() {
   const [page, setPage] = useState(0);
   const [query, setQuery] = useState("");
@@ -2105,13 +2223,14 @@ function Notification() {
           rows={[
             ["Section type", n.sectionType],
             ["Gazette details", n.gazetteDetails || "—"],
-            ["Project", n.project.name],
-            ["Requiring agency", n.project.requiringAgency || "—"],
+            ["Project", n.project?.name || "—"],
+            ["Requiring agency", n.project?.requiringAgency || "—"],
             ["Remarks", n.remarks || "—"],
           ]}
         />
       </section>
       <section className="section">
+        <PermanentSourceLines endpoint={`/notifications/${id}/evidence`} />
         <h2>Linked khasras</h2>
         {n.khasras.length ? (
           <DataTable headers={["Khasra no.", "Village", "Notified area"]}>
@@ -2776,6 +2895,7 @@ function App() {
           <Route path="/parties/:id" element={<Party />} />
           <Route path="/awards" element={<Awards />} />
           <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
+          <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
           <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
           <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
           <Route path="/awards/:id" element={<Award />} />
