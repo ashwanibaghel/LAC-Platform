@@ -2094,7 +2094,7 @@ function AwardIngestionReview() {
   const skipped = count(g=>g.status==="Skipped" || g.status==="Rejected");
   const conflicts = count(g=>["Conflict","Ambiguous","DuplicateInBatch"].includes(g.status));
   const unreadable = count(g=>g.status==="Invalid");
-  const attention = count(g=>!g.safeToConfirm && !g.verified && !["Committed","Skipped","Rejected"].includes(g.status));
+  const attention = count(g=>!g.safeToConfirm && !g.verified && !["Conflict","Ambiguous","DuplicateInBatch","Invalid","Committed","Skipped","Rejected"].includes(g.status));
   const pending = exact + attention + conflicts + unreadable;
   const exactSelection = sourcePage ? s.pages.find((p:any)=>String(p.page)===sourcePage)?.exact || 0 : exact;
   const changed = () => {setPage(0);setRefresh(v=>v+1);};

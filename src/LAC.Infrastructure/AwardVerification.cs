@@ -87,7 +87,6 @@ public sealed partial class AwardIngestionService
         catch(JsonException) { throw new AwardIngestionException("The corrected values are not valid structured data."); }
         ValidateReviewPayload(payload);
         if(payload is AwardVillageCandidate village && !await db.Villages.AnyAsync(x=>x.Id==row.Session.SelectedVillageId && x.Name==village.VillageName,ct)) throw new AwardIngestionException("Select the official Village spelling confirmed for this review.");
-        if(payload is AwardCoreCandidate core && await db.Awards.AnyAsync(x=>x.Id!=row.Session.TargetAwardId && x.AwardNumber==core.AwardNumber.Trim(),ct)) throw new AwardIngestionException("Another Award already uses this Award number. Keep the existing record or correct the source value.");
         var checkedRow=await AnalyzeAsync(row.Session,payload,row.Sequence,ct);
         if(checkedRow.Status is AwardIngestionCandidateStatus.Invalid or AwardIngestionCandidateStatus.Ambiguous or AwardIngestionCandidateStatus.Conflict) throw new AwardIngestionException("This value conflicts with existing records. Correct it or retain the existing value before confirmation.");
         if(payload is AwardKhasraCandidate k)
@@ -176,7 +175,6 @@ public sealed partial class AwardIngestionService
         if(payload is AwardCoreCandidate core)
         {
             var award=await db.Awards.SingleAsync(x=>x.Id==session.TargetAwardId,ct);
-            if(await db.Awards.AnyAsync(x=>x.Id!=award.Id && x.AwardNumber==core.AwardNumber.Trim(),ct)) throw new AwardIngestionException("Another Award already uses this Award number.",409);
             award.AwardNumber=core.AwardNumber.Trim(); award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
             candidate.CanonicalEntityId=award.Id;candidate.CanonicalEntityType=nameof(Award);candidate.Status=AwardIngestionCandidateStatus.Committed;return true;
         }

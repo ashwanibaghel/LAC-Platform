@@ -78,6 +78,30 @@ public sealed class AwardIngestionTests
         await Assert.ThrowsAsync<AwardIngestionException>(() => service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Excel, award.Id, village.Id, null, null, null, [Candidate("1//1", null, null)], default));
     }
 
+    [Fact]
+    public async Task Review_buckets_keep_final_and_verified_rows_out_of_attention()
+    {
+        await using var db=Db();
+        var session=new AwardIngestionSession { SourceType=AwardIngestionSourceType.Document };
+        db.Add(session);
+        db.AddRange(
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.NeedsReview },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Conflict },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Invalid },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Skipped },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Rejected },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Committed },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Ready, VerifiedAt=DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var service=Service(db);
+        var attention=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"attention");
+        var verified=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"verified");
+        var committed=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"committed");
+        Assert.True(attention.TotalCount==1, $"attention={attention.TotalCount} [{string.Join(",",attention.Items.Select(x=>x.Status))}]");
+        Assert.True(verified.TotalCount==1, $"verified={verified.TotalCount}");
+        Assert.True(committed.TotalCount==1, $"committed={committed.TotalCount}");
+    }
+
     private static IngestionCandidateInput Candidate(string number, string? qualifier, decimal? canonicalArea) => new(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(new AwardKhasraCandidate(number, qualifier, canonicalArea, null, null, null, null, null, null, null, null)));
     private static AwardIngestionService Service(LacDbContext db) => new(db, new AwardWorkflowService(db));
     private static LacDbContext Db() => new(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);

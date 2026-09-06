@@ -34,6 +34,22 @@ public sealed class AwardVerificationTests
     }
 
     [Fact]
+    public async Task Award_core_verification_allows_same_number_on_an_unrelated_award()
+    {
+        await using var f=await Fixture.Create();
+        var other=new Award { AwardNumber=f.Award.AwardNumber, AwardDate=new DateOnly(2025,1,1) };
+        f.Db.Add(other); await f.Db.SaveChangesAsync();
+        var session=await f.Preview(f.Input(new AwardCoreCandidate("FIC-VERIFY",new DateOnly(2026,2,3),"Permanent","Verified purpose")));
+        var candidate=await f.Db.AwardIngestionCandidates.SingleAsync();
+        await f.Service.VerifyFactAsync(candidate.Id,new("Officer",null),default);
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        Assert.Equal(new DateOnly(2026,2,3),f.Award.AwardDate);
+        Assert.Equal("Verified purpose",f.Award.Purpose);
+        Assert.Equal(2,await f.Db.Awards.CountAsync(x=>x.AwardNumber=="FIC-VERIFY"));
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.FactName=="awardNumber");
+    }
+
+    [Fact]
     public async Task Exact_group_confirmation_is_human_verification_not_canonical_commit()
     {
         await using var f=await Fixture.Create();
@@ -83,6 +99,18 @@ public sealed class AwardVerificationTests
         f.Db.AwardIngestionCandidates.RemoveRange(await f.Db.AwardIngestionCandidates.ToListAsync());f.Db.AwardIngestionSessions.Remove(session);await f.Db.SaveChangesAsync();
         Assert.NotEmpty(await f.Db.SourceEvidence.ToListAsync());Assert.Single(await f.Db.Documents.ToListAsync());
         var view=await DocumentEvidenceQueries.ReadAsync(f.Db,x=>x.AwardKhasraId==link.Id,0,default);Assert.All(view.Items,x=>Assert.Equal($"/api/documents/{f.Document.Id}/content#page=1",x.SourceUrl));
+    }
+
+    [Fact]
+    public async Task Committed_candidate_cannot_be_recommitted_or_duplicate_evidence()
+    {
+        await using var f=await Fixture.Create();var session=await f.Preview(f.KhasraInput());
+        await f.Service.ConfirmExactAsync(session.Id,new("Officer",1),default);
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        var evidenceCount=await f.Db.SourceEvidence.CountAsync();
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default));
+        Assert.Equal(evidenceCount,await f.Db.SourceEvidence.CountAsync());
+        Assert.Single(await f.Db.Set<AwardKhasra>().ToListAsync());
     }
 
     [Fact]

@@ -36,6 +36,28 @@ public sealed class AwardPdfExtractionTests
         Assert.Equal(AwardDocumentExtractionJobStatus.Queued, (await service.GetAsync(analysis.JobId!.Value, default)).Status);
     }
 
+    [Fact]
+    public async Task Award_document_review_state_excludes_final_rows_and_marks_reviewed_only_when_pending_is_empty()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var award=new Award { AwardNumber="REVIEW-STATE" };
+        var document=new LAC.Domain.Document { OriginalFileName="review-state.pdf", StoragePath="review-state.pdf" };
+        var session=new AwardIngestionSession { SourceType=AwardIngestionSourceType.Document, TargetAward=award, SourceDocument=document };
+        var job=new AwardDocumentExtractionJob { Document=document, TargetAward=award, IngestionSession=session };
+        db.AddRange(award,document,new DocumentAward { Award=award, Document=document },session,job,
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Conflict });
+        await db.SaveChangesAsync();
+        static async Task<(bool reviewed,int attention)> Read(LacDbContext db,Guid awardId)
+        {
+            using var json=System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(await DocumentEvidenceQueries.AwardDocumentsAsync(db,awardId,default)));
+            var job=json.RootElement[0].GetProperty("Job");
+            return (job.GetProperty("Reviewed").GetBoolean(),job.GetProperty("Attention").GetInt32());
+        }
+        var before=await Read(db,award.Id); Assert.False(before.reviewed); Assert.Equal(0,before.attention);
+        var candidate=await db.AwardIngestionCandidates.SingleAsync();candidate.Status=AwardIngestionCandidateStatus.Skipped;await db.SaveChangesAsync();
+        var after=await Read(db,award.Id); Assert.True(after.reviewed); Assert.Equal(0,after.attention);
+    }
+
     [Theory]
     [InlineData(95.12345, 0.9512)]
     [InlineData(100, 1)]
