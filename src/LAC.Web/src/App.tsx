@@ -1910,10 +1910,12 @@ function AwardDocumentsSection({awardId}:{awardId:string}) {
 }
 
 function DocumentAnalysisProgress({jobId,paused,onComplete}:{jobId:string;paused:boolean;onComplete:()=>void}) {
-  const [tick,setTick]=useState(0);const status=useApi<any>(`/award-pdf-extractions/${jobId}?r=${tick}`);const job=status.data;
+  const [tick,setTick]=useState(0);const samples=useRef<Array<{pages:number;at:number}>>([]);const status=useApi<any>(`/award-pdf-extractions/${jobId}?r=${tick}`);const job=status.data;
   useEffect(()=>{if(paused||!job||!["Queued","Extracting","Analyzing","BuildingCandidates"].includes(job.status))return;const timer=window.setInterval(()=>setTick(x=>x+1),5000);return()=>window.clearInterval(timer);},[paused,job?.status]);
   useEffect(()=>{if(job&&!["Queued","Extracting","Analyzing","BuildingCandidates"].includes(job.status))onComplete();},[job?.status]);
-  const total=Number(job?.totalPages||0);const processed=Math.min(Number(job?.processedPages||0),total||Number.MAX_SAFE_INTEGER);const percent=total?Math.round(processed/total*100):0;const started=job?.startedAt?new Date(job.startedAt).getTime():0;const elapsed=started?Math.max(0,(Date.now()-started)/1000):0;const remaining=processed>0&&total>processed?elapsed/processed*(total-processed):null;const eta=remaining===null?"Estimating remaining time…":remaining<60?`About ${Math.max(1,Math.round(remaining))} sec left`:`About ${Math.ceil(remaining/60)} min left`;
+  const total=Number(job?.totalPages||0);const processed=Math.min(Number(job?.processedPages||0),total||Number.MAX_SAFE_INTEGER);const percent=total?Math.round(processed/total*100):0;
+  useEffect(()=>{if(!job||processed<0)return;const now=Date.now();const last=samples.current.at(-1);if(!last||last.pages!==processed){samples.current=[...samples.current.filter(x=>now-x.at<120000),{pages:processed,at:now}].slice(-6);}},[processed,job?.id]);
+  const windowSamples=samples.current;const first=windowSamples[0];const last=windowSamples.at(-1);const pageRate=first&&last&&last.pages>first.pages&&last.at>first.at?(last.pages-first.pages)/((last.at-first.at)/1000):null;const remaining=pageRate&&total>processed?(total-processed)/pageRate:null;const eta=pageRate===null?"Measuring pace…":remaining!==null?(remaining<60?`About ${Math.max(1,Math.round(remaining))} sec left`:`About ${Math.ceil(remaining/60)} min left`):"Almost done";
   return <div className="document-progress" aria-label={`${percent}% complete`}><div className="document-progress-track"><span style={{width:total?`${Math.max(2,percent)}%`:"35%"}} /></div><div className="document-progress-meta"><span>{total?`${percent}% complete`:`${job?.currentStage||"Preparing…"}`}</span><span>{eta}</span></div></div>;
 }
 
