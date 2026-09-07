@@ -1,0 +1,2 @@
+# Separate optional experiment; install only after Paddle evidence is inadequate.
+docling>=2.0,<3.0

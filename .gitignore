@@ -10,5 +10,12 @@ LAC-Data/
 *.dump
 *.sql.gz
 ocr-output/
+tools/document-intelligence-benchmark/.venv/
+tools/document-intelligence-benchmark/benchmark-envs/
+tools/document-intelligence-benchmark/.cache/
+tools/document-intelligence-benchmark/artifacts/
+tools/document-intelligence-benchmark/real-output/
+tools/document-intelligence-benchmark/*.local.json
+tools/document-intelligence-benchmark/**/__pycache__/
 dotnet-sdk-*.exe
 supabase/.temp/

@@ -1,0 +1,5 @@
+# Isolated local CPU-only experiment. Pinned after installation verification.
+paddleocr>=3.0,<4.0
+paddlex[ocr]>=3.7,<3.8
+paddlepaddle>=3.0,<4.0
+pymupdf>=1.24,<2.0
