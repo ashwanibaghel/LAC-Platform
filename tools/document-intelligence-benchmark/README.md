@@ -42,3 +42,19 @@ is evaluated only if the Paddle sample cannot produce usable local structure.
 `benchmark.normalized` is the neutral page model. `benchmark.interpret` is a
 deterministic experimental LAC interpretation pass. It uses no numeric correction:
 uncertain identifiers remain uncertain and all candidates keep page/cell evidence.
+
+## Phase 9 unified recognition crops
+
+`benchmark.cell_crop_pipeline_v9` is the sole image-preparation boundary for
+cell recognition experiments. It saves an untouched evidence crop plus a
+deterministically normalized recognition crop and metadata. It does not edit
+digits, slashes, dashes, or use master data.
+
+```powershell
+python -m benchmark.unify_cell_crops_v9 --root . --gold real-output\ocr-gold-manifest.json --human real-output\assisted-label-v10\manual-training.json --pseudo real-output\pseudo-v7\pseudo-verified.json --output real-output\unified-crops-v9
+python -m benchmark.recognizer_shootout_v9 --manifests real-output\unified-crops-v9\unified-manifests.json --engine rapidocr --output real-output\unified-crops-v9\rapidocr.json
+python -m benchmark.recognizer_shootout_v9 --manifests real-output\unified-crops-v9\unified-manifests.json --engine doctr --output real-output\unified-crops-v9\doctr.json
+```
+
+All these outputs remain local and ignored. The shootout records raw exact and
+semantic exact separately; only area dash/whitespace formatting is semantic.
