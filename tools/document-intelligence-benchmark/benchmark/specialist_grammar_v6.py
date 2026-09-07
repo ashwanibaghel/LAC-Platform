@@ -1,6 +1,6 @@
 """Small LAC cell grammars. Validation rejects; it never repairs with master data."""
 import re
-AREA_RE=re.compile(r'^\d{1,3}-(?:0[0-1]|[1-9]\d|\d)$')
+AREA_RE=re.compile(r'^\d{1,3}-\d{1,2}$')
 KHASRA_RE=re.compile(r'^\d+//\d+(?:/\d+)?(?: min)?$')
 KILLA_RE=re.compile(r'^\d+(?:/\d+)?$')
 QUALIFIERS={'min'}
