@@ -19,7 +19,11 @@ class CRNN(nn.Module):
  def forward(self,x):
   z=self.cnn(x).permute(3,0,1,2).flatten(2); z,_=self.rnn(z); return self.fc(z)
 def main():
- ap=argparse.ArgumentParser(); ap.add_argument('--manifest',type=Path,required=True); ap.add_argument('--extra-manifest',type=Path); ap.add_argument('--init',type=Path); ap.add_argument('--checkpoint',type=Path,required=True); ap.add_argument('--epochs',type=int,default=3); ap.add_argument('--batch',type=int,default=64); a=ap.parse_args(); items=json.loads(a.manifest.read_text()); items += json.loads(a.extra_manifest.read_text()) if a.extra_manifest else []; random.Random(9).shuffle(items); train=Cells(items[:int(len(items)*.9)]); loader=DataLoader(train,batch_size=a.batch,shuffle=True,collate_fn=collate); model=CRNN();
+ ap=argparse.ArgumentParser(); ap.add_argument('--manifest',type=Path,required=True); ap.add_argument('--extra-manifest',type=Path); ap.add_argument('--gold-manifest',type=Path); ap.add_argument('--init',type=Path); ap.add_argument('--checkpoint',type=Path,required=True); ap.add_argument('--epochs',type=int,default=3); ap.add_argument('--batch',type=int,default=64); a=ap.parse_args(); items=json.loads(a.manifest.read_text()); items += json.loads(a.extra_manifest.read_text()) if a.extra_manifest else [];
+ if a.gold_manifest:
+  from .training_guard_v8 import assert_no_gold_leak
+  assert_no_gold_leak(items,a.gold_manifest)
+ random.Random(9).shuffle(items); train=Cells(items[:int(len(items)*.9)]); loader=DataLoader(train,batch_size=a.batch,shuffle=True,collate_fn=collate); model=CRNN();
  if a.init: model.load_state_dict(torch.load(a.init,map_location='cpu')['state'])
  opt=torch.optim.Adam(model.parameters(),lr=8e-4); lossfn=nn.CTCLoss(blank=0,zero_infinity=True); started=time.perf_counter(); model.train()
  for epoch in range(a.epochs):
