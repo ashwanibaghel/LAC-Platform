@@ -96,3 +96,15 @@ local). Conservative Table Transformer candidates were then processed on pages
 database write was performed. Combined page OCR timings were approximately
 389.66 seconds. Peak model RAM was not instrumented by the runner, so it is not
 reported as an invented value.
+
+### Phase 3 master validation
+
+The local API was started against the user-configured local PostgreSQL connection
+for read-only queries and then stopped. Pochan Pur resolved to 261 canonical
+Khasras; all had master areas and 3 carried a `min` qualifier. Role-aware v3
+validation measured 865 Award-table occurrences, 451 distinct strict identities,
+189 Award-table exact master matches, 61 qualifier mismatches, 630 no-match
+occurrences, and 87 unreadable slash-bearing fragments. SafeExact remains 0
+because all identity, header/area, OCR certainty, and conflict gates are not yet
+simultaneously satisfied. Claims remain NarrativeOnly/NeedsReview. No canonical
+write was performed.
