@@ -108,3 +108,15 @@ occurrences, and 87 unreadable slash-bearing fragments. SafeExact remains 0
 because all identity, header/area, OCR certainty, and conflict gates are not yet
 simultaneously satisfied. Claims remain NarrativeOnly/NeedsReview. No canonical
 write was performed.
+
+### Phase 4 targeted OCR and semantics
+
+Phase 4 reprocessed only 12 uncertain cell crops with local RapidOCR variants;
+one same-engine variant consensus was observed, but no independent OCR engine
+was installed, so zero recoveries were accepted. Header-driven schema recovery
+identified five pages and four cross-page continuation groups. The 25-row visual
+gold sample measured 16/25 Khasra identities, 14/25 recorded areas, 13/25
+awarded areas, and 13/25 full rows. SafeExact remains disabled at zero. A
+heading-driven claims crop produced one table box but no reliable row structure;
+claims remain review-only. These are benchmark-only results; production remains
+untouched.
