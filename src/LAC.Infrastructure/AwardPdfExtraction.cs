@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using UglyToad.PdfPig;
 
 namespace LAC.Infrastructure;
@@ -186,25 +187,36 @@ public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
-public sealed class AwardPdfExtractionWorker(IServiceScopeFactory scopes, IAwardPdfJobQueue queue, Microsoft.Extensions.Configuration.IConfiguration configuration, ILogger<AwardPdfExtractionWorker> logger) : BackgroundService
+public sealed class AwardPdfExtractionWorker(IServiceScopeFactory scopes, IAwardPdfJobQueue queue, Microsoft.Extensions.Configuration.IConfiguration configuration, IOptions<DocumentIntelligenceOptions> intelligence, ILogger<AwardPdfExtractionWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await using var startupScope = scopes.CreateAsyncScope(); var startupDb = startupScope.ServiceProvider.GetRequiredService<LacDbContext>();
         foreach (var id in await startupDb.AwardDocumentExtractionJobs.Where(x => x.Status == AwardDocumentExtractionJobStatus.Queued || x.Status == AwardDocumentExtractionJobStatus.Extracting || x.Status == AwardDocumentExtractionJobStatus.Analyzing || x.Status == AwardDocumentExtractionJobStatus.BuildingCandidates).Select(x => x.Id).ToListAsync(stoppingToken)) await queue.EnqueueAsync(id, stoppingToken);
-        var concurrency = Math.Clamp(int.TryParse(configuration["PdfImport:MaxConcurrentJobs"], out var configuredConcurrency) ? configuredConcurrency : 1, 1, 2);
+        var configuredConcurrency = intelligence.Value.Enabled
+            ? intelligence.Value.MaxConcurrentJobs
+            : (int.TryParse(configuration["PdfImport:MaxConcurrentJobs"], out var legacyConcurrency) ? legacyConcurrency : 1);
+        var concurrency = Math.Clamp(configuredConcurrency, 1, 2);
         await Task.WhenAll(Enumerable.Range(0, concurrency).Select(_ => ProcessQueueAsync(stoppingToken)));
     }
     private async Task ProcessQueueAsync(CancellationToken stoppingToken) { await foreach (var id in queue.DequeueAllAsync(stoppingToken)) { try { await using var scope = scopes.CreateAsyncScope(); await scope.ServiceProvider.GetRequiredService<AwardPdfJobRunner>().RunAsync(id, stoppingToken); } catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { } catch (Exception ex) { logger.LogError(ex, "PDF job {JobId} failed; the API and queue remain available", id); } } }
 }
 
-public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage, AwardIngestionService ingestion, IOcrEngine ocr, AwardExtractionRuleEngine rules, ILogger<AwardPdfJobRunner> logger)
+public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage, AwardIngestionService ingestion, IOcrEngine ocr, AwardExtractionRuleEngine rules, ILogger<AwardPdfJobRunner> logger, ILocalDocumentIntelligenceClient? intelligence = null, IOptions<DocumentIntelligenceOptions>? intelligenceOptions = null, LocalStoragePaths? localPaths = null, IAwardPdfJobQueue? queue = null)
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     public async Task<AwardPdfJobSummary> ReanalyzeAsync(Guid jobId, CancellationToken ct)
     {
         var job = await db.AwardDocumentExtractionJobs.Include(x => x.Pages).Include(x => x.SelectedVillage).SingleOrDefaultAsync(x => x.Id == jobId, ct) ?? throw new AwardIngestionException("PDF extraction job was not found.", 404);
         if(job.Status is AwardDocumentExtractionJobStatus.Queued or AwardDocumentExtractionJobStatus.Extracting or AwardDocumentExtractionJobStatus.Analyzing or AwardDocumentExtractionJobStatus.BuildingCandidates)
             throw new AwardIngestionException("This document is still processing. Saved-page re-analysis is available after processing finishes.",409);
+        if (UseLocalIntelligence())
+        {
+            if (queue is null) throw new InvalidOperationException("Local document-intelligence queue is not available.");
+            job.Status = AwardDocumentExtractionJobStatus.Queued; job.CurrentStage = "Waiting to re-analyze locally"; job.ErrorMessage = null; job.StartedAt = null; job.CompletedAt = null; job.FailedAt = null; job.ProcessedPages = 0; job.TotalPages = null; job.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct); await queue.EnqueueAsync(job.Id, ct);
+            return new AwardPdfJobSummary(job.Id, job.Status, job.DocumentId, job.IngestionSessionId, job.TargetAwardId, job.TotalPages, job.ProcessedPages, job.CurrentStage, job.ErrorMessage, job.CreatedAt, job.CompletedAt);
+        }
         if (job.Pages.Count == 0) throw new AwardIngestionException("This document has no saved page evidence to re-analyze.");
         job.Status = AwardDocumentExtractionJobStatus.Analyzing; job.CurrentStage = "Re-analyzing saved page evidence"; job.ErrorMessage = null; job.ExtractorVersion = AwardExtractionRuleSet.Version; job.StartedAt = DateTimeOffset.UtcNow; job.ProcessedPages = 0; job.TotalPages = job.Pages.Count; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
         try
@@ -228,6 +240,11 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         try
         {
             job.Status = AwardDocumentExtractionJobStatus.Extracting; job.ExtractorVersion = AwardExtractionRuleSet.Version; job.StartedAt ??= DateTimeOffset.UtcNow; job.CurrentStage = "Reading document"; job.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
+            if (UseLocalIntelligence())
+            {
+                await RunLocalIntelligenceAsync(job, ct);
+                return;
+            }
             await using var source = await storage.OpenReadAsync(job.Document.StoragePath, ct) ?? throw new AwardIngestionException("The stored PDF could not be opened.", 404);
             using var pdf = PdfDocument.Open(source); job.TotalPages = pdf.NumberOfPages; await db.SaveChangesAsync(ct);
             var pages = new List<NormalizedDocumentPage>();
@@ -259,6 +276,48 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
             db.ChangeTracker.Clear();
             var failed = await db.AwardDocumentExtractionJobs.SingleAsync(x => x.Id == jobId, CancellationToken.None); failed.Status = AwardDocumentExtractionJobStatus.Failed; failed.ErrorMessage = ex.Message; failed.FailedAt = DateTimeOffset.UtcNow; failed.CurrentStage = "Processing could not be completed"; failed.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(CancellationToken.None);
         }
+    }
+
+    private bool UseLocalIntelligence() => intelligenceOptions?.Value.Enabled == true && intelligence is not null;
+
+    private async Task RunLocalIntelligenceAsync(AwardDocumentExtractionJob job, CancellationToken ct)
+    {
+        if (localPaths is null) throw new InvalidOperationException("Local document storage is not available for local document intelligence.");
+        var safeName = Path.GetFileName(job.Document.StoragePath);
+        if (!string.Equals(safeName, job.Document.StoragePath, StringComparison.Ordinal)) throw new InvalidOperationException("Stored document path is invalid.");
+        var filePath = Path.Combine(localPaths.DocumentRoot, safeName);
+        if (!File.Exists(filePath)) throw new AwardIngestionException("The stored PDF could not be opened.", 404);
+
+        job.Status = AwardDocumentExtractionJobStatus.Analyzing;
+        job.CurrentStage = "Analyzing Award locally";
+        job.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync(ct);
+
+        var result = await intelligence!.RunAsync(new(1, job.DocumentId, filePath, job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId), ct);
+        var inputs = LocalIntelligenceCandidateMapper.Map(result);
+
+        // Mapping validates the complete worker response before any staging
+        // write.  The existing ingestion service remains the authority for
+        // candidate validation and no canonical table is touched here.
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
+            job.TotalPages = result.PagesProcessed;
+            job.ProcessedPages = result.PagesProcessed;
+            job.Status = AwardDocumentExtractionJobStatus.BuildingCandidates;
+            job.CurrentStage = "Preparing review";
+            job.UpdatedAt = DateTimeOffset.UtcNow;
+            var session = await ingestion.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, job.TargetAwardId, job.SelectedVillageId, job.DocumentId, "Local document intelligence", "Local OCR/layout suggestions require human verification before commit.", inputs, ct);
+            job.IngestionSessionId = session.Id;
+            job.Status = AwardDocumentExtractionJobStatus.NeedsReview;
+            job.CurrentStage = "Review ready";
+            job.CompletedAt = DateTimeOffset.UtcNow;
+            job.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            if (transaction is not null) await transaction.CommitAsync(ct);
+        });
+        logger.LogInformation("Local document intelligence staged job {JobId}; pages {Pages}; worker candidates {WorkerCandidates}; staged candidates {StagedCandidates}", job.Id, result.PagesProcessed, result.Candidates.Count, inputs.Count);
     }
     private async Task<List<IngestionCandidateInput>> BuildCandidatesAsync(IReadOnlyList<NormalizedDocumentPage> pages, AwardDocumentExtractionJob job, CancellationToken ct)
     {
@@ -308,6 +367,88 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
             Flush();
         }
         return words;
+    }
+}
+
+public static class LocalIntelligenceCandidateMapper
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result)
+    {
+        if (result.ContractVersion != 1 || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) || result.PagesProcessed < 1)
+            throw new InvalidOperationException("Local document intelligence returned an unsupported or incomplete result.");
+
+        var mapped = new List<IngestionCandidateInput>(result.Candidates.Count);
+        foreach (var candidate in result.Candidates)
+        {
+            if (candidate.Page < 1) throw new InvalidOperationException("Local document intelligence returned an invalid source page.");
+            var locator = JsonSerializer.Serialize(new
+            {
+                candidate.Page,
+                candidate.SourceRegion,
+                candidate.StructuredPayload,
+                candidate.RawOcr,
+                candidate.NormalizedSuggestion,
+                candidate.NormalizationReason,
+                OcrSource = "RapidOCR + Table Transformer",
+                Warnings = (candidate.InterpretationWarnings ?? []).Append("Local document-intelligence suggestion requires human verification.").ToArray()
+            }, Json);
+
+            switch (candidate.CandidateType)
+            {
+                case "AwardKhasra":
+                    mapped.Add(MapAwardKhasra(candidate, locator));
+                    break;
+                case "LandClassification":
+                    mapped.Add(MapLandClassification(candidate, locator));
+                    break;
+                case "UnmappedAwardFinding":
+                    mapped.Add(new(AwardIngestionCandidateType.UnmappedAwardFinding,
+                        JsonSerializer.Serialize(new UnmappedAwardFindingCandidate("Local OCR narrative", "Page-level OCR evidence retained for review.", null), Json),
+                        locator, candidate.RawSourceText, candidate.Confidence));
+                    break;
+                default:
+                    throw new InvalidOperationException($"Local document intelligence candidate type '{candidate.CandidateType}' is not supported for staging.");
+            }
+        }
+        return mapped;
+    }
+
+    private static IngestionCandidateInput MapAwardKhasra(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var number = Value(payload, "khasraNumber") ?? "";
+        var qualifier = Value(payload, "qualifier");
+        var recorded = Area(payload, "recordedArea");
+        var awarded = Area(payload, "awardedArea");
+        // Deliberately no canonical-area/master substitution: the worker OCR
+        // identifier and its source locator are staged exactly as received.
+        var typed = new AwardKhasraCandidate(number, qualifier, null, null, null,
+            recorded.Bigha, recorded.Biswa, recorded.Biswansi,
+            awarded.Bigha, awarded.Biswa, awarded.Biswansi);
+        return new(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(typed, Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapLandClassification(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var block = Value(candidate.StructuredPayload, "block") ?? "Unclassified";
+        var typed = new LandClassCandidate(block, "Geometry-backed land-classification suggestion; verify the linked Khasra and area from source evidence.");
+        return new(AwardIngestionCandidateType.AwardLandClass, JsonSerializer.Serialize(typed, Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static ParsedArea Area(JsonElement payload, string property)
+    {
+        if (!payload.TryGetProperty(property, out var node)) return new(null, null, null);
+        var normalized = Value(node, "normalizedSuggestion");
+        return normalized is not null && new StrictAreaParser().TryParse(normalized, out var parsed) ? parsed : new(null, null, null);
+    }
+
+    private static string? Value(JsonElement payload, string property)
+    {
+        if (!payload.TryGetProperty(property, out var node)) return null;
+        return node.ValueKind == JsonValueKind.String ? node.GetString() :
+            node.ValueKind == JsonValueKind.Object && node.TryGetProperty("normalizedSuggestion", out var normalized) && normalized.ValueKind == JsonValueKind.String ? normalized.GetString() : null;
     }
 }
 

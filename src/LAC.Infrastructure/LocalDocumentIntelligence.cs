@@ -11,7 +11,11 @@ public sealed class DocumentIntelligenceOptions
     public string? WorkerScript { get; set; }
     public string? WorkingDirectory { get; set; }
     public string? ModelCachePath { get; set; }
-    public int TimeoutMinutes { get; set; } = 15;
+    // Full local layout/OCR has measured around fourteen minutes on the pilot
+    // document.  Keep explicit operational headroom while still allowing a
+    // deployment to tighten this through configuration.
+    public int TimeoutMinutes { get; set; } = 30;
+    public int MaxConcurrentJobs { get; set; } = 1;
 }
 
 public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId);

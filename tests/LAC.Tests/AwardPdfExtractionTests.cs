@@ -5,6 +5,7 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
 using Xunit;
 
 namespace LAC.Tests;
@@ -83,6 +84,37 @@ public sealed class AwardPdfExtractionTests
         Assert.DoesNotContain(candidates, x => x.CandidateType == AwardIngestionCandidateType.AwardKhasra); // A labelled narrative line is not a verified Khasra table.
         var firstSession = persisted.IngestionSessionId; var rerun = await runner.ReanalyzeAsync(job.Id, default);
         Assert.Equal(AwardDocumentExtractionJobStatus.NeedsReview, rerun.Status); Assert.NotEqual(firstSession, rerun.IngestionSessionId); Assert.Single(await db.AwardDocumentPageExtractions.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Local_worker_contract_maps_only_to_review_staging_with_full_source_locator()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var village = new Village { Name = "Fictional Village" }; var award = new Award { AwardNumber = "FICTIONAL-LOCAL" }; var document = new LAC.Domain.Document { OriginalFileName = "fictional.pdf", StoragePath = "fictional.pdf" };
+        db.AddRange(village, award, document, new AwardVillage { Award = award, Village = village }, new DocumentAward { Award = award, Document = document }); await db.SaveChangesAsync();
+        static JsonElement Element(string value) => JsonDocument.Parse(value).RootElement.Clone();
+        var result = new LocalDocumentIntelligenceResult(1, document.Id, "Completed", 2,
+        [
+            new("AwardKhasra", Element("{\"khasraNumber\":\"6//10\",\"qualifier\":null,\"recordedArea\":{\"rawOcr\":\"22 -- 3\",\"cellCropOcr\":\"22-3\",\"normalizedSuggestion\":\"22-3\",\"normalizationReason\":\"Normalized separator only\"},\"awardedArea\":{\"normalizedSuggestion\":\"22-3\"},\"rectangle\":{\"normalizedSuggestion\":\"6\"}}"), 1, Element("{\"x\":1,\"y\":2,\"width\":3,\"height\":4}"), "6//10", "6//10", "6//10", null, .99m, ["Geometry-backed OCR suggestion"]),
+            new("LandClassification", Element("{\"khasraNumber\":\"6//10\",\"block\":{\"normalizedSuggestion\":\"A\"}}"), 2, Element("{\"x\":1,\"y\":2,\"width\":3,\"height\":4}"), null, null, null, null, null, []),
+            new("UnmappedAwardFinding", Element("{\"category\":\"Local OCR narrative\"}"), 2, Element("{\"x\":0,\"y\":0,\"width\":100,\"height\":100}"), null, null, null, null, null, [])
+        ], [], Element("{}"));
+
+        var inputs = LocalIntelligenceCandidateMapper.Map(result);
+        Assert.Equal([AwardIngestionCandidateType.AwardKhasra, AwardIngestionCandidateType.AwardLandClass, AwardIngestionCandidateType.UnmappedAwardFinding], inputs.Select(x => x.CandidateType));
+        Assert.Contains("recordedArea", inputs[0].SourceLocatorJson!); Assert.Contains("cellCropOcr", inputs[0].SourceLocatorJson!);
+        var staged = await new AwardIngestionService(db, new AwardWorkflowService(db)).CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, document.Id, "test", null, inputs, default);
+        var rows = await db.AwardIngestionCandidates.Where(x => x.SessionId == staged.Id).ToListAsync();
+        Assert.All(rows, row => { Assert.Equal(AwardIngestionCandidateStatus.NeedsReview, row.Status); Assert.False(row.SafeToConfirm); Assert.NotNull(row.SourceLocatorJson); });
+        Assert.Empty(await db.Khasras.ToListAsync()); Assert.Empty(await db.Set<AwardKhasra>().ToListAsync()); Assert.Empty(await db.Set<SourceEvidence>().ToListAsync());
+    }
+
+    [Fact]
+    public void Local_worker_unsupported_candidate_rejects_whole_mapping_before_staging()
+    {
+        static JsonElement Element(string value) => JsonDocument.Parse(value).RootElement.Clone();
+        var result = new LocalDocumentIntelligenceResult(1, Guid.NewGuid(), "Completed", 1, [new("CourtCase", Element("{}"), 1, null, null, null, null, null, null, [])], [], Element("{}"));
+        Assert.Throws<InvalidOperationException>(() => LocalIntelligenceCandidateMapper.Map(result));
     }
 
     private sealed class MemoryStorage(byte[] pdf) : IDocumentStorage
