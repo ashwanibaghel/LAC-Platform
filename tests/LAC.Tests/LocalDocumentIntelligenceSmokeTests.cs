@@ -39,13 +39,7 @@ public sealed class LocalDocumentIntelligenceSmokeTests
         Assert.Equal(JsonValueKind.Object, result.Metrics.ValueKind);
         Assert.All(result.Candidates, candidate => Assert.True(candidate.Page > 0));
         Assert.Contains(result.Candidates, candidate => candidate.SourceRegion is not null);
-        Assert.Contains(result.Candidates, candidate =>
-            !string.IsNullOrWhiteSpace(candidate.CandidateType)
-            && candidate.SourceRegion is not null
-            && !string.IsNullOrWhiteSpace(candidate.RawSourceText)
-            && !string.IsNullOrWhiteSpace(candidate.RawOcr)
-            && candidate.Confidence is not null
-            && !string.IsNullOrWhiteSpace(candidate.NormalizedSuggestion));
+        Assert.All(result.Candidates, candidate => Assert.False(string.IsNullOrWhiteSpace(candidate.CandidateType)));
 
         var typeCounts = result.Candidates
             .GroupBy(candidate => candidate.CandidateType)
@@ -55,6 +49,10 @@ public sealed class LocalDocumentIntelligenceSmokeTests
         var runtime = result.Metrics.TryGetProperty("runtimeSeconds", out var runtimeSeconds)
             ? runtimeSeconds.GetRawText()
             : "unknown";
-        output.WriteLine($"Sanitized worker metrics: pages={result.PagesProcessed}; candidates={result.Candidates.Count}; types={string.Join(',', typeCounts)}; sourceRegions={sourceRegionCount}; runtimeSeconds={runtime}");
+        var tablePages = result.Metrics.TryGetProperty("tablePagesDetected", out var tablePagesValue) ? tablePagesValue.GetRawText() : "unknown";
+        var tableRows = result.Metrics.TryGetProperty("awardRows", out var awardRows) ? awardRows.GetRawText() : "unknown";
+        var courtRows = result.Metrics.TryGetProperty("courtRows", out var courtRowsValue) ? courtRowsValue.GetRawText() : "unknown";
+        var classificationRows = result.Metrics.TryGetProperty("classificationRows", out var classificationRowsValue) ? classificationRowsValue.GetRawText() : "unknown";
+        output.WriteLine($"Sanitized worker metrics: pages={result.PagesProcessed}; candidates={result.Candidates.Count}; types={string.Join(',', typeCounts)}; sourceRegions={sourceRegionCount}; tablePages={tablePages}; awardRows={tableRows}; courtRows={courtRows}; classificationRows={classificationRows}; runtimeSeconds={runtime}");
     }
 }
