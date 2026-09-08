@@ -17,11 +17,14 @@ def main():
   engine=RapidOCR(params={'Det.engine_type':EngineType.TORCH,'Cls.engine_type':EngineType.TORCH,'Rec.engine_type':EngineType.TORCH}); doc=fitz.open(pdf); candidates=[]; started=time.time()
   for n,page in enumerate(doc,1):
    pix=page.get_pixmap(matrix=fitz.Matrix(2,2),alpha=False); image=Image.frombytes('RGB',[pix.width,pix.height],pix.samples); out=engine(image)
-   for text,box,score in zip(out.txts or [],out.boxes or [],out.scores or []):
+   texts=list(out.txts) if out.txts is not None else []
+   boxes=list(out.boxes) if out.boxes is not None else []
+   scores=list(out.scores) if out.scores is not None else []
+   for text,box,score in zip(texts,boxes,scores):
     raw=' '.join(str(text).split()); xs=[float(x[0]) for x in box];ys=[float(x[1]) for x in box]; region={'x':min(xs),'y':min(ys),'width':max(xs)-min(xs),'height':max(ys)-min(ys)}
     if '//' in raw: candidates.append({'candidateType':'AwardKhasra','structuredPayload':{'khasraNumber':raw,'qualifier':None},'page':n,'sourceRegion':region,'rawSourceText':raw,'rawOcr':raw,'normalizedSuggestion':raw,'normalizationReason':None,'confidence':float(score),'interpretationWarnings':['OCR suggestion; human review required']})
    # Preserve non-table/narrative OCR as reviewable evidence, never discard it.
-   if out.txts: candidates.append({'candidateType':'UnmappedAwardFinding','structuredPayload':{'category':'Local OCR narrative','summary':'Locally detected narrative evidence','extractedText':None},'page':n,'sourceRegion':None,'rawSourceText':'','rawOcr':None,'normalizedSuggestion':None,'normalizationReason':None,'confidence':None,'interpretationWarnings':['Narrative retained for human review']})
+   if texts: candidates.append({'candidateType':'UnmappedAwardFinding','structuredPayload':{'category':'Local OCR narrative','summary':'Locally detected narrative evidence','extractedText':None},'page':n,'sourceRegion':None,'rawSourceText':'','rawOcr':None,'normalizedSuggestion':None,'normalizationReason':None,'confidence':None,'interpretationWarnings':['Narrative retained for human review']})
   result={'contractVersion':1,'documentId':data['documentId'],'status':'Completed','pagesProcessed':len(doc),'candidates':candidates,'warnings':['Table geometry adapter is optional; candidate review remains human-required.'],'metrics':{'runtimeSeconds':round(time.time()-started,2),'engine':'RapidOCR local'}};a.output.parent.mkdir(parents=True,exist_ok=True);a.output.write_text(json.dumps(result));return 0
- except Exception as e: return fail(f'local worker failed: {type(e).__name__}')
+ except Exception as e: return fail(f'local worker failed: {type(e).__name__}: {str(e)[:240]}')
 if __name__=='__main__':sys.exit(main())
