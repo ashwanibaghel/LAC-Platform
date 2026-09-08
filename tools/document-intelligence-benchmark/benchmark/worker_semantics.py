@@ -14,7 +14,10 @@ def page_likely_has_table(words: list[str]) -> bool:
     signals = sum(bool(re.search(pattern, text)) for pattern in (
         r"khasra", r"total\s+area", r"area\s+awarded", r"\bcwp\b", r"\bblock\b", r"s\.?no",
     ))
-    return signals >= 2 and len(words) >= 20
+    strict_occurrences = sum(strict_khasra(word)[0] is not None for word in words)
+    # Continuation tables often repeat values but not a full header.  They are
+    # only *selected* here; structured output still requires geometry + roles.
+    return len(words) >= 20 and (signals >= 2 or strict_occurrences >= 4)
 
 
 def strict_khasra(value: str) -> tuple[str | None, str | None]:
@@ -49,24 +52,29 @@ def table_kind(header_cells: dict[int, str]) -> tuple[str | None, dict[str, int]
     return None, roles
 
 
-def field(value: str | None, region: dict | None, *, area: bool = False) -> dict:
+def field(value: str | None, region: dict | None, *, area: bool = False, cell_crop_ocr: str | None = None) -> dict:
     raw = " ".join(str(value or "").split())
-    normalized = normalize_area_evidence(raw) if area else {"rawOcrText": raw, "normalizedValue": raw or None, "normalizationReason": None}
+    crop = " ".join(str(cell_crop_ocr or "").split()) or None
+    chosen = crop or raw
+    normalized = normalize_area_evidence(chosen) if area else {"rawOcrText": raw, "normalizedValue": chosen or None, "normalizationReason": None}
     return {
-        "rawOcr": normalized["rawOcrText"],
+        "rawOcr": raw,
+        "pageAssignedOcr": raw,
+        "cellCropOcr": crop,
         "normalizedSuggestion": normalized["normalizedValue"],
         "normalizationReason": normalized["normalizationReason"],
         "sourceRegion": region,
+        "recognitionWarnings": [] if not crop or crop == raw else ["Page-assigned OCR and cell-crop OCR disagree; human review required"],
     }
 
 
 def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict], roles: dict[str, int]) -> dict | None:
-    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"))
+    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_crop_ocr=cells.get(roles["khasra"], {}).get("cellCropOcr"))
     number, qualifier = strict_khasra(khasra["rawOcr"])
     if not number:
         return None
-    recorded = field(cells.get(roles["recordedArea"], {}).get("text"), cells.get(roles["recordedArea"], {}).get("region"), area=True)
-    awarded = field(cells.get(roles["awardedArea"], {}).get("text"), cells.get(roles["awardedArea"], {}).get("region"), area=True)
+    recorded = field(cells.get(roles["recordedArea"], {}).get("text"), cells.get(roles["recordedArea"], {}).get("region"), area=True, cell_crop_ocr=cells.get(roles["recordedArea"], {}).get("cellCropOcr"))
+    awarded = field(cells.get(roles["awardedArea"], {}).get("text"), cells.get(roles["awardedArea"], {}).get("region"), area=True, cell_crop_ocr=cells.get(roles["awardedArea"], {}).get("cellCropOcr"))
     rectangle = field(cells.get(roles.get("rectangle"), {}).get("text"), cells.get(roles.get("rectangle"), {}).get("region")) if "rectangle" in roles else None
     warnings = ["Geometry-backed OCR suggestion; human review required"]
     if rectangle is None or not rectangle["normalizedSuggestion"]:
@@ -88,9 +96,9 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
 
 
 def court_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict], roles: dict[str, int]) -> dict | None:
-    case = field(cells.get(roles["caseNumber"], {}).get("text"), cells.get(roles["caseNumber"], {}).get("region"))
+    case = field(cells.get(roles["caseNumber"], {}).get("text"), cells.get(roles["caseNumber"], {}).get("region"), cell_crop_ocr=cells.get(roles["caseNumber"], {}).get("cellCropOcr"))
     case_match = CWP.search(case["rawOcr"])
-    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"))
+    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_crop_ocr=cells.get(roles["khasra"], {}).get("cellCropOcr"))
     number, qualifier = strict_khasra(khasra["rawOcr"])
     if not case_match or not number:
         return None

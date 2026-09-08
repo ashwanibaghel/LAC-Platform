@@ -40,6 +40,18 @@ class WorkerSemanticsTests(unittest.TestCase):
         self.assertEqual(value["rawOcr"], "22 -- 3")
         self.assertEqual(value["normalizedSuggestion"], "22-3")
 
+    def test_cell_and_page_ocr_agreement_is_preserved(self):
+        value = field("22//2", cell("x")["region"], cell_crop_ocr="22//2")
+        self.assertEqual(value["pageAssignedOcr"], "22//2")
+        self.assertEqual(value["cellCropOcr"], "22//2")
+        self.assertEqual(value["recognitionWarnings"], [])
+
+    def test_cell_and_page_ocr_disagreement_is_preserved(self):
+        value = field("22//2", cell("x")["region"], cell_crop_ocr="22//9")
+        self.assertEqual(value["pageAssignedOcr"], "22//2")
+        self.assertEqual(value["cellCropOcr"], "22//9")
+        self.assertTrue(value["recognitionWarnings"])
+
     def test_khasra_qualifier_is_preserved(self):
         candidate = award_candidate(1, 1, 1, self.cells, self.roles)
         self.assertEqual(candidate["structuredPayload"]["qualifier"], "min")

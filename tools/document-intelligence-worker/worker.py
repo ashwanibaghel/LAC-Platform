@@ -65,7 +65,17 @@ def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict
     return {column: " ".join(text) for column, text in values.items()}
 
 
-def structured_from_geometry(page: int, geometry: list[dict], words) -> tuple[list[dict], dict[str, int]]:
+def crop_ocr(image, cell: dict, ocr) -> str | None:
+    """Recognition-only unified crop; never used outside Table Transformer cells."""
+    from benchmark.cell_crop_pipeline_v9 import normalize_from_page
+
+    _, normalized, _ = normalize_from_page(image, cell["region"])
+    output = ocr(normalized)
+    texts = list(output.txts) if output.txts is not None else []
+    return " ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None
+
+
+def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr) -> tuple[list[dict], dict[str, int]]:
     from benchmark.worker_semantics import award_candidate, classification_candidate, court_candidate, table_kind
 
     candidates: list[dict] = []
@@ -86,6 +96,20 @@ def structured_from_geometry(page: int, geometry: list[dict], words) -> tuple[li
                 continue
             candidate = None
             if kind == "AwardLandTable":
+                from benchmark.worker_semantics import strict_khasra
+                from benchmark.cell_safety_v12 import normalize_area_evidence
+                if strict_khasra(cells.get(roles["khasra"], {}).get("text", ""))[0] is None:
+                    continue
+                # Khasra is always independently read.  Areas are expensive
+                # and only need a crop retry when page OCR is not already a
+                # formatting-valid area; no value is silently replaced.
+                khasra_column = roles["khasra"]
+                if khasra_column in cells:
+                    cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr)
+                for role in ("recordedArea", "awardedArea"):
+                    column = roles[role]
+                    if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
+                        cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr)
                 candidate = award_candidate(page, table_id, row_id, cells, roles)
                 if candidate:
                     counts["awardRows"] += 1
@@ -154,7 +178,7 @@ def main() -> int:
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
                 geometry = geometry_engine.detect(image)
-                page_candidates, page_counts = structured_from_geometry(page_number, geometry, words)
+                page_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr)
                 if page_counts["tables"]:
                     table_pages += 1
                     for key in totals:
