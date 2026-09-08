@@ -37,6 +37,8 @@ builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddScoped<AwardIngestionService>();
 builder.Services.AddSingleton<IAwardPdfJobQueue, AwardPdfJobQueue>();
+builder.Services.Configure<DocumentIntelligenceOptions>(builder.Configuration.GetSection("DocumentIntelligence"));
+builder.Services.AddScoped<ILocalDocumentIntelligenceClient, LocalDocumentIntelligenceClient>();
 builder.Services.AddScoped<IOcrEngine, TesseractOcrEngine>();
 builder.Services.AddSingleton<IAwardSectionClassifier, AwardSectionClassifier>();
 builder.Services.AddSingleton<TextConceptMatcher>();
