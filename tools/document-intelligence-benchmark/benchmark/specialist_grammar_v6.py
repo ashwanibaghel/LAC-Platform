@@ -5,7 +5,9 @@ KHASRA_RE=re.compile(r'^\d+//\d+(?:/\d+)*(?: ?min)?$')
 KILLA_RE=re.compile(r'^\d+(?:/\d+)?$')
 QUALIFIERS={'min'}
 def normalize_area(s):
-    return re.sub(r'\s*[-–—]+\s*','-',str(s).strip())
+    # Formatting only: consecutive printed separator marks may have whitespace
+    # between them. Digits and all other characters are left untouched.
+    return re.sub(r'\s*(?:[-–—]\s*)+', '-', str(s).strip())
 def valid_area(s):
     s=normalize_area(s)
     if not AREA_RE.fullmatch(s): return False

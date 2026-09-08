@@ -3,6 +3,7 @@ import argparse,json,time
 from pathlib import Path
 import tkinter as tk
 from PIL import Image,ImageTk
+from .cell_safety_v12 import normalize_area_evidence
 
 def read(path,default): return json.loads(path.read_text()) if path.exists() else default
 def identity(item): return f"{item['sourcePage']}:{item['sourceRow']}:{item['sourceColumn']}:{item['role']}"
@@ -25,7 +26,8 @@ def main():
   if index>=len(queue): persist(); root.destroy(); return
   x=queue[index]; im=Image.open(x['sourceCrop']).convert('RGB'); im.thumbnail((850,260)); im=im.resize((im.width*3,im.height*3)); photo=ImageTk.PhotoImage(im); crop_label.configure(image=photo); crop_label.image=photo
   header.configure(text=f'Review field {index+1} of {len(queue)} · {x["role"]}')
-  detail.configure(text=f'Source cell: page {x["sourcePage"]}, table row {x["sourceRow"]}, column {x["sourceColumn"]}\nOCR suggestion: {x.get("suggestion","")}\nMaster suggestions — verify from source: {", ".join(x.get("masterSuggestions",[])) or "not available"}\nThe enlarged crop is convenience; retain the original PDF as evidence.')
+  area=normalize_area_evidence(x.get('suggestion','')) if x['role'] in ('area','recordedArea','awardedArea') else None; normalized=f'\nNormalized: {area["normalizedValue"]} ({area["normalizationReason"] or "no formatting change"})' if area else ''
+  detail.configure(text=f'Source cell: page {x["sourcePage"]}, table row {x["sourceRow"]}, column {x["sourceColumn"]}\nRaw OCR: {x.get("suggestion","")}{normalized}\nMaster suggestions — verify from source: {", ".join(x.get("masterSuggestions",[])) or "not available"}\nThe enlarged crop is convenience; retain the original PDF as evidence.')
   entry.delete(0,tk.END); entry.insert(0,x.get('suggestion','')); entry.focus_set()
  def decide(action):
   nonlocal index
