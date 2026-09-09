@@ -8,6 +8,34 @@ namespace LAC.Tests;
 public sealed class AwardWorkflowTests
 {
     [Fact]
+    public async Task Supplementary_award_can_preserve_an_unresolved_main_award_reference_without_creating_facts()
+    {
+        await using var db = Db();
+        var supplementary = await new AwardWorkflowService(db).CreateSupplementaryAsync(new("FICTIONAL-SUP-01", new DateOnly(2026, 9, 9), "FICTIONAL-MAIN-01 dated 01.01.2026"), default);
+
+        Assert.Equal("Supplementary", supplementary.AwardType);
+        Assert.Equal("FICTIONAL-MAIN-01 dated 01.01.2026", supplementary.ParentAwardReference);
+        Assert.Null(supplementary.ParentAwardId);
+        Assert.Single(await db.Awards.ToListAsync());
+        Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+        Assert.Empty(await db.Notifications.ToListAsync());
+        Assert.Empty(await db.Claims.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Supplementary_parent_reference_does_not_auto_link_by_matching_award_number()
+    {
+        await using var db = Db();
+        db.Add(new Award { AwardNumber = "FICTIONAL-MAIN-02" }); await db.SaveChangesAsync();
+
+        var supplementary = await new AwardWorkflowService(db).CreateSupplementaryAsync(new("FICTIONAL-SUP-02", null, "FICTIONAL-MAIN-02"), default);
+
+        Assert.Null(supplementary.ParentAwardId);
+        Assert.Equal("FICTIONAL-MAIN-02", supplementary.ParentAwardReference);
+        Assert.Equal(2, await db.Awards.CountAsync());
+    }
+
+    [Fact]
     public async Task Missing_award_khasra_becomes_canonical_village_khasra_with_review_flag_and_is_reused()
     {
         await using var db = Db(); var village = new Village { Name = "Fictional Village" }; db.Add(village); await db.SaveChangesAsync();

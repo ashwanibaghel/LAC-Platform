@@ -5,6 +5,7 @@ namespace LAC.Infrastructure;
 
 public sealed class AwardWorkflowException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
 public sealed record AwardCreateInput(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
+public sealed record SupplementaryAwardCreateInput(string AwardNumber, DateOnly? AwardDate, string ParentAwardReference, Guid? ParentAwardId = null, string? Remarks = null);
 public sealed record AwardKhasraInput(Guid VillageId, string KhasraNumber, string? Qualifier, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, string? Remarks, decimal? CanonicalAreaBigha = null, int? CanonicalAreaBiswa = null, int? CanonicalAreaBiswansi = null);
 public sealed record AwardKhasraLinkResult(Guid KhasraId, bool CreatedKhasra, bool CreatedReviewFlag, bool CreatedAwardLink);
 public sealed record AwardKhasraMatchResult(bool IsExisting, string? DisplayNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi);
@@ -19,6 +20,17 @@ public sealed class AwardWorkflowService(LacDbContext db)
         var award = new Award { AwardNumber = input.AwardNumber.Trim(), AwardDate = input.AwardDate, AwardType = Clean(input.AwardType), ActRegime = Clean(input.ActRegime), Purpose = Clean(input.Purpose), AcquisitionProjectId = input.AcquisitionProjectId, Remarks = Clean(input.Remarks) };
         db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = input.VillageId });
         db.AuditLogs.Add(new AuditLog { EntityType = nameof(Award), EntityId = award.Id, Action = "AwardCreatedWithVillage", ChangedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync(ct); return award;
+    }
+
+    public async Task<Award> CreateSupplementaryAsync(SupplementaryAwardCreateInput input, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(input.AwardNumber)) throw new AwardWorkflowException("Supplementary Award number is required.");
+        if (string.IsNullOrWhiteSpace(input.ParentAwardReference)) throw new AwardWorkflowException("Main Award reference is required, even when its record has not been created yet.");
+        if (input.ParentAwardId is not null && !await db.Awards.AnyAsync(x => x.Id == input.ParentAwardId, ct)) throw new AwardWorkflowException("Selected main Award was not found.", 404);
+        var award = new Award { AwardNumber = input.AwardNumber.Trim(), AwardDate = input.AwardDate, AwardType = "Supplementary", ParentAwardId = input.ParentAwardId, ParentAwardReference = input.ParentAwardReference.Trim(), Remarks = Clean(input.Remarks) };
+        db.Add(award);
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(Award), EntityId = award.Id, Action = "SupplementaryAwardCreated", ChangedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct); return award;
     }
 

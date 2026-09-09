@@ -211,7 +211,7 @@ api.MapGet("/awards/{id:guid}", async (Guid id, LacDbContext db, CancellationTok
 api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     var item = await db.Awards.AsNoTracking().Where(x => x.Id == id).Select(x => new AwardWorkspaceOverview(
-        x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Purpose, x.ActRegime, x.Status, x.Remarks,
+        x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.ParentAwardId, x.ParentAward == null ? null : x.ParentAward.AwardNumber, x.ParentAwardReference, x.Purpose, x.ActRegime, x.Status, x.Remarks,
         x.AcquisitionProject == null ? null : new ProjectReference(x.AcquisitionProject.Id, x.AcquisitionProject.Name, x.AcquisitionProject.RequiringAgency, x.AcquisitionProject.ActRegime),
         x.VillageLinks.Select(v => new VillageReference(v.Village.Id, v.Village.Name, new SubDivisionReference(v.Village.SubDivision.Id, v.Village.SubDivision.Name, new DistrictReference(v.Village.SubDivision.District.Id, v.Village.SubDivision.District.Name)))).ToList(),
         x.KhasraLinks.Count, x.NotificationLinks.Count, db.PossessionEvents.Count(p => p.AwardId == x.Id), db.Set<CourtCaseAward>().Count(c => c.AwardId == x.Id), db.Claims.Count(c => c.AwardId == x.Id), db.Set<AwardAreaIssue>().Count(i => i.AwardId == x.Id && i.Status != "Resolved"), x.DocumentRelationships.Count,
@@ -383,6 +383,11 @@ api.MapPost("/awards", async (CreateAwardRequest request, LrWorkflowService work
 api.MapPost("/awards/foundation", async (AwardFoundationCreateRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { var award = await workflow.CreateAsync(new(request.AwardNumber, request.VillageId, request.AwardDate, request.AwardType, request.ActRegime, request.Purpose, request.AcquisitionProjectId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
+    catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
+});
+api.MapPost("/awards/supplementary", async (CreateSupplementaryAwardRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
+{
+    try { var award = await workflow.CreateSupplementaryAsync(new(request.AwardNumber, request.AwardDate, request.ParentAwardReference, request.ParentAwardId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
 });
 
@@ -629,6 +634,7 @@ public sealed record CreateKhasraRequest(string DisplayNumber, decimal? TotalAre
 public sealed record KhasraBatchRequest(IReadOnlyList<KhasraWorkspaceRow> Rows);
 public sealed record CreateNotificationRequest(string SectionType, string NotificationNumber, DateOnly? NotificationDate, string? Remarks);
 public sealed record CreateAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? ActRegime);
+public sealed record CreateSupplementaryAwardRequest(string AwardNumber, DateOnly? AwardDate, string ParentAwardReference, Guid? ParentAwardId = null, string? Remarks = null);
 public sealed record AwardFoundationCreateRequest(string AwardNumber, Guid VillageId, DateOnly? AwardDate, string? AwardType, string? ActRegime, string? Purpose, Guid? AcquisitionProjectId, string? Remarks);
 public sealed record CreateAwardIngestionSessionRequest(AwardIngestionSourceType SourceType, Guid? TargetAwardId, Guid? SelectedVillageId, Guid? SourceDocumentId, string? CreatedBy, string? Remarks, IReadOnlyList<IngestionCandidateInput> Candidates);
 public sealed record ResolveAwardIngestionCandidateRequest(string Action);
@@ -637,7 +643,7 @@ public sealed record AwardFoundationKhasraRequest(Guid VillageId, string KhasraN
 public sealed record ResolveKhasraReviewRequest(string? ResolvedBy);
 public sealed record AwardWorkspaceKhasraItem(Guid AwardKhasraId, Guid KhasraId, string DisplayNumber, string VillageName, string? RectangleNumber, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi, decimal? RecordedTotalAreaBigha, int? RecordedTotalAreaBiswa, int? RecordedTotalAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? RelationshipStatus, Guid? ReviewFlagId);
 public sealed record KhasraReviewFlagItem(Guid Id, string Status, string ReasonCode, string? Message, Guid? RelatedAwardId, string? RelatedAwardNumber);
-public sealed record AwardWorkspaceOverview(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Purpose, string? ActRegime, string Status, string? Remarks, ProjectReference? Project, IReadOnlyList<VillageReference> Villages, int KhasraCount, int NotificationCount, int PossessionEventCount, int CourtCaseCount, int ClaimCount, int OpenAreaIssueCount, int DocumentCount, string KhasrasData, string NotificationsData, string PossessionData, string LitigationData, string ClaimsData);
+public sealed record AwardWorkspaceOverview(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, Guid? ParentAwardId, string? ParentAwardNumber, string? ParentAwardReference, string? Purpose, string? ActRegime, string Status, string? Remarks, ProjectReference? Project, IReadOnlyList<VillageReference> Villages, int KhasraCount, int NotificationCount, int PossessionEventCount, int CourtCaseCount, int ClaimCount, int OpenAreaIssueCount, int DocumentCount, string KhasrasData, string NotificationsData, string PossessionData, string LitigationData, string ClaimsData);
 public sealed record CreatePossessionEventRequest(DateOnly? PossessionDate, string? EventType, string? Status, string? Remarks, IReadOnlyList<Guid> KhasraIds);
 public sealed record CreateAwardCourtCaseRequest(string CaseNumber, string CourtName, string? CaseType, DateOnly? FiledDate, string? CurrentStatus, string? Remarks, IReadOnlyList<Guid> KhasraIds);
 public sealed record AwardNotificationWorkspaceItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate);
