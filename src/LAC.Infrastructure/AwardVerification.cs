@@ -217,7 +217,7 @@ public sealed partial class AwardIngestionService
                 if(!new StrictKhasraParser().TryParse(k.KhasraNumber+(Clean(k.Qualifier) is string q?" "+q:""),out _,out _)) throw new AwardIngestionException("Enter a valid Khasra identifier; no digits will be guessed.");
                 Area(k.CanonicalAreaBigha,k.CanonicalAreaBiswa,k.CanonicalAreaBiswansi); Area(k.RecordedAreaBigha,k.RecordedAreaBiswa,k.RecordedAreaBiswansi); Area(k.AwardedAreaBigha,k.AwardedAreaBiswa,k.AwardedAreaBiswansi); break;
             case NotificationCandidate n when !string.IsNullOrWhiteSpace(n.SectionType) && !string.IsNullOrWhiteSpace(n.NotificationNumber) && n.NotificationDate!=null: break;
-            case PossessionEventCandidate p when p.PossessionDate!=null: break;
+            case PossessionEventCandidate p when p.PossessionDate!=null || !string.IsNullOrWhiteSpace(p.Status): break;
             case CourtCaseCandidate c when !string.IsNullOrWhiteSpace(c.CaseNumber) && !string.IsNullOrWhiteSpace(c.CourtName): break;
             case ClaimCandidate c when !string.IsNullOrWhiteSpace(c.ClaimText): break;
             case LandClassCandidate l when !string.IsNullOrWhiteSpace(l.Code): break;
@@ -245,7 +245,7 @@ public sealed partial class AwardIngestionService
         }
         OfficialRecord? record=payload switch
         {
-            PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status},
+            PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status,Remarks=PossessionRemarks(p)},
             CourtCaseCandidate p => new CourtCase{CaseNumber=p.CaseNumber,CourtName=p.CourtName,CaseType=p.CaseType},
             ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText},
             LandClassCandidate p => new AwardLandClass{AwardId=session.TargetAwardId!.Value,Code=p.Code,Description=p.Description},
@@ -257,7 +257,9 @@ public sealed partial class AwardIngestionService
         };
         if(record is null) return false;
         OfficialRecord? existing = payload switch {
-            PossessionEventCandidate p => await db.PossessionEvents.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.PossessionDate==p.PossessionDate && x.EventType==p.EventType && x.Status==p.Status,ct),
+            // Individual source occurrences stay distinct.  A human may later
+            // consolidate events, but analysis/commit never silently merges them.
+            PossessionEventCandidate => null,
             CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==p.CourtName && x.CaseType==p.CaseType,ct),
             ClaimCandidate p => await db.Claims.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.ClaimReference==p.ClaimReference && x.ClaimDate==p.ClaimDate && x.ClaimText==p.ClaimText,ct),
             LandClassCandidate p => await db.Set<AwardLandClass>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.Code==p.Code && x.Description==p.Description,ct),
@@ -272,6 +274,15 @@ public sealed partial class AwardIngestionService
         await db.SaveChangesAsync(ct);
         candidate.CanonicalEntityId=record.Id;candidate.CanonicalEntityType=record.GetType().Name;candidate.Status=AwardIngestionCandidateStatus.Committed;
         return true;
+    }
+
+    private static string? PossessionRemarks(PossessionEventCandidate value)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(value.PossessionAreaText)) parts.Add($"Source possession area: {value.PossessionAreaText.Trim()}");
+        if (!string.IsNullOrWhiteSpace(value.PossessionAreaUnit)) parts.Add($"Unit: {value.PossessionAreaUnit.Trim()}");
+        if (!string.IsNullOrWhiteSpace(value.KhasraReferences)) parts.Add($"Source Khasra references: {value.KhasraReferences.Trim()}");
+        return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 
     private async Task SavePermanentEvidenceAsync(AwardIngestionSession session,AwardIngestionCandidate candidate,CancellationToken ct)

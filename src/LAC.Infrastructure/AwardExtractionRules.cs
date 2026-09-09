@@ -307,10 +307,8 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
         {
             var lines = DocumentLayout.Lines(page);
             foreach (var line in lines)
-            {
-                if (Regex.IsMatch(line.Text, @"\bpossession\b.*\b(?:has been taken|was taken|taken over)\b", RegexOptions.IgnoreCase) && ExtractDate(line.Text) is DateOnly date)
-                    Add(output, new PossessionEventCandidate(date, null, null), page.PageNumber, "PossessionNarrative", "Explicit dated possession statement", ["possession statement", "strict date"], ["Confirm event scope and affected Khasras; this does not imply possession of all Award land or change Award status."], line.Text);
-            }
+                if (TryPossession(line.Text, out var possession))
+                    Add(output, possession, page.PageNumber, "PossessionNarrative", "Explicit possession source occurrence", ["explicit possession wording"], ["Possession area remains independent from Award and Village area. Khasra references are source text only; no parcel relationship was inferred."], line.Text);
             // Evidence buckets are deliberately not canonical legal records. Numeric rates, claimant
             // identities, affected parcels and stay/possession scope are never inferred from keywords.
             var categories = new Dictionary<string, string>
@@ -332,6 +330,31 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
                 Add(output, new UnmappedAwardFindingCandidate(category.Key, "Source mentions this subject; structured fields and legal scope still require review.", raw), page.PageNumber, "ClassifiedNarrativeEvidence", category.Key + " evidence", ["literal subject mention"], ["Evidence only, not a verified structured record. Do not infer stay, merge Parties, assign rates or link all Khasras."], raw);
             }
         }
+    }
+
+    private bool TryPossession(string text, out PossessionEventCandidate candidate)
+    {
+        candidate = default!;
+        var patterns = new (string Pattern, string EventType)[]
+        {
+            (@"\bpossession\s+(?:could\s+not|cannot|was\s+not)\s+be\s+taken\b", "Possession not taken"),
+            (@"\bpossession\s+(?:is|was|has\s+been)\s+stayed\b|\bstay\s+of\s+possession\b", "Possession stayed"),
+            (@"\bbalance\s+possession\b", "Balance possession"),
+            (@"\bpartial\s+possession\b|\bpossession\s+of\s+part\b", "Partial possession"),
+            (@"\bphysical\s+possession\s+(?:has\s+been|was\s+)?(?:taken|taken\s+over)\b", "Physical possession taken"),
+            (@"\bpossession\s+(?:has\s+been|was\s+)?taken(?:\s+over)?\b|\btaken\s+over\b", "Possession taken")
+        };
+        foreach (var value in patterns)
+        {
+            var matched = Regex.Match(text, value.Pattern, RegexOptions.IgnoreCase);
+            if (!matched.Success) continue;
+            var area = Regex.Match(text, @"\b(?:area|land)\s*(?:of|:|-)?\s*(?<area>\d+(?:\s*[-–—]\s*\d+){1,2}|\d+(?:\.\d+)?\s*(?:acre|acres|bigha|biswa|sq\.?\s*yards?))\b", RegexOptions.IgnoreCase);
+            var rawArea = area.Success ? Regex.Replace(area.Groups["area"].Value, @"\s+", " ").Trim() : null;
+            var khasra = Regex.Match(text, @"\b(?:khasra|killa)\s*(?:no\.?|number)?\s*[:.-]?\s*(?<refs>[0-9][0-9/,.\-\s]*(?:\bmin\b)?)", RegexOptions.IgnoreCase);
+            candidate = new PossessionEventCandidate(ExtractDate(text), value.EventType, matched.Value, rawArea, null, khasra.Success ? Regex.Replace(khasra.Groups["refs"].Value, @"\s+", " ").Trim().TrimEnd('.', ',', ';') : null);
+            return true;
+        }
+        return false;
     }
 
     private void Add(ICollection<ExtractionCandidate> target, IAwardIngestionCandidatePayload payload, int page, string rule, string reason, IReadOnlyList<string> gates, IReadOnlyList<string> warnings, string raw, string? possibleCanonicalMatch = null, decimal? confidence = null)

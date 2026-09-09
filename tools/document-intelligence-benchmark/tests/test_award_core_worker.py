@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates
 
 
 def words(*values):
@@ -53,6 +53,30 @@ class AwardCoreWorkerTests(unittest.TestCase):
         asset = next(item for item in output if item["candidateType"] == "SupplementaryMatter")
         self.assertNotIn("owner", asset["structuredPayload"].get("description", "").lower())
         self.assertFalse(any(item["candidateType"] == "AwardKhasra" for item in output))
+
+    def test_possession_events_preserve_multiple_occurrences_without_parcel_links(self):
+        output = possession_candidates(1, words(
+            "Physical possession taken on 11.09.2002 for area 1-2 Khasra No. 12//2.",
+            "Balance possession taken over on 12.09.2002 for area 0-10.",
+        ))
+        self.assertEqual(2, len(output))
+        first, second = [item["structuredPayload"] for item in output]
+        self.assertEqual("2002-09-11", first["possessionDate"])
+        self.assertEqual("1-2", first["possessionAreaText"])
+        self.assertEqual("12//2", first["khasraReferences"])
+        self.assertEqual("2002-09-12", second["possessionDate"])
+        self.assertEqual("0-10", second["possessionAreaText"])
+
+    def test_court_stay_without_possession_never_creates_possession_event(self):
+        self.assertEqual([], possession_candidates(1, words("CWP 123/2026 was stayed by the Court.")))
+
+    def test_explicit_possession_stay_and_bad_date_remain_review_evidence(self):
+        output = possession_candidates(1, words("Possession is stayed on 31.02.2002."))
+        self.assertEqual(1, len(output))
+        payload = output[0]["structuredPayload"]
+        self.assertEqual("Possession stayed", payload["eventType"])
+        self.assertIsNone(payload["possessionDate"])
+        self.assertTrue(any("could not be safely normalized" in item for item in output[0]["interpretationWarnings"]))
 
 
 if __name__ == "__main__":

@@ -123,13 +123,41 @@ public sealed class AwardExtractionRuleEngineTests
     }
 
     [Fact]
-    public void Explicit_possession_date_does_not_set_status_or_link_parcels()
+    public void Explicit_possession_event_preserves_status_and_does_not_link_parcels()
     {
         var candidates=Engine().Extract(Page("The possession of part of the land has been taken over on 11-9-2002."), Context());
         var payload=JsonSerializer.Deserialize<PossessionEventCandidate>(Assert.Single(candidates).Input.PayloadJson)!;
         Assert.Equal(new DateOnly(2002,9,11),payload.PossessionDate);
-        Assert.Null(payload.Status);
-        Assert.Null(payload.EventType);
+        Assert.Equal("Partial possession",payload.EventType);
+        Assert.Contains("possession of part",payload.Status!,StringComparison.OrdinalIgnoreCase);
+        Assert.Null(payload.KhasraReferences);
+    }
+
+    [Fact]
+    public void Possession_occurrences_keep_distinct_dates_areas_and_source_khasras()
+    {
+        var candidates=Engine().Extract(Page("Physical possession taken on 11.09.2002 for area 1-2, Khasra No. 12//2.", "Balance possession taken over on 12.09.2002 for area 0-10."), Context()).Where(x=>x.Input.CandidateType==AwardIngestionCandidateType.PossessionEvent).ToList();
+        Assert.Equal(2,candidates.Count);
+        var first=JsonSerializer.Deserialize<PossessionEventCandidate>(candidates[0].Input.PayloadJson)!;
+        var second=JsonSerializer.Deserialize<PossessionEventCandidate>(candidates[1].Input.PayloadJson)!;
+        Assert.Equal(new DateOnly(2002,9,11),first.PossessionDate); Assert.Equal("1-2",first.PossessionAreaText); Assert.Equal("12//2",first.KhasraReferences);
+        Assert.Equal(new DateOnly(2002,9,12),second.PossessionDate); Assert.Equal("0-10",second.PossessionAreaText);
+        Assert.DoesNotContain(candidates,x=>x.Input.CandidateType==AwardIngestionCandidateType.AwardKhasra);
+    }
+
+    [Fact]
+    public void Court_reference_without_explicit_possession_stay_does_not_create_possession()
+    {
+        var candidates=Engine().Extract(Page("CWP 123/2026 was stayed by the Court."), Context());
+        Assert.DoesNotContain(candidates,x=>x.Input.CandidateType==AwardIngestionCandidateType.PossessionEvent);
+    }
+
+    [Fact]
+    public void Explicit_possession_stay_is_preserved_as_a_review_event()
+    {
+        var candidate=Assert.Single(Engine().Extract(Page("Possession is stayed on 11.09.2002."), Context()));
+        var payload=JsonSerializer.Deserialize<PossessionEventCandidate>(candidate.Input.PayloadJson)!;
+        Assert.Equal("Possession stayed",payload.EventType); Assert.Contains("Possession is stayed",payload.Status!,StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -6,6 +6,7 @@ import json
 import sys
 import time
 import re
+from datetime import date
 from pathlib import Path
 
 CONTRACT_VERSION = 1
@@ -229,6 +230,88 @@ def valuation_and_compensation_candidates(page: int, words) -> list[dict]:
     return result
 
 
+def _strict_possession_date(text: str) -> tuple[str | None, str | None]:
+    """Normalize only an unambiguous numeric day-month-year source date."""
+    match = re.search(r"\b(\d{1,2})[./-](\d{1,2})[./-](\d{4})\b", text)
+    if not match:
+        return None, None
+    try:
+        value = date(int(match.group(3)), int(match.group(2)), int(match.group(1)))
+    except ValueError:
+        return None, "A possession date was present but could not be safely normalized."
+    return value.isoformat(), None
+
+
+def _possession_status(text: str) -> tuple[str, str] | None:
+    """Return a conservative normalized event type with exact source wording."""
+    patterns = (
+        (r"\bpossession\s+(?:could\s+not|cannot|was\s+not)\s+be\s+taken\b", "Possession not taken"),
+        (r"\bpossession\s+(?:is|was|has\s+been)\s+stayed\b|\bstay\s+of\s+possession\b", "Possession stayed"),
+        (r"\bbalance\s+possession\b", "Balance possession"),
+        (r"\bpartial\s+possession\b|\bpossession\s+of\s+part\b", "Partial possession"),
+        (r"\bphysical\s+possession\s+(?:has\s+been|was\s+)?(?:taken|taken\s+over)\b", "Physical possession taken"),
+        (r"\bpossession\s+(?:has\s+been|was\s+)?taken(?:\s+over)?\b|\btaken\s+over\b", "Possession taken"),
+    )
+    for pattern, event_type in patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return event_type, match.group(0)
+    return None
+
+
+def _possession_area(text: str) -> tuple[str | None, str | None]:
+    """Keep only an area stated on the same possession occurrence line."""
+    match = re.search(r"\b(?:area|land)\s*(?:of|:|-)?\s*(\d+(?:\s*[-–—]\s*\d+){1,2}|\d+(?:\.\d+)?\s*(?:acre|acres|bigha|biswa|sq\.?\s*yards?))\b", text, re.I)
+    if not match:
+        return None, None
+    raw = re.sub(r"\s+", " ", match.group(1)).strip()
+    unit = next((name for name in ("acre", "bigha", "biswa", "sq yards") if name in raw.lower().replace(".", "")), None)
+    return raw, unit
+
+
+def _possession_khasras(text: str) -> str | None:
+    match = re.search(r"\b(?:khasra|killa)\s*(?:no\.?|number)?\s*[:.-]?\s*([0-9][0-9/,.\-\s]*(?:\bmin\b)?)", text, re.I)
+    return re.sub(r"\s+", " ", match.group(1)).strip().rstrip(".,;") if match else None
+
+
+def possession_candidates(page: int, words) -> list[dict]:
+    """Explicit, source-occurrence-preserving possession review suggestions."""
+    result = []
+    for text, box in _lines(words):
+        status = _possession_status(text)
+        if status is None:
+            continue
+        event_type, exact_status = status
+        normalized_date, date_warning = _strict_possession_date(text)
+        area_text, area_unit = _possession_area(text)
+        khasras = _possession_khasras(text)
+        warnings = ["Possession source occurrence requires human verification; no Award or Village area was used."]
+        if date_warning:
+            warnings.append(date_warning)
+        if khasras:
+            warnings.append("Khasra references are source text only; no Khasra relationship was inferred.")
+        result.append({
+            "candidateType": "PossessionEvent",
+            "structuredPayload": {
+                "possessionDate": normalized_date,
+                "eventType": event_type,
+                "status": exact_status,
+                "possessionAreaText": area_text,
+                "possessionAreaUnit": area_unit,
+                "khasraReferences": khasras,
+            },
+            "page": page,
+            "sourceRegion": box,
+            "rawSourceText": text,
+            "rawOcr": text,
+            "normalizedSuggestion": normalized_date or event_type,
+            "normalizationReason": "Unambiguous numeric possession date" if normalized_date else None,
+            "confidence": None,
+            "interpretationWarnings": warnings,
+        })
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -314,11 +397,13 @@ def main() -> int:
             # geometry and cannot influence Khasra interpretation.
             page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
             page_candidates.extend(valuation_and_compensation_candidates(page_number, words))
+            page_candidates.extend(possession_candidates(page_number, words))
             if page_likely_has_table([word.text for word in words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
                 geometry = geometry_engine.detect(image)
-                page_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr)
+                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr)
+                page_candidates.extend(geometry_candidates)
                 if page_counts["tables"]:
                     table_pages += 1
                     for key in totals:

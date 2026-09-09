@@ -428,6 +428,9 @@ public static class LocalIntelligenceCandidateMapper
                 case "Notification":
                     mapped.Add(MapNotification(candidate, locator));
                     break;
+                case "PossessionEvent":
+                    mapped.Add(MapPossessionEvent(candidate, locator));
+                    break;
                 case "ValuationRule":
                     mapped.Add(MapValuationRule(candidate, locator));
                     break;
@@ -480,6 +483,16 @@ public static class LocalIntelligenceCandidateMapper
         var section = Value(payload, "section") ?? "";
         var sectionType = string.IsNullOrWhiteSpace(framework) ? section : $"{framework} · {section}";
         return new(AwardIngestionCandidateType.Notification, JsonSerializer.Serialize(new NotificationCandidate(sectionType, Value(payload, "notificationNumber") ?? "", date), Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapPossessionEvent(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var rawDate = Value(payload, "possessionDate");
+        var date = rawDate is not null && new StrictDateParser().TryParse(rawDate, out var parsed) ? parsed : (DateOnly?)null;
+        return new(AwardIngestionCandidateType.PossessionEvent,
+            JsonSerializer.Serialize(new PossessionEventCandidate(date, Value(payload, "eventType"), Value(payload, "status"), Value(payload, "possessionAreaText"), Value(payload, "possessionAreaUnit"), Value(payload, "khasraReferences")), Json),
+            locator, candidate.RawSourceText, candidate.Confidence);
     }
 
     private static IngestionCandidateInput MapValuationRule(LocalDocumentIntelligenceCandidate candidate, string locator)
