@@ -14,6 +14,7 @@ import { ExportMenu } from "./components/ExportMenu";
 import "./index.css";
 import "./sidebar.css";
 import "./verification.css";
+import "./awardPdfUpload.css";
 
 const api = "/api";
 type Page<T> = {
@@ -1651,7 +1652,7 @@ function Awards() {
   return (
     <>
       <Breadcrumbs items={[{ label: "Awards" }]} />
-      <PageHeader eyebrow="Acquisition awards" title="Awards" actions={<EntityLink to="/awards/import-pdf" className="secondary-button">Import Award PDF</EntityLink>} />
+      <PageHeader eyebrow="Acquisition awards" title="Awards"><p>Open an Award workspace to upload and link its PDF.</p></PageHeader>
       <section className="section">
         <div className="section-heading">
           <h2>Award register</h2>
@@ -1894,7 +1895,7 @@ function Award() {
       {related && <AwardRelatedPanel award={a} khasras={rows} onClose={() => setRelated(false)} onSaved={() => { setRelated(false); setRefresh(x => x + 1); }} />}
       <AwardDocumentsSection key={`${id}-${refresh}`} awardId={id} />
       <PermanentSourceLines endpoint={`/awards/${id}/evidence`} />
-      {pdfImport && <AwardPdfImportPanel award={a} onClose={() => {setPdfImport(false);setRefresh(v=>v+1);}} />}
+      {pdfImport && <AwardPdfImportPanel award={a} onUploaded={() => setRefresh(v => v + 1)} onClose={() => setPdfImport(false)} />}
     </>
   );
 }
@@ -1931,11 +1932,15 @@ function PermanentSourceLines({endpoint}:{endpoint:string}) {
   return <section className="section"><h2>Verified sources</h2>{Array.from(groups).map(([key,values])=>{const e=values[0];return <details key={key} className="source-note"><summary>{e.documentName} · Page {e.pageNumber} · Verified {date(e.verifiedAt)} · <a href={e.sourceUrl} target="_blank" rel="noreferrer">View source</a></summary><p>Verified by {e.verifiedBy}</p><dl>{values.map(f=><div key={f.id}><dt>{factLabel(f.factName)}</dt><dd>{String(JSON.parse(f.confirmedValueJson))}</dd></div>)}</dl></details>;})}<Pagination {...result.data} onChange={setPage}/></section>;
 }
 
-function AwardPdfImportPanel({ award, onClose }: { award?: any; onClose?: () => void }) {
-  const [file,setFile]=useState<File>();const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);
-  const submit=async()=>{try{if(!file)throw new Error("Choose a PDF file.");setBusy(true);setMessage("");await uploadAwardPdf(award?.id,award?.villages?.length===1?award.villages[0].id:undefined,file);if(onClose)onClose();else setMessage("PDF stored. Choose an Award workspace to analyze it later.");}catch(error){setMessage(error instanceof Error?error.message:"Could not store the PDF.");}finally{setBusy(false);}};
-  const body=<section className="workspace-panel"><div className="panel-title"><h3>Upload Award PDF</h3>{onClose&&<button className="quiet-button" onClick={onClose}>Close</button>}</div><p>The PDF is stored under this Award immediately. You can view it now and choose analysis later.</p><div className="field-grid"><label>Award<input readOnly value={award?.awardNumber||"No Award selected"} /></label><label className="span-two">PDF file<input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0])}/></label></div><div className="form-footer"><span className="hint">Uploading does not start OCR or add any records.</span><button disabled={busy||!file} onClick={submit}>{busy?"Uploading…":"Upload PDF"}</button></div>{message&&<p className="form-message">{message}</p>}</section>;
-  return onClose?<aside className="workflow-drawer" aria-label="Upload Award PDF">{body}</aside>:<><Breadcrumbs items={[{label:"Awards",to:"/awards"},{label:"Upload Award PDF"}]}/><PageHeader eyebrow="Award document" title="Upload Award PDF"><p>Store the document first. Analysis is optional and can be started later.</p></PageHeader>{body}</>;
+function AwardPdfImportPanel({ award, onClose, onUploaded }: { award?: any; onClose?: () => void; onUploaded?: () => void }) {
+  const [file,setFile]=useState<File>();const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);const [uploaded,setUploaded]=useState<any>();const [selectedAwardId,setSelectedAwardId]=useState("");const [unlinkedRefresh,setUnlinkedRefresh]=useState(0);
+  const awardChoices=useApi<Page<any>>(award?undefined:path("/awards",{page:0,pageSize:100}));const unlinked=useApi<any[]>(award?undefined:`/award-pdf-uploads/unlinked?r=${unlinkedRefresh}`);
+  const selectedAward=award||awardChoices.data?.items.find(item=>item.id===selectedAwardId);const selectedVillageId=selectedAward?.villages?.length===1?selectedAward.villages[0].id:undefined;
+  const submit=async()=>{try{if(!selectedAward)throw new Error("Select an Award before uploading its PDF.");if(!file)throw new Error("Choose a PDF file.");setBusy(true);setMessage("");const result:any=await uploadAwardPdf(selectedAward.id,selectedVillageId,file);setUploaded(result);setMessage("PDF uploaded and linked to this Award.");onUploaded?.();}catch(error){setMessage(error instanceof Error?error.message:"Could not store the PDF.");}finally{setBusy(false);}};
+  const analyze=async()=>{try{if(!uploaded?.documentId||!selectedAward)throw new Error("Upload the PDF before starting analysis.");setBusy(true);await post(`/awards/${selectedAward.id}/documents/${uploaded.documentId}/analyze`,{villageId:selectedVillageId});setMessage("Analysis started in the background. You can close this panel and keep working.");onUploaded?.();}catch(error){setMessage(error instanceof Error?error.message:"Could not start analysis.");}finally{setBusy(false);}};
+  const linkStored=async(documentId:string)=>{try{if(!selectedAward)throw new Error("Select the Award that owns this PDF first.");setBusy(true);await post(`/awards/${selectedAward.id}/documents/${documentId}/link`,{villageId:selectedVillageId});setMessage("Existing PDF linked to this Award. The stored file was reused; nothing was uploaded again.");setUnlinkedRefresh(value=>value+1);onUploaded?.();}catch(error){setMessage(error instanceof Error?error.message:"Could not link the stored PDF.");}finally{setBusy(false);}};
+  const body=<section className="workspace-panel"><div className="panel-title"><h3>{award?"Upload Award PDF":"Link an Award PDF"}</h3>{onClose&&<button className="quiet-button" onClick={onClose}>Close</button>}</div><p>{award?"This PDF will be stored and linked to the Award shown below. Analysis remains your explicit next step.":"Normal uploads begin inside an Award workspace. This recovery page requires an Award before it can store or link a PDF."}</p><div className="field-grid">{award?<label>Award<input readOnly value={award.awardNumber} /></label>:<label className="span-two">Award<select value={selectedAwardId} onChange={e=>setSelectedAwardId(e.target.value)}><option value="">Select the Award that owns this PDF</option>{awardChoices.data?.items.map(item=><option key={item.id} value={item.id}>{item.awardNumber}{item.awardDate?` · ${date(item.awardDate)}`:""}</option>)}</select></label>}<label className="span-two">PDF file<input disabled={!selectedAward||Boolean(uploaded)} type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0])}/></label></div><div className="form-footer"><span className="hint">Upload only stores and links the PDF. It does not start OCR or write Award facts.</span><button disabled={busy||!selectedAward||!file||Boolean(uploaded)} onClick={submit}>{busy?"Working…":"Upload PDF"}</button></div>{uploaded&&<div className="upload-success"><strong>PDF uploaded and linked to this Award.</strong><span>It is ready to view or analyze whenever you choose.</span><div><a className="secondary-button" href={`${api}/documents/${uploaded.documentId}/content`} target="_blank" rel="noreferrer">View PDF</a><button disabled={busy} onClick={analyze}>Analyze Data</button></div></div>}{!award&&unlinked.data?.length? <section className="stored-pdf-recovery"><h4>Previously stored PDFs needing an Award link</h4><p>Select the owning Award above, then link an existing file without uploading it again.</p>{unlinked.data.map(doc=><div key={doc.documentId}><span><strong>{doc.originalFileName}</strong><small>Stored {date(doc.uploadedAt)}</small></span><button disabled={busy||!selectedAward} onClick={()=>linkStored(doc.documentId)}>Link to selected Award</button></div>)}</section>:null}{message&&<p className="form-message">{message}</p>}</section>;
+  return onClose?<aside className="workflow-drawer" aria-label="Upload Award PDF">{body}</aside>:<><Breadcrumbs items={[{label:"Awards",to:"/awards"},{label:"Link Award PDF"}]}/><PageHeader eyebrow="Award document" title="Link Award PDF"><p>For a new PDF, open its Award workspace and use Upload / Review Data. This page only handles a deliberate recovery or a required Award selection.</p></PageHeader>{body}</>;
 }
 
 function AreaInputGroup({ label, value, onChange, readOnly = false }: { label: string; value: { bigha: string; biswa: string; biswansi: string }; onChange?: (value: { bigha: string; biswa: string; biswansi: string }) => void; readOnly?: boolean }) {

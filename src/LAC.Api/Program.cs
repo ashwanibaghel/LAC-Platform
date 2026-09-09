@@ -405,10 +405,16 @@ api.MapGet("/award-ingestion-candidates/{id:guid}/source-crop", async (Guid id, 
 api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId, Guid? selectedVillageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {
     if (file.Length == 0) return Validation("file", "Choose a non-empty PDF.");
+    if (targetAwardId is null) return Validation("targetAwardId", "Choose an Award before uploading its PDF.");
     if (file.Length > pdfMaxRequestBytes) return Validation("file", $"PDF exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
-    try { await using var stream = file.OpenReadStream(); var result = await extraction.QueueUploadAsync(stream, file.FileName, file.ContentType, targetAwardId, selectedVillageId, null, ct); return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}", result); }
+    try { await using var stream = file.OpenReadStream(); var result = await extraction.QueueUploadAsync(stream, file.FileName, file.ContentType, targetAwardId, selectedVillageId, null, ct); return Results.Created($"/api/documents/{result.DocumentId}", result); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 }).DisableAntiforgery();
+api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/link", async (Guid awardId, Guid documentId, Guid? villageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
+{
+    try { return Results.Ok(await extraction.LinkStoredDocumentAsync(documentId, awardId, villageId, ct)); }
+    catch (AwardIngestionException ex) { return IngestionProblem(ex); }
+});
 api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/analyze", async (Guid awardId,Guid documentId,Guid? villageId,AwardPdfExtractionService extraction,CancellationToken ct) =>
 {
     try { var result=await extraction.AnalyzeAsync(documentId,awardId,villageId,ct);return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}",result); }
@@ -416,6 +422,7 @@ api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/analyze", async 
 });
 api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct)));
+api.MapGet("/award-pdf-uploads/unlinked", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetUnlinkedStoredDocumentsAsync(ct)));
 api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardPdfJobRunner runner, CancellationToken ct) => { try { return Results.Ok(await runner.ReanalyzeAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });
 api.MapGet("/awards/{id:guid}/pdf-extractions", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetForAwardAsync(id, ct)));
 api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } });

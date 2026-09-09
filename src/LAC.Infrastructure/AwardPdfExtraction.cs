@@ -147,12 +147,14 @@ public sealed class AwardPdfJobQueue : IAwardPdfJobQueue
 }
 public sealed record AwardPdfUploadResult(Guid? JobId, Guid DocumentId);
 public sealed record AwardPdfJobSummary(Guid Id, AwardDocumentExtractionJobStatus Status, Guid DocumentId, Guid? IngestionSessionId, Guid? TargetAwardId, int? TotalPages, int ProcessedPages, string? CurrentStage, string? ErrorMessage, DateTimeOffset CreatedAt, DateTimeOffset? CompletedAt);
+public sealed record UnlinkedAwardPdfDocumentSummary(Guid DocumentId, string OriginalFileName, long? FileSize, DateTimeOffset UploadedAt);
 
 public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage storage, IAwardPdfJobQueue queue)
 {
     public async Task<AwardPdfUploadResult> QueueUploadAsync(Stream content, string fileName, string? contentType, Guid? targetAwardId, Guid? selectedVillageId, string? uploadedBy, CancellationToken ct)
     {
         if (!fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) throw new AwardIngestionException("Choose a PDF file.");
+        if (targetAwardId is null) throw new AwardIngestionException("Choose an Award before uploading its PDF.");
         var signature = new byte[5]; var signatureRead = await content.ReadAsync(signature.AsMemory(), ct);
         if (signatureRead < 4 || signature[0] != '%' || signature[1] != 'P' || signature[2] != 'D' || signature[3] != 'F') throw new AwardIngestionException("The uploaded file is not a valid PDF.");
         if (!content.CanSeek) throw new AwardIngestionException("The uploaded PDF stream cannot be safely stored."); content.Position = 0;
@@ -172,6 +174,22 @@ public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage 
         await db.SaveChangesAsync(ct);
         return new(null, document.Id);
     }
+    public async Task<AwardPdfUploadResult> LinkStoredDocumentAsync(Guid documentId, Guid targetAwardId, Guid? selectedVillageId, CancellationToken ct)
+    {
+        var document = await db.Documents.SingleOrDefaultAsync(x => x.Id == documentId && x.Status == "Active", ct)
+            ?? throw new AwardIngestionException("The stored Award PDF was not found.", 404);
+        if (!string.Equals(document.DocumentType, "Award PDF", StringComparison.Ordinal)) throw new AwardIngestionException("Only an Award PDF can be linked through this workflow.");
+        if (!await db.Awards.AnyAsync(x => x.Id == targetAwardId, ct)) throw new AwardIngestionException("Target Award was not found.", 404);
+        if (selectedVillageId is not null && !await db.AwardVillages.AnyAsync(x => x.AwardId == targetAwardId && x.VillageId == selectedVillageId, ct)) throw new AwardIngestionException("The selected Village must be directly linked to the target Award.");
+        var otherAwardLink = await db.DocumentAwards.AnyAsync(x => x.DocumentId == documentId && x.AwardId != targetAwardId, ct);
+        if (otherAwardLink) throw new AwardIngestionException("This PDF is already linked to another Award.");
+        if (!await db.DocumentAwards.AnyAsync(x => x.DocumentId == documentId && x.AwardId == targetAwardId, ct))
+        {
+            db.DocumentAwards.Add(new DocumentAward { DocumentId = documentId, AwardId = targetAwardId });
+            await db.SaveChangesAsync(ct);
+        }
+        return new(null, documentId);
+    }
     public async Task<AwardPdfUploadResult> AnalyzeAsync(Guid documentId, Guid targetAwardId, Guid? selectedVillageId, CancellationToken ct)
     {
         if (!await db.DocumentAwards.AnyAsync(x=>x.DocumentId==documentId && x.AwardId==targetAwardId,ct)) throw new AwardIngestionException("This document is not linked to the selected Award.",404);
@@ -184,6 +202,10 @@ public sealed class AwardPdfExtractionService(LacDbContext db, IDocumentStorage 
     public async Task<AwardPdfJobSummary> GetAsync(Guid jobId, CancellationToken ct) => await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x => x.Id == jobId).Select(x => new AwardPdfJobSummary(x.Id, x.Status, x.DocumentId, x.IngestionSessionId, x.TargetAwardId, x.TotalPages, x.ProcessedPages, x.CurrentStage, x.ErrorMessage, x.CreatedAt, x.CompletedAt)).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("PDF extraction job was not found.", 404);
     public async Task<IReadOnlyList<AwardPdfJobSummary>> GetForAwardAsync(Guid awardId, CancellationToken ct) => await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x => x.TargetAwardId == awardId).OrderByDescending(x => x.CreatedAt).Take(20).Select(x => new AwardPdfJobSummary(x.Id, x.Status, x.DocumentId, x.IngestionSessionId, x.TargetAwardId, x.TotalPages, x.ProcessedPages, x.CurrentStage, x.ErrorMessage, x.CreatedAt, x.CompletedAt)).ToListAsync(ct);
     public async Task<IReadOnlyList<AwardPdfJobSummary>> GetRecentUnassignedAsync(CancellationToken ct) => await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x => x.TargetAwardId == null).OrderByDescending(x => x.CreatedAt).Take(20).Select(x => new AwardPdfJobSummary(x.Id, x.Status, x.DocumentId, x.IngestionSessionId, x.TargetAwardId, x.TotalPages, x.ProcessedPages, x.CurrentStage, x.ErrorMessage, x.CreatedAt, x.CompletedAt)).ToListAsync(ct);
+    public async Task<IReadOnlyList<UnlinkedAwardPdfDocumentSummary>> GetUnlinkedStoredDocumentsAsync(CancellationToken ct) => await db.Documents.AsNoTracking()
+        .Where(x => x.DocumentType == "Award PDF" && x.Status == "Active" && !x.AwardLinks.Any())
+        .OrderByDescending(x => x.UploadedAt).Take(20)
+        .Select(x => new UnlinkedAwardPdfDocumentSummary(x.Id, x.OriginalFileName, x.FileSize, x.UploadedAt)).ToListAsync(ct);
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 

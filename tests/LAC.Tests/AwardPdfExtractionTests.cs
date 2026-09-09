@@ -13,6 +13,25 @@ namespace LAC.Tests;
 public sealed class AwardPdfExtractionTests
 {
     [Fact]
+    public async Task Upload_requires_an_award_before_any_file_or_review_work_is_created()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var bytes = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 fictional no-context fixture");
+        var storage = new MemoryStorage(bytes);
+        var service = new AwardPdfExtractionService(db, storage, new AwardPdfJobQueue());
+
+        var error = await Assert.ThrowsAsync<AwardIngestionException>(() => service.QueueUploadAsync(new MemoryStream(bytes), "fictional.pdf", "application/pdf", null, null, "Test officer", default));
+
+        Assert.Equal("Choose an Award before uploading its PDF.", error.Message);
+        Assert.Equal(0, storage.SaveCalls);
+        Assert.Empty(await db.Documents.ToListAsync());
+        Assert.Empty(await db.AwardDocumentExtractionJobs.ToListAsync());
+        Assert.Empty(await db.AwardIngestionCandidates.ToListAsync());
+        Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+        Assert.Empty(await db.Notifications.ToListAsync());
+    }
+
+    [Fact]
     public async Task Upload_links_document_before_background_work_and_duplicate_hash_reuses_identity()
     {
         await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -35,6 +54,30 @@ public sealed class AwardPdfExtractionTests
         var analysis = await service.AnalyzeAsync(first.DocumentId, award.Id, null, default);
         Assert.NotNull(analysis.JobId);
         Assert.Equal(AwardDocumentExtractionJobStatus.Queued, (await service.GetAsync(analysis.JobId!.Value, default)).Status);
+    }
+
+    [Fact]
+    public async Task Existing_unlinked_pdf_links_once_without_writing_or_copying_the_file()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var award = new Award { AwardNumber = "FICTIONAL-RECOVERY" };
+        var document = new LAC.Domain.Document { DocumentType = "Award PDF", OriginalFileName = "already-stored.pdf", StoragePath = "stored-on-disk.pdf", Sha256Hash = "fixture" };
+        db.AddRange(award, document); await db.SaveChangesAsync();
+        var storage = new MemoryStorage(Array.Empty<byte>());
+        var service = new AwardPdfExtractionService(db, storage, new AwardPdfJobQueue());
+
+        var unlinked = await service.GetUnlinkedStoredDocumentsAsync(default);
+        Assert.Contains(unlinked, x => x.DocumentId == document.Id);
+        var first = await service.LinkStoredDocumentAsync(document.Id, award.Id, null, default);
+        var second = await service.LinkStoredDocumentAsync(document.Id, award.Id, null, default);
+
+        Assert.Equal(document.Id, first.DocumentId); Assert.Equal(document.Id, second.DocumentId);
+        Assert.Equal(0, storage.SaveCalls); Assert.Equal(0, storage.DeleteCalls);
+        Assert.Single(await db.DocumentAwards.ToListAsync());
+        Assert.Empty(await db.AwardDocumentExtractionJobs.ToListAsync());
+        Assert.Empty(await db.AwardIngestionCandidates.ToListAsync());
+        Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+        Assert.Empty(await db.Notifications.ToListAsync());
     }
 
     [Fact]
@@ -119,9 +162,11 @@ public sealed class AwardPdfExtractionTests
 
     private sealed class MemoryStorage(byte[] pdf) : IDocumentStorage
     {
-        public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) => Task.FromResult(fileName);
-        public Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct) => Task.FromResult(new DocumentStorageWriteResult(fileName, "test", pdf.Length));
-        public Task DeleteAsync(string storagePath, CancellationToken ct) => Task.CompletedTask;
+        public int SaveCalls { get; private set; }
+        public int DeleteCalls { get; private set; }
+        public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) { SaveCalls++; return Task.FromResult(fileName); }
+        public Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct) { SaveCalls++; return Task.FromResult(new DocumentStorageWriteResult(fileName, "test", pdf.Length)); }
+        public Task DeleteAsync(string storagePath, CancellationToken ct) { DeleteCalls++; return Task.CompletedTask; }
         public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken ct) => Task.FromResult<Stream?>(new MemoryStream(pdf, writable: false));
         public StorageHealth GetHealth() => new("test", true, 1, 1);
     }
