@@ -61,6 +61,17 @@ public sealed class AwardIngestionTests
     }
 
     [Fact]
+    public async Task Document_award_context_mismatch_is_conflict_and_preview_never_writes_canonical_award()
+    {
+        await using var db=Db(); var village=new Village{Name="Fictional Village"}; var award=new Award{AwardNumber="CONTEXT-1"}; db.AddRange(village,award,new AwardVillage{Award=award,Village=village}); await db.SaveChangesAsync();
+        var input=new IngestionCandidateInput(AwardIngestionCandidateType.AwardCore,JsonSerializer.Serialize(new AwardCoreCandidate("DOCUMENT-2",null,"Supplementary",null,null,null,"CONTEXT-1")),"{\"page\":1}","fictional source");
+        var session=await Service(db).CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,award.Id,village.Id,null,"tester",null,[input],default);
+        var candidate=await db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==session.Id);
+        Assert.Equal(AwardIngestionCandidateStatus.Conflict,candidate.Status); Assert.Equal("CONTEXT-1",(await db.Awards.SingleAsync()).AwardNumber);
+        Assert.Empty(await db.Set<SourceEvidence>().ToListAsync());
+    }
+
+    [Fact]
     public async Task Evidence_warning_prevents_an_automatic_ready_khasra()
     {
         await using var db = Db(); var village = new Village { Name = "Fictional Village" }; var award = new Award { AwardNumber = "FICTIONAL-AWARD" }; db.AddRange(village, award, new AwardVillage { Award = award, Village = village }); await db.SaveChangesAsync();

@@ -173,6 +173,41 @@ public sealed class AwardExtractionRuleEngineTests
     }
 
     [Fact]
+    public void Award_core_preserves_explicit_supplementary_parent_and_narrative_fields()
+    {
+        var candidates=Engine().Extract(Page("Supplementary Award", "Award No: SUP-12/2026", "Main Award No. MAIN-7/2025", "Nature of Acquisition: Permanent.", "Purpose of Acquisition: fictional road widening."),Context());
+        var core=JsonSerializer.Deserialize<AwardCoreCandidate>(Assert.Single(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.AwardCore).Input.PayloadJson)!;
+        Assert.Equal("SUP-12/2026",core.AwardNumber); Assert.Equal("Supplementary",core.AwardType); Assert.Equal("MAIN-7/2025",core.ParentAwardReferenceSuggestion);
+        Assert.Equal("Permanent",core.NatureOfAcquisition); Assert.Equal("fictional road widening",core.Purpose);
+    }
+
+    [Fact]
+    public void Revenue_estate_label_and_award_number_are_strict_values_not_fuzzy_repaired()
+    {
+        var candidates=Engine().Extract(Page("Award No: A-10/2026", "Revenue Estate: Fictional Estate"),new AwardExtractionContext(Guid.NewGuid(),null,null,[],[new("Fictional Estate")]));
+        var village=JsonSerializer.Deserialize<AwardVillageCandidate>(Assert.Single(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.AwardVillage).Input.PayloadJson)!;
+        Assert.Equal("Fictional Estate",village.VillageName);
+        Assert.DoesNotContain(Engine().Extract(Page("Award No: A-1O/2O26"),Context()),c=>c.Input.CandidateType==AwardIngestionCandidateType.AwardCore && c.Input.PayloadJson.Contains("A-10/2026"));
+    }
+
+    [Fact]
+    public void La_and_nh_statutory_references_keep_their_own_framework_and_sections()
+    {
+        var la=JsonSerializer.Deserialize<NotificationCandidate>(Assert.Single(Engine().Extract(Page("Land Acquisition Act Section 4 Notification No. L-4/12 dated 01/01/2026"),Context()).Where(c=>c.Input.CandidateType==AwardIngestionCandidateType.Notification)).Input.PayloadJson)!;
+        var nh=JsonSerializer.Deserialize<NotificationCandidate>(Assert.Single(Engine().Extract(Page("National Highways Act Section 3A Notification No. NH-3A/22 dated 02/02/2026"),Context()).Where(c=>c.Input.CandidateType==AwardIngestionCandidateType.Notification)).Input.PayloadJson)!;
+        Assert.Equal("Land Acquisition Act · Section 4",la.SectionType); Assert.Equal("National Highways Act · Section 3A",nh.SectionType);
+        Assert.Equal("NH-3A/22",nh.NotificationNumber);
+    }
+
+    [Fact]
+    public void Bare_statutory_reference_is_retained_without_fabricating_notification()
+    {
+        var candidates=Engine().Extract(Page("National Highways Act Section 3D is referred to in this order."),Context());
+        Assert.DoesNotContain(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.Notification);
+        Assert.Contains(candidates,c=>c.Input.PayloadJson.Contains("Statutory reference"));
+    }
+
+    [Fact]
     public void Repeated_khasra_with_different_area_is_retained_for_conflict_review()
     {
         var pages=TablePage("Khasra", "Total Area", "Area Awarded", ["22//2/7", "1-2", "0-1"])

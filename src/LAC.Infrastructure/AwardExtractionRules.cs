@@ -163,8 +163,16 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
             if (label.Kind == TextMatchKind.None || ContainsNegativeAwardContext(line.Text)) continue;
             var value = ValueAfterLabel(line.Text, label.MatchedAlias);
             if (string.IsNullOrWhiteSpace(value) || !Regex.IsMatch(value, @"^[A-Za-z0-9][A-Za-z0-9/.-]{1,49}$")) { unreadableLabel ??= line; continue; }
-            var nearbyDate = lines.Where(other => other.PageNumber == line.PageNumber && Math.Abs(other.Baseline - line.Baseline) < 80m).Select(other => ExtractDate(other.Text)).FirstOrDefault(date => date is not null);
-            Add(output, new AwardCoreCandidate(value, nearbyDate, null, null), line.PageNumber, "AwardIdentity", $"{label.Kind} Award Number label", ["Award Number label", "strict identifier syntax"], [] , line.Text);
+            var pageLines = lines.Where(other => other.PageNumber == line.PageNumber).ToList();
+            var nearbyDate = pageLines.Where(other => Math.Abs(other.Baseline - line.Baseline) < 80m).Select(other => ExtractDate(other.Text)).FirstOrDefault(date => date is not null);
+            var fullPage = string.Join("\n", pageLines.Select(x => x.Text));
+            var supplementary = Regex.IsMatch(fullPage, @"\bsupplementary\s+award\b", RegexOptions.IgnoreCase);
+            var main = !supplementary && Regex.IsMatch(fullPage, @"\bmain\s+award\b", RegexOptions.IgnoreCase);
+            var parent = supplementary ? MatchExplicitValue(fullPage, @"\b(?:parent|main)\s+award\s*(?:no\.?|number)?\s*[:.-]?\s*(?<value>[A-Za-z0-9][A-Za-z0-9/.-]{1,49})") : null;
+            var nature = FindLabelledValue(pageLines, AwardDocumentConcept.Supplementary, @"\bnature\s+of\s+acquisition\b");
+            var purpose = FindLabelledValue(pageLines, AwardDocumentConcept.Supplementary, @"\bpurpose\s+of\s+acquisition\b");
+            var area = FindLabelledValue(pageLines, AwardDocumentConcept.Supplementary, @"\b(?:awarded|acquisition)\s+area\b");
+            Add(output, new AwardCoreCandidate(value, nearbyDate, supplementary ? "Supplementary" : main ? "Main" : null, purpose, nature, area, parent), line.PageNumber, "AwardIdentity", $"{label.Kind} Award Number label", ["Award Number label", "strict identifier syntax"], [] , line.Text);
             return;
         }
         // When an Award label exists but its value is unreadable, preserve the
@@ -181,16 +189,31 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in lines)
         {
-            var section = Regex.Match(line.Text, @"(?:^|\b)(?:section|sec\.?|u\s*/\s*s\.?|under\s+section)\s*(?<section>17\s*\(\s*1\s*\)|17|4|6)(?!\d)", RegexOptions.IgnoreCase);
+            var section = Regex.Match(line.Text, @"(?:^|\b)(?:section|sec\.?|u\s*/?\s*s\.?|under\s+section)\s*(?<section>3\s*[AD]|17\s*\(\s*1\s*\)|17|4|6)(?!\d)", RegexOptions.IgnoreCase);
             if (!section.Success) continue;
             var after = line.Text[(section.Index + section.Length)..];
-            var number = Regex.Match(after, @"^\s*(?:vide\s+)?(?:notification\s*|notice\s*)?(?:no\.?\s*)?(?<number>[A-Za-z][A-Za-z0-9()./& -]*?)(?:\s*dated\b.*|$)", RegexOptions.IgnoreCase);
+            var number = Regex.Match(after, @"^\s*(?:vide\s+)?(?:(?:notification|notice)\s*)?(?:no\.?\s*)?(?<number>[A-Za-z][A-Za-z0-9()./& -]*?)(?:\s*dated\b.*|$)", RegexOptions.IgnoreCase);
             var identifier = number.Groups["number"].Value.Trim().TrimEnd('.');
-            if (!number.Success || !Regex.IsMatch(identifier, @"\d") || !Regex.IsMatch(identifier, @"[/.-]") || identifier.Length > 150 || Regex.IsMatch(identifier, @"\b(notification|vide|land|act)\b", RegexOptions.IgnoreCase)) continue;
+            if (!number.Success || !Regex.IsMatch(identifier, @"\d") || !Regex.IsMatch(identifier, @"[/.-]") || identifier.Length > 150 || Regex.IsMatch(identifier, @"\b(notification|vide|land|act)\b", RegexOptions.IgnoreCase))
+            {
+                Add(output, new UnmappedAwardFindingCandidate("Statutory reference", "A legal provision was detected without a safe notification identifier.", line.Text), line.PageNumber, "StatutoryReference", "legal provision without a safe notification identifier", ["section context"], ["Legal reference retained; no Notification was fabricated."], line.Text);
+                continue;
+            }
             var key = Regex.Replace(section.Groups["section"].Value + "|" + identifier, @"\s+", "");
             if (!seen.Add(key)) continue;
-            Add(output, new NotificationCandidate("Section " + Regex.Replace(section.Groups["section"].Value, @"\s+", ""), identifier, ExtractDate(after)), line.PageNumber, "Notification", "section label with adjacent notification identifier", ["section context", "identifier adjacent to section"], ["Verify the complete notification reference and date against the source."], line.Text);
+            var pageText = string.Join(" ", lines.Where(x => x.PageNumber == line.PageNumber).Select(x => x.Text));
+            var framework = Regex.IsMatch(pageText, @"national\s+highways?|\bnh\s+act\b", RegexOptions.IgnoreCase) ? "National Highways Act" : Regex.IsMatch(pageText, @"land\s+acquisition\s+act|\bla\s+act\b", RegexOptions.IgnoreCase) ? "Land Acquisition Act" : null;
+            var sectionText = "Section " + Regex.Replace(section.Groups["section"].Value, @"\s+", "").ToUpperInvariant();
+            Add(output, new NotificationCandidate(framework is null ? sectionText : $"{framework} · {sectionText}", identifier, ExtractDate(after)), line.PageNumber, "Notification", "section label with adjacent notification identifier", ["section context", "identifier adjacent to section"], ["Verify the complete notification reference and date against the source."], line.Text);
         }
+    }
+
+    private static string? FindLabelledValue(IReadOnlyList<DocumentLine> lines, AwardDocumentConcept _, string label)
+        => lines.Select(line => MatchExplicitValue(line.Text, label + @"\s*[:.-]\s*(?<value>.{1,180})")).FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+    private static string? MatchExplicitValue(string text, string pattern)
+    {
+        var match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups["value"].Value.Trim().TrimEnd('.') : null;
     }
 
     private void ExtractVillage(IReadOnlyList<DocumentLine> lines, AwardExtractionContext context, ICollection<ExtractionCandidate> output)

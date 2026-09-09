@@ -9,7 +9,10 @@ public sealed class AwardIngestionException(string message, int statusCode = 400
 public interface IAwardDocumentExtractor { Task<AwardIngestionCandidateSet> ExtractAsync(Document sourceDocument, CancellationToken ct); }
 public sealed record AwardIngestionCandidateSet(IReadOnlyList<IAwardIngestionCandidatePayload> Candidates);
 public interface IAwardIngestionCandidatePayload { AwardIngestionCandidateType CandidateType { get; } }
-public sealed record AwardCoreCandidate(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Purpose) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardCore; }
+// These document fields are review suggestions.  The existing Award entity only
+// receives its supported core columns during the explicit Commit workflow; the
+// additional source facts remain evidence for a human to assess.
+public sealed record AwardCoreCandidate(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Purpose, string? NatureOfAcquisition = null, string? AwardedAreaText = null, string? ParentAwardReferenceSuggestion = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardCore; }
 public sealed record AwardVillageCandidate(string VillageName, string? ExactCanonicalVillageName) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardVillage; }
 public sealed record NotificationCandidate(string SectionType, string NotificationNumber, DateOnly? NotificationDate) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.Notification; }
 public sealed record KhasraCandidate(string KhasraNumber, string? Qualifier, decimal? CanonicalAreaBigha, int? CanonicalAreaBiswa, int? CanonicalAreaBiswansi) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.Khasra; }
@@ -184,6 +187,17 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
     private async Task<AwardIngestionCandidate> AnalyzeAsync(AwardIngestionSession session, IAwardIngestionCandidatePayload payload, int sequence, CancellationToken ct)
     {
         var item = new AwardIngestionCandidate { CandidateType = payload.CandidateType, Sequence = sequence, StructuredPayloadJson = JsonSerializer.Serialize(payload, payload.GetType(), Json), Status = AwardIngestionCandidateStatus.NeedsReview };
+        if (payload is AwardCoreCandidate core && session.TargetAwardId is Guid targetAwardId)
+        {
+            var target = await db.Awards.AsNoTracking().SingleAsync(x => x.Id == targetAwardId, ct);
+            if (!string.IsNullOrWhiteSpace(core.AwardNumber) && !string.Equals(target.AwardNumber?.Trim(), core.AwardNumber.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                item.Status = AwardIngestionCandidateStatus.Conflict;
+                item.ValidationIssuesJson = "[\"Document Award number differs from the current Award context. It was not changed automatically.\"]";
+                item.ConflictDetailsJson = JsonSerializer.Serialize(new { field = "AwardNumber", currentAward = target.AwardNumber, documentSuggestion = core.AwardNumber }, Json);
+                return item;
+            }
+        }
         if (payload is NotificationCandidate notification)
         {
             if (session.TargetAwardId is null) { item.Status = AwardIngestionCandidateStatus.NeedsReview; item.ValidationIssuesJson = "[\"Pending context: select a target Award before reviewing this Notification.\"]"; return item; }

@@ -397,6 +397,15 @@ public static class LocalIntelligenceCandidateMapper
 
             switch (candidate.CandidateType)
             {
+                case "AwardCore":
+                    mapped.Add(MapAwardCore(candidate, locator));
+                    break;
+                case "AwardVillage":
+                    mapped.Add(MapAwardVillage(candidate, locator));
+                    break;
+                case "Notification":
+                    mapped.Add(MapNotification(candidate, locator));
+                    break;
                 case "AwardKhasra":
                     mapped.Add(MapAwardKhasra(candidate, locator));
                     break;
@@ -413,6 +422,33 @@ public static class LocalIntelligenceCandidateMapper
             }
         }
         return mapped;
+    }
+
+    private static IngestionCandidateInput MapAwardCore(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var rawDate = Value(payload, "awardDate");
+        var date = rawDate is not null && new StrictDateParser().TryParse(rawDate, out var parsed) ? parsed : (DateOnly?)null;
+        var typed = new AwardCoreCandidate(Value(payload, "awardNumber") ?? "", date, Value(payload, "awardType"), Value(payload, "purpose"),
+            Value(payload, "natureOfAcquisition"), Value(payload, "awardedAreaText"), Value(payload, "parentAwardReferenceSuggestion"));
+        return new(AwardIngestionCandidateType.AwardCore, JsonSerializer.Serialize(typed, Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapAwardVillage(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var name = Value(candidate.StructuredPayload, "villageName") ?? "";
+        return new(AwardIngestionCandidateType.AwardVillage, JsonSerializer.Serialize(new AwardVillageCandidate(name, null), Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapNotification(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var rawDate = Value(payload, "notificationDate");
+        var date = rawDate is not null && new StrictDateParser().TryParse(rawDate, out var parsed) ? parsed : (DateOnly?)null;
+        var framework = Value(payload, "legalFramework");
+        var section = Value(payload, "section") ?? "";
+        var sectionType = string.IsNullOrWhiteSpace(framework) ? section : $"{framework} · {section}";
+        return new(AwardIngestionCandidateType.Notification, JsonSerializer.Serialize(new NotificationCandidate(sectionType, Value(payload, "notificationNumber") ?? "", date), Json), locator, candidate.RawSourceText, candidate.Confidence);
     }
 
     private static IngestionCandidateInput MapAwardKhasra(LocalDocumentIntelligenceCandidate candidate, string locator)

@@ -5,6 +5,7 @@ import argparse
 import json
 import sys
 import time
+import re
 from pathlib import Path
 
 CONTRACT_VERSION = 1
@@ -129,6 +130,82 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr)
     return candidates, counts
 
 
+def _lines(words):
+    """Return conservative OCR lines with a source rectangle for each line."""
+    grouped = []
+    for word in sorted(words, key=lambda value: (value.bounding_box.y, value.bounding_box.x)):
+        line = next((item for item in grouped if abs(item["y"] - word.bounding_box.y) <= max(8, word.bounding_box.height * .7)), None)
+        if line is None:
+            line = {"y": word.bounding_box.y, "words": []}
+            grouped.append(line)
+        line["words"].append(word)
+    for line in grouped:
+        values = sorted(line["words"], key=lambda value: value.bounding_box.x)
+        left = min(value.bounding_box.x for value in values); top = min(value.bounding_box.y for value in values)
+        right = max(value.bounding_box.x + value.bounding_box.width for value in values); bottom = max(value.bounding_box.y + value.bounding_box.height for value in values)
+        yield " ".join(value.text for value in values), {"x": float(left), "y": float(top), "width": float(right-left), "height": float(bottom-top)}
+
+
+def narrative_core_and_statutory_candidates(page: int, words) -> list[dict]:
+    """Strict, label-led document facts. Identifiers are copied, never repaired."""
+    lines = list(_lines(words)); result = []; seen = set()
+    page_text = "\n".join(text for text, _ in lines)
+    framework = ("National Highways Act" if re.search(r"national\s+highways?|\bnh\s+act\b", page_text, re.I)
+                 else "Land Acquisition Act" if re.search(r"land\s+acquisition\s+act|\bla\s+act\b", page_text, re.I) else None)
+    award_type = "Supplementary" if re.search(r"\bsupplementary\s+award\b", page_text, re.I) else "Main" if re.search(r"\bmain\s+award\b", page_text, re.I) else None
+    parent = None
+    if award_type == "Supplementary":
+        match = re.search(r"\b(?:parent|main)\s+award\s*(?:no\.?|number)?\s*[:.-]?\s*([A-Za-z0-9][A-Za-z0-9/.-]{1,49})", page_text, re.I)
+        parent = match.group(1) if match else None
+    core = None
+    for text, box in lines:
+        match = re.search(r"\baward\s*(?:no\.?|number|nos\.?)[\s:#.-]*([A-Za-z0-9][A-Za-z0-9/.-]{1,49})", text, re.I)
+        if not match:
+            continue
+        number = match.group(1)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9/.-]{1,49}", number):
+            continue
+        date = None
+        nearby = " ".join(value for value, _ in lines if value == text or "award date" in value.lower())
+        date_match = re.search(r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b", nearby)
+        date = date_match.group(1) if date_match else None
+        core = {"awardNumber": number, "awardDate": date, "awardType": award_type, "natureOfAcquisition": None, "purpose": None, "awardedAreaText": None, "parentAwardReferenceSuggestion": parent}
+        result.append({"candidateType": "AwardCore", "structuredPayload": core, "page": page, "sourceRegion": box, "rawSourceText": text, "rawOcr": number, "normalizedSuggestion": number, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Label-led local OCR suggestion; verify Award identifier exactly as printed."]})
+        break
+    for text, box in lines:
+        village = re.search(r"\b(?:name\s+of\s+village|village|revenue\s+estate|mauza)\s*[:.-]\s*([A-Za-z][A-Za-z .'-]{1,99})", text, re.I)
+        if village:
+            value = village.group(1).strip().rstrip(".")
+            result.append({"candidateType": "AwardVillage", "structuredPayload": {"villageName": value}, "page": page, "sourceRegion": box, "rawSourceText": text, "rawOcr": value, "normalizedSuggestion": value, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Village/revenue-estate label requires human confirmation."]})
+            break
+    # Add narrative values to the same Award-core suggestion only when their
+    # labels are explicit; this never guesses a missing value.
+    if core is not None:
+        for text, _ in lines:
+            for key, label in (("natureOfAcquisition", r"nature\s+of\s+acquisition"), ("purpose", r"purpose\s+of\s+acquisition"), ("awardedAreaText", r"(?:awarded|acquisition)\s+area")):
+                match = re.search(label + r"\s*[:.-]\s*(.{1,180})$", text, re.I)
+                if match and not core.get(key):
+                    core[key] = match.group(1).strip()
+    for text, box in lines:
+        section = re.search(r"\b(?:u\s*/?\s*s\.?|under\s+section|section|sec\.?)\s*(3\s*[ad]|17\s*\(\s*1\s*\)|17|4|6)(?!\d)", text, re.I)
+        if not section:
+            continue
+        section_value = "Section " + re.sub(r"\s+", "", section.group(1)).upper()
+        after = text[section.end():]
+        number = re.search(r"^\s*(?:(?:notification|notice)\s*)?(?:no\.?\s*)?([A-Za-z][A-Za-z0-9()./&-]{2,149})", after, re.I)
+        date = re.search(r"\b(\d{1,2}[./-]\d{1,2}[./-]\d{4})\b", after)
+        if not number or not re.search(r"\d", number.group(1)) or not re.search(r"[/.-]", number.group(1)):
+            result.append({"candidateType": "UnmappedAwardFinding", "structuredPayload": {"category": "Statutory reference", "summary": "A legal provision was detected without a safe notification identifier."}, "page": page, "sourceRegion": box, "rawSourceText": text, "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Legal reference retained; no Notification was fabricated."]})
+            continue
+        identifier = number.group(1).rstrip(".")
+        key = f"{framework}|{section_value}|{identifier}|{date.group(1) if date else ''}"
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({"candidateType": "Notification", "structuredPayload": {"legalFramework": framework, "section": section_value, "notificationNumber": identifier, "notificationDate": date.group(1) if date else None}, "page": page, "sourceRegion": box, "rawSourceText": text, "rawOcr": identifier, "normalizedSuggestion": identifier, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Statutory notification occurrence requires human verification; exact digits were not repaired."]})
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -209,6 +286,10 @@ def main() -> int:
                 words.append(Word(raw, BoundingBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)), float(score)))
 
             page_candidates: list[dict] = []
+            # Core/header and statutory suggestions are label-led narrative
+            # extraction.  They deliberately do not depend on Award table
+            # geometry and cannot influence Khasra interpretation.
+            page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
             if page_likely_has_table([word.text for word in words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
