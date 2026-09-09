@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates
 
 
 def words(*values):
@@ -77,6 +77,26 @@ class AwardCoreWorkerTests(unittest.TestCase):
         self.assertEqual("Possession stayed", payload["eventType"])
         self.assertIsNone(payload["possessionDate"])
         self.assertTrue(any("could not be safely normalized" in item for item in output[0]["interpretationWarnings"]))
+
+    def test_identifiable_cwp_is_review_only_and_preserves_exact_status(self):
+        output = court_case_candidates(1, words("CWP 4721/2002 status: Status quo Khasra No. 12//11 area 23-14."))
+        self.assertEqual(1, len(output))
+        value = output[0]["structuredPayload"]
+        self.assertEqual("CWP 4721/2002", value["caseNumber"])
+        self.assertEqual("CWP", value["caseType"])
+        self.assertEqual("Status quo", value["status"])
+        self.assertEqual("12//11", value["khasraReferences"])
+        self.assertEqual("23-14", value["relatedAreaText"])
+        self.assertNotIn("stay", str(value).lower())
+
+    def test_court_procedural_clause_or_uncertain_digit_never_becomes_case(self):
+        self.assertEqual([], court_case_candidates(1, words("The dispute shall be referred to Civil Court.")))
+        self.assertEqual([], court_case_candidates(1, words("CWP 47?1/2002 is mentioned.")))
+
+    def test_repeated_case_occurrences_are_retained_and_do_not_create_possession(self):
+        source = words("CWP 4721/2002 pending.", "CWP 4721/2002 disposed.")
+        self.assertEqual(2, len(court_case_candidates(1, source)))
+        self.assertEqual([], possession_candidates(1, source))
 
 
 if __name__ == "__main__":

@@ -218,7 +218,7 @@ public sealed partial class AwardIngestionService
                 Area(k.CanonicalAreaBigha,k.CanonicalAreaBiswa,k.CanonicalAreaBiswansi); Area(k.RecordedAreaBigha,k.RecordedAreaBiswa,k.RecordedAreaBiswansi); Area(k.AwardedAreaBigha,k.AwardedAreaBiswa,k.AwardedAreaBiswansi); break;
             case NotificationCandidate n when !string.IsNullOrWhiteSpace(n.SectionType) && !string.IsNullOrWhiteSpace(n.NotificationNumber) && n.NotificationDate!=null: break;
             case PossessionEventCandidate p when p.PossessionDate!=null || !string.IsNullOrWhiteSpace(p.Status): break;
-            case CourtCaseCandidate c when !string.IsNullOrWhiteSpace(c.CaseNumber) && !string.IsNullOrWhiteSpace(c.CourtName): break;
+            case CourtCaseCandidate c when !string.IsNullOrWhiteSpace(c.CaseNumber): break;
             case ClaimCandidate c when !string.IsNullOrWhiteSpace(c.ClaimText): break;
             case LandClassCandidate l when !string.IsNullOrWhiteSpace(l.Code): break;
             case ValuationRuleCandidate v when !string.IsNullOrWhiteSpace(v.RuleType) && !string.IsNullOrWhiteSpace(v.RateUnit) && v.RateAmount>=0: break;
@@ -246,7 +246,7 @@ public sealed partial class AwardIngestionService
         OfficialRecord? record=payload switch
         {
             PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status,Remarks=PossessionRemarks(p)},
-            CourtCaseCandidate p => new CourtCase{CaseNumber=p.CaseNumber,CourtName=p.CourtName,CaseType=p.CaseType},
+            CourtCaseCandidate p => new CourtCase{CaseNumber=p.CaseNumber,CourtName=p.CourtName ?? "",CaseType=p.CaseType,CurrentStatus=p.Status,Remarks=CourtRemarks(p)},
             ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText},
             LandClassCandidate p => new AwardLandClass{AwardId=session.TargetAwardId!.Value,Code=p.Code,Description=p.Description},
             ValuationRuleCandidate p => new AwardValuationRule{AwardId=session.TargetAwardId!.Value,RuleType=p.RuleType,RateAmount=p.RateAmount,RateUnit=p.RateUnit,LegalSection=p.LegalSection},
@@ -260,7 +260,7 @@ public sealed partial class AwardIngestionService
             // Individual source occurrences stay distinct.  A human may later
             // consolidate events, but analysis/commit never silently merges them.
             PossessionEventCandidate => null,
-            CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==p.CourtName && x.CaseType==p.CaseType,ct),
+            CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==(p.CourtName ?? "") && x.CaseType==p.CaseType,ct),
             ClaimCandidate p => await db.Claims.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.ClaimReference==p.ClaimReference && x.ClaimDate==p.ClaimDate && x.ClaimText==p.ClaimText,ct),
             LandClassCandidate p => await db.Set<AwardLandClass>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.Code==p.Code && x.Description==p.Description,ct),
             ValuationRuleCandidate p => await db.Set<AwardValuationRule>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.RuleType==p.RuleType && x.RateAmount==p.RateAmount && x.RateUnit==p.RateUnit && x.LegalSection==p.LegalSection,ct),
@@ -282,6 +282,15 @@ public sealed partial class AwardIngestionService
         if (!string.IsNullOrWhiteSpace(value.PossessionAreaText)) parts.Add($"Source possession area: {value.PossessionAreaText.Trim()}");
         if (!string.IsNullOrWhiteSpace(value.PossessionAreaUnit)) parts.Add($"Unit: {value.PossessionAreaUnit.Trim()}");
         if (!string.IsNullOrWhiteSpace(value.KhasraReferences)) parts.Add($"Source Khasra references: {value.KhasraReferences.Trim()}");
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    private static string? CourtRemarks(CourtCaseCandidate value)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(value.KhasraReferences)) parts.Add($"Source Khasra references: {value.KhasraReferences.Trim()}");
+        if (!string.IsNullOrWhiteSpace(value.RelatedAreaText)) parts.Add($"Source area: {value.RelatedAreaText.Trim()}");
+        if (!string.IsNullOrWhiteSpace(value.Parties)) parts.Add($"Source parties: {value.Parties.Trim()}");
         return parts.Count == 0 ? null : string.Join("; ", parts);
     }
 

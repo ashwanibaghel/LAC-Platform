@@ -309,6 +309,9 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
             foreach (var line in lines)
                 if (TryPossession(line.Text, out var possession))
                     Add(output, possession, page.PageNumber, "PossessionNarrative", "Explicit possession source occurrence", ["explicit possession wording"], ["Possession area remains independent from Award and Village area. Khasra references are source text only; no parcel relationship was inferred."], line.Text);
+            foreach (var line in lines)
+                if (TryCourtCase(line.Text, out var court))
+                    Add(output, court, page.PageNumber, "CourtCaseNarrative", "Strict case label and complete number/year identifier", ["case label", "complete identifier"], ["Case reference is source evidence only; no stay or legal effect is inferred.", "Khasra and area text remain unlinked source references."], line.Text);
             // Evidence buckets are deliberately not canonical legal records. Numeric rates, claimant
             // identities, affected parcels and stay/possession scope are never inferred from keywords.
             var categories = new Dictionary<string, string>
@@ -325,6 +328,7 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
             foreach (var category in categories)
             {
                 var matching = lines.Where(l => Regex.IsMatch(l.Text, category.Value, RegexOptions.IgnoreCase)).ToList();
+                if (category.Key == "Court Cases / CWPs") matching = matching.Where(line => !TryCourtCase(line.Text, out _)).ToList();
                 if (matching.Count == 0) continue;
                 var raw = string.Join("\n", matching.Select(l => l.Text));
                 Add(output, new UnmappedAwardFindingCandidate(category.Key, "Source mentions this subject; structured fields and legal scope still require review.", raw), page.PageNumber, "ClassifiedNarrativeEvidence", category.Key + " evidence", ["literal subject mention"], ["Evidence only, not a verified structured record. Do not infer stay, merge Parties, assign rates or link all Khasras."], raw);
@@ -355,6 +359,23 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
             return true;
         }
         return false;
+    }
+
+    private static bool TryCourtCase(string text, out CourtCaseCandidate candidate)
+    {
+        candidate = default!;
+        var match = Regex.Match(text, @"\b(?<label>CWP|W\.?P\.?\s*\(?C\)?|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?<number>\d{1,6}\s*/\s*\d{4})\b", RegexOptions.IgnoreCase);
+        if (!match.Success) return false;
+        var label = Regex.Replace(match.Groups["label"].Value, @"\s+", " ").Trim();
+        var type = label.Equals("CWP", StringComparison.OrdinalIgnoreCase) ? "CWP" : Regex.IsMatch(label, @"^w\.?p", RegexOptions.IgnoreCase) ? "W.P.(C)" : label.Contains("writ", StringComparison.OrdinalIgnoreCase) ? "Writ Petition" : "Case";
+        var status = Regex.Match(text, @"\b(?<status>stay\s+granted|stay\s+vacated|pending|dismissed|disposed|status\s+quo)\b|\b(?:status|order)\s*[:.-]\s*(?<status>.{1,160}?)(?=\s*,?\s*(?:khasra|killa|(?:total\s+)?area)\b|$)", RegexOptions.IgnoreCase);
+        var khasra = Regex.Match(text, @"\b(?:khasra|killa)\s*(?:no\.?|number)?\s*[:.-]?\s*(?<refs>[0-9][0-9/,\.\-\s]*(?:\bmin\b)?)", RegexOptions.IgnoreCase);
+        var area = Regex.Match(text, @"\b(?:total\s+)?area\s*[:.-]?\s*(?<area>\d+(?:\s*[-–—]\s*\d+){1,2}|\d+(?:\.\d+)?\s*(?:acre|acres|bigha|biswa|sq\.?\s*yards?))", RegexOptions.IgnoreCase);
+        candidate = new CourtCaseCandidate(match.Value, null, type,
+            status.Success ? status.Groups["status"].Value.Trim().TrimEnd('.', ',', ';') : null,
+            khasra.Success ? Regex.Replace(khasra.Groups["refs"].Value, @"\s+", " ").Trim().TrimEnd('.', ',', ';') : null,
+            area.Success ? Regex.Replace(area.Groups["area"].Value, @"\s+", " ").Trim() : null);
+        return true;
     }
 
     private void Add(ICollection<ExtractionCandidate> target, IAwardIngestionCandidatePayload payload, int page, string rule, string reason, IReadOnlyList<string> gates, IReadOnlyList<string> warnings, string raw, string? possibleCanonicalMatch = null, decimal? confidence = null)

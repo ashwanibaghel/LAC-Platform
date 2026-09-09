@@ -21,7 +21,10 @@ public sealed record AwardKhasraCandidate(string KhasraNumber, string? Qualifier
 // raw area and parcel references deliberately remain review text until a human
 // chooses any canonical PossessionKhasra relationships.
 public sealed record PossessionEventCandidate(DateOnly? PossessionDate, string? EventType, string? Status, string? PossessionAreaText = null, string? PossessionAreaUnit = null, string? KhasraReferences = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.PossessionEvent; }
-public sealed record CourtCaseCandidate(string CaseNumber, string CourtName, string? CaseType) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.CourtCase; }
+// A court reference is deliberately narrower than its possible legal effect.
+// Khasra and area values remain source references until a reviewer explicitly
+// resolves any canonical CourtCaseKhasra relationship during a later workflow.
+public sealed record CourtCaseCandidate(string CaseNumber, string? CourtName, string? CaseType, string? Status = null, string? KhasraReferences = null, string? RelatedAreaText = null, string? Parties = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.CourtCase; }
 public sealed record ClaimCandidate(string? ClaimReference, DateOnly? ClaimDate, string? ClaimText) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.Claim; }
 public sealed record LandClassCandidate(string Code, string? Description) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardLandClass; }
 public sealed record ValuationRuleCandidate(string RuleType, decimal? RateAmount, string? LegalSection, string? RateUnit = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardValuationRule; }

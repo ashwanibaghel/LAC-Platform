@@ -6,7 +6,9 @@ import re
 from .cell_safety_v12 import normalize_area_evidence
 
 STRICT_KHASRA = re.compile(r"^(?P<number>[1-9]\d{0,2}//[1-9]\d{0,2}(?:/[1-9]\d{0,2})*)(?:\s*(?P<qualifier>min))?$", re.I)
-CWP = re.compile(r"\b(?:CWP|W\.?P\.?)\s*(?:No\.?\s*)?\d{1,6}\s*/\s*\d{4}\b", re.I)
+# A damaged digit (for example ``47?1/2002``) must not yield the suffix
+# ``1/2002`` as a fictional case.  The neighbours are part of the identity.
+CASE_IDENTIFIER = re.compile(r"(?<![0-9?])\d{1,6}\s*/\s*\d{4}(?!\d)")
 
 
 def page_likely_has_table(words: list[str]) -> bool:
@@ -41,15 +43,44 @@ def table_kind(header_cells: dict[int, str]) -> tuple[str | None, dict[str, int]
         elif re.fullmatch(r"area", text.strip()): roles.setdefault("area", column)
         elif re.search(r"block|class", text): roles.setdefault("block", column)
 
+    if "khasra" in roles and "caseNumber" in roles:
+        # In a Court/CWP table, "TOTAL AREA" belongs to the court-table row;
+        # it is not an AwardKhasra recorded-area field.
+        if "area" not in roles and "recordedArea" in roles:
+            roles["area"] = roles["recordedArea"]
+        return "CourtCwpTable", roles
     if {"khasra", "recordedArea", "awardedArea"}.issubset(roles):
         return "AwardLandTable", roles
-    if "khasra" in roles and "caseNumber" in roles:
-        return "CourtCwpTable", roles
     if "khasra" in roles and "block" in roles:
         return "LandClassification", roles
     if "claim" in " ".join(header_cells.values()).lower():
         return "WeakClaimTable", roles
     return None, roles
+
+
+def infer_court_table_kind(header_cells: dict[int, str], rows: dict[int, dict[int, dict]], header_index: int) -> tuple[str | None, dict[str, int]]:
+    """Recover a Court table only from its own headers and complete case IDs.
+
+    This is intentionally narrower than generic header fallback: a missing
+    ``CWP No`` label is not guessed from nearby narrative text.  The same grid
+    must identify Khasra and Status, and exactly one of its data columns must
+    carry full ``number/year`` case identifiers.
+    """
+    kind, roles = table_kind(header_cells)
+    if kind is not None or not {"khasra", "status"}.issubset(roles):
+        return kind, roles
+    identifier_columns = {
+        column
+        for row_id, cells in rows.items() if row_id > header_index
+        for column, cell in cells.items()
+        if CASE_IDENTIFIER.search(" ".join(str(cell.get("text", "")).split()))
+    }
+    if len(identifier_columns) != 1:
+        return None, roles
+    roles["caseNumber"] = next(iter(identifier_columns))
+    if "area" not in roles and "recordedArea" in roles:
+        roles["area"] = roles["recordedArea"]
+    return "CourtCwpTable", roles
 
 
 def award_table_groups(header_cells: dict[int, str], column_count: int | None = None) -> list[dict[str, int]]:
@@ -177,15 +208,24 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
 
 
 def court_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict], roles: dict[str, int]) -> dict | None:
-    case = field(cells.get(roles["caseNumber"], {}).get("text"), cells.get(roles["caseNumber"], {}).get("region"), cell_crop_ocr=cells.get(roles["caseNumber"], {}).get("cellCropOcr"))
-    case_match = CWP.search(case["rawOcr"])
-    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_crop_ocr=cells.get(roles["khasra"], {}).get("cellCropOcr"))
-    number, qualifier = strict_khasra(khasra["rawOcr"])
-    if not case_match or not number:
+    """Interpret one geometry-proven Court/CWP row without parcel linking."""
+    def source(column: int) -> dict:
+        return {"tableId": table_id, "rowId": row_id, "columnIndex": column, "logicalGroupId": 1}
+    case = field(cells.get(roles["caseNumber"], {}).get("text"), cells.get(roles["caseNumber"], {}).get("region"), cell_identity=source(roles["caseNumber"]))
+    identifier = CASE_IDENTIFIER.search(case["rawOcr"])
+    # A table header proves the case label; the row value itself must still be
+    # a complete number/year identifier. No digit or year is repaired.
+    if not identifier:
         return None
-    status = field(cells.get(roles.get("status"), {}).get("text"), cells.get(roles.get("status"), {}).get("region")) if "status" in roles else None
-    area = field(cells.get(roles.get("area"), {}).get("text"), cells.get(roles.get("area"), {}).get("region"), area=True) if "area" in roles else None
-    return {"candidateType": "CourtCase", "structuredPayload": {"tableType": "CourtCwpTable", "tableId": table_id, "rowId": row_id, "caseNumber": case, "khasraNumber": number, "qualifier": qualifier, "area": area, "status": status, "stay": None}, "page": page, "sourceRegion": case["sourceRegion"], "rawSourceText": case["rawOcr"], "rawOcr": case["rawOcr"], "normalizedSuggestion": case_match.group(0), "normalizationReason": None, "confidence": cells[roles["caseNumber"]].get("confidence"), "interpretationWarnings": ["Court case is source evidence only; no stay is inferred", "Human review required"]}
+    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_identity=source(roles["khasra"]))
+    status = field(cells.get(roles["status"], {}).get("text"), cells.get(roles["status"], {}).get("region"), cell_identity=source(roles["status"])) if "status" in roles else None
+    area = field(cells.get(roles["area"], {}).get("text"), cells.get(roles["area"], {}).get("region"), area=True, cell_identity=source(roles["area"])) if "area" in roles else None
+    header = " ".join(str(value) for value in roles.get("headerLabels", []))
+    case_type = "CWP" if re.search(r"\bcwp\b", header, re.I) else "W.P.(C)" if re.search(r"w\.?p", header, re.I) else "Case"
+    raw_identifier = identifier.group(0)
+    case_value = field(raw_identifier, case["sourceRegion"], cell_identity=source(roles["caseNumber"]))
+    warnings = ["Case reference is source evidence only; no stay or legal effect is inferred.", "Khasra and area values are source references only; no canonical relationship is created.", "Human review required."]
+    return {"candidateType": "CourtCase", "structuredPayload": {"tableType": "CourtCwpTable", "tableId": table_id, "rowId": row_id, "caseNumber": case_value, "caseType": case_type, "courtName": None, "khasraReferences": khasra, "relatedAreaText": area, "status": status, "sourceCells": {"caseNumber": case_value, "khasraReferences": khasra, "relatedAreaText": area, "status": status}}, "page": page, "sourceRegion": case["sourceRegion"], "rawSourceText": case["rawOcr"], "rawOcr": case["rawOcr"], "normalizedSuggestion": raw_identifier, "normalizationReason": None, "confidence": cells[roles["caseNumber"]].get("confidence"), "interpretationWarnings": warnings}
 
 
 def classification_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict], roles: dict[str, int]) -> dict | None:

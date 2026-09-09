@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark.worker_semantics import award_candidate, award_table_groups, court_candidate, field, strict_khasra, table_kind
+from benchmark.worker_semantics import award_candidate, award_table_groups, court_candidate, field, infer_court_table_kind, strict_khasra, table_kind
 
 
 def cell(text, x=0):
@@ -61,8 +61,40 @@ class WorkerSemanticsTests(unittest.TestCase):
         self.assertEqual(candidate["sourceRegion"], self.cells[1]["region"])
 
     def test_court_case_does_not_imply_stay(self):
-        candidate = court_candidate(1, 1, 1, {0: cell("CWP No. 4721/2002"), 1: cell("22//2")}, {"caseNumber": 0, "khasra": 1})
-        self.assertIsNone(candidate["structuredPayload"]["stay"])
+        candidate = court_candidate(1, 1, 1, {0: cell("4721/2002"), 1: cell("22//2"), 2: cell("23-14"), 3: cell("Status quo")}, {"caseNumber": 0, "khasra": 1, "area": 2, "status": 3, "headerLabels": ["CWP No", "Khasra No", "Total Area", "Status"]})
+        payload = candidate["structuredPayload"]
+        self.assertEqual("CWP", payload["caseType"])
+        self.assertEqual("4721/2002", payload["caseNumber"]["normalizedSuggestion"])
+        self.assertEqual("22//2", payload["khasraReferences"]["rawOcr"])
+        self.assertEqual("23-14", payload["relatedAreaText"]["normalizedSuggestion"])
+        self.assertEqual("Status quo", payload["status"]["rawOcr"])
+        self.assertNotIn("stay", payload)
+        self.assertEqual(1, payload["sourceCells"]["status"]["rowId"])
+
+    def test_court_table_requires_complete_case_number_and_never_crosses_rows(self):
+        roles = {"caseNumber": 0, "khasra": 1, "area": 2, "status": 3, "headerLabels": ["CWP No", "Khasra No", "Total Area", "Status"]}
+        self.assertIsNone(court_candidate(1, 1, 1, {0: cell("47?1/2002"), 1: cell("22//2"), 2: cell("23-14"), 3: cell("Status quo")}, roles))
+        row_one = court_candidate(1, 1, 1, {0: cell("4721/2002"), 1: cell("22//2"), 2: cell("23-14"), 3: cell("Pending")}, roles)
+        row_two = court_candidate(1, 1, 2, {0: cell("2909/2002"), 1: cell("11//5"), 2: cell("21-13"), 3: cell("Disposed")}, roles)
+        self.assertEqual("22//2", row_one["structuredPayload"]["khasraReferences"]["rawOcr"])
+        self.assertEqual("11//5", row_two["structuredPayload"]["khasraReferences"]["rawOcr"])
+        self.assertEqual(1, row_one["structuredPayload"]["sourceCells"]["khasraReferences"]["rowId"])
+        self.assertEqual(2, row_two["structuredPayload"]["sourceCells"]["khasraReferences"]["rowId"])
+
+    def test_missing_cwp_header_requires_same_grid_status_khasra_and_complete_case_column(self):
+        headers = {1: "Khasra No", 3: "Status"}
+        rows = {0: {1: cell("Khasra No"), 3: cell("Status")},
+                1: {0: cell("4721/2002"), 1: cell("12//11"), 3: cell("Status quo")}}
+        kind, roles = infer_court_table_kind(headers, rows, 0)
+        self.assertEqual("CourtCwpTable", kind)
+        self.assertEqual(0, roles["caseNumber"])
+        self.assertEqual(1, roles["khasra"])
+
+    def test_missing_cwp_header_never_accepts_damaged_case_identifier(self):
+        headers = {1: "Khasra No", 3: "Status"}
+        rows = {0: {1: cell("Khasra No"), 3: cell("Status")},
+                1: {0: cell("47?1/2002"), 1: cell("12//11"), 3: cell("Status quo")}}
+        self.assertIsNone(infer_court_table_kind(headers, rows, 0)[0])
 
     def test_weak_claim_table_is_not_structured(self):
         self.assertEqual(table_kind({0: "Name of claimant", 1: "Khasra No", 2: "Claim"})[0], "WeakClaimTable")

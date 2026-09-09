@@ -153,11 +153,15 @@ public sealed class AwardPdfExtractionTests
     }
 
     [Fact]
-    public void Local_worker_unsupported_candidate_rejects_whole_mapping_before_staging()
+    public void Local_worker_court_candidate_preserves_review_only_fields_before_staging()
     {
         static JsonElement Element(string value) => JsonDocument.Parse(value).RootElement.Clone();
-        var result = new LocalDocumentIntelligenceResult(1, Guid.NewGuid(), "Completed", 1, [new("CourtCase", Element("{}"), 1, null, null, null, null, null, null, [])], [], Element("{}"));
-        Assert.Throws<InvalidOperationException>(() => LocalIntelligenceCandidateMapper.Map(result));
+        var result = new LocalDocumentIntelligenceResult(1, Guid.NewGuid(), "Completed", 1, [new("CourtCase", Element("{\"caseNumber\":\"CWP 4721/2002\",\"caseType\":\"CWP\",\"status\":\"Status quo\",\"khasraReferences\":\"12//11\",\"relatedAreaText\":\"23-14\"}"), 1, Element("{\"x\":1,\"y\":2,\"width\":3,\"height\":4}"), "CWP 4721/2002", "CWP 4721/2002", null, null, .9m, [])], [], Element("{}"));
+        var mapped = Assert.Single(LocalIntelligenceCandidateMapper.Map(result));
+        var payload = JsonSerializer.Deserialize<CourtCaseCandidate>(mapped.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Equal(AwardIngestionCandidateType.CourtCase, mapped.CandidateType); Assert.Equal("CWP 4721/2002", payload.CaseNumber);
+        Assert.Equal("Status quo", payload.Status); Assert.Equal("12//11", payload.KhasraReferences); Assert.Equal("23-14", payload.RelatedAreaText);
+        Assert.Contains("sourceRegion", mapped.SourceLocatorJson!, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class MemoryStorage(byte[] pdf) : IDocumentStorage

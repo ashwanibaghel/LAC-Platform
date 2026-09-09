@@ -18,7 +18,7 @@ public sealed class AwardExtractionRuleEngineTests
         yield return ["reordered-table", ReorderedTablePage(), new[] { AwardIngestionCandidateType.AwardKhasra }];
         yield return ["multipage-table", TablePage("Khasra No", "Total Area", "Area Awarded", ["22//2/1", "1-2-3", "0-10-0"], 1).Concat(TablePage("Khasra No", "Total Area", "Area Awarded", ["22//2/2", "1-3-0", "1-0-0"], 2)).ToArray(), new[] { AwardIngestionCandidateType.AwardKhasra, AwardIngestionCandidateType.AwardKhasra }];
         yield return ["notification-heavy", Page("Section 4 Notification N-FIC/12 dated 01/01/2026", "Section 6 Notice S-FIC/13"), new[] { AwardIngestionCandidateType.Notification, AwardIngestionCandidateType.Notification }];
-        yield return ["court-narrative", Page("CWP 123/2026 is listed. No Khasra table is present."), new[] { AwardIngestionCandidateType.UnmappedAwardFinding }];
+        yield return ["court-narrative", Page("CWP 123/2026 is listed. No Khasra table is present."), new[] { AwardIngestionCandidateType.CourtCase }];
         yield return ["claims-narrative", Page("Claimant names are listed in narrative text without a claim table."), new[] { AwardIngestionCandidateType.UnmappedAwardFinding }];
         yield return ["numeric-noise", Page("File 1627//154, note 02//26100 and ref 10106//213 are not Khasra table rows."), new[] { AwardIngestionCandidateType.UnmappedAwardFinding }];
     }
@@ -116,9 +116,9 @@ public sealed class AwardExtractionRuleEngineTests
     {
         var candidates=Engine().Extract(Page("Village: Fictional Village", "CWP 123/2026 is mentioned but the order and affected parcels require reading.", "Claims received are discussed in the following paragraphs; names must not automatically merge Parties.", "There is a clerical mistake; the corrigendum will be considered separately."), Context());
         Assert.Contains(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.AwardVillage);
-        Assert.Contains(candidates,c=>c.Input.PayloadJson.Contains("Court Cases / CWPs"));
+        Assert.Contains(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.CourtCase);
         Assert.Contains(candidates,c=>c.Input.PayloadJson.Contains("Area Issues / Corrigendum"));
-        Assert.DoesNotContain(candidates,c=>c.Input.CandidateType is AwardIngestionCandidateType.CourtCase or AwardIngestionCandidateType.Party);
+        Assert.DoesNotContain(candidates,c=>c.Input.CandidateType==AwardIngestionCandidateType.Party);
         Assert.All(candidates.Where(c=>c.Evidence.Rule=="ClassifiedNarrativeEvidence"),c=>Assert.NotEmpty(c.Evidence.Warnings));
     }
 
@@ -150,6 +150,23 @@ public sealed class AwardExtractionRuleEngineTests
     {
         var candidates=Engine().Extract(Page("CWP 123/2026 was stayed by the Court."), Context());
         Assert.DoesNotContain(candidates,x=>x.Input.CandidateType==AwardIngestionCandidateType.PossessionEvent);
+    }
+
+    [Fact]
+    public void Court_case_preserves_identifier_and_explicit_status_without_inferring_effect_or_parcels()
+    {
+        var candidate=Assert.Single(Engine().Extract(Page("CWP 4721/2002 status: Status quo, Khasra No. 12//11, area 23-14."), Context()).Where(x=>x.Input.CandidateType==AwardIngestionCandidateType.CourtCase));
+        var payload=JsonSerializer.Deserialize<CourtCaseCandidate>(candidate.Input.PayloadJson)!;
+        Assert.Equal("CWP 4721/2002",payload.CaseNumber); Assert.Equal("CWP",payload.CaseType); Assert.Equal("Status quo",payload.Status);
+        Assert.Equal("12//11",payload.KhasraReferences); Assert.Equal("23-14",payload.RelatedAreaText);
+        Assert.DoesNotContain(Engine().Extract(Page("CWP 4721/2002 status: Status quo"),Context()),x=>x.Input.CandidateType==AwardIngestionCandidateType.PossessionEvent);
+    }
+
+    [Fact]
+    public void Procedural_civil_court_clause_is_not_a_court_case()
+    {
+        var candidates=Engine().Extract(Page("The dispute shall be referred to Civil Court under the Act."),Context());
+        Assert.DoesNotContain(candidates,x=>x.Input.CandidateType==AwardIngestionCandidateType.CourtCase);
     }
 
     [Fact]

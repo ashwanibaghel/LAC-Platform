@@ -67,31 +67,63 @@ def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict
     return {column: " ".join(text) for column, text in values.items()}
 
 
-def crop_ocr(image, cell: dict, ocr) -> str | None:
+def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int]) -> str | None:
     """Recognition-only unified crop; never used outside Table Transformer cells."""
     from benchmark.cell_crop_pipeline_v9 import normalize_from_page
 
+    box = cell["region"]
+    key = (float(box["x"]), float(box["y"]), float(box["width"]), float(box["height"]))
+    if key in crop_cache:
+        counters["cellOcrCacheHits"] += 1
+        return crop_cache[key]
+    started = time.perf_counter()
     _, normalized, _ = normalize_from_page(image, cell["region"])
     output = ocr(normalized)
+    counters["selectiveCellOcrSeconds"] += time.perf_counter() - started
+    counters["cellOcrCalls"] += 1
     texts = list(output.txts) if output.txts is not None else []
-    return " ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None
+    crop_cache[key] = " ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None
+    return crop_cache[key]
 
 
-def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr) -> tuple[list[dict], dict[str, int]]:
-    from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, table_kind
+def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
+    from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, infer_court_table_kind, table_kind
 
     candidates: list[dict] = []
-    counts = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0}
+    counts = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0,
+              "courtTableSeconds": 0.0}
     tables = [item for item in geometry if item["label"] == "table"]
+    counters["geometryTables"] += len(tables)
     for table_id, item in enumerate(tables, 1):
         rows, column_count = rows_for_table(geometry, item["box"], words, page, table_id)
         if not rows:
+            counters["tablesWithoutGridRows"] += 1
             continue
+        counters["tablesWithGridRows"] += 1
         header_cells = header_cells_for_table(geometry, item["box"], words)
-        kind, roles = table_kind(header_cells)
+        # Some scanned Court grids receive row/column geometry but no separate
+        # Table-Transformer header box. The first *same-table grid row* is a
+        # defensible Court-only label fallback; it never reads a neighbouring
+        # table or promotes an Award/Khasra grid to a new interpretation path.
+        grid_header = {column: cell["text"] for column, cell in rows[min(rows)].items() if cell.get("text")}
+        merged_headers = {**grid_header, **header_cells}
+        header_text = " ".join(merged_headers.values()).lower()
+        if re.search(r"cwp|case\s*no", header_text):
+            counters["courtHeaderSignals"] += 1
+        if re.search(r"khasra|killa", header_text):
+            counters["khasraHeaderSignals"] += 1
+        kind, roles = infer_court_table_kind(merged_headers, rows, min(rows))
         if kind is None:
-            continue
+            fallback_kind, fallback_roles = infer_court_table_kind(grid_header, rows, min(rows))
+            if fallback_kind != "CourtCwpTable":
+                counters["tablesUnclassified"] += 1
+                continue
+            header_cells, kind, roles = grid_header, fallback_kind, fallback_roles
+            counters["headerFallbackInvocations"] += 1
+        else:
+            header_cells = merged_headers
         header_index = min(rows)
+        roles["headerLabels"] = list(header_cells.values())
         counts["tables"] += 1
         for row_id, cells in sorted(rows.items()):
             if row_id <= header_index:
@@ -108,18 +140,23 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr)
                         continue
                     khasra_column = group["khasra"]
                     if khasra_column in cells:
-                        cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr)
+                        cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr, crop_cache, counters)
                     for role in ("recordedArea", "awardedArea"):
                         column = group[role]
                         if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
-                            cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr)
+                            cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr, crop_cache, counters)
                     candidate = award_candidate(page, table_id, row_id, cells, group)
                     if candidate:
                         candidates.append(candidate)
                         counts["awardRows"] += 1
                 continue
             elif kind == "CourtCwpTable":
+                counters["courtTableRowsInspected"] += 1
+                if not enable_court:
+                    continue
+                started = time.perf_counter()
                 candidate = court_candidate(page, table_id, row_id, cells, roles)
+                counts["courtTableSeconds"] += time.perf_counter() - started
                 if candidate:
                     counts["courtRows"] += 1
             elif kind == "LandClassification":
@@ -312,6 +349,38 @@ def possession_candidates(page: int, words) -> list[dict]:
     return result
 
 
+_NARRATIVE_CASE = re.compile(r"\b(?P<label>CWP|W\.?P\.?\s*\(?C\)?|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?P<number>\d{1,6}\s*/\s*\d{4})\b", re.I)
+
+
+def court_case_candidates(page: int, words) -> list[dict]:
+    """Extract only identifiable local source case occurrences, never legal effect."""
+    result = []
+    for text, box in _lines(words):
+        match = _NARRATIVE_CASE.search(text)
+        if not match:
+            continue
+        label = re.sub(r"\s+", " ", match.group("label")).strip()
+        case_type = "CWP" if label.lower() == "cwp" else "W.P.(C)" if re.match(r"w\.?p", label, re.I) else "Writ Petition" if "writ" in label.lower() else "Case"
+        raw_identifier = match.group(0)
+        status = None
+        status_match = re.search(r"\b(stay\s+granted|stay\s+vacated|pending|dismissed|disposed|status\s+quo)\b|\b(?:status|order)\s*[:.-]\s*(.{1,160}?)(?=\s*,?\s*(?:khasra|killa|(?:total\s+)?area)\b|$)", text, re.I)
+        if status_match:
+            status = (status_match.group(1) or status_match.group(2)).strip().rstrip(".,;")
+        khasra_match = re.search(r"\b(?:khasra|killa)\s*(?:no\.?|number)?\s*[:.-]?\s*([0-9][0-9/,\.\-\s]*(?:\bmin\b)?)", text, re.I)
+        area_match = re.search(r"\b(?:total\s+)?area\s*[:.-]?\s*(\d+(?:\s*[-–—]\s*\d+){1,2}|\d+(?:\.\d+)?\s*(?:acre|acres|bigha|biswa|sq\.?\s*yards?))", text, re.I)
+        result.append({
+            "candidateType": "CourtCase",
+            "structuredPayload": {"caseNumber": raw_identifier, "caseType": case_type, "courtName": None, "status": status,
+                                  "khasraReferences": re.sub(r"\s+", " ", khasra_match.group(1)).strip().rstrip(".,;") if khasra_match else None,
+                                  "relatedAreaText": re.sub(r"\s+", " ", area_match.group(1)).strip() if area_match else None,
+                                  "parties": None},
+            "page": page, "sourceRegion": box, "rawSourceText": text, "rawOcr": raw_identifier,
+            "normalizedSuggestion": raw_identifier, "normalizationReason": None, "confidence": None,
+            "interpretationWarnings": ["Case reference is source evidence only; no stay or legal effect is inferred.", "Any Khasra or area is source text only; no canonical relationship was created."]
+        })
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -320,6 +389,8 @@ def main() -> int:
     parser.add_argument("--pdf", type=Path)
     parser.add_argument("--page", type=int)
     parser.add_argument("--region")
+    parser.add_argument("--pages", help="Comma-separated one-based pages for local diagnostic runs")
+    parser.add_argument("--disable-court", action="store_true", help="Diagnostic only: retain perception but skip Court interpretation")
     args = parser.parse_args()
     if args.crop:
         if not args.pdf or not args.pdf.is_file() or args.pdf.suffix.lower() != ".pdf" or not args.region or not args.page or args.page < 1:
@@ -368,17 +439,31 @@ def main() -> int:
         from benchmark.worker_semantics import page_likely_has_table
 
         started = time.perf_counter()
+        stages = {key: 0.0 for key in ("pageRendering", "rapidOcr", "tableLayout", "awardKhasraInterpretation", "valuationCompensationInterpretation", "possessionInterpretation", "courtNarrativeInterpretation", "courtTableInterpretation", "selectiveCellOcr", "serialization")}
+        counters = {key: 0 for key in ("pageOcrCalls", "tableTransformerCalls", "cellOcrCalls", "cellOcrCacheHits", "courtTableRowsInspected", "headerFallbackInvocations", "geometryTables", "tablesWithoutGridRows", "tablesWithGridRows", "tablesUnclassified", "courtHeaderSignals", "khasraHeaderSignals")}
+        counters["selectiveCellOcrSeconds"] = 0.0
         ocr = RapidOCR(params={"Det.engine_type": EngineType.TORCH, "Cls.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH})
         document = fitz.open(pdf)
+        selected_pages = list(range(1, len(document) + 1))
+        if args.pages:
+            selected_pages = sorted({int(value.strip()) for value in args.pages.split(",") if value.strip()})
+            if not selected_pages or min(selected_pages) < 1 or max(selected_pages) > len(document):
+                return fail("selected pages are outside the local PDF")
         geometry_engine = None
         candidates: list[dict] = []
         table_pages = 0
         totals = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0}
 
-        for page_number, pdf_page in enumerate(document, 1):
+        for page_number in selected_pages:
+            pdf_page = document[page_number - 1]
+            stage_started = time.perf_counter()
             pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
             image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+            stages["pageRendering"] += time.perf_counter() - stage_started
+            stage_started = time.perf_counter()
             output = ocr(image)
+            counters["pageOcrCalls"] += 1
+            stages["rapidOcr"] += time.perf_counter() - stage_started
             texts = list(output.txts) if output.txts is not None else []
             boxes = list(output.boxes) if output.boxes is not None else []
             scores = list(output.scores) if output.scores is not None else []
@@ -395,14 +480,32 @@ def main() -> int:
             # Core/header and statutory suggestions are label-led narrative
             # extraction.  They deliberately do not depend on Award table
             # geometry and cannot influence Khasra interpretation.
+            stage_started = time.perf_counter()
             page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
+            stages["awardKhasraInterpretation"] += time.perf_counter() - stage_started
+            stage_started = time.perf_counter()
             page_candidates.extend(valuation_and_compensation_candidates(page_number, words))
+            stages["valuationCompensationInterpretation"] += time.perf_counter() - stage_started
+            stage_started = time.perf_counter()
             page_candidates.extend(possession_candidates(page_number, words))
+            stages["possessionInterpretation"] += time.perf_counter() - stage_started
+            stage_started = time.perf_counter()
+            if not args.disable_court:
+                page_candidates.extend(court_case_candidates(page_number, words))
+            stages["courtNarrativeInterpretation"] += time.perf_counter() - stage_started
             if page_likely_has_table([word.text for word in words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
+                stage_started = time.perf_counter()
                 geometry = geometry_engine.detect(image)
-                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr)
+                counters["tableTransformerCalls"] += 1
+                stages["tableLayout"] += time.perf_counter() - stage_started
+                crop_cache: dict[tuple[float, float, float, float], str | None] = {}
+                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr, crop_cache, counters, not args.disable_court)
+                # Court parsing is pure same-row interpretation. Crop OCR is
+                # timed at the call site, so geometry parsing is not falsely
+                # attributed to either stage.
+                stages["courtTableInterpretation"] += page_counts["courtTableSeconds"]
                 page_candidates.extend(geometry_candidates)
                 if page_counts["tables"]:
                     table_pages += 1
@@ -423,16 +526,24 @@ def main() -> int:
                     "interpretationWarnings": ["Narrative evidence retained; not promoted without table geometry"],
                 })
 
+        stages["selectiveCellOcr"] = counters["selectiveCellOcrSeconds"]
+        stage_started = time.perf_counter()
         result = {
             "contractVersion": CONTRACT_VERSION,
             "documentId": data["documentId"],
             "status": "Completed",
-            "pagesProcessed": len(document),
+            "pagesProcessed": len(selected_pages),
             "candidates": candidates,
             "warnings": ["Structured candidates require detected table geometry, header roles, and human review."],
-            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local + Table Transformer geometry", "tablePagesDetected": table_pages, **totals},
+            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, "stageSeconds": {}, **counters},
         }
+        stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        stage_started = time.perf_counter()
+        result["metrics"]["stageSeconds"] = {key: round(value, 3) for key, value in stages.items()}
+        json.dumps(result)
+        stages["serialization"] += time.perf_counter() - stage_started
+        result["metrics"]["stageSeconds"] = {key: round(value, 3) for key, value in stages.items()}
         args.output.write_text(json.dumps(result), encoding="utf-8")
         return 0
     except Exception as error:

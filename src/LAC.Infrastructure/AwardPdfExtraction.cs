@@ -431,6 +431,9 @@ public static class LocalIntelligenceCandidateMapper
                 case "PossessionEvent":
                     mapped.Add(MapPossessionEvent(candidate, locator));
                     break;
+                case "CourtCase":
+                    mapped.Add(MapCourtCase(candidate, locator));
+                    break;
                 case "ValuationRule":
                     mapped.Add(MapValuationRule(candidate, locator));
                     break;
@@ -492,6 +495,17 @@ public static class LocalIntelligenceCandidateMapper
         var date = rawDate is not null && new StrictDateParser().TryParse(rawDate, out var parsed) ? parsed : (DateOnly?)null;
         return new(AwardIngestionCandidateType.PossessionEvent,
             JsonSerializer.Serialize(new PossessionEventCandidate(date, Value(payload, "eventType"), Value(payload, "status"), Value(payload, "possessionAreaText"), Value(payload, "possessionAreaUnit"), Value(payload, "khasraReferences")), Json),
+            locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapCourtCase(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var caseField = payload.TryGetProperty("caseNumber", out var field) ? field : default;
+        var caseNumber = Value(payload, "caseNumber") ?? Value(caseField, "normalizedSuggestion") ?? "";
+        return new(AwardIngestionCandidateType.CourtCase,
+            JsonSerializer.Serialize(new CourtCaseCandidate(caseNumber, Value(payload, "courtName"), Value(payload, "caseType"),
+                Value(payload, "status"), Value(payload, "khasraReferences"), Value(payload, "relatedAreaText"), Value(payload, "parties")), Json),
             locator, candidate.RawSourceText, candidate.Confidence);
     }
 
