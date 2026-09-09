@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LAC.Infrastructure;
 
 public sealed record VerifyExtractedFactRequest(string VerifiedBy, string? CorrectedPayloadJson, string Action = "Confirm");
+public sealed record VerifyAwardKhasraFieldRequest(string VerifiedBy, string FieldRole, string? HumanValue, string Decision);
 public sealed record ConfirmExactRequest(string VerifiedBy, int ExpectedCount, int? SourcePage = null);
 public sealed record CommitVerifiedRequest(string VerifiedBy,int ExpectedCount);
 public sealed record ReviewContextRequest(Guid AwardId, Guid VillageId, string VerifiedBy);
@@ -78,7 +79,9 @@ public sealed partial class AwardIngestionService
         RequireReviewer(request.VerifiedBy);
         var row=await db.AwardIngestionCandidates.Include(x=>x.Session).SingleOrDefaultAsync(x=>x.Id==candidateId,ct) ?? throw new AwardIngestionException("Review item not found.",404);
         if(row.Status is AwardIngestionCandidateStatus.Committed or AwardIngestionCandidateStatus.Skipped or AwardIngestionCandidateStatus.Rejected) throw new AwardIngestionException("This item is finalised.");
+        if(row.CandidateType==AwardIngestionCandidateType.AwardKhasra && row.Session.SourceDocumentId is not null && HasGeometryFieldEvidence(row.SourceLocatorJson)) throw new AwardIngestionException("Review geometry-backed Award Khasra fields individually; one field cannot verify the entire row.");
         if(request.Action=="Skip") {row.Status=AwardIngestionCandidateStatus.Skipped; row.SafeToConfirm=false; db.AuditLogs.Add(new(){EntityType=nameof(AwardIngestionCandidate),EntityId=row.Id,Action="HumanSkipped",ChangedBy=request.VerifiedBy}); await db.SaveChangesAsync(ct);return;}
+        if(request.Action=="Uncertain") {row.Status=AwardIngestionCandidateStatus.NeedsReview; row.SafeToConfirm=false; db.AuditLogs.Add(new(){EntityType=nameof(AwardIngestionCandidate),EntityId=row.Id,Action="HumanMarkedUncertain",ChangedBy=request.VerifiedBy}); await db.SaveChangesAsync(ct);return;}
         if(request.Action is not "Confirm" and not "LinkExisting" and not "KeepDetected") throw new AwardIngestionException("Unsupported verification action.");
         if(row.Session.TargetAwardId is null || row.Session.SourceDocumentId is null) throw new AwardIngestionException("An Award and source document must be selected first.");
         var json=request.CorrectedPayloadJson ?? row.StructuredPayloadJson;
@@ -110,8 +113,64 @@ public sealed partial class AwardIngestionService
         row.StructuredPayloadJson=JsonSerializer.Serialize(payload,payload.GetType(),Json);
         row.CanonicalEntityId=checkedRow.CanonicalEntityId; row.CanonicalEntityType=checkedRow.CanonicalEntityType;
         MarkVerified(row,request.VerifiedBy,old,request.Action);
+        // This records a local training label only after an explicit human
+        // confirmation/correction.  It is not canonical data and commit is
+        // still a separate operation.
+        CaptureHumanGold(row, payload, old, request.Action);
         await db.SaveChangesAsync(ct);
     }
+
+    private void CaptureHumanGold(AwardIngestionCandidate row, IAwardIngestionCandidatePayload payload, string oldPayload, string action)
+    {
+        if (row.Session.SourceDocumentId is null || action is "Skip" or "Uncertain") return;
+        try
+        {
+            using var locator = JsonDocument.Parse(row.SourceLocatorJson ?? "{}");
+            var root = locator.RootElement;
+            var page = root.TryGetProperty("Page", out var pageNode) ? pageNode.GetInt32() : root.TryGetProperty("page", out pageNode) ? pageNode.GetInt32() : 0;
+            if (page < 1 || !(root.TryGetProperty("StructuredPayload", out var structured) || root.TryGetProperty("structuredPayload", out structured))) return;
+            var current = JsonSerializer.Serialize(payload, payload.GetType(), Json);
+            using var prior = JsonDocument.Parse(oldPayload);
+            if (payload is AwardKhasraCandidate && structured.TryGetProperty("sourceCells", out var cells))
+            {
+                AddGold("Khasra", "khasra", k => k.KhasraNumber + (string.IsNullOrWhiteSpace(k.Qualifier) ? "" : " " + k.Qualifier));
+                AddGold("RecordedArea", "recordedArea", k => FormatArea(k.RecordedAreaBigha, k.RecordedAreaBiswa, k.RecordedAreaBiswansi));
+                AddGold("AwardedArea", "awardedArea", k => FormatArea(k.AwardedAreaBigha, k.AwardedAreaBiswa, k.AwardedAreaBiswansi));
+                void AddGold(string role, string sourceKey, Func<AwardKhasraCandidate, string?> value)
+                {
+                    if (!cells.TryGetProperty(sourceKey, out var source) || !source.TryGetProperty("sourceRegion", out var region)) return;
+                    var final = value((AwardKhasraCandidate)payload); if (string.IsNullOrWhiteSpace(final)) return;
+                    var raw = Value(source, "rawOcr"); var normalized = Value(source, "normalizedSuggestion");
+                    AddGoldRow(role, page, region.GetRawText(), raw, normalized, final, !string.Equals(final, normalized, StringComparison.Ordinal));
+                }
+            }
+            else if (root.TryGetProperty("SourceRegion", out var region) || root.TryGetProperty("sourceRegion", out region))
+            {
+                AddGoldRow(payload.CandidateType.ToString(), page, region.GetRawText(), Value(root, "RawOcr"), Value(root, "NormalizedSuggestion"), current, !string.Equals(current, oldPayload, StringComparison.Ordinal));
+            }
+        }
+        catch (JsonException) { /* Invalid evidence cannot create training gold. */ }
+
+        void AddGoldRow(string role, int page, string region, string? raw, string? normalized, string final, bool corrected)
+        {
+            var existing = db.DocumentTrainingExamples.Local.Concat(db.DocumentTrainingExamples.Where(x => x.SourceCandidateId == row.Id && x.CellRole == role && x.HumanFinalValue == final)).Any();
+            if (existing) return; // Retry/idempotency: no duplicate label for same human final value.
+            var revision = db.DocumentTrainingExamples.Local.Where(x => x.SourceCandidateId == row.Id && x.CellRole == role).Select(x => x.VerificationRevision)
+                .Concat(db.DocumentTrainingExamples.Where(x => x.SourceCandidateId == row.Id && x.CellRole == role).Select(x => x.VerificationRevision)).DefaultIfEmpty(0).Max() + 1;
+            db.DocumentTrainingExamples.Add(new DocumentTrainingExample { DocumentId = row.Session.SourceDocumentId!.Value, PageNumber = page, SourceRegionJson = region, CellRole = role, RawOcr = raw, NormalizedSuggestion = normalized, HumanFinalValue = final, WasCorrected = corrected, ReviewDecision = "Confirm", VerifiedAt = row.VerifiedAt!.Value, VerifiedBy = row.VerifiedBy!, SourceCandidateId = row.Id, VerificationRevision = revision });
+        }
+    }
+    private static string? Value(JsonElement node, string property)
+    {
+        if (!node.TryGetProperty(property, out var value)) node.TryGetProperty(char.ToLowerInvariant(property[0]) + property[1..], out value);
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+    private static bool HasGeometryFieldEvidence(string? locator)
+    {
+        try { using var source = JsonDocument.Parse(locator ?? "{}"); return (source.RootElement.TryGetProperty("structuredPayload", out var payload) || source.RootElement.TryGetProperty("StructuredPayload", out payload)) && payload.TryGetProperty("sourceCells", out _); }
+        catch (JsonException) { return false; }
+    }
+    private static string? FormatArea(decimal? bigha, int? biswa, int? biswansi) => bigha is null ? null : biswansi is null ? $"{bigha}-{biswa ?? 0}" : $"{bigha}-{biswa ?? 0}-{biswansi}";
 
     private void MarkVerified(AwardIngestionCandidate row,string reviewer,string old,string action)
     {
@@ -124,7 +183,8 @@ public sealed partial class AwardIngestionService
     {
         int? page=row.SourcePage;
         try {using var locator=JsonDocument.Parse(row.SourceLocatorJson??"{}"); if(locator.RootElement.TryGetProperty("Page",out var p) || locator.RootElement.TryGetProperty("page",out p)) page=p.GetInt32();} catch(JsonException){throw new AwardIngestionException("Source page evidence is invalid.");}
-        if(page is null or <1 || row.Session.SourceDocumentId is null || !await db.AwardDocumentPageExtractions.AnyAsync(x=>x.Job.DocumentId==row.Session.SourceDocumentId && x.PageNumber==page,ct)) throw new AwardIngestionException("A valid stored document page is required for verification.");
+        var exists = row.Session.SourceDocumentId is not null && (await db.AwardDocumentPageExtractions.AnyAsync(x=>x.Job.DocumentId==row.Session.SourceDocumentId && x.PageNumber==page,ct) || await db.AwardDocumentExtractionJobs.AnyAsync(x=>x.DocumentId==row.Session.SourceDocumentId && x.TotalPages>=page,ct));
+        if(page is null or <1 || !exists) throw new AwardIngestionException("A valid stored document page is required for verification.");
         return page.Value;
     }
 

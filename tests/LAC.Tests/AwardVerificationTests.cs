@@ -9,6 +9,26 @@ namespace LAC.Tests;
 public sealed class AwardVerificationTests
 {
     [Fact]
+    public async Task Geometry_backed_award_khasra_requires_every_source_cell_and_creates_gold_per_field()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var award = new Award { AwardNumber = "FICTIONAL-FIELD-REVIEW" }; var village = new Village { Name = "Fictional Village" }; var document = new LAC.Domain.Document { OriginalFileName = "fictional.pdf", StoragePath = "fictional.pdf" };
+        db.AddRange(award, village, document, new AwardVillage { Award = award, Village = village }, new DocumentAward { Award = award, Document = document }); await db.SaveChangesAsync();
+        var locator = JsonSerializer.Serialize(new { page = 1, sourceRegion = new { x = 1, y = 1, width = 5, height = 5 }, structuredPayload = new { sourceCells = new { khasra = new { rawOcr = "6//10", normalizedSuggestion = "6//10", sourceRegion = new { x = 1, y = 1, width = 5, height = 5 } }, recordedArea = new { rawOcr = "22 -- 3", normalizedSuggestion = "22-3", sourceRegion = new { x = 8, y = 1, width = 5, height = 5 } }, awardedArea = new { rawOcr = "22 -- 3", normalizedSuggestion = "22-3", sourceRegion = new { x = 15, y = 1, width = 5, height = 5 } } } } });
+        var input = new IngestionCandidateInput(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(new AwardKhasraCandidate("6//10", null, null, null, null, 22, 3, null, 22, 3, null)), locator, "fictional", .9m);
+        var service = new AwardIngestionService(db, new AwardWorkflowService(db)); var session = await service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, document.Id, "tester", null, [input], default);
+        db.Add(new AwardDocumentExtractionJob { DocumentId = document.Id, IngestionSessionId = session.Id, TargetAwardId = award.Id, SelectedVillageId = village.Id, TotalPages = 1, ProcessedPages = 1, Status = AwardDocumentExtractionJobStatus.NeedsReview }); await db.SaveChangesAsync();
+        var candidate = await db.AwardIngestionCandidates.SingleAsync();
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "Khasra", "6//10", "Confirm"), default);
+        candidate = await db.AwardIngestionCandidates.SingleAsync(); Assert.Null(candidate.VerifiedAt); Assert.Equal(AwardIngestionCandidateStatus.NeedsReview, candidate.Status); Assert.Single(await db.DocumentTrainingExamples.ToListAsync());
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "RecordedArea", "22-3", "Confirm"), default);
+        candidate = await db.AwardIngestionCandidates.SingleAsync(); Assert.Null(candidate.VerifiedAt); Assert.Equal(2, await db.DocumentTrainingExamples.CountAsync()); Assert.All(await db.DocumentTrainingExamples.ToListAsync(), x => Assert.False(x.WasCorrected));
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "AwardedArea", "22-3", "Confirm"), default);
+        candidate = await db.AwardIngestionCandidates.SingleAsync(); Assert.NotNull(candidate.VerifiedAt); Assert.Equal(3, await db.DocumentTrainingExamples.CountAsync()); Assert.Empty(await db.Khasras.ToListAsync()); Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "Khasra", "6//10", "Confirm"), default);
+        Assert.Equal(3, await db.DocumentTrainingExamples.CountAsync());
+    }
+    [Fact]
     public async Task Older_upload_can_select_context_without_reupload_or_canonical_writes()
     {
         await using var f=await Fixture.Create();
@@ -71,13 +91,24 @@ public sealed class AwardVerificationTests
     }
 
     [Fact]
-    public async Task Evidence_warning_and_conflicting_batch_block_every_affected_exact_match()
+    public async Task Evidence_warning_and_repeated_source_rows_block_every_affected_exact_match_without_generic_conflict()
     {
         await using var f=await Fixture.Create();var warning=f.KhasraInput() with {SourceLocatorJson=JsonSerializer.Serialize(new CandidateEvidence(1,"test","KhasraTable","Test",[],["Last digit unclear"]))};
         await f.Preview(warning);Assert.False((await f.Db.AwardIngestionCandidates.SingleAsync()).SafeToConfirm);
         var session=await f.Preview(f.KhasraInput(),f.KhasraInput(3));
         var rows=await f.Db.AwardIngestionCandidates.Where(x=>x.SessionId==session.Id).ToListAsync();
-        Assert.All(rows,x=>{Assert.False(x.SafeToConfirm);Assert.Equal(AwardIngestionCandidateStatus.Conflict,x.Status);});
+        Assert.All(rows,x=>{Assert.False(x.SafeToConfirm);Assert.Equal(AwardIngestionCandidateStatus.NeedsReview,x.Status);Assert.Contains("RepeatedDifferentAreas",x.ConflictDetailsJson);});
+    }
+
+    [Fact]
+    public async Task Same_value_source_occurrences_are_retained_with_a_precise_reason_and_qualifier_is_part_of_identity()
+    {
+        await using var f=await Fixture.Create();
+        var same=await f.Preview(f.KhasraInput(),f.KhasraInput());
+        var repeated=await f.Db.AwardIngestionCandidates.Where(x=>x.SessionId==same.Id).ToListAsync();
+        Assert.Equal(2,repeated.Count);Assert.All(repeated,x=>{Assert.Equal(AwardIngestionCandidateStatus.NeedsReview,x.Status);Assert.Contains("RepeatedSameValues",x.ConflictDetailsJson);});
+        var distinct=await f.Preview(f.KhasraInput(),f.Input(new AwardKhasraCandidate("4//12",null,null,null,null,2,2,null,1,1,null)));
+        Assert.All(await f.Db.AwardIngestionCandidates.Where(x=>x.SessionId==distinct.Id).ToListAsync(),x=>Assert.Null(x.ConflictDetailsJson));
     }
 
     [Fact]

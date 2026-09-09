@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 namespace LAC.Infrastructure;
 public sealed class LacDbContext(DbContextOptions<LacDbContext> options) : DbContext(options) {
- public DbSet<SourceEvidence> SourceEvidence => Set<SourceEvidence>();
+ public DbSet<SourceEvidence> SourceEvidence => Set<SourceEvidence>(); public DbSet<DocumentTrainingExample> DocumentTrainingExamples => Set<DocumentTrainingExample>();
  public DbSet<AwardIngestionSession> AwardIngestionSessions => Set<AwardIngestionSession>(); public DbSet<AwardIngestionCandidate> AwardIngestionCandidates => Set<AwardIngestionCandidate>(); public DbSet<AwardDocumentExtractionJob> AwardDocumentExtractionJobs => Set<AwardDocumentExtractionJob>(); public DbSet<AwardDocumentPageExtraction> AwardDocumentPageExtractions => Set<AwardDocumentPageExtraction>();
  public DbSet<District> Districts => Set<District>(); public DbSet<SubDivision> SubDivisions => Set<SubDivision>(); public DbSet<Village> Villages => Set<Village>(); public DbSet<Khasra> Khasras => Set<Khasra>(); public DbSet<AcquisitionProject> AcquisitionProjects => Set<AcquisitionProject>(); public DbSet<Notification> Notifications => Set<Notification>(); public DbSet<Award> Awards => Set<Award>(); public DbSet<AwardVillage> AwardVillages => Set<AwardVillage>(); public DbSet<AwardNotification> AwardNotifications => Set<AwardNotification>(); public DbSet<KhasraReviewFlag> KhasraReviewFlags => Set<KhasraReviewFlag>(); public DbSet<PossessionEvent> PossessionEvents => Set<PossessionEvent>(); public DbSet<CourtCase> CourtCases => Set<CourtCase>(); public DbSet<Claim> Claims => Set<Claim>(); public DbSet<VillageLR> VillageLRs => Set<VillageLR>(); public DbSet<LREntry> LREntries => Set<LREntry>(); public DbSet<Party> Parties => Set<Party>(); public DbSet<KhatauniRecord> KhatauniRecords => Set<KhatauniRecord>(); public DbSet<Khata> Khatas => Set<Khata>(); public DbSet<KhataKhasra> KhataKhasras => Set<KhataKhasra>(); public DbSet<KhataPartyShare> KhataPartyShares => Set<KhataPartyShare>(); public DbSet<Document> Documents => Set<Document>(); public DbSet<DocumentVillage> DocumentVillages => Set<DocumentVillage>(); public DbSet<DocumentKhasra> DocumentKhasras => Set<DocumentKhasra>(); public DbSet<DocumentAward> DocumentAwards => Set<DocumentAward>(); public DbSet<DocumentNotification> DocumentNotifications => Set<DocumentNotification>(); public DbSet<DocumentVillageLR> DocumentVillageLRs => Set<DocumentVillageLR>(); public DbSet<DocumentKhatauniRecord> DocumentKhatauniRecords => Set<DocumentKhatauniRecord>(); public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
@@ -27,6 +27,11 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options) : DbCon
   b.Entity<SourceEvidence>().Property(x => x.VerifiedBy).HasMaxLength(200);
   b.Entity<SourceEvidence>().Property(x => x.FactName).HasMaxLength(100);
   b.Entity<AwardIngestionCandidate>().Property(x => x.VerifiedPayloadJson).IsConcurrencyToken();
+  b.Entity<DocumentTrainingExample>().ToTable("DocumentTrainingExamples", table => table.HasCheckConstraint("CK_DocumentTrainingExamples_Page", "\"PageNumber\" > 0"));
+  b.Entity<DocumentTrainingExample>().Property(x => x.CellRole).HasMaxLength(100);
+  b.Entity<DocumentTrainingExample>().Property(x => x.VerifiedBy).HasMaxLength(200);
+  b.Entity<DocumentTrainingExample>().HasIndex(x => new { x.SourceCandidateId, x.CellRole, x.VerificationRevision }).IsUnique();
+  b.Entity<DocumentTrainingExample>().HasIndex(x => new { x.DocumentId, x.PageNumber });
   b.Entity<AwardIngestionCandidate>().HasIndex(x => new {x.SessionId, x.SafeToConfirm, x.SourcePage});
   foreach(var foreignKey in b.Model.GetEntityTypes().SelectMany(entity=>entity.GetForeignKeys())) foreignKey.DeleteBehavior=DeleteBehavior.Restrict;
  }

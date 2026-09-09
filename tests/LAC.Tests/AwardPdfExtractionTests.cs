@@ -54,7 +54,7 @@ public sealed class AwardPdfExtractionTests
             var job=json.RootElement[0].GetProperty("Job");
             return (job.GetProperty("Reviewed").GetBoolean(),job.GetProperty("Attention").GetInt32());
         }
-        var before=await Read(db,award.Id); Assert.False(before.reviewed); Assert.Equal(0,before.attention);
+        var before=await Read(db,award.Id); Assert.False(before.reviewed); Assert.Equal(1,before.attention);
         var candidate=await db.AwardIngestionCandidates.SingleAsync();candidate.Status=AwardIngestionCandidateStatus.Skipped;await db.SaveChangesAsync();
         var after=await Read(db,award.Id); Assert.True(after.reviewed); Assert.Equal(0,after.attention);
     }

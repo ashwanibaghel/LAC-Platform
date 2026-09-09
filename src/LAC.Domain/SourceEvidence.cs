@@ -45,4 +45,30 @@ public sealed partial class AwardIngestionCandidate
     public DateTimeOffset? VerifiedAt { get; set; }
     public string? VerifiedBy { get; set; }
     public string? VerifiedPayloadJson { get; set; }
+    // A document row can be reviewed one source cell at a time.  This is
+    // staging state only; it is deliberately separate from canonical facts.
+    public string? FieldReviewJson { get; set; }
+}
+
+// Local-only human labels for future evaluation/adaptation.  The crop is
+// reproducible from Document + page + region and is never stored as bytes.
+public sealed class DocumentTrainingExample
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid DocumentId { get; set; }
+    public Document Document { get; set; } = null!;
+    public int PageNumber { get; set; }
+    public string SourceRegionJson { get; set; } = "{}";
+    public string CellRole { get; set; } = "";
+    public string? RawOcr { get; set; }
+    public string? NormalizedSuggestion { get; set; }
+    public string HumanFinalValue { get; set; } = "";
+    public bool WasCorrected { get; set; }
+    public string ReviewDecision { get; set; } = "Confirm";
+    public DateTimeOffset VerifiedAt { get; set; }
+    public string VerifiedBy { get; set; } = "";
+    public Guid? SourceCandidateId { get; set; }
+    public AwardIngestionCandidate? SourceCandidate { get; set; }
+    public int VerificationRevision { get; set; } = 1;
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

@@ -46,7 +46,7 @@ def rows_for_table(geometry: list[dict], table_box: dict, words, page: int, tabl
             "page": page,
             "tableId": table_id,
         }
-    return grouped
+    return grouped, len(columns)
 
 
 def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict[int, str]:
@@ -76,13 +76,13 @@ def crop_ocr(image, cell: dict, ocr) -> str | None:
 
 
 def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr) -> tuple[list[dict], dict[str, int]]:
-    from benchmark.worker_semantics import award_candidate, classification_candidate, court_candidate, table_kind
+    from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, table_kind
 
     candidates: list[dict] = []
     counts = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0}
     tables = [item for item in geometry if item["label"] == "table"]
     for table_id, item in enumerate(tables, 1):
-        rows = rows_for_table(geometry, item["box"], words, page, table_id)
+        rows, column_count = rows_for_table(geometry, item["box"], words, page, table_id)
         if not rows:
             continue
         header_cells = header_cells_for_table(geometry, item["box"], words)
@@ -98,21 +98,24 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr)
             if kind == "AwardLandTable":
                 from benchmark.worker_semantics import strict_khasra
                 from benchmark.cell_safety_v12 import normalize_area_evidence
-                if strict_khasra(cells.get(roles["khasra"], {}).get("text", ""))[0] is None:
-                    continue
-                # Khasra is always independently read.  Areas are expensive
-                # and only need a crop retry when page OCR is not already a
-                # formatting-valid area; no value is silently replaced.
-                khasra_column = roles["khasra"]
-                if khasra_column in cells:
-                    cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr)
-                for role in ("recordedArea", "awardedArea"):
-                    column = roles[role]
-                    if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
-                        cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr)
-                candidate = award_candidate(page, table_id, row_id, cells, roles)
-                if candidate:
-                    counts["awardRows"] += 1
+                for group in award_table_groups(header_cells, column_count):
+                    # A candidate is built from one physical row and one repeated
+                    # schema only. Missing area cells stay missing; they never
+                    # borrow an aligned value from another subtable.
+                    if strict_khasra(cells.get(group["khasra"], {}).get("text", ""))[0] is None:
+                        continue
+                    khasra_column = group["khasra"]
+                    if khasra_column in cells:
+                        cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr)
+                    for role in ("recordedArea", "awardedArea"):
+                        column = group[role]
+                        if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
+                            cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr)
+                    candidate = award_candidate(page, table_id, row_id, cells, group)
+                    if candidate:
+                        candidates.append(candidate)
+                        counts["awardRows"] += 1
+                continue
             elif kind == "CourtCwpTable":
                 candidate = court_candidate(page, table_id, row_id, cells, roles)
                 if candidate:
@@ -128,9 +131,41 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr)
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--crop", action="store_true")
+    parser.add_argument("--pdf", type=Path)
+    parser.add_argument("--page", type=int)
+    parser.add_argument("--region")
     args = parser.parse_args()
+    if args.crop:
+        if not args.pdf or not args.pdf.is_file() or args.pdf.suffix.lower() != ".pdf" or not args.region or not args.page or args.page < 1:
+            return fail("invalid local crop request")
+        try:
+            import fitz
+            from PIL import Image
+            box = {str(key).lower(): value for key, value in json.loads(args.region).items()}
+            x, y, width, height = (float(box[key]) for key in ("x", "y", "width", "height"))
+            if min(x, y) < 0 or width <= 0 or height <= 0 or max(x + width, y + height, width, height) > 20000:
+                return fail("invalid local crop region")
+            document = fitz.open(args.pdf)
+            if args.page > len(document):
+                return fail("local crop page out of bounds")
+            pixmap = document[args.page - 1].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+            # Worker geometry is measured against this same 2x page raster.
+            padding = 12
+            left, top = max(0, int(x) - padding), max(0, int(y) - padding)
+            right, bottom = min(image.width, int(x + width) + padding), min(image.height, int(y + height) + padding)
+            if right <= left or bottom <= top:
+                return fail("local crop region outside raster")
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            image.crop((left, top, right, bottom)).save(args.output, "PNG")
+            return 0
+        except Exception as error:
+            return fail(f"local crop failed: {type(error).__name__}: {str(error)[:160]}")
+    if args.input is None:
+        return fail("worker input JSON is required")
     try:
         data = json.loads(args.input.read_text(encoding="utf-8"))
     except Exception:

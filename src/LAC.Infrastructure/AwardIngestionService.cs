@@ -25,7 +25,7 @@ public sealed record SupplementaryMatterCandidate(string MatterType, string? Des
 public sealed record IngestionSessionInput(AwardIngestionSourceType SourceType, Guid? TargetAwardId, Guid? SelectedVillageId, Guid? SourceDocumentId, string? CreatedBy, string? Remarks, IReadOnlyList<IAwardIngestionCandidatePayload> Candidates);
 public sealed record IngestionCandidateInput(AwardIngestionCandidateType CandidateType, string PayloadJson, string? SourceLocatorJson = null, string? RawSourceText = null, decimal? Confidence = null);
 public sealed record IngestionSessionSummary(Guid Id, AwardIngestionSourceType SourceType, AwardIngestionSessionStatus Status, Guid? SourceDocumentId, Guid? TargetAwardId, Guid? SelectedVillageId, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, IReadOnlyDictionary<string, int> Counts);
-public sealed record IngestionCandidateReview(Guid Id, AwardIngestionCandidateType CandidateType, int Sequence, AwardIngestionCandidateStatus Status, string PayloadJson, Guid? CanonicalEntityId, string? CanonicalEntityType, string? ResolutionAction, string? ValidationIssuesJson, string? ConflictDetailsJson, string? SourceLocatorJson, string? RawSourceText, decimal? Confidence, bool SafeToConfirm = false, int? SourcePage = null, DateTimeOffset? VerifiedAt = null, string? VerifiedBy = null);
+public sealed record IngestionCandidateReview(Guid Id, AwardIngestionCandidateType CandidateType, int Sequence, AwardIngestionCandidateStatus Status, string PayloadJson, Guid? CanonicalEntityId, string? CanonicalEntityType, string? ResolutionAction, string? ValidationIssuesJson, string? ConflictDetailsJson, string? SourceLocatorJson, string? RawSourceText, decimal? Confidence, bool SafeToConfirm = false, int? SourcePage = null, DateTimeOffset? VerifiedAt = null, string? VerifiedBy = null, string? FieldReviewJson = null);
 public sealed record IngestionCommitResult(int Created, int Reused, int ReviewFlagsCreated, int Skipped, int Remaining);
 public sealed record IngestionPage<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
@@ -48,7 +48,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
             var payload = input.Candidates[index];
             var candidate = await AnalyzeAsync(session, payload, index + 1, ct);
             var identity = BatchIdentity(payload);
-            if (identity is not null && seen.TryGetValue(identity, out var prior))
+            if (identity is not null && seen.TryGetValue(identity, out var prior) && !(input.SourceType == AwardIngestionSourceType.Document && payload is AwardKhasraCandidate))
             {
                 candidate.Status = JsonSerializer.Serialize(payload, payload.GetType(), Json) == prior.StructuredPayloadJson ? AwardIngestionCandidateStatus.DuplicateInBatch : AwardIngestionCandidateStatus.Conflict;
                 candidate.ValidationIssuesJson = "[\"Duplicate candidate in this session\"]";
@@ -71,11 +71,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         var saved = await db.AwardIngestionCandidates.Where(x => x.SessionId == session.Id).OrderBy(x => x.Sequence).ToListAsync(ct);
         for (var i = 0; i < saved.Count; i++) { saved[i].SourceLocatorJson = inputs[i].SourceLocatorJson; saved[i].RawSourceText = inputs[i].RawSourceText; saved[i].Confidence = inputs[i].Confidence; if (typed[i] is UnsupportedCandidate) { saved[i].Status = AwardIngestionCandidateStatus.Invalid; saved[i].ValidationIssuesJson = "[\"Unknown or malformed candidate contract.\"]"; } else if (saved[i].Status == AwardIngestionCandidateStatus.Ready && EvidenceRequiresReview(inputs[i].SourceLocatorJson, out var reason)) { saved[i].Status = AwardIngestionCandidateStatus.NeedsReview; saved[i].ValidationIssuesJson = JsonSerializer.Serialize(new[] { reason }, Json); } }
         foreach(var candidate in saved) await RefreshEvidenceMetadataAsync(candidate,ct);
-        foreach(var group in saved.Where(x=>x.CandidateType==AwardIngestionCandidateType.AwardKhasra).GroupBy(x=>BatchIdentity(Deserialize<AwardKhasraCandidate>(x))))
-        {
-            if(group.Select(x=>x.StructuredPayloadJson).Distinct().Count()<=1) continue;
-            foreach(var candidate in group){candidate.Status=AwardIngestionCandidateStatus.Conflict;candidate.SafeToConfirm=false;candidate.ValidationIssuesJson="[\"This identity has different values within the document. Review every occurrence before confirming.\"]";}
-        }
+        if (sourceType == AwardIngestionSourceType.Document) ClassifyAwardSourceOccurrences(saved);
         session.Status = SessionStatus(saved); await db.SaveChangesAsync(ct); return session;
     }
 
@@ -108,7 +104,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
             "verified"=>query.VerifiedWaiting(),
             "committed"=>query.Committed(),
             _=>query};
-        return await ToPageAsync(query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence).Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy)), page, pageSize, ct);
+        return await ToPageAsync(query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence).Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
     }
 
     public async Task ResolveAsync(Guid candidateId, string action, CancellationToken ct)
@@ -222,17 +218,78 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
     private static IAwardIngestionCandidatePayload DeserializeInput(IngestionCandidateInput input) => (input.CandidateType switch { AwardIngestionCandidateType.AwardCore => (IAwardIngestionCandidatePayload?)JsonSerializer.Deserialize<AwardCoreCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardVillage => JsonSerializer.Deserialize<AwardVillageCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.Notification => JsonSerializer.Deserialize<NotificationCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.Khasra => JsonSerializer.Deserialize<KhasraCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardKhasra => JsonSerializer.Deserialize<AwardKhasraCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.PossessionEvent => JsonSerializer.Deserialize<PossessionEventCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.CourtCase => JsonSerializer.Deserialize<CourtCaseCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.Claim => JsonSerializer.Deserialize<ClaimCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardLandClass => JsonSerializer.Deserialize<LandClassCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardValuationRule => JsonSerializer.Deserialize<ValuationRuleCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardCompensationRule => JsonSerializer.Deserialize<CompensationRuleCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardAreaIssue => JsonSerializer.Deserialize<AreaIssueCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.AwardSupplementaryMatter => JsonSerializer.Deserialize<SupplementaryMatterCandidate>(input.PayloadJson, Json), AwardIngestionCandidateType.UnmappedAwardFinding => JsonSerializer.Deserialize<UnmappedAwardFindingCandidate>(input.PayloadJson, Json), _ => throw new AwardIngestionException("Unknown candidate contract.") }) ?? throw new AwardIngestionException("Candidate payload is invalid.");
     private static string? BatchIdentity(IAwardIngestionCandidatePayload payload) => payload switch { AwardKhasraCandidate k => $"K:{KhasraNumber.Normalize(RemoveQualifier(k.KhasraNumber, k.Qualifier))}:{Clean(k.Qualifier)}", NotificationCandidate n => $"N:{Clean(n.SectionType)}:{Clean(n.NotificationNumber)}:{n.NotificationDate:O}", _ => null };
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static void ClassifyAwardSourceOccurrences(IReadOnlyList<AwardIngestionCandidate> candidates)
+    {
+        foreach (var group in candidates.Where(x => x.CandidateType == AwardIngestionCandidateType.AwardKhasra).GroupBy(x => BatchIdentity(Deserialize<AwardKhasraCandidate>(x))))
+        {
+            var occurrences = group.ToList();
+            if (occurrences.Count < 2) continue;
+            var sameValues = occurrences.Select(x => x.StructuredPayloadJson).Distinct().Count() == 1;
+            var code = sameValues ? "RepeatedSameValues" : "RepeatedDifferentAreas";
+            var message = sameValues
+                ? "Repeated in source. This Award contains the same Khasra and areas more than once; each source occurrence remains separately reviewable."
+                : "Same Khasra has multiple area entries in the source. Each occurrence remains separate; do not sum or choose an area automatically.";
+            var summary = JsonSerializer.Serialize(new
+            {
+                code,
+                occurrences = occurrences.Select(row =>
+                {
+                    var value = Deserialize<AwardKhasraCandidate>(row);
+                    return new { row.Id, row.SourcePage, recordedArea = FormatArea(value.RecordedAreaBigha, value.RecordedAreaBiswa, value.RecordedAreaBiswansi), awardedArea = FormatArea(value.AwardedAreaBigha, value.AwardedAreaBiswa, value.AwardedAreaBiswansi) };
+                })
+            }, Json);
+            foreach (var candidate in occurrences)
+            {
+                // Master/Award conflicts were produced by domain validation and
+                // remain distinct from repeated PDF source evidence.
+                if (candidate.ConflictDetailsJson is not null) continue;
+                candidate.Status = AwardIngestionCandidateStatus.NeedsReview;
+                candidate.SafeToConfirm = false;
+                candidate.ValidationIssuesJson = JsonSerializer.Serialize(new[] { message }, Json);
+                candidate.ConflictDetailsJson = summary;
+            }
+        }
+    }
     private static bool EvidenceRequiresReview(string? locator, out string reason)
     {
         reason = ""; if (string.IsNullOrWhiteSpace(locator)) return false;
         try
         {
             using var document = JsonDocument.Parse(locator); var root = document.RootElement;
+            // A worker which supplies field-cell identities must prove that an
+            // Award Khasra's fields came from one physical table/group/row.
+            // Older non-geometry evidence remains reviewable, but malformed
+            // new geometry is never silently treated as a coherent row.
+            if ((root.TryGetProperty("StructuredPayload", out var payload) || root.TryGetProperty("structuredPayload", out payload)) &&
+                payload.TryGetProperty("sourceCells", out var cells) && !SameSourceRow(cells))
+            {
+                reason = "Award Khasra source cells do not prove one table, logical group, and row; review is required.";
+                return true;
+            }
             if (!root.TryGetProperty("Warnings", out var warnings) && !root.TryGetProperty("warnings", out warnings)) return false;
             var values = warnings.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
             if (values.Count == 0) return false; reason = string.Join(" ", values!); return true;
         }
         catch (JsonException) { return false; }
+    }
+    private static bool SameSourceRow(JsonElement cells)
+    {
+        var expected = new int?[3]; var hasIdentity = false;
+        foreach (var name in new[] { "khasra", "recordedArea", "awardedArea" })
+        {
+            if (!cells.TryGetProperty(name, out var cell)) continue;
+            var identity = new[] { "tableId", "logicalGroupId", "rowId" }
+                .Select(property => cell.TryGetProperty(property, out var value) && value.TryGetInt32(out var number) ? number : (int?)null).ToArray();
+            if (identity.All(value => value is null)) continue; // pre-v1 geometry evidence
+            hasIdentity = true;
+            if (identity.Any(value => value is null)) return false;
+            for (var index = 0; index < identity.Length; index++)
+            {
+                if (expected[index] is null) expected[index] = identity[index];
+                else if (expected[index] != identity[index]) return false;
+            }
+        }
+        return !hasIdentity || expected.All(value => value is not null);
     }
     private static string RemoveQualifier(string value, string? qualifier) => qualifier is null ? value : value.EndsWith($" {qualifier}", StringComparison.OrdinalIgnoreCase) ? value[..^(qualifier.Length + 1)] : value;
     private static AwardIngestionSessionStatus SessionStatus(IEnumerable<AwardIngestionCandidate> items) => items.Any(x => x.Status is AwardIngestionCandidateStatus.Conflict or AwardIngestionCandidateStatus.Ambiguous or AwardIngestionCandidateStatus.Invalid or AwardIngestionCandidateStatus.NeedsReview or AwardIngestionCandidateStatus.DuplicateInBatch) ? AwardIngestionSessionStatus.NeedsReview : AwardIngestionSessionStatus.ReadyToCommit;

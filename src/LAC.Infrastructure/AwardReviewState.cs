@@ -13,11 +13,7 @@ public static class AwardReviewState
 
     public static IQueryable<AwardIngestionCandidate> Attention(this IQueryable<AwardIngestionCandidate> query) =>
         query.Pending()
-            .Where(x => !x.SafeToConfirm &&
-                x.Status != AwardIngestionCandidateStatus.Conflict &&
-                x.Status != AwardIngestionCandidateStatus.Ambiguous &&
-                x.Status != AwardIngestionCandidateStatus.DuplicateInBatch &&
-                x.Status != AwardIngestionCandidateStatus.Invalid);
+            .Where(x => !x.SafeToConfirm);
 
     public static IQueryable<AwardIngestionCandidate> VerifiedWaiting(this IQueryable<AwardIngestionCandidate> query) =>
         query.Where(x => x.VerifiedAt != null && x.Status == AwardIngestionCandidateStatus.Ready);

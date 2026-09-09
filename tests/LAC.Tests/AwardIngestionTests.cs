@@ -97,7 +97,7 @@ public sealed class AwardIngestionTests
         var attention=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"attention");
         var verified=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"verified");
         var committed=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"committed");
-        Assert.True(attention.TotalCount==1, $"attention={attention.TotalCount} [{string.Join(",",attention.Items.Select(x=>x.Status))}]");
+        Assert.True(attention.TotalCount==3, $"attention={attention.TotalCount} [{string.Join(",",attention.Items.Select(x=>x.Status))}]");
         Assert.True(verified.TotalCount==1, $"verified={verified.TotalCount}");
         Assert.True(committed.TotalCount==1, $"committed={committed.TotalCount}");
     }
