@@ -406,6 +406,15 @@ public static class LocalIntelligenceCandidateMapper
                 case "Notification":
                     mapped.Add(MapNotification(candidate, locator));
                     break;
+                case "ValuationRule":
+                    mapped.Add(MapValuationRule(candidate, locator));
+                    break;
+                case "CompensationRule":
+                    mapped.Add(MapCompensationRule(candidate, locator));
+                    break;
+                case "SupplementaryMatter":
+                    mapped.Add(new(AwardIngestionCandidateType.AwardSupplementaryMatter, JsonSerializer.Serialize(new SupplementaryMatterCandidate(Value(candidate.StructuredPayload, "matterType") ?? "Structure / asset valuation", Value(candidate.StructuredPayload, "description")), Json), locator, candidate.RawSourceText, candidate.Confidence));
+                    break;
                 case "AwardKhasra":
                     mapped.Add(MapAwardKhasra(candidate, locator));
                     break;
@@ -451,6 +460,18 @@ public static class LocalIntelligenceCandidateMapper
         return new(AwardIngestionCandidateType.Notification, JsonSerializer.Serialize(new NotificationCandidate(sectionType, Value(payload, "notificationNumber") ?? "", date), Json), locator, candidate.RawSourceText, candidate.Confidence);
     }
 
+    private static IngestionCandidateInput MapValuationRule(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        return new(AwardIngestionCandidateType.AwardValuationRule, JsonSerializer.Serialize(new ValuationRuleCandidate(Value(payload, "ruleType") ?? "Other", DecimalValue(payload, "rateAmount"), Value(payload, "legalSection"), Value(payload, "rateUnit")), Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapCompensationRule(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        return new(AwardIngestionCandidateType.AwardCompensationRule, JsonSerializer.Serialize(new CompensationRuleCandidate(Value(payload, "ruleType") ?? "Other statutory benefit", DecimalValue(payload, "ratePercent"), DecimalValue(payload, "rateAmount"), Value(payload, "legalSection")), Json), locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
     private static IngestionCandidateInput MapAwardKhasra(LocalDocumentIntelligenceCandidate candidate, string locator)
     {
         var payload = candidate.StructuredPayload;
@@ -486,6 +507,7 @@ public static class LocalIntelligenceCandidateMapper
         return node.ValueKind == JsonValueKind.String ? node.GetString() :
             node.ValueKind == JsonValueKind.Object && node.TryGetProperty("normalizedSuggestion", out var normalized) && normalized.ValueKind == JsonValueKind.String ? normalized.GetString() : null;
     }
+    private static decimal? DecimalValue(JsonElement payload, string property) => decimal.TryParse(Value(payload, property), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : null;
 }
 
 public sealed record UnmappedAwardFindingCandidate(string Category, string Summary, string? ExtractedText) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.UnmappedAwardFinding; }

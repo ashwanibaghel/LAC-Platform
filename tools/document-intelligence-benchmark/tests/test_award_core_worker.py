@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates
 
 
 def words(*values):
@@ -39,6 +39,20 @@ class AwardCoreWorkerTests(unittest.TestCase):
         output = narrative_core_and_statutory_candidates(1, words("National Highways Act Section 3D is applicable."))
         self.assertFalse(any(value["candidateType"] == "Notification" for value in output))
         self.assertTrue(any(value["candidateType"] == "UnmappedAwardFinding" for value in output))
+
+    def test_rates_rules_and_summary_remain_separate(self):
+        output = valuation_and_compensation_candidates(1, words("Market value Rs. 5000 per acre", "Solatium 30% Rs. 1500", "Additional amount 12%", "Balance amount Rs. 100"))
+        self.assertEqual("Market value", next(item for item in output if item["candidateType"] == "ValuationRule")["structuredPayload"]["ruleType"])
+        rules = [item["structuredPayload"] for item in output if item["candidateType"] == "CompensationRule"]
+        self.assertEqual({"Solatium", "AdditionalAmount"}, {item["ruleType"] for item in rules})
+        self.assertTrue(any(item["structuredPayload"]["category"] == "Award summary component" for item in output if item["candidateType"] == "UnmappedAwardFinding"))
+
+    def test_100_percent_and_structure_context_are_not_owner_or_khasra_records(self):
+        output = valuation_and_compensation_candidates(1, words("Solatium 100%", "Structure valuation assessed Rs. 9000 Khasra 1//25"))
+        self.assertIn("100", [item["structuredPayload"]["ratePercent"] for item in output if item["candidateType"] == "CompensationRule"])
+        asset = next(item for item in output if item["candidateType"] == "SupplementaryMatter")
+        self.assertNotIn("owner", asset["structuredPayload"].get("description", "").lower())
+        self.assertFalse(any(item["candidateType"] == "AwardKhasra" for item in output))
 
 
 if __name__ == "__main__":

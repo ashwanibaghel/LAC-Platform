@@ -206,6 +206,29 @@ def narrative_core_and_statutory_candidates(page: int, words) -> list[dict]:
     return result
 
 
+def valuation_and_compensation_candidates(page: int, words) -> list[dict]:
+    """Label-led review suggestions from the already-produced page OCR words."""
+    result = []
+    for text, box in _lines(words):
+        lower = text.lower()
+        amount = re.search(r"(?:rs\.?|inr)?\s*(\d+(?:,\d{3})*(?:\.\d+)?)", text, re.I)
+        percentage = re.search(r"\b(\d+(?:\.\d+)?)\s*%", text)
+        section = re.search(r"\b(?:u\s*/?\s*s\.?|section|sec\.?)\s*([0-9]+[a-z]?(?:\s*\([^)]*\))?)", text, re.I)
+        legal = section.group(0) if section else None
+        value = amount.group(1).replace(",", "") if amount else None
+        if re.search(r"\b(?:market\s+value|market\s+rate|rate\s+per|assessed\s+value|value\s+assessed)\b", lower):
+            unit = re.search(r"\bper\s+([A-Za-z ]{2,30})", text, re.I)
+            result.append({"candidateType":"ValuationRule","structuredPayload":{"ruleType":"Structure assessed value" if "structure" in lower else "Market value", "rateAmount":value, "rateUnit":("per " + unit.group(1).strip()) if unit else None, "legalSection":legal, "sourceLabel":text},"page":page,"sourceRegion":box,"rawSourceText":text,"rawOcr":value,"normalizedSuggestion":value,"normalizationReason":None,"confidence":None,"interpretationWarnings":["Valuation amount/rate is source evidence only; verify digits and unit."]})
+        compensation = "Solatium" if "solatium" in lower else "AdditionalAmount" if "additional amount" in lower else "Interest" if re.search(r"\binterest\b", lower) else None
+        if compensation:
+            result.append({"candidateType":"CompensationRule","structuredPayload":{"ruleType":compensation,"ratePercent":percentage.group(1) if percentage else None,"rateAmount":value,"legalSection":legal,"appliesToText":text},"page":page,"sourceRegion":box,"rawSourceText":text,"rawOcr":percentage.group(1) if percentage else value,"normalizedSuggestion":percentage.group(1) if percentage else value,"normalizationReason":None,"confidence":None,"interpretationWarnings":["Rule and any source-calculated amount remain separate; no calculation was performed."]})
+        if re.search(r"\b(?:amount\s+already\s+(?:paid|received)|balance\s+amount|grand\s+(?:award|total)|total\s+award|market\s+value\s+amount|solatium\s+amount|interest\s+amount)\b", lower):
+            result.append({"candidateType":"UnmappedAwardFinding","structuredPayload":{"category":"Award summary component","summary":"Source-labelled calculation component retained for human reconciliation."},"page":page,"sourceRegion":box,"rawSourceText":text,"rawOcr":value,"normalizedSuggestion":value,"normalizationReason":None,"confidence":None,"interpretationWarnings":["Summary component preserved exactly; arithmetic is not auto-reconciled."]})
+        if re.search(r"\b(?:structure|tree|well|tubewell)\b", lower) and re.search(r"\b(?:assessed|valuation|value)\b", lower):
+            result.append({"candidateType":"SupplementaryMatter","structuredPayload":{"matterType":"Structure / asset valuation","description":text,"khasraReferenceSuggestion":None},"page":page,"sourceRegion":box,"rawSourceText":text,"rawOcr":value,"normalizedSuggestion":value,"normalizationReason":None,"confidence":None,"interpretationWarnings":["Source-reported valuation name/context is not an owner or interested-person relationship."]})
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -290,6 +313,7 @@ def main() -> int:
             # extraction.  They deliberately do not depend on Award table
             # geometry and cannot influence Khasra interpretation.
             page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
+            page_candidates.extend(valuation_and_compensation_candidates(page_number, words))
             if page_likely_has_table([word.text for word in words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
