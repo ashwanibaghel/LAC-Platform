@@ -7,8 +7,18 @@ public sealed class NmWorkflowException(string message, int statusCode = 400) : 
 public sealed record NmRowInput(int SourcePage, string SourceRow, string SourceRegionJson, string? RecordedPersonText, string? FatherOrSpouseText, string? RawShareText, string? RawAreaText, decimal? EntitlementAmount, string? EntitlementBasisText, IReadOnlyList<NmKhasraInput> Khasras);
 public sealed record NmKhasraInput(string RawKhasraText, string? Qualifier, string? RawAreaText = null, string? RawShareText = null, string? SourceRegionJson = null);
 
-public sealed class NmWorkflowService(LacDbContext db)
+public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage storage)
 {
+    public async Task<NmDocument> UploadAsync(Stream content, string fileName, string? contentType, Guid awardId, Guid villageId, CancellationToken ct)
+    {
+        if (!fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) throw new NmWorkflowException("Choose an NM PDF.");
+        if (!await db.AwardVillages.AnyAsync(x=>x.AwardId==awardId&&x.VillageId==villageId,ct)) throw new NmWorkflowException("Award and Village context is invalid.");
+        var signature=new byte[4]; if(await content.ReadAsync(signature,ct)<4||signature[0]!='%'||signature[1]!='P'||signature[2]!='D'||signature[3]!='F') throw new NmWorkflowException("The uploaded file is not a valid PDF."); if(!content.CanSeek) throw new NmWorkflowException("The NM PDF stream cannot be stored safely."); content.Position=0;
+        var saved=await storage.SaveAndHashAsync(content,fileName,ct); var document=await db.Documents.SingleOrDefaultAsync(x=>x.Sha256Hash==saved.Sha256Hash&&x.Status=="Active",ct);
+        if(document is null){document=new Document{DocumentType="NM",OriginalFileName=Path.GetFileName(fileName),StoragePath=saved.StoragePath,Sha256Hash=saved.Sha256Hash,MimeType=string.IsNullOrWhiteSpace(contentType)?"application/pdf":contentType,FileSize=saved.FileSize};db.Add(document);} else await storage.DeleteAsync(saved.StoragePath,ct);
+        if(!await db.DocumentAwards.AnyAsync(x=>x.DocumentId==document.Id&&x.AwardId==awardId,ct))db.Add(new DocumentAward{Document=document,AwardId=awardId}); if(!await db.DocumentVillages.AnyAsync(x=>x.DocumentId==document.Id&&x.VillageId==villageId,ct))db.Add(new DocumentVillage{Document=document,VillageId=villageId}); await db.SaveChangesAsync(ct);
+        return await CreateReviewAsync(document.Id,villageId,awardId,null,null,ct);
+    }
     public async Task<NmDocument> CreateReviewAsync(Guid documentId, Guid villageId, Guid? awardId, string? reference, DateOnly? date, CancellationToken ct)
     {
         if (!await db.Documents.AnyAsync(x => x.Id == documentId, ct)) throw new NmWorkflowException("NM source document was not found.", 404);
