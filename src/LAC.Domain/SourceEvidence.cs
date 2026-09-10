@@ -36,6 +36,12 @@ public sealed class SourceEvidence
     public AwardLandClass? AwardLandClass { get; set; }
     public Guid? AwardSupplementaryMatterId { get; set; }
     public AwardSupplementaryMatter? AwardSupplementaryMatter { get; set; }
+    public Guid? NmRecordedPersonId { get; set; }
+    public NmRecordedPerson? NmRecordedPerson { get; set; }
+    public Guid? NmEntitlementId { get; set; }
+    public NmEntitlement? NmEntitlement { get; set; }
+    public Guid? NmEntitlementKhasraId { get; set; }
+    public NmEntitlementKhasra? NmEntitlementKhasra { get; set; }
 }
 
 public sealed partial class AwardIngestionCandidate

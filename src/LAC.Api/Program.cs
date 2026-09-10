@@ -36,6 +36,7 @@ builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddScoped<AwardIngestionService>();
+builder.Services.AddScoped<NmWorkflowService>();
 builder.Services.AddScoped<DocumentSourceCropService>();
 builder.Services.AddSingleton<IAwardPdfJobQueue, AwardPdfJobQueue>();
 builder.Services.Configure<DocumentIntelligenceOptions>(builder.Configuration.GetSection("DocumentIntelligence"));
@@ -469,6 +470,10 @@ api.MapPost("/award-ingestion-sessions", async (CreateAwardIngestionSessionReque
     try { var session = await ingestion.CreatePreviewFromJsonAsync(request.SourceType, request.TargetAwardId, request.SelectedVillageId, request.SourceDocumentId, request.CreatedBy, request.Remarks, request.Candidates, ct); return Results.Created($"/api/award-ingestion-sessions/{session.Id}", new IdResponse(session.Id)); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 });
+api.MapPost("/nm-documents", async (CreateNmDocumentRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var item=await workflow.CreateReviewAsync(request.DocumentId,request.VillageId,request.AwardId,request.ReferenceNumber,request.RecordDate,ct); return Results.Created($"/api/nm-documents/{item.Id}",new IdResponse(item.Id)); } catch(NmWorkflowException ex){ return Results.Problem(ex.Message,statusCode:ex.StatusCode); } });
+api.MapPost("/nm-documents/{id:guid}/rows", async(Guid id, CreateNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try { var row=await workflow.AddReviewRowAsync(id,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.Created($"/api/nm-review-rows/{row.Id}",new IdResponse(row.Id));}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}});
+api.MapPost("/nm-review-rows/{id:guid}/verify", async(Guid id, VerifyNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try {await workflow.VerifyRowAsync(id,request.VerifiedBy,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.NoContent();}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}});
+api.MapPost("/nm-documents/{id:guid}/commit", async(Guid id, CommitNmRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try{return Results.Ok(new{committed=await workflow.CommitAsync(id,request.VerifiedBy,ct)});}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}});
 api.MapGet("/awards/{id:guid}/documents", async (Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.AwardDocumentsAsync(db,id,ct)));
 api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardKhasra!=null && x.AwardKhasra.KhasraId==id,page??0,ct)));
 api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct)));
@@ -774,3 +779,8 @@ public sealed record LinkKhataKhasraRequest(Guid KhasraId, string? RawKhasraText
 public sealed record CreatePartyRequest(PartyType PartyType, string DisplayName, string? FatherOrSpouseName, string? AddressText, string? Remarks);
 public sealed record AddShareRequest(Guid PartyId, string? RawShareText, int? ShareNumerator, int? ShareDenominator, string? Remarks, RevenueRecordVerificationStatus VerificationStatus = RevenueRecordVerificationStatus.Draft);
 public sealed record VerifyKhatauniRequest(int ExpectedVersion);
+public sealed record CreateNmDocumentRequest(Guid DocumentId, Guid VillageId, Guid? AwardId, string? ReferenceNumber, DateOnly? RecordDate);
+public sealed record NmKhasraRequest(string RawKhasraText, string? Qualifier, string? RawAreaText, string? RawShareText, string? SourceRegionJson);
+public sealed record CreateNmRowRequest(int SourcePage, string SourceRow, string? SourceRegionJson, string? RecordedPersonText, string? FatherOrSpouseText, string? RawShareText, string? RawAreaText, decimal? EntitlementAmount, string? EntitlementBasisText, IReadOnlyList<NmKhasraRequest> Khasras);
+public sealed record VerifyNmRowRequest(string VerifiedBy, int SourcePage, string SourceRow, string? SourceRegionJson, string? RecordedPersonText, string? FatherOrSpouseText, string? RawShareText, string? RawAreaText, decimal? EntitlementAmount, string? EntitlementBasisText, IReadOnlyList<NmKhasraRequest> Khasras);
+public sealed record CommitNmRequest(string VerifiedBy);
