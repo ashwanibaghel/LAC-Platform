@@ -128,6 +128,60 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
     return village is null ? NotFound("Village", id) : Results.Ok(village);
 });
 
+// This is deliberately a three-lane read model.  Canonical records, document-review
+// work and missing source categories are returned separately so an OCR suggestion can
+// never be rendered as an official village fact.
+api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
+        new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
+        x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(), x.DocumentRelationships.Count, db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
+    if (village is null) return NotFound("Village", id);
+
+    var awardIds = db.Awards.Where(a => a.VillageLinks.Any(link => link.VillageId == id) || a.KhasraLinks.Any(link => link.Khasra.VillageId == id)).Select(a => a.Id);
+    var awards = await db.Awards.AsNoTracking().Where(a => awardIds.Contains(a.Id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
+        .Select(a => new VillageOfficialAwardItem(a.Id, a.AwardNumber, a.AwardDate, a.AwardType, a.Status, a.KhasraLinks.Count(k => k.Khasra.VillageId == id), a.DocumentRelationships.Count)).ToListAsync(ct);
+    var notifications = await db.Notifications.AsNoTracking().Where(n => n.KhasraLinks.Any(link => link.Khasra.VillageId == id) || db.AwardNotifications.Any(link => awardIds.Contains(link.AwardId) && link.NotificationId == n.Id)).OrderByDescending(n => n.NotificationDate)
+        .Select(n => new VillageOfficialNotificationItem(n.Id, n.NotificationNumber, n.SectionType, n.NotificationDate)).ToListAsync(ct);
+    var awardIdList = awards.Select(a => a.Id).ToList();
+    var official = new VillageOfficialSummary(village.TotalKhasras, awards.Count, notifications.Count,
+        await db.PossessionEvents.CountAsync(p => awardIdList.Contains(p.AwardId), ct),
+        await db.Set<CourtCaseAward>().CountAsync(link => awardIdList.Contains(link.AwardId), ct),
+        await db.Set<AwardValuationRule>().CountAsync(rule => awardIdList.Contains(rule.AwardId), ct),
+        await db.Set<AwardCompensationRule>().CountAsync(rule => awardIdList.Contains(rule.AwardId), ct),
+        await db.Claims.CountAsync(claim => awardIdList.Contains(claim.AwardId), ct));
+
+    var pendingStatuses = new[] { AwardIngestionCandidateStatus.New, AwardIngestionCandidateStatus.NeedsReview, AwardIngestionCandidateStatus.Conflict, AwardIngestionCandidateStatus.Ambiguous, AwardIngestionCandidateStatus.Invalid, AwardIngestionCandidateStatus.DuplicateInBatch, AwardIngestionCandidateStatus.Ready };
+    var pendingSessionRows = await db.AwardIngestionSessions.AsNoTracking()
+        .Where(s => s.SelectedVillageId == id && s.SourceDocumentId != null && s.Candidates.Any(c => pendingStatuses.Contains(c.Status)))
+        .OrderByDescending(s => s.UpdatedAt)
+        .Select(s => new { s.Id, s.TargetAwardId, s.SourceDocumentId, AwardNumber = s.TargetAward == null ? null : s.TargetAward.AwardNumber, SourceDocumentName = s.SourceDocument!.OriginalFileName, s.Status, PendingCandidateCount = s.Candidates.Count(c => pendingStatuses.Contains(c.Status)) })
+        .ToListAsync(ct);
+    // Re-analysis creates a new session for the same original document.  Present only
+    // its latest unresolved review, never a stack of superseded OCR attempts.
+    var currentPendingSessionRows = pendingSessionRows.GroupBy(s => new { s.TargetAwardId, s.SourceDocumentId }).Select(group => group.First()).ToList();
+    var pendingSessionIds = currentPendingSessionRows.Select(s => s.Id).ToList();
+    var pendingTypeRows = await db.AwardIngestionCandidates.AsNoTracking().Where(c => pendingSessionIds.Contains(c.SessionId) && pendingStatuses.Contains(c.Status))
+        .GroupBy(c => new { c.SessionId, c.CandidateType }).Select(g => new { g.Key.SessionId, g.Key.CandidateType, Count = g.Count() }).ToListAsync(ct);
+    var pendingSessions = currentPendingSessionRows.Select(s => new VillagePendingReviewItem(s.Id, s.TargetAwardId, s.AwardNumber, s.SourceDocumentName, s.Status.ToString(), s.PendingCandidateCount,
+        pendingTypeRows.Where(c => c.SessionId == s.Id).OrderBy(c => c.CandidateType).Select(c => new PendingCandidateTypeCount(c.CandidateType.ToString(), c.Count)).ToList())).ToList();
+
+    var associatedDocuments = await db.Documents.AsNoTracking()
+        .Where(d => d.AwardLinks.Any(link => awardIdList.Contains(link.AwardId)) || d.VillageLinks.Any(link => link.VillageId == id) || d.VillageLRLinks.Any(link => link.VillageLR.VillageId == id) || d.KhatauniRecordLinks.Any(link => link.KhatauniRecord.VillageId == id))
+        .Select(d => new { d.OriginalFileName, d.DocumentType }).ToListAsync(ct);
+    bool HasDocument(string keyword) => associatedDocuments.Any(d => d.DocumentType.Contains(keyword, StringComparison.OrdinalIgnoreCase) || d.OriginalFileName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
+    var sources = new[]
+    {
+        new VillageSourceStatusItem("Award PDF", awards.Sum(a => a.DocumentCount) > 0 ? "Loaded" : "Source not loaded", awards.Sum(a => a.DocumentCount) > 0 ? "Award document is stored locally and linked." : "No Award PDF is linked to this village's Awards."),
+        new VillageSourceStatusItem("NM", HasDocument("NM") ? "Loaded" : "Source not loaded", HasDocument("NM") ? "A locally stored NM document is linked." : "No NM document is linked locally."),
+        new VillageSourceStatusItem("Statement A", HasDocument("Statement A") ? "Loaded" : "Source not loaded", HasDocument("Statement A") ? "A locally stored Statement A document is linked." : "No Statement A document is linked locally."),
+        new VillageSourceStatusItem("Possession proceedings", HasDocument("Possession") ? "Loaded" : "Source not loaded", HasDocument("Possession") ? "A locally stored possession document is linked." : "No possession-proceedings document is linked locally."),
+        new VillageSourceStatusItem("Court orders", HasDocument("Court") || HasDocument("CWP") ? "Loaded" : "Source not loaded", HasDocument("Court") || HasDocument("CWP") ? "A locally stored court document is linked." : "No standalone court order is linked locally."),
+        new VillageSourceStatusItem("LR / Khatauni", village.LrAvailable ? "Loaded" : "Source not loaded", village.LrAvailable ? "A local revenue record is available." : "No LR or Khatauni source is loaded.")
+    };
+    return Results.Ok(new VillageOverviewResponse(village, official, awards, notifications, pendingSessions, sources));
+});
+
 api.MapGet("/villages/{id:guid}/khasras", async (Guid id, int page, int pageSize, string? q, LacDbContext db, OwnershipService ownership, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
@@ -188,6 +242,25 @@ api.MapGet("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationTo
         x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList(),
         db.LREntries.Where(lr => lr.KhasraId == x.Id).OrderByDescending(lr => lr.UpdatedAt).Select(lr => new LrEntryItem(lr.Id, lr.VillageLRId, lr.RawKhasraText, lr.RawAreaText, lr.RawRemarks, lr.VerificationStatus.ToString())).ToList())).FirstOrDefaultAsync(ct);
     return khasra is null ? NotFound("Khasra", id) : Results.Ok(khasra);
+});
+
+api.MapGet("/khasras/{id:guid}/history", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Khasras.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Khasra", id);
+    var awards = await db.Set<AwardKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderBy(link => link.Award.AwardNumber)
+        .Select(link => new KhasraOfficialAwardHistoryItem(link.AwardId, link.Award.AwardNumber, link.Award.AwardDate, link.RecordedTotalAreaBigha, link.RecordedTotalAreaBiswa, link.RecordedTotalAreaBiswansi, link.AwardedAreaBigha, link.AwardedAreaBiswa, link.AwardedAreaBiswansi, link.AcquisitionStatus)).ToListAsync(ct);
+    var possession = await db.Set<PossessionKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderByDescending(link => link.PossessionEvent.PossessionDate)
+        .Select(link => new KhasraOfficialPossessionItem(link.PossessionEventId, link.PossessionEvent.AwardId, link.PossessionEvent.PossessionDate, link.PossessionEvent.EventType, link.PossessionEvent.Status)).ToListAsync(ct);
+    var court = await db.Set<CourtCaseKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderBy(link => link.CourtCase.CaseNumber)
+        .Select(link => new KhasraOfficialCourtItem(link.CourtCaseId, link.CourtCase.CaseNumber, link.CourtCase.CourtName, link.CourtCase.CurrentStatus)).ToListAsync(ct);
+    var linkedAwardIds = awards.Select(a => a.AwardId).ToList();
+    var pendingRows = await db.AwardIngestionSessions.AsNoTracking()
+        .Where(s => linkedAwardIds.Contains(s.TargetAwardId ?? Guid.Empty) && s.SourceDocumentId != null && s.Candidates.Any(c => c.Status == AwardIngestionCandidateStatus.NeedsReview || c.Status == AwardIngestionCandidateStatus.Conflict || c.Status == AwardIngestionCandidateStatus.Ambiguous || c.Status == AwardIngestionCandidateStatus.Invalid))
+        .OrderByDescending(s => s.UpdatedAt)
+        .Select(s => new { s.Id, s.TargetAwardId, s.SourceDocumentId, AwardNumber = s.TargetAward == null ? null : s.TargetAward.AwardNumber, SourceDocumentName = s.SourceDocument!.OriginalFileName, s.Status, PendingCandidateCount = s.Candidates.Count(c => c.Status == AwardIngestionCandidateStatus.NeedsReview || c.Status == AwardIngestionCandidateStatus.Conflict || c.Status == AwardIngestionCandidateStatus.Ambiguous || c.Status == AwardIngestionCandidateStatus.Invalid) }).ToListAsync(ct);
+    var pending = pendingRows.GroupBy(s => new { s.TargetAwardId, s.SourceDocumentId }).Select(group => group.First())
+        .Select(s => new KhasraPendingDocumentReviewItem(s.Id, s.TargetAwardId, s.AwardNumber, s.SourceDocumentName, s.Status.ToString(), s.PendingCandidateCount)).ToList();
+    return Results.Ok(new KhasraHistoryResponse(awards, possession, court, pending));
 });
 
 api.MapGet("/awards", async (int page, int pageSize, string? q, LacDbContext db, CancellationToken ct) =>
@@ -612,12 +685,24 @@ public sealed record VillageListItem(Guid Id, string Name, int KhasraCount);
 public sealed record SubDivisionReference(Guid Id, string Name, DistrictReference District);
 public sealed record VillageReference(Guid Id, string Name, SubDivisionReference SubDivision);
 public sealed record VillageDetail(Guid Id, string Name, SubDivisionReference SubDivision, int TotalKhasras, int LinkedAwards, int DocumentCount, bool LrAvailable);
+public sealed record VillageOfficialSummary(int KhasraCount, int AwardCount, int NotificationCount, int PossessionEventCount, int CourtCaseCount, int ValuationRuleCount, int CompensationRuleCount, int ClaimCount);
+public sealed record VillageOfficialAwardItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, int KhasraCount, int DocumentCount);
+public sealed record VillageOfficialNotificationItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate);
+public sealed record PendingCandidateTypeCount(string CandidateType, int Count);
+public sealed record VillagePendingReviewItem(Guid SessionId, Guid? AwardId, string? AwardNumber, string SourceDocumentName, string Status, int PendingCandidateCount, IReadOnlyList<PendingCandidateTypeCount> CandidateCounts);
+public sealed record VillageSourceStatusItem(string SourceType, string Status, string Detail);
+public sealed record VillageOverviewResponse(VillageDetail Village, VillageOfficialSummary Official, IReadOnlyList<VillageOfficialAwardItem> Awards, IReadOnlyList<VillageOfficialNotificationItem> Notifications, IReadOnlyList<VillagePendingReviewItem> PendingReview, IReadOnlyList<VillageSourceStatusItem> Sources);
 public sealed record AwardLinkItem(Guid Id, string AwardNumber, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
 public sealed record KhasraListBaseItem(Guid Id, string? RectangleNumber, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards) { public static readonly System.Linq.Expressions.Expression<Func<Khasra, KhasraListBaseItem>> Selector = x => new KhasraListBaseItem(x.Id, x.RectangleNumber, x.DisplayNumber, x.AreaBigha, x.AreaBiswa, x.AreaBiswansi, x.AwardLinks.Select(a => a.AcquisitionStatus).FirstOrDefault(s => s != null) ?? "Not recorded", x.AwardLinks.OrderBy(a => a.Award.AwardNumber).Select(a => new AwardLinkItem(a.Award.Id, a.Award.AwardNumber, a.AcquiredArea, a.AreaUnit, a.AcquisitionStatus)).ToList()); }
 public sealed record KhasraListItem(Guid Id, string? RectangleNumber, string DisplayNumber, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string OwnerSummary, string AcquisitionStatus, IReadOnlyList<AwardLinkItem> Awards);
 public sealed record NotificationLinkItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate, decimal? Area, string? AreaUnit);
 public sealed record LrEntryItem(Guid Id, Guid VillageLrId, string RawKhasraText, string? RawAreaText, string? RawRemarks, string VerificationStatus);
 public sealed record KhasraDetail(Guid Id, string DisplayNumber, string NormalizedNumber, string? RectangleNumber, string? KillaNumber, string? SubdivisionNumber, decimal? TotalArea, string? AreaUnit, decimal? AreaBigha, int? AreaBiswa, int? AreaBiswansi, string? Remarks, VillageReference Village, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<AwardLinkItem> Awards, IReadOnlyList<LrEntryItem> LrEntries);
+public sealed record KhasraOfficialAwardHistoryItem(Guid AwardId, string AwardNumber, DateOnly? AwardDate, decimal? RecordedAreaBigha, int? RecordedAreaBiswa, int? RecordedAreaBiswansi, decimal? AwardedAreaBigha, int? AwardedAreaBiswa, int? AwardedAreaBiswansi, string? AcquisitionStatus);
+public sealed record KhasraOfficialPossessionItem(Guid PossessionEventId, Guid AwardId, DateOnly? PossessionDate, string? EventType, string? Status);
+public sealed record KhasraOfficialCourtItem(Guid CourtCaseId, string CaseNumber, string CourtName, string? Status);
+public sealed record KhasraPendingDocumentReviewItem(Guid SessionId, Guid? AwardId, string? AwardNumber, string SourceDocumentName, string Status, int PendingCandidateCount);
+public sealed record KhasraHistoryResponse(IReadOnlyList<KhasraOfficialAwardHistoryItem> Awards, IReadOnlyList<KhasraOfficialPossessionItem> Possession, IReadOnlyList<KhasraOfficialCourtItem> CourtCases, IReadOnlyList<KhasraPendingDocumentReviewItem> PendingDocumentReviews);
 public sealed record ProjectReference(Guid Id, string Name, string? RequiringAgency, string? ActRegime);
 public sealed record AwardListItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? ProjectName, string? RequiringAgency, string? VillageNames, int LinkedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<Award, AwardListItem>> Selector = x => new AwardListItem(x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Status, x.ActRegime, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, x.AcquisitionProject == null ? null : x.AcquisitionProject.RequiringAgency, string.Join(", ", x.KhasraLinks.Select(link => link.Khasra.Village.Name).Distinct()), x.KhasraLinks.Count); }
 public sealed record AwardKhasraItem(Guid Id, string DisplayNumber, string VillageName, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);

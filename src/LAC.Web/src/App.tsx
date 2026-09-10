@@ -726,9 +726,34 @@ function Village() {
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
       </div>
+      <VillageOverview id={id} />
       <VillageKhasras id={id} />
     </>
   );
+}
+function VillageOverview({ id }: { id: string }) {
+  const overview = useApi<any>(`/villages/${id}/overview`);
+  if (overview.loading) return <LoadingState label="Loading village overview…" />;
+  if (overview.error || !overview.data) return <ErrorState message={overview.error || "Village overview is unavailable."} />;
+  const data = overview.data;
+  const official = data.official;
+  return <>
+    <section className="section trust-section official-section">
+      <div className="section-heading"><div><h2>Official / committed data</h2><span>These are canonical records. Pending document findings are not included here.</span></div><StatusBadge tone="success">Official</StatusBadge></div>
+      <div className="summary-strip compact-summary">
+        <Metric label="Awards" value={official.awardCount} /><Metric label="Notifications" value={official.notificationCount} /><Metric label="Award Khasras" value={data.awards.reduce((sum: number, award: any) => sum + award.khasraCount, 0)} /><Metric label="Possession" value={official.possessionEventCount} /><Metric label="Court cases" value={official.courtCaseCount} />
+      </div>
+      {data.awards.length ? <DataTable headers={["Award", "Date", "Type", "Official Khasras", "Source PDF"]}>{data.awards.map((award: any) => <tr key={award.id}><td><EntityLink to={route.award(award.id)}>{award.awardNumber}</EntityLink></td><td>{date(award.awardDate)}</td><td>{award.awardType || "—"}</td><td>{award.khasraCount}</td><td>{award.documentCount ? "Source PDF loaded" : "Source PDF not loaded"}</td></tr>)}</DataTable> : <EmptyState title="No official Award links" detail="No canonical Award is linked to this village." />}
+    </section>
+    <section className="section trust-section pending-section">
+      <div className="section-heading"><div><h2>Pending review findings</h2><span>Document-review counts only — they are not official village or Khasra facts.</span></div><StatusBadge tone="warning">Review required</StatusBadge></div>
+      {data.pendingReview.length ? <div className="pending-review-list">{data.pendingReview.map((item: any) => <div className="pending-review-card" key={item.sessionId}><div><strong>{item.sourceDocumentName}</strong><span>{item.awardNumber ? `Award ${item.awardNumber}` : "Award context pending"} · {item.pendingCandidateCount} findings waiting for review</span><small>{item.candidateCounts.map((count: any) => `${count.count} ${reviewSectionName(count.candidateType)}`).join(" · ")}</small></div>{item.awardId ? <EntityLink to={`/awards/${item.awardId}/ingestion/${item.sessionId}`}>Open review</EntityLink> : <span className="hint">No Award review route</span>}</div>)}</div> : <EmptyState title="No pending document review" detail="There are no unresolved document-review sessions linked to this village." />}
+    </section>
+    <section className="section trust-section source-section">
+      <div className="section-heading"><div><h2>Source coverage</h2><span>A missing source means no conclusion has been drawn for that module.</span></div></div>
+      <div className="source-status-grid">{data.sources.map((source: any) => <div key={source.sourceType}><strong>{source.sourceType}</strong><StatusBadge tone={source.status === "Loaded" ? "success" : "warning"}>{source.status}</StatusBadge><span>{source.detail}</span></div>)}</div>
+    </section>
+  </>;
 }
 function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -1479,6 +1504,7 @@ function TabTable({
 function Khasra() {
   const { id = "" } = useParams();
   const result = useApi<any>(`/khasras/${id}`);
+  const history = useApi<any>(`/khasras/${id}/history`);
   if (result.loading) return <LoadingState />;
   if (result.error) return <ErrorState message={result.error} />;
   if (!result.data) return null;
@@ -1569,8 +1595,8 @@ function Khasra() {
           />
         )}
       </section>
+      <KhasraHistory id={id} history={history} />
       <section className="section">
-        <PermanentSourceLines endpoint={`/khasras/${id}/evidence`} />
         <h2>Source / LR information</h2>
         {k.lrEntries.length ? (
           <DataTable
@@ -1603,11 +1629,29 @@ function Khasra() {
           />
         )}
       </section>
-      <FutureSections
-        names={["Ownership", "Compensation", "Possession", "Court cases"]}
-      />
     </>
   );
+}
+function areaParts(bigha?: number | null, biswa?: number | null, biswansi?: number | null) {
+  if (bigha == null && biswa == null && biswansi == null) return "—";
+  return `${bigha ?? "—"}-${biswa ?? "—"}-${biswansi ?? "—"}`;
+}
+function KhasraHistory({ id, history }: { id: string; history: any }) {
+  if (history.loading) return <LoadingState label="Loading Khasra history…" />;
+  if (history.error || !history.data) return <ErrorState message={history.error || "Khasra history is unavailable."} />;
+  const data = history.data;
+  return <>
+    <section className="section trust-section official-section">
+      <div className="section-heading"><div><h2>Official acquisition history</h2><span>Committed Award links and their recorded and awarded areas remain separate.</span></div><StatusBadge tone="success">Official</StatusBadge></div>
+      {data.awards.length ? <DataTable headers={["Award", "Date", "Recorded area", "Awarded area", "Status"]}>{data.awards.map((award: any) => <tr key={award.awardId}><td><EntityLink to={route.award(award.awardId)}>{award.awardNumber}</EntityLink></td><td>{date(award.awardDate)}</td><td>{areaParts(award.recordedAreaBigha, award.recordedAreaBiswa, award.recordedAreaBiswansi)}</td><td>{areaParts(award.awardedAreaBigha, award.awardedAreaBiswa, award.awardedAreaBiswansi)}</td><td>{award.acquisitionStatus || "Linked"}</td></tr>)}</DataTable> : <EmptyState title="No official Award history" detail="This Khasra has no committed Award link." />}
+      <div className="history-split"><div><h3>Possession</h3>{data.possession.length ? <DataTable headers={["Date", "Event", "Status"]}>{data.possession.map((item: any) => <tr key={item.possessionEventId}><td>{date(item.possessionDate)}</td><td>{item.eventType || "—"}</td><td>{item.status || "—"}</td></tr>)}</DataTable> : <p className="source-empty">No official possession event is linked. This is not a statement that possession did not occur.</p>}</div><div><h3>Court / litigation</h3>{data.courtCases.length ? <DataTable headers={["Case", "Court", "Status"]}>{data.courtCases.map((item: any) => <tr key={item.courtCaseId}><td>{item.caseNumber}</td><td>{item.courtName}</td><td>{item.status || "—"}</td></tr>)}</DataTable> : <p className="source-empty">No official court link is recorded. This does not infer the absence of litigation.</p>}</div></div>
+      <PermanentSourceLines endpoint={`/khasras/${id}/evidence`} />
+    </section>
+    <section className="section trust-section pending-section">
+      <div className="section-heading"><div><h2>Pending document review</h2><span>These documents concern a linked Award, but findings are not attributed to this Khasra until a reviewer commits them.</span></div><StatusBadge tone="warning">Not official</StatusBadge></div>
+      {data.pendingDocumentReviews.length ? <div className="pending-review-list">{data.pendingDocumentReviews.map((item: any) => <div className="pending-review-card" key={item.sessionId}><div><strong>{item.sourceDocumentName}</strong><span>{item.awardNumber ? `Award ${item.awardNumber}` : "Award context pending"} · {item.pendingCandidateCount} unresolved findings</span></div>{item.awardId ? <EntityLink to={`/awards/${item.awardId}/ingestion/${item.sessionId}`}>Open review</EntityLink> : null}</div>)}</div> : <EmptyState title="No linked document review" detail="No pending document-review session is linked to this Khasra’s official Awards." />}
+    </section>
+  </>;
 }
 function InfoSection({
   title,
