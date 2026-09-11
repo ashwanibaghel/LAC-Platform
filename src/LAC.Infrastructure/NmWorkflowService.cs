@@ -6,6 +6,7 @@ namespace LAC.Infrastructure;
 public sealed class NmWorkflowException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
 public sealed record NmRowInput(int SourcePage, string SourceRow, string SourceRegionJson, string? RecordedPersonText, string? FatherOrSpouseText, string? RawShareText, string? RawAreaText, decimal? EntitlementAmount, string? EntitlementBasisText, IReadOnlyList<NmKhasraInput> Khasras);
 public sealed record NmKhasraInput(string RawKhasraText, string? Qualifier, string? RawAreaText = null, string? RawShareText = null, string? SourceRegionJson = null);
+public sealed record NmKhasraSelection(Guid ReviewKhasraId, Guid? KhasraId, bool MarkUnreadable = false);
 
 public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage = null)
 {
@@ -39,10 +40,29 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         {
             var raw = item.RawKhasraText?.Trim() ?? ""; if (raw.Length == 0) throw new NmWorkflowException("Each NM Khasra needs its raw source value.");
             var qualifier = Clean(item.Qualifier); var number = KhasraNumber.Normalize(RemoveQualifier(raw, qualifier));
-            var matches = await db.Khasras.Where(x => x.VillageId == nm.VillageId && x.NormalizedNumber == number && x.Qualifier == qualifier).Select(x => x.Id).Take(2).ToListAsync(ct);
-            row.Khasras.Add(new NmReviewKhasra { RawKhasraText = raw, NormalizedNumber = number, Qualifier = qualifier, SuggestedKhasraId = matches.Count == 1 ? matches[0] : null, Status = matches.Count == 1 ? NmReviewStatus.Draft : NmReviewStatus.NeedsReview, RawAreaText = Clean(item.RawAreaText), RawShareText = Clean(item.RawShareText), SourceRegionJson = item.SourceRegionJson });
+            // OCR/source text is never a canonical decision. Even an exact-looking
+            // value remains unresolved until the reviewer selects a Village Khasra.
+            row.Khasras.Add(new NmReviewKhasra { RawKhasraText = raw, NormalizedNumber = number, Qualifier = qualifier, SuggestedKhasraId = null, Status = NmReviewStatus.NeedsReview, RawAreaText = Clean(item.RawAreaText), RawShareText = Clean(item.RawShareText), SourceRegionJson = item.SourceRegionJson });
         }
         db.Add(row); nm.Status = NmReviewStatus.NeedsReview; await db.SaveChangesAsync(ct); return row;
+    }
+
+    public async Task SelectKhasrasAsync(Guid rowId, string selectedBy, IReadOnlyList<NmKhasraSelection> selections, CancellationToken ct)
+    {
+        var row = await db.NmReviewRows.Include(x => x.NmDocument).Include(x => x.Khasras).SingleOrDefaultAsync(x => x.Id == rowId, ct) ?? throw new NmWorkflowException("NM review row was not found.", 404);
+        if (row.NmDocument.Status == NmReviewStatus.Committed) throw new NmWorkflowException("Committed NM reviews cannot be changed.");
+        if (string.IsNullOrWhiteSpace(selectedBy)) throw new NmWorkflowException("Reviewer name is required.");
+        if (selections.Count != row.Khasras.Count || selections.Select(x => x.ReviewKhasraId).Distinct().Count() != row.Khasras.Count || selections.Any(x => row.Khasras.All(k => k.Id != x.ReviewKhasraId))) throw new NmWorkflowException("Select, clear, or mark every source Khasra fragment explicitly.");
+        foreach (var selection in selections)
+        {
+            var link = row.Khasras.Single(x => x.Id == selection.ReviewKhasraId);
+            if (selection.MarkUnreadable) { link.SuggestedKhasraId = null; link.Status = NmReviewStatus.Unreadable; continue; }
+            if (selection.KhasraId is null) { link.SuggestedKhasraId = null; link.Status = NmReviewStatus.NeedsReview; continue; }
+            if (!await db.Khasras.AnyAsync(x => x.Id == selection.KhasraId && x.VillageId == row.NmDocument.VillageId, ct)) throw new NmWorkflowException("Selected Khasra must belong to this NM Village.");
+            link.SuggestedKhasraId = selection.KhasraId;
+            link.Status = NmReviewStatus.Verified;
+        }
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task VerifyRowAsync(Guid rowId, string verifiedBy, NmRowInput corrected, CancellationToken ct)
@@ -51,7 +71,7 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         if (old.NmDocument.Status == NmReviewStatus.Committed) throw new NmWorkflowException("Committed NM reviews cannot be changed.");
         if (old.Khasras.Count != corrected.Khasras.Count) throw new NmWorkflowException("Changing the number of Khasras requires a new source-row review; existing evidence is retained.");
         old.RecordedPersonText = Clean(corrected.RecordedPersonText); old.FatherOrSpouseText = Clean(corrected.FatherOrSpouseText); old.RawShareText = Clean(corrected.RawShareText); old.RawAreaText = Clean(corrected.RawAreaText); old.EntitlementAmount = corrected.EntitlementAmount; old.EntitlementBasisText = Clean(corrected.EntitlementBasisText);
-        for(var i=0;i<corrected.Khasras.Count;i++) { var input=corrected.Khasras[i]; var raw=input.RawKhasraText.Trim(); var q=Clean(input.Qualifier); var n=KhasraNumber.Normalize(RemoveQualifier(raw,q)); var match=await db.Khasras.SingleOrDefaultAsync(x=>x.VillageId==old.NmDocument.VillageId&&x.NormalizedNumber==n&&x.Qualifier==q,ct); if(match is null) throw new NmWorkflowException("Every confirmed NM Khasra must be an exact Village master match; digits and qualifiers are never repaired."); var link=old.Khasras.ElementAt(i); link.RawKhasraText=raw;link.NormalizedNumber=n;link.Qualifier=q;link.SuggestedKhasraId=match.Id;link.Status=NmReviewStatus.Verified;link.RawAreaText=Clean(input.RawAreaText);link.RawShareText=Clean(input.RawShareText);link.SourceRegionJson=input.SourceRegionJson; }
+        for(var i=0;i<corrected.Khasras.Count;i++) { var input=corrected.Khasras[i]; var raw=input.RawKhasraText.Trim(); var q=Clean(input.Qualifier); var n=KhasraNumber.Normalize(RemoveQualifier(raw,q)); var link=old.Khasras.ElementAt(i); if(link.SuggestedKhasraId is null || link.Status!=NmReviewStatus.Verified) throw new NmWorkflowException("Explicit human Khasra selection is required before a row can be verified."); link.RawKhasraText=raw;link.NormalizedNumber=n;link.Qualifier=q;link.RawAreaText=Clean(input.RawAreaText);link.RawShareText=Clean(input.RawShareText);link.SourceRegionJson=input.SourceRegionJson; }
         if(string.IsNullOrWhiteSpace(old.RecordedPersonText)) throw new NmWorkflowException("Recorded person as per NM is required to confirm a row."); old.Status=NmReviewStatus.Verified; old.VerifiedBy=verifiedBy.Trim(); old.VerifiedAt=DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
     }
 
