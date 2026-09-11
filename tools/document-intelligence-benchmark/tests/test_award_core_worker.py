@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates, ocr_words
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates, ocr_words, targeted_area_from_words
 
 
 def words(*values):
@@ -64,6 +64,41 @@ class AwardCoreWorkerTests(unittest.TestCase):
         output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)
         parcels = next(item for item in output if item["candidateType"] == "NmSemanticOwnerBlock")["structuredPayload"]["parcels"]
         self.assertEqual([("26/21/3", "3-5"), ("26/21/4", "0-9")], [(parcel["rawKhasraText"], parcel["rawAreaText"]) for parcel in parcels])
+    def test_semantic_full_page_area_retains_full_page_provenance(self):
+        text = ["Name of Owner", "Khasra No", "Area", "Grand Total", "Ramesh Kumar S/o Mohan", "1/3", "26/21/3", "3-5"]
+        xs = [20, 300, 430, 620, 20, 20, 190, 390]
+        box = lambda x, y: [[x,y],[x+80,y],[x+80,y+12],[x,y+12]]
+        rapidocr = SimpleNamespace(txts=text, boxes=[box(x, 10 if i < 4 else 80) for i,x in enumerate(xs)], scores=[.99] * len(text))
+        parcel = next(item for item in nm_semantic_candidates(1, ocr_words(rapidocr), 800) if item["candidateType"] == "NmSemanticOwnerBlock")["structuredPayload"]["parcels"][0]
+        self.assertEqual("3-5", parcel["normalizedAreaText"])
+        self.assertEqual("FullPageOcr", parcel["areaExtractionMethod"])
+    def test_targeted_area_crop_recovers_one_area_inside_its_row_and_column(self):
+        text = ["Name of Owner", "Khasra No", "Area", "Grand Total", "Ramesh Kumar S/o Mohan", "1/3", "26/21/3"]
+        xs = [20, 300, 430, 620, 20, 20, 190]
+        box = lambda x, y: [[x,y],[x+80,y],[x+80,y+12],[x,y+12]]
+        ys = [10, 10, 10, 10, 80, 96, 110]
+        source = SimpleNamespace(txts=text, boxes=[box(x, y) for x,y in zip(xs, ys)], scores=[.99] * len(text))
+        recovered = SimpleNamespace(txts=["3--5"], boxes=[box(10, 5)], scores=[.98])
+        class Image:
+            width = 800; height = 400
+            def __init__(self): self.bounds = None
+            def crop(self, bounds): self.bounds = bounds; return self
+        image = Image()
+        output = nm_semantic_candidates(1, ocr_words(source), image.width, image, lambda _: recovered)
+        parcel = next(item for item in output if item["candidateType"] == "NmSemanticOwnerBlock")["structuredPayload"]["parcels"][0]
+        self.assertEqual("3--5", parcel["rawAreaText"])
+        self.assertEqual("3-5", parcel["normalizedAreaText"])
+        self.assertEqual("TargetedAreaCropOcr", parcel["areaExtractionMethod"])
+        self.assertGreaterEqual(image.bounds[0], 399)
+        self.assertLessEqual(image.bounds[2], 571)
+        self.assertLess(image.bounds[1], 110)
+        self.assertGreater(image.bounds[3], 110)
+    def test_targeted_area_reassembles_one_split_value_but_rejects_competing_numbers(self):
+        box = lambda x, y: [[x,y],[x+8,y],[x+8,y+12],[x,y+12]]
+        split = ocr_words(SimpleNamespace(txts=["3", "-", "5"], boxes=[box(1, 1), box(11, 1), box(21, 1)], scores=[.99, .99, .99]))
+        self.assertEqual("3 - 5", targeted_area_from_words(1, split, 300, 80)[0])
+        competing = ocr_words(SimpleNamespace(txts=["3", "0", "--9"], boxes=[box(1, 1), box(11, 1), box(21, 1)], scores=[.99, .99, .99]))
+        self.assertIsNone(targeted_area_from_words(1, competing, 300, 80))
     def test_empty_rapidocr_response_becomes_safe_semantic_exception(self):
         rapidocr = SimpleNamespace(txts=[], boxes=[], scores=[])
         output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)

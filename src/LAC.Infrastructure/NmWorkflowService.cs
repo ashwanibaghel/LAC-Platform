@@ -57,7 +57,8 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         {
             var raw = StringValue(parcel, "rawKhasraText"); var qualifier = raw?.Trim().EndsWith(" min", StringComparison.OrdinalIgnoreCase) == true ? "min" : null; var normalized = NormalizeSemanticKhasra(raw, qualifier);
             var khasraSource = Source(parcel, "khasraSource"); var areaSource = Source(parcel, "areaSource"); var classSource = Source(parcel, "landClassSource");
-            var entry = new NmSemanticParcelEntry { SourceSequence = ++sequence, RawKhasraText = raw, NormalizedKhasraText = normalized, Qualifier = qualifier, RawAreaText = StringValue(parcel, "rawAreaText"), LandClassRaw = StringValue(parcel, "landClassRaw"), SourcePage = Page(khasraSource, candidate.Page), SourceRegionJson = Region(khasraSource) ?? "{}", KhasraSourceRegionJson = Region(khasraSource), AreaSourceRegionJson = Region(areaSource), LandClassSourceRegionJson = Region(classSource), IsInherited = parcel.TryGetProperty("isInherited", out var inherited) && inherited.GetBoolean(), ValidationState = "Exception" };
+            var rawArea = StringValue(parcel, "rawAreaText");
+            var entry = new NmSemanticParcelEntry { SourceSequence = ++sequence, RawKhasraText = raw, NormalizedKhasraText = normalized, Qualifier = qualifier, RawAreaText = rawArea, NormalizedAreaText = NormalizeSemanticArea(rawArea), AreaExtractionMethod = StringValue(parcel, "areaExtractionMethod"), AreaOcrConfidence = DecimalValue(parcel, "areaOcrConfidence"), LandClassRaw = StringValue(parcel, "landClassRaw"), SourcePage = Page(khasraSource, candidate.Page), SourceRegionJson = Region(khasraSource) ?? "{}", KhasraSourceRegionJson = Region(khasraSource), AreaSourceRegionJson = Region(areaSource), LandClassSourceRegionJson = Region(classSource), IsInherited = parcel.TryGetProperty("isInherited", out var inherited) && inherited.GetBoolean(), ValidationState = "Exception" };
             if (string.IsNullOrWhiteSpace(raw) || khasraSource.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "Khasra", candidate, "Khasra value or its individual source region is missing.");
             else if (string.IsNullOrWhiteSpace(normalized)) AddException(owner, "IncompleteKhasra", "Khasra", candidate, "Source did not contain a complete Khasra identity.");
             else { var matches = await db.Khasras.Where(x => x.VillageId == nm.VillageId && x.NormalizedNumber == normalized && x.Qualifier == qualifier).Select(x => x.Id).ToListAsync(ct); if (matches.Count == 1) { entry.ExactKhasraCandidateId = matches[0]; entry.ValidationState = "ExactSourceMasterMatch"; } else { var numberExists = await db.Khasras.AnyAsync(x => x.VillageId == nm.VillageId && x.NormalizedNumber == normalized, ct); AddException(owner, numberExists ? "QualifierConflict" : "KhasraNotInVillageMaster", "Khasra", candidate, "No exact Village-scoped source match was found."); } }
@@ -86,6 +87,7 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
     private static string? Region(JsonElement source) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("sourceRegion", out var region) ? region.GetRawText() : null;
     private static int Page(JsonElement source, int fallback) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("page", out var page) ? page.GetInt32() : fallback;
     private static string? StringValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind != JsonValueKind.Null ? item.GetString() : null;
+    private static decimal? DecimalValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.Number ? item.GetDecimal() : null;
     private static string? NormalizeSemanticKhasra(string? raw, string? qualifier)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -93,6 +95,12 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         var threePart = System.Text.RegularExpressions.Regex.Match(source, @"^\s*(\d{1,3})\s*/\s*(\d{1,3})\s*/\s*(\d{1,3})\s*$");
         if (threePart.Success) return $"{threePart.Groups[1].Value}//{threePart.Groups[2].Value}/{threePart.Groups[3].Value}";
         return System.Text.RegularExpressions.Regex.IsMatch(source, @"^\s*\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?\s*$") ? KhasraNumber.Normalize(source) : null;
+    }
+    private static string? NormalizeSemanticArea(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(raw, @"^\s*(\d+)\s*[-–—]+\s*(\d+)\s*$");
+        return match.Success ? $"{match.Groups[1].Value}-{match.Groups[2].Value}" : null;
     }
     private static void AddException(NmSemanticOwnerBlock owner, string reason, string? field, LocalDocumentIntelligenceCandidate candidate, string detail) => owner.Exceptions.Add(new NmSemanticException { Reason = reason, FieldName = field, SourcePage = candidate.Page, SourceRegionJson = candidate.SourceRegion?.GetRawText(), Detail = detail });
     public async Task<int> AnalyzePilotAsync(Guid nmDocumentId, CancellationToken ct)

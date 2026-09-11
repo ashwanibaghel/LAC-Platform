@@ -472,7 +472,80 @@ def _nm_band(page: int, serial: int, band, force_fragment: bool = False) -> dict
     }
 
 
-def nm_semantic_candidates(page: int, words, image_width: int) -> list[dict]:
+_NM_AREA = re.compile(r"^\s*(\d+)\s*[-–—]+\s*(\d+)\s*$")
+
+def nm_token(*args):
+    try:
+        from benchmark.nm_semantics import NmToken
+    except ModuleNotFoundError:
+        from nm_semantics import NmToken
+    return NmToken(*args)
+
+
+def normalize_nm_area(value: str | None) -> str | None:
+    if value is None:
+        return None
+    match = _NM_AREA.fullmatch(value)
+    return None if match is None else f"{match.group(1)}-{match.group(2)}"
+
+
+def targeted_area_from_words(page: int, words, left: int, top: int):
+    """Return one Area observation only when the crop contains no competitor."""
+    normalized = [(word, normalize_nm_area(word.text)) for word in words]
+    valid = [(word, value) for word, value in normalized if value is not None]
+    numeric = [word for word in words if any(char.isdigit() for char in word.text)]
+    if len(valid) == 1 and len(numeric) == 1:
+        word, value = valid[0]
+        return word.text, nm_token(page, word.text, word.bounding_box.x + left, word.bounding_box.y + top, word.bounding_box.width, word.bounding_box.height, word.confidence), word.confidence
+    # Split reassembly is safe only for one number, one dash, one number.
+    if len(words) == 3 and re.fullmatch(r"\d+", words[0].text) and re.fullmatch(r"[-–—]+", words[1].text) and re.fullmatch(r"\d+", words[2].text):
+        raw = " ".join(word.text for word in words)
+        value = normalize_nm_area(raw)
+        if value is not None:
+            first, last = words[0], words[-1]
+            confidence = min(word.confidence for word in words)
+            return raw, nm_token(page, raw, first.bounding_box.x + left, first.bounding_box.y + top, last.bounding_box.x + last.bounding_box.width - first.bounding_box.x, max(word.bounding_box.height for word in words), confidence), confidence
+    return None
+
+
+def targeted_area_crop_bounds(parcel, row_parcels, schema, image):
+    area = next(((left, right) for role, left, right in schema.bands if role == "area"), None)
+    if area is None or parcel.khasra_token is None:
+        return None
+    rows = sorted((item.khasra_token for item in row_parcels if item.khasra_token is not None), key=lambda token: token.y + token.height / 2)
+    current = parcel.khasra_token
+    index = rows.index(current)
+    centre = current.y + current.height / 2
+    previous = rows[index - 1].y + rows[index - 1].height / 2 if index else None
+    following = rows[index + 1].y + rows[index + 1].height / 2 if index + 1 < len(rows) else None
+    top = current.y - 6 if previous is None else (previous + centre) / 2 - 6
+    bottom = current.y + current.height + 6 if following is None else (centre + following) / 2 + 6
+    # A six-pixel source-space pad preserves punctuation touching a printed
+    # column rule without reaching an adjacent semantic column.
+    left, right = max(0, int(area[0] - 6)), min(image.width, int(area[1] + 6))
+    return left, max(0, int(top)), right, min(image.height, int(bottom))
+
+
+def recover_missing_nm_areas(page: int, blocks, schema, image, ocr):
+    for block in blocks:
+        for parcel in block.parcels:
+            if parcel.raw_area is not None or parcel.inherited:
+                continue
+            bounds = targeted_area_crop_bounds(parcel, block.parcels, schema, image)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
+            if right <= left or bottom <= top:
+                continue
+            recovered = targeted_area_from_words(page, ocr_words(ocr(image.crop((left, top, right, bottom)))), left, top)
+            if recovered is not None:
+                parcel.raw_area, parcel.area_token, parcel.area_confidence = recovered
+                parcel.area_extraction_method = "TargetedAreaCropOcr"
+        if all(parcel.inherited or parcel.raw_area is not None for parcel in block.parcels):
+            block.exceptions = [reason for reason in block.exceptions if reason != "ParcelAreaMismatch"]
+
+
+def nm_semantic_candidates(page: int, words, image_width: int, image=None, ocr=None) -> list[dict]:
     """Emit staging-only semantic observations. Missing schema is an exception."""
     try:
         from benchmark.nm_semantics import NmToken, detect_column_schema, semantic_owner_blocks
@@ -500,13 +573,16 @@ def nm_semantic_candidates(page: int, words, image_width: int) -> list[dict]:
     for (role, _), group in grouped.items():
         group.sort(key=lambda item: item.x)
         first = group[0]
-        semantic_tokens.append(NmToken(page, " ".join(item.text for item in group), first.x, min(item.y for item in group), max(item.right for item in group) - first.x, max(item.height for item in group)))
+        confidences = [item.confidence for item in group if item.confidence is not None]
+        semantic_tokens.append(NmToken(page, " ".join(item.text for item in group), first.x, min(item.y for item in group), max(item.right for item in group) - first.x, max(item.height for item in group), min(confidences) if confidences else None))
     blocks = semantic_owner_blocks(semantic_tokens, schema)
+    if image is not None and ocr is not None:
+        recover_missing_nm_areas(page, blocks, schema, image, ocr)
     output = []
     for block in blocks:
         box = {"x": min(token.x for token in block.source_tokens), "y": min(token.y for token in block.source_tokens), "width": max(token.right for token in block.source_tokens) - min(token.x for token in block.source_tokens), "height": max(token.y + token.height for token in block.source_tokens) - min(token.y for token in block.source_tokens), "rotationDegrees": 90}
         source = lambda token: None if token is None else {"page": token.page, "rawSourceText": token.text, "sourceRegion": token.region()}
-        payload = {"sourceSequence": block.sequence, "recordedNameRaw": block.recorded_name, "fatherOrSpouseRaw": block.parentage, "residenceRaw": block.residence, "shareRaw": block.share_raw, "fieldSources": {"recordedName": source(block.name_token), "fatherOrSpouse": source(block.parentage_token), "residence": source(block.residence_token), "share": source(block.share_token)}, "status": "AutoStructured" if block.auto_structured else "Exception", "parcelCountAsRecorded": block.parcel_count_as_recorded, "totalAreaAsRecorded": block.total_area_as_recorded, "parcels": [{"rawKhasraText": parcel.raw_khasra, "rawAreaText": parcel.raw_area, "landClassRaw": parcel.land_class, "isInherited": parcel.inherited, "khasraSource": source(parcel.khasra_token), "areaSource": source(parcel.area_token), "landClassSource": source(parcel.land_class_token)} for parcel in block.parcels], "components": {role: {"rawAmountText": value, "source": source(token)} for role, (value, token) in block.components.items()}, "relations": [] if block.ditto_token is None else [{"relationType": "ParcelInheritedFromPreviousOwnerBlock", "relatedSourceSequence": block.inherited_from_sequence, "marker": source(block.ditto_token)}], "exceptions": block.exceptions, "schema": schema.confidence}
+        payload = {"sourceSequence": block.sequence, "recordedNameRaw": block.recorded_name, "fatherOrSpouseRaw": block.parentage, "residenceRaw": block.residence, "shareRaw": block.share_raw, "fieldSources": {"recordedName": source(block.name_token), "fatherOrSpouse": source(block.parentage_token), "residence": source(block.residence_token), "share": source(block.share_token)}, "status": "AutoStructured" if block.auto_structured else "Exception", "parcelCountAsRecorded": block.parcel_count_as_recorded, "totalAreaAsRecorded": block.total_area_as_recorded, "parcels": [{"rawKhasraText": parcel.raw_khasra, "rawAreaText": parcel.raw_area, "normalizedAreaText": normalize_nm_area(parcel.raw_area), "areaExtractionMethod": parcel.area_extraction_method, "areaOcrConfidence": parcel.area_confidence, "landClassRaw": parcel.land_class, "isInherited": parcel.inherited, "khasraSource": source(parcel.khasra_token), "areaSource": source(parcel.area_token), "landClassSource": source(parcel.land_class_token)} for parcel in block.parcels], "components": {role: {"rawAmountText": value, "source": source(token)} for role, (value, token) in block.components.items()}, "relations": [] if block.ditto_token is None else [{"relationType": "ParcelInheritedFromPreviousOwnerBlock", "relatedSourceSequence": block.inherited_from_sequence, "marker": source(block.ditto_token)}], "exceptions": block.exceptions, "schema": schema.confidence}
         output.append({"candidateType": "NmSemanticOwnerBlock", "structuredPayload": payload, "page": page, "sourceRegion": box, "rawSourceText": " ".join(token.text for token in block.source_tokens), "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Semantic staging only; canonical NM facts are not created."]})
     if not output:
         output.append({"candidateType": "NmSemanticException", "structuredPayload": {"reason": "OwnerUnreadable", "detail": "A page schema was found but no coherent owner block could be isolated."}, "page": page, "sourceRegion": None, "rawSourceText": None, "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Page retained as semantic exception."]})
@@ -611,7 +687,7 @@ def main() -> int:
             if data.get("options", {}).get("nmSemantic"):
                 # Semantic NM is a separate staging protocol. It receives the
                 # same populated OCR token stream as every other worker mode.
-                candidates.extend(nm_semantic_candidates(page_number, words, image.width))
+                candidates.extend(nm_semantic_candidates(page_number, words, image.width, image, ocr))
                 continue
 
             page_candidates: list[dict] = []

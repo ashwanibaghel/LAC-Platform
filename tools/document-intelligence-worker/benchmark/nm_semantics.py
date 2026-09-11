@@ -27,6 +27,7 @@ class NmColumnSchema:
 class NmParcel:
     raw_khasra: str | None = None; raw_area: str | None = None; land_class: str | None = None
     khasra_token: NmToken | None = None; area_token: NmToken | None = None; land_class_token: NmToken | None = None
+    area_extraction_method: str | None = None; area_confidence: float | None = None
     inherited: bool = False
 
 @dataclass
@@ -121,7 +122,7 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             if _DITTO.match(text):
                 if prior and prior.parcels and all(p.khasra_token and p.area_token for p in prior.parcels):
                     current.ditto_token, current.inherited_from_sequence = token, prior.sequence
-                    current.parcels.extend(NmParcel(p.raw_khasra, p.raw_area, p.land_class, p.khasra_token, p.area_token, p.land_class_token, True) for p in prior.parcels)
+                    current.parcels.extend(NmParcel(p.raw_khasra, p.raw_area, p.land_class, p.khasra_token, p.area_token, p.land_class_token, inherited=True) for p in prior.parcels)
                 else: current.exceptions.append("AmbiguousDittoScope")
             else:
                 values = _KHASRA.findall(text)
@@ -129,7 +130,8 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
                 else: current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values); prior = current
         elif column == "area":
             values = _AREA.findall(text)
-            if len(values) == 1 and current.parcels and not current.parcels[-1].inherited: current.parcels[-1].raw_area, current.parcels[-1].area_token = values[0], token
+            if len(values) == 1 and current.parcels and not current.parcels[-1].inherited:
+                current.parcels[-1].raw_area, current.parcels[-1].area_token, current.parcels[-1].area_extraction_method, current.parcels[-1].area_confidence = values[0], token, "FullPageOcr", token.confidence
             elif values: current.exceptions.append("ParcelAreaMismatch")
         elif column == "land_class" and current.parcels and not current.parcels[-1].inherited: current.parcels[-1].land_class, current.parcels[-1].land_class_token = text, token
         elif column in {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}: current.components[column] = (text, token)
