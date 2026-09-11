@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates, ocr_words
 
 
 def words(*values):
@@ -44,6 +44,20 @@ class AwardCoreWorkerTests(unittest.TestCase):
         self.assertEqual(2, sum(item["candidateType"] == "NmReviewRow" for item in output))
     def test_semantic_nm_missing_schema_is_exception_not_review_row(self):
         output = nm_semantic_candidates(1, words("unreadable source fragment"), 500)
+        self.assertEqual("NmSemanticException", output[0]["candidateType"])
+        self.assertEqual("PageSchemaMissing", output[0]["structuredPayload"]["reason"])
+    def test_semantic_mode_uses_words_extracted_from_rapidocr_response(self):
+        text = ["Name of Owner", "Khasra No", "Area", "Grand Total", "Ramesh Kumar S/o Mohan", "1/3", "12//2", "0-14", "Rs. 200"]
+        xs = [20, 300, 430, 620, 20, 20, 300, 430, 620]
+        box = lambda x, y: [[x,y],[x+80,y],[x+80,y+12],[x,y+12]]
+        rapidocr = SimpleNamespace(txts=text, boxes=[box(x, 10 if i < 4 else 80) for i,x in enumerate(xs)], scores=[.99] * len(text))
+        output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)
+        owner = next(item for item in output if item["candidateType"] == "NmSemanticOwnerBlock")
+        self.assertEqual("Ramesh Kumar", owner["structuredPayload"]["recordedNameRaw"])
+        self.assertEqual("12//2", owner["structuredPayload"]["parcels"][0]["rawKhasraText"])
+    def test_empty_rapidocr_response_becomes_safe_semantic_exception(self):
+        rapidocr = SimpleNamespace(txts=[], boxes=[], scores=[])
+        output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)
         self.assertEqual("NmSemanticException", output[0]["candidateType"])
         self.assertEqual("PageSchemaMissing", output[0]["structuredPayload"]["reason"])
     def test_supplementary_parent_is_a_suggestion(self):

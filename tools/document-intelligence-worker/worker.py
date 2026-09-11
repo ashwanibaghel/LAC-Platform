@@ -23,6 +23,28 @@ def region(box) -> dict:
     return {"x": float(box.x), "y": float(box.y), "width": float(box.width), "height": float(box.height)}
 
 
+def ocr_words(output):
+    """Convert one RapidOCR response into the shared worker token shape."""
+    try:
+        from benchmark.normalized import BoundingBox, Word
+    except ModuleNotFoundError:
+        # Tests may already have loaded the worker-local ``benchmark`` namespace.
+        sys.path.insert(0, str(BENCHMARK_ROOT / "benchmark"))
+        from normalized import BoundingBox, Word
+    texts = list(output.txts) if output.txts is not None else []
+    boxes = list(output.boxes) if output.boxes is not None else []
+    scores = list(output.scores) if output.scores is not None else []
+    words = []
+    for text, box, score in zip(texts, boxes, scores):
+        raw = " ".join(str(text).split())
+        if not raw:
+            continue
+        xs = [float(point[0]) for point in box]
+        ys = [float(point[1]) for point in box]
+        words.append(Word(raw, BoundingBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)), float(score)))
+    return words
+
+
 def inside(outer: dict, inner: dict) -> bool:
     x, y = inner["x"] + inner["width"] / 2, inner["y"] + inner["height"] / 2
     return outer["x"] <= x <= outer["x"] + outer["width"] and outer["y"] <= y <= outer["y"] + outer["height"]
@@ -541,7 +563,7 @@ def main() -> int:
         import fitz
         from PIL import Image
         from rapidocr import EngineType, RapidOCR
-        from benchmark.normalized import BoundingBox, Word
+        from benchmark.normalized import BoundingBox
         from benchmark.table_transformer_geometry import TableTransformerGeometry
         from benchmark.worker_semantics import page_likely_has_table
 
@@ -572,12 +594,7 @@ def main() -> int:
             raster_scale = 1 if data.get("options", {}).get("nmPilot") else 2
             pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(raster_scale, raster_scale), alpha=False)
             image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
-            if data.get("options", {}).get("nmSemantic"):
-                # Semantic NM is a separate staging protocol.  It never emits
-                # legacy review rows or invokes canonical matching.
-                candidates.extend(nm_semantic_candidates(page_number, words, image.width))
-                continue
-            if data.get("options", {}).get("nmPilot"):
+            if data.get("options", {}).get("nmPilot") or data.get("options", {}).get("nmSemantic"):
                 # NM scans are sideways. Rotation is the only permitted
                 # normalization in this pilot; no page-to-page registration.
                 image = image.rotate(90, expand=True)
@@ -586,17 +603,13 @@ def main() -> int:
             output = ocr(image)
             counters["pageOcrCalls"] += 1
             stages["rapidOcr"] += time.perf_counter() - stage_started
-            texts = list(output.txts) if output.txts is not None else []
-            boxes = list(output.boxes) if output.boxes is not None else []
-            scores = list(output.scores) if output.scores is not None else []
-            words = []
-            for text, box, score in zip(texts, boxes, scores):
-                raw = " ".join(str(text).split())
-                if not raw:
-                    continue
-                xs = [float(point[0]) for point in box]
-                ys = [float(point[1]) for point in box]
-                words.append(Word(raw, BoundingBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)), float(score)))
+            words = ocr_words(output)
+
+            if data.get("options", {}).get("nmSemantic"):
+                # Semantic NM is a separate staging protocol. It receives the
+                # same populated OCR token stream as every other worker mode.
+                candidates.extend(nm_semantic_candidates(page_number, words, image.width))
+                continue
 
             page_candidates: list[dict] = []
             if data.get("options", {}).get("nmPilot"):
