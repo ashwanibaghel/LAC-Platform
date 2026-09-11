@@ -59,6 +59,22 @@ class NmSemanticsTests(unittest.TestCase):
         self.assertIn("MissingRequiredSourceEvidence", block.exceptions)
         self.assertFalse(block.auto_structured)
 
+    def test_three_part_source_khasra_reassembles_only_the_separator_and_keeps_kita_summary(self):
+        values = [token("Name of Owner", 20), token("Khasra No", 300), token("Area", 430), token("Grand Total", 620), token("Ramesh Kumar S/o Mohan", 20, 80), token("1/3", 20, 96), token("26 / 21 / 3 min", 220, 110), token("3-5", 430, 110), token("Kita", 180, 130), token("1", 300, 130), token("3-5", 430, 130)]
+        schema = detect_column_schema(1, values[:4], 800)
+        block = semantic_owner_blocks(values[4:], schema)[0]
+        self.assertEqual("26 / 21 / 3 min", block.parcels[0].raw_khasra)
+        self.assertEqual("3-5", block.parcels[0].raw_area)
+        self.assertEqual("1", block.parcel_count_as_recorded)
+        self.assertEqual("3-5", block.total_area_as_recorded)
+
+    def test_two_part_source_fragment_remains_incomplete(self):
+        values = [token("Name of Owner", 20), token("Khasra No", 300), token("Area", 430), token("Grand Total", 620), token("Ramesh Kumar S/o Mohan", 20, 80), token("1/3", 20, 96), token("31/11", 300, 110), token("3-5", 430, 110)]
+        schema = detect_column_schema(1, values[:4], 800)
+        block = semantic_owner_blocks(values[4:], schema)[0]
+        self.assertIn("IncompleteKhasra", block.exceptions)
+        self.assertEqual([], block.parcels)
+
     def test_missing_schema_never_creates_auto_structured_block(self):
         self.assertEqual([], semantic_owner_blocks([token("Ramesh Kumar S/o Mohan", 20)], None))
 

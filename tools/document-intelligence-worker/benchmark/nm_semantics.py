@@ -38,6 +38,7 @@ class NmOwnerBlock:
     components: dict[str, tuple[str, NmToken]] = field(default_factory=dict)
     exceptions: list[str] = field(default_factory=list)
     ditto_token: NmToken | None = None; inherited_from_sequence: int | None = None
+    parcel_count_as_recorded: str | None = None; total_area_as_recorded: str | None = None
     source_tokens: list[NmToken] = field(default_factory=list)
     @property
     def auto_structured(self) -> bool:
@@ -54,9 +55,13 @@ _LABELS = (
 )
 _PARENTAGE = re.compile(r"\b(?:s/o|w/o|d/o|m/o)\s+(.+)", re.I)
 _OWNER = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z .'-]{2,}?)\s+\b(?:s/o|w/o|d/o|m/o)\b", re.I)
-_KHASRA = re.compile(r"\b\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?(?:\s+min)?\b", re.I)
+# The register sometimes prints the rectangle separator as a single slash in
+# OCR (for example, ``26/21/3``).  Three explicit numeric parts are enough to
+# restore just that separator later; two-part values remain incomplete.
+_KHASRA = re.compile(r"\b(?:\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?|\d{1,3}\s*/\s*\d{1,3}\s*/\s*\d{1,3})(?:\s+min)?\b", re.I)
 _AREA = re.compile(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b")
 _DITTO = re.compile(r"^\s*(?:-\s*do\s*-|ditto|do\.?|same\s+as\s+above)\s*$", re.I)
+_KITA = re.compile(r"\bkita\b", re.I)
 
 def detect_column_schema(page: int, tokens: Iterable[NmToken], page_width: float) -> NmColumnSchema | None:
     anchors: dict[str, float] = {}
@@ -71,6 +76,7 @@ def detect_column_schema(page: int, tokens: Iterable[NmToken], page_width: float
 def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | None) -> list[NmOwnerBlock]:
     if schema is None: return []
     blocks: list[NmOwnerBlock] = []; current: NmOwnerBlock | None = None; prior: NmOwnerBlock | None = None
+    awaiting_kita_count = False; awaiting_kita_area = False
     for token in sorted(tokens, key=lambda item: (item.y, item.x)):
         column = schema.column_for(token); text = " ".join(token.text.split())
         if not text or column is None: continue
@@ -82,7 +88,31 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
                 blocks.append(current); continue
         if current is None: continue
         current.source_tokens.append(token)
+        # ``Kita <count> <total area>`` is a source summary, not another
+        # parcel.  It can straddle the owner, khasra, and area bands, so bind
+        # it by its sequential printed grammar rather than a master lookup.
+        if _KITA.search(text):
+            count = re.search(r"\bkita\s+(\d+)\b", text, re.I)
+            if count: current.parcel_count_as_recorded = count.group(1); awaiting_kita_area = True
+            else: awaiting_kita_count = True
+            continue
+        if awaiting_kita_count and re.fullmatch(r"\d+", text):
+            current.parcel_count_as_recorded = text; awaiting_kita_count = False; awaiting_kita_area = True
+            continue
+        if awaiting_kita_area and column == "area":
+            values = _AREA.findall(text)
+            if len(values) == 1: current.total_area_as_recorded = values[0]
+            else: current.exceptions.append("ParcelAreaMismatch")
+            awaiting_kita_area = False
+            continue
         if column == "owner":
+            # Printed Khasra cells begin left of the header-derived band on
+            # these registers. A complete Khasra grammar is unambiguous in
+            # that overlap; a two-part fraction such as a share is not.
+            values = _KHASRA.findall(text)
+            if values:
+                current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values); prior = current
+                continue
             parent = _PARENTAGE.search(text)
             if parent and not current.parentage: current.parentage, current.parentage_token = parent.group(1).strip(), token
             elif text.lower().startswith("r/o"): current.residence, current.residence_token = text[3:].strip(), token

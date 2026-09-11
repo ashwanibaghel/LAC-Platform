@@ -55,6 +55,15 @@ class AwardCoreWorkerTests(unittest.TestCase):
         owner = next(item for item in output if item["candidateType"] == "NmSemanticOwnerBlock")
         self.assertEqual("Ramesh Kumar", owner["structuredPayload"]["recordedNameRaw"])
         self.assertEqual("12//2", owner["structuredPayload"]["parcels"][0]["rawKhasraText"])
+    def test_semantic_mode_does_not_merge_adjacent_khasra_and_area_rows(self):
+        text = ["Name of Owner", "Khasra No", "Area", "Grand Total", "Ramesh Kumar S/o Mohan", "1/3", "26/21/3", "3-5", "26/21/4", "0-9"]
+        xs = [20, 300, 430, 620, 20, 20, 190, 390, 190, 390]
+        ys = [10, 10, 10, 10, 80, 96, 110, 116, 136, 142]
+        box = lambda x, y: [[x,y],[x+80,y],[x+80,y+12],[x,y+12]]
+        rapidocr = SimpleNamespace(txts=text, boxes=[box(x, y) for x,y in zip(xs, ys)], scores=[.99] * len(text))
+        output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)
+        parcels = next(item for item in output if item["candidateType"] == "NmSemanticOwnerBlock")["structuredPayload"]["parcels"]
+        self.assertEqual([("26/21/3", "3-5"), ("26/21/4", "0-9")], [(parcel["rawKhasraText"], parcel["rawAreaText"]) for parcel in parcels])
     def test_empty_rapidocr_response_becomes_safe_semantic_exception(self):
         rapidocr = SimpleNamespace(txts=[], boxes=[], scores=[])
         output = nm_semantic_candidates(1, ocr_words(rapidocr), 800)

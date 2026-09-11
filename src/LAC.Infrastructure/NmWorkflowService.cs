@@ -11,11 +11,12 @@ public sealed record NmKhasraSelection(Guid ReviewKhasraId, Guid? KhasraId, bool
 
 public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage = null, ILocalDocumentIntelligenceClient? intelligence = null)
 {
-    public async Task<NmSemanticAnalysisSession> AnalyzeSemanticAsync(Guid nmDocumentId, CancellationToken ct)
+    public async Task<NmSemanticAnalysisSession> AnalyzeSemanticAsync(Guid nmDocumentId, CancellationToken ct, IReadOnlyList<int>? sourcePages = null)
     {
         var nm = await db.NmDocuments.Include(x => x.Document).SingleOrDefaultAsync(x => x.Id == nmDocumentId, ct) ?? throw new NmWorkflowException("NM review was not found.", 404);
-        var pages = new[] { 1, 4, 10, 16, 20, 26, 30, 40, 50, 60, 70, 75 };
-        var session = new NmSemanticAnalysisSession { NmDocumentId = nm.Id, ParserVersion = "nm-semantic-v1", SourcePagesJson = JsonSerializer.Serialize(pages) };
+        var pages = sourcePages?.Distinct().Order().ToArray() ?? [1, 4, 10, 16, 20, 26, 30, 40, 50, 60, 70, 75];
+        if (pages.Length == 0 || pages.Any(page => page < 1)) throw new NmWorkflowException("Semantic analysis pages must be positive and non-empty.");
+        var session = new NmSemanticAnalysisSession { NmDocumentId = nm.Id, ParserVersion = "nm-semantic-v2", SourcePagesJson = JsonSerializer.Serialize(pages) };
         db.NmSemanticAnalysisSessions.Add(session); await db.SaveChangesAsync(ct);
         var documentStorage = storage ?? throw new NmWorkflowException("Local document storage is not configured.", 500);
         var client = intelligence ?? throw new NmWorkflowException("Local NM intelligence is not configured.", 503);
@@ -32,10 +33,11 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
                 var owner = new NmSemanticOwnerBlock { AnalysisSessionId = session.Id, SourceSequence = session.OwnerBlocks.Count + 1, PageStart = candidate.Page, PageEnd = candidate.Page, Status = NmSemanticBlockStatus.Exception, SourceRegionJson = candidate.SourceRegion?.GetRawText() ?? "{}", ValidationSummaryJson = "[\"semantic page exception\"]" };
                 var payload = candidate.StructuredPayload;
                 owner.Exceptions.Add(new NmSemanticException { Reason = payload.GetProperty("reason").GetString() ?? "MissingRequiredSourceEvidence", SourcePage = candidate.Page, SourceRegionJson = candidate.SourceRegion?.GetRawText(), Detail = payload.GetProperty("detail").GetString() ?? "Worker could not safely form an owner block." });
-                db.NmSemanticOwnerBlocks.Add(owner); session.OwnerBlocks.Add(owner);
+                db.NmSemanticOwnerBlocks.Add(owner);
             }
-            session.AutoStructuredCount = session.OwnerBlocks.Count(x => x.Status == NmSemanticBlockStatus.AutoStructured);
-            session.ExceptionCount = session.OwnerBlocks.Count(x => x.Status == NmSemanticBlockStatus.Exception);
+            await db.SaveChangesAsync(ct);
+            session.AutoStructuredCount = await db.NmSemanticOwnerBlocks.CountAsync(x => x.AnalysisSessionId == session.Id && x.Status == NmSemanticBlockStatus.AutoStructured, ct);
+            session.ExceptionCount = await db.NmSemanticOwnerBlocks.CountAsync(x => x.AnalysisSessionId == session.Id && x.Status == NmSemanticBlockStatus.Exception, ct);
             session.DiagnosticsJson = JsonSerializer.Serialize(new { result.PagesProcessed, result.Warnings, candidateCount = result.Candidates.Count });
             session.Status = NmSemanticSessionStatus.Completed; session.CompletedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); return session;
         }
@@ -49,11 +51,11 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         var fields = payload.TryGetProperty("fieldSources", out var sources) ? sources : default;
         var nameSource = Source(fields, "recordedName");
         var owner = new NmSemanticOwnerBlock { AnalysisSessionId = session.Id, SourceSequence = session.OwnerBlocks.Count + 1, PageStart = candidate.Page, PageEnd = candidate.Page, RecordedNameRaw = StringValue(payload, "recordedNameRaw"), FatherOrSpouseRaw = StringValue(payload, "fatherOrSpouseRaw"), ResidenceRaw = StringValue(payload, "residenceRaw"), ShareRaw = StringValue(payload, "shareRaw"), Status = NmSemanticBlockStatus.Exception, SourceRegionJson = Region(nameSource) ?? "{}", FieldSourcesJson = fields.ValueKind == JsonValueKind.Undefined ? "{}" : fields.GetRawText() };
-        var group = new NmSemanticParcelGroup { SourceSequence = 1 };
+        var group = new NmSemanticParcelGroup { SourceSequence = 1, ParcelCountAsRecorded = StringValue(payload, "parcelCountAsRecorded"), TotalAreaAsRecorded = StringValue(payload, "totalAreaAsRecorded") };
         var sequence = 0;
         foreach (var parcel in payload.GetProperty("parcels").EnumerateArray())
         {
-            var raw = StringValue(parcel, "rawKhasraText"); var qualifier = raw?.Trim().EndsWith(" min", StringComparison.OrdinalIgnoreCase) == true ? "min" : null; var normalized = raw is null ? null : KhasraNumber.Normalize(RemoveQualifier(raw, qualifier));
+            var raw = StringValue(parcel, "rawKhasraText"); var qualifier = raw?.Trim().EndsWith(" min", StringComparison.OrdinalIgnoreCase) == true ? "min" : null; var normalized = NormalizeSemanticKhasra(raw, qualifier);
             var khasraSource = Source(parcel, "khasraSource"); var areaSource = Source(parcel, "areaSource"); var classSource = Source(parcel, "landClassSource");
             var entry = new NmSemanticParcelEntry { SourceSequence = ++sequence, RawKhasraText = raw, NormalizedKhasraText = normalized, Qualifier = qualifier, RawAreaText = StringValue(parcel, "rawAreaText"), LandClassRaw = StringValue(parcel, "landClassRaw"), SourcePage = Page(khasraSource, candidate.Page), SourceRegionJson = Region(khasraSource) ?? "{}", KhasraSourceRegionJson = Region(khasraSource), AreaSourceRegionJson = Region(areaSource), LandClassSourceRegionJson = Region(classSource), IsInherited = parcel.TryGetProperty("isInherited", out var inherited) && inherited.GetBoolean(), ValidationState = "Exception" };
             if (string.IsNullOrWhiteSpace(raw) || khasraSource.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "Khasra", candidate, "Khasra value or its individual source region is missing.");
@@ -65,7 +67,7 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         owner.ParcelGroups.Add(group);
         // Explicitly mark the staging graph as new. The session was saved before
         // worker invocation, so relationship fixup alone must not imply Update.
-        db.NmSemanticOwnerBlocks.Add(owner); session.OwnerBlocks.Add(owner);
+        db.NmSemanticOwnerBlocks.Add(owner);
         if (nameSource.ValueKind == JsonValueKind.Undefined || Source(fields, "share").ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "OwnerOrShare", candidate, "Owner name and share must each retain individual source provenance.");
         foreach (var component in payload.GetProperty("components").EnumerateObject()) { var value = component.Value; var source = Source(value, "source"); if (source.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", component.Name, candidate, "Compensation component lacks an individual source region."); owner.CompensationComponents.Add(new NmSemanticCompensationComponent { ComponentType = component.Name, RawAmountText = StringValue(value, "rawAmountText") ?? "", SourceSequence = owner.CompensationComponents.Count + 1, SourcePage = Page(source, candidate.Page), SourceRegionJson = Region(source) ?? "{}", SemanticState = source.ValueKind == JsonValueKind.Undefined ? "Exception" : "MappedByColumn" }); }
         var relations = payload.TryGetProperty("relations", out var relationItems) && relationItems.ValueKind == JsonValueKind.Array ? relationItems.EnumerateArray().ToArray() : [];
@@ -84,6 +86,14 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
     private static string? Region(JsonElement source) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("sourceRegion", out var region) ? region.GetRawText() : null;
     private static int Page(JsonElement source, int fallback) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("page", out var page) ? page.GetInt32() : fallback;
     private static string? StringValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind != JsonValueKind.Null ? item.GetString() : null;
+    private static string? NormalizeSemanticKhasra(string? raw, string? qualifier)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var source = RemoveQualifier(raw, qualifier);
+        var threePart = System.Text.RegularExpressions.Regex.Match(source, @"^\s*(\d{1,3})\s*/\s*(\d{1,3})\s*/\s*(\d{1,3})\s*$");
+        if (threePart.Success) return $"{threePart.Groups[1].Value}//{threePart.Groups[2].Value}/{threePart.Groups[3].Value}";
+        return System.Text.RegularExpressions.Regex.IsMatch(source, @"^\s*\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?\s*$") ? KhasraNumber.Normalize(source) : null;
+    }
     private static void AddException(NmSemanticOwnerBlock owner, string reason, string? field, LocalDocumentIntelligenceCandidate candidate, string detail) => owner.Exceptions.Add(new NmSemanticException { Reason = reason, FieldName = field, SourcePage = candidate.Page, SourceRegionJson = candidate.SourceRegion?.GetRawText(), Detail = detail });
     public async Task<int> AnalyzePilotAsync(Guid nmDocumentId, CancellationToken ct)
     {
