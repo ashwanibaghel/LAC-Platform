@@ -381,6 +381,65 @@ def court_case_candidates(page: int, words) -> list[dict]:
     return result
 
 
+def nm_pilot_candidates(page: int, words, image_width: int, image_height: int) -> list[dict]:
+    """Conservative, layout-free NM source bands for assisted review only.
+
+    This is intentionally not a form reconstruction: neighbouring OCR lines are
+    retained as one reviewable source band and every value remains raw OCR.
+    """
+    lines = list(_lines(words))
+    result = []
+    # A printed NM record normally occupies several nearby lines. Keep broad
+    # bands rather than pretending that OCR columns are authoritative.
+    band, serial = [], 0
+    for text, box in lines:
+        if not text.strip():
+            continue
+        if band and box["y"] - band[-1][1]["y"] > max(70, image_height * .025):
+            if band:
+                serial += 1
+                result.append(_nm_band(page, serial, band))
+            band = []
+        band.append((text, box))
+        if len(band) >= 4:
+            serial += 1
+            result.append(_nm_band(page, serial, band))
+            band = []
+    if band:
+        serial += 1
+        result.append(_nm_band(page, serial, band))
+    return result[:4]
+
+
+def _nm_band(page: int, serial: int, band) -> dict:
+    text = " ".join(value[0] for value in band)
+    left = min(value[1]["x"] for value in band); top = min(value[1]["y"] for value in band)
+    right = max(value[1]["x"] + value[1]["width"] for value in band); bottom = max(value[1]["y"] + value[1]["height"] for value in band)
+    # These are only hints for the reviewer.  A raw token is retained even if
+    # it is not a valid Khasra, because it must never be silently repaired.
+    khasras = re.findall(r"\b\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?(?:\s+min)?\b", text, re.I)
+    raw_khasra = ", ".join(khasras) if khasras else "OCR fragment — select canonical Khasra manually"
+    areas = re.findall(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b", text)
+    money = re.search(r"(?:rs\.?|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)", text, re.I)
+    person = re.sub(r"\s+", " ", text).strip()[:240]
+    return {
+        "candidateType": "NmReviewRow",
+        "structuredPayload": {
+            "sourceRow": f"pilot-{page}-{serial}", "recordedPersonText": person,
+            "rawKhasrasText": raw_khasra, "rawAreaText": areas[0] if areas else None,
+            "rawShareText": None, "entitlementAmount": money.group(1).replace(",", "") if money else None,
+            "entitlementBasisText": None,
+            "khasras": [{"rawKhasraText": raw_khasra, "qualifier": "min" if re.search(r"\bmin\b", raw_khasra, re.I) else None,
+                         "rawAreaText": areas[0] if areas else None, "rawShareText": None}]
+        },
+        "page": page,
+        "sourceRegion": {"x": left, "y": top, "width": right-left, "height": bottom-top, "rotationDegrees": 90},
+        "rawSourceText": text, "rawOcr": text, "normalizedSuggestion": None,
+        "normalizationReason": None, "confidence": None,
+        "interpretationWarnings": ["Broad local OCR source band. Review and correct every field; no canonical Khasra is selected."],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -445,6 +504,9 @@ def main() -> int:
         ocr = RapidOCR(params={"Det.engine_type": EngineType.TORCH, "Cls.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH})
         document = fitz.open(pdf)
         selected_pages = list(range(1, len(document) + 1))
+        configured_pages = data.get("selectedPages")
+        if configured_pages:
+            selected_pages = sorted({int(value) for value in configured_pages})
         if args.pages:
             selected_pages = sorted({int(value.strip()) for value in args.pages.split(",") if value.strip()})
             if not selected_pages or min(selected_pages) < 1 or max(selected_pages) > len(document):
@@ -457,8 +519,15 @@ def main() -> int:
         for page_number in selected_pages:
             pdf_page = document[page_number - 1]
             stage_started = time.perf_counter()
-            pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            # Pilot staging needs broad source bands, not production table cells.
+            # A 1x raster keeps the nine-page local NM pilot responsive.
+            raster_scale = 1 if data.get("options", {}).get("nmPilot") else 2
+            pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(raster_scale, raster_scale), alpha=False)
             image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+            if data.get("options", {}).get("nmPilot"):
+                # NM scans are sideways. Rotation is the only permitted
+                # normalization in this pilot; no page-to-page registration.
+                image = image.rotate(90, expand=True)
             stages["pageRendering"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
             output = ocr(image)
@@ -477,6 +546,11 @@ def main() -> int:
                 words.append(Word(raw, BoundingBox(min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)), float(score)))
 
             page_candidates: list[dict] = []
+            if data.get("options", {}).get("nmPilot"):
+                # NM pilot mode deliberately avoids Table Transformer and every
+                # rejected registration strategy. It emits review staging only.
+                candidates.extend(nm_pilot_candidates(page_number, words, image.width, image.height))
+                continue
             # Core/header and statutory suggestions are label-led narrative
             # extraction.  They deliberately do not depend on Award table
             # geometry and cannot influence Khasra interpretation.
@@ -535,7 +609,7 @@ def main() -> int:
             "pagesProcessed": len(selected_pages),
             "candidates": candidates,
             "warnings": ["Structured candidates require detected table geometry, header roles, and human review."],
-            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, "stageSeconds": {}, **counters},
+            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, "stageSeconds": {}, **counters},
         }
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)

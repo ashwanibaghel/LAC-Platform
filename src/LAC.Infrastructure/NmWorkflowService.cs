@@ -8,8 +8,39 @@ public sealed record NmRowInput(int SourcePage, string SourceRow, string SourceR
 public sealed record NmKhasraInput(string RawKhasraText, string? Qualifier, string? RawAreaText = null, string? RawShareText = null, string? SourceRegionJson = null);
 public sealed record NmKhasraSelection(Guid ReviewKhasraId, Guid? KhasraId, bool MarkUnreadable = false);
 
-public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage = null)
+public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage = null, ILocalDocumentIntelligenceClient? intelligence = null)
 {
+    public async Task<int> AnalyzePilotAsync(Guid nmDocumentId, CancellationToken ct)
+    {
+        var nm = await db.NmDocuments.Include(x => x.Document).SingleOrDefaultAsync(x => x.Id == nmDocumentId, ct)
+            ?? throw new NmWorkflowException("NM review was not found.", 404);
+        if (nm.Status == NmReviewStatus.Committed) throw new NmWorkflowException("Committed NM reviews cannot be analyzed.");
+        if (await db.NmReviewRows.AnyAsync(x => x.NmDocumentId == nm.Id, ct)) throw new NmWorkflowException("This NM pilot already has review rows. Review those rows instead of duplicating source evidence.");
+        var documentStorage = storage ?? throw new NmWorkflowException("Local document storage is not configured.", 500);
+        var client = intelligence ?? throw new NmWorkflowException("Local NM intelligence is not configured.", 503);
+        await using var content = await documentStorage.OpenReadAsync(nm.Document.StoragePath, ct) ?? throw new NmWorkflowException("The locally stored NM PDF is unavailable.", 404);
+        var localPdf = Path.Combine(Path.GetTempPath(), "lac-nm-pilot-" + Guid.NewGuid().ToString("N") + ".pdf");
+        try
+        {
+            await using (var target = File.Create(localPdf)) await content.CopyToAsync(target, ct);
+            var result = await client.RunAsync(new(1, nm.DocumentId, localPdf, nm.AwardId ?? Guid.Empty, nm.VillageId, [1,10,20,30,40,50,60,70,75], true), ct);
+            if (result.Status != "Completed") throw new NmWorkflowException("Local NM analysis did not complete.", 503);
+            var rows = result.Candidates.Where(x => x.CandidateType == "NmReviewRow").Take(30).ToList();
+            foreach (var candidate in rows)
+            {
+                var p = candidate.StructuredPayload;
+                var sourceRow = p.GetProperty("sourceRow").GetString() ?? $"pilot-{candidate.Page}";
+                var person = p.GetProperty("recordedPersonText").GetString();
+                var area = p.TryGetProperty("rawAreaText", out var a) && a.ValueKind != System.Text.Json.JsonValueKind.Null ? a.GetString() : null;
+                var share = p.TryGetProperty("rawShareText", out var s) && s.ValueKind != System.Text.Json.JsonValueKind.Null ? s.GetString() : null;
+                decimal? amount = p.TryGetProperty("entitlementAmount", out var amountElement) && decimal.TryParse(amountElement.GetString(), out var parsedAmount) ? parsedAmount : null;
+                var khasras = p.GetProperty("khasras").EnumerateArray().Select(k => new NmKhasraInput(k.GetProperty("rawKhasraText").GetString() ?? "OCR fragment", k.TryGetProperty("qualifier", out var q) && q.ValueKind != System.Text.Json.JsonValueKind.Null ? q.GetString() : null, area, share, candidate.SourceRegion?.GetRawText())).ToList();
+                await AddReviewRowAsync(nm.Id, new(candidate.Page, sourceRow, candidate.SourceRegion?.GetRawText() ?? "{}", person, null, share, area, amount, null, khasras), ct);
+            }
+            return rows.Count;
+        }
+        finally { try { File.Delete(localPdf); } catch { } }
+    }
     public async Task<NmDocument> UploadAsync(Stream content, string fileName, string? contentType, Guid awardId, Guid villageId, CancellationToken ct)
     {
         if (!fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) throw new NmWorkflowException("Choose an NM PDF.");
