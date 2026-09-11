@@ -450,6 +450,44 @@ def _nm_band(page: int, serial: int, band, force_fragment: bool = False) -> dict
     }
 
 
+def nm_semantic_candidates(page: int, words, image_width: int) -> list[dict]:
+    """Emit staging-only semantic observations. Missing schema is an exception."""
+    try:
+        from benchmark.nm_semantics import NmToken, detect_column_schema, semantic_owner_blocks
+    except ModuleNotFoundError:
+        # The benchmark package is also available in a developer checkout.
+        # Keep the semantic module local to the worker when running directly.
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent / "benchmark"))
+        from nm_semantics import NmToken, detect_column_schema, semantic_owner_blocks
+    tokens = [NmToken(page, word.text, word.bounding_box.x, word.bounding_box.y, word.bounding_box.width, word.bounding_box.height, getattr(word, "confidence", None)) for word in words]
+    schema = detect_column_schema(page, tokens, image_width)
+    if schema is None:
+        return [{"candidateType": "NmSemanticException", "structuredPayload": {"reason": "PageSchemaMissing", "detail": "Printed column anchors were insufficient; no owner block was inferred."}, "page": page, "sourceRegion": None, "rawSourceText": None, "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Page retained as semantic exception; no canonical or review row was created."]}]
+    grouped = {}
+    for token in tokens:
+        role = schema.column_for(token)
+        if role is None:
+            continue
+        key = (role, round(token.y / max(token.height, 1)))
+        grouped.setdefault(key, []).append(token)
+    semantic_tokens = []
+    for (role, _), group in grouped.items():
+        group.sort(key=lambda item: item.x)
+        first = group[0]
+        semantic_tokens.append(NmToken(page, " ".join(item.text for item in group), first.x, min(item.y for item in group), max(item.right for item in group) - first.x, max(item.height for item in group)))
+    blocks = semantic_owner_blocks(semantic_tokens, schema)
+    output = []
+    for block in blocks:
+        box = {"x": min(token.x for token in block.source_tokens), "y": min(token.y for token in block.source_tokens), "width": max(token.right for token in block.source_tokens) - min(token.x for token in block.source_tokens), "height": max(token.y + token.height for token in block.source_tokens) - min(token.y for token in block.source_tokens), "rotationDegrees": 90}
+        source = lambda token: None if token is None else {"page": token.page, "rawSourceText": token.text, "sourceRegion": token.region()}
+        payload = {"sourceSequence": block.sequence, "recordedNameRaw": block.recorded_name, "fatherOrSpouseRaw": block.parentage, "residenceRaw": block.residence, "shareRaw": block.share_raw, "fieldSources": {"recordedName": source(block.name_token), "fatherOrSpouse": source(block.parentage_token), "residence": source(block.residence_token), "share": source(block.share_token)}, "status": "AutoStructured" if block.auto_structured else "Exception", "parcels": [{"rawKhasraText": parcel.raw_khasra, "rawAreaText": parcel.raw_area, "landClassRaw": parcel.land_class, "isInherited": parcel.inherited, "khasraSource": source(parcel.khasra_token), "areaSource": source(parcel.area_token), "landClassSource": source(parcel.land_class_token)} for parcel in block.parcels], "components": {role: {"rawAmountText": value, "source": source(token)} for role, (value, token) in block.components.items()}, "relations": [] if block.ditto_token is None else [{"relationType": "ParcelInheritedFromPreviousOwnerBlock", "relatedSourceSequence": block.inherited_from_sequence, "marker": source(block.ditto_token)}], "exceptions": block.exceptions, "schema": schema.confidence}
+        output.append({"candidateType": "NmSemanticOwnerBlock", "structuredPayload": payload, "page": page, "sourceRegion": box, "rawSourceText": " ".join(token.text for token in block.source_tokens), "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Semantic staging only; canonical NM facts are not created."]})
+    if not output:
+        output.append({"candidateType": "NmSemanticException", "structuredPayload": {"reason": "OwnerUnreadable", "detail": "A page schema was found but no coherent owner block could be isolated."}, "page": page, "sourceRegion": None, "rawSourceText": None, "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Page retained as semantic exception."]})
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path)
@@ -534,6 +572,11 @@ def main() -> int:
             raster_scale = 1 if data.get("options", {}).get("nmPilot") else 2
             pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(raster_scale, raster_scale), alpha=False)
             image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+            if data.get("options", {}).get("nmSemantic"):
+                # Semantic NM is a separate staging protocol.  It never emits
+                # legacy review rows or invokes canonical matching.
+                candidates.extend(nm_semantic_candidates(page_number, words, image.width))
+                continue
             if data.get("options", {}).get("nmPilot"):
                 # NM scans are sideways. Rotation is the only permitted
                 # normalization in this pilot; no page-to-page registration.

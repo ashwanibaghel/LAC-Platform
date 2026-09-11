@@ -1,5 +1,6 @@
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace LAC.Infrastructure;
 
@@ -10,6 +11,80 @@ public sealed record NmKhasraSelection(Guid ReviewKhasraId, Guid? KhasraId, bool
 
 public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage = null, ILocalDocumentIntelligenceClient? intelligence = null)
 {
+    public async Task<NmSemanticAnalysisSession> AnalyzeSemanticAsync(Guid nmDocumentId, CancellationToken ct)
+    {
+        var nm = await db.NmDocuments.Include(x => x.Document).SingleOrDefaultAsync(x => x.Id == nmDocumentId, ct) ?? throw new NmWorkflowException("NM review was not found.", 404);
+        var pages = new[] { 1, 4, 10, 16, 20, 26, 30, 40, 50, 60, 70, 75 };
+        var session = new NmSemanticAnalysisSession { NmDocumentId = nm.Id, ParserVersion = "nm-semantic-v1", SourcePagesJson = JsonSerializer.Serialize(pages) };
+        db.NmSemanticAnalysisSessions.Add(session); await db.SaveChangesAsync(ct);
+        var documentStorage = storage ?? throw new NmWorkflowException("Local document storage is not configured.", 500);
+        var client = intelligence ?? throw new NmWorkflowException("Local NM intelligence is not configured.", 503);
+        var localPdf = Path.Combine(Path.GetTempPath(), "lac-nm-semantic-" + Guid.NewGuid().ToString("N") + ".pdf");
+        try
+        {
+            await using (var source = await documentStorage.OpenReadAsync(nm.Document.StoragePath, ct) ?? throw new NmWorkflowException("The locally stored NM PDF is unavailable.", 404))
+            await using (var target = File.Create(localPdf)) await source.CopyToAsync(target, ct);
+            var result = await client.RunAsync(new(1, nm.DocumentId, localPdf, nm.AwardId ?? Guid.Empty, nm.VillageId, pages, false, true), ct);
+            if (result.Status != "Completed") throw new NmWorkflowException("Local NM semantic analysis did not complete.", 503);
+            foreach (var candidate in result.Candidates.Where(x => x.CandidateType == "NmSemanticOwnerBlock")) { await PersistSemanticOwnerAsync(session, nm, candidate, ct); await db.SaveChangesAsync(ct); }
+            foreach (var candidate in result.Candidates.Where(x => x.CandidateType == "NmSemanticException"))
+            {
+                var owner = new NmSemanticOwnerBlock { AnalysisSessionId = session.Id, SourceSequence = session.OwnerBlocks.Count + 1, PageStart = candidate.Page, PageEnd = candidate.Page, Status = NmSemanticBlockStatus.Exception, SourceRegionJson = candidate.SourceRegion?.GetRawText() ?? "{}", ValidationSummaryJson = "[\"semantic page exception\"]" };
+                var payload = candidate.StructuredPayload;
+                owner.Exceptions.Add(new NmSemanticException { Reason = payload.GetProperty("reason").GetString() ?? "MissingRequiredSourceEvidence", SourcePage = candidate.Page, SourceRegionJson = candidate.SourceRegion?.GetRawText(), Detail = payload.GetProperty("detail").GetString() ?? "Worker could not safely form an owner block." });
+                db.NmSemanticOwnerBlocks.Add(owner); session.OwnerBlocks.Add(owner);
+            }
+            session.AutoStructuredCount = session.OwnerBlocks.Count(x => x.Status == NmSemanticBlockStatus.AutoStructured);
+            session.ExceptionCount = session.OwnerBlocks.Count(x => x.Status == NmSemanticBlockStatus.Exception);
+            session.DiagnosticsJson = JsonSerializer.Serialize(new { result.PagesProcessed, result.Warnings, candidateCount = result.Candidates.Count });
+            session.Status = NmSemanticSessionStatus.Completed; session.CompletedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct); return session;
+        }
+        catch { session.Status = NmSemanticSessionStatus.Failed; session.CompletedAt = DateTimeOffset.UtcNow; try { await db.SaveChangesAsync(CancellationToken.None); } catch { } throw; }
+        finally { try { File.Delete(localPdf); } catch { } }
+    }
+
+    private async Task PersistSemanticOwnerAsync(NmSemanticAnalysisSession session, NmDocument nm, LocalDocumentIntelligenceCandidate candidate, CancellationToken ct)
+    {
+        var payload = candidate.StructuredPayload;
+        var fields = payload.TryGetProperty("fieldSources", out var sources) ? sources : default;
+        var nameSource = Source(fields, "recordedName");
+        var owner = new NmSemanticOwnerBlock { AnalysisSessionId = session.Id, SourceSequence = session.OwnerBlocks.Count + 1, PageStart = candidate.Page, PageEnd = candidate.Page, RecordedNameRaw = StringValue(payload, "recordedNameRaw"), FatherOrSpouseRaw = StringValue(payload, "fatherOrSpouseRaw"), ResidenceRaw = StringValue(payload, "residenceRaw"), ShareRaw = StringValue(payload, "shareRaw"), Status = NmSemanticBlockStatus.Exception, SourceRegionJson = Region(nameSource) ?? "{}", FieldSourcesJson = fields.ValueKind == JsonValueKind.Undefined ? "{}" : fields.GetRawText() };
+        var group = new NmSemanticParcelGroup { SourceSequence = 1 };
+        var sequence = 0;
+        foreach (var parcel in payload.GetProperty("parcels").EnumerateArray())
+        {
+            var raw = StringValue(parcel, "rawKhasraText"); var qualifier = raw?.Trim().EndsWith(" min", StringComparison.OrdinalIgnoreCase) == true ? "min" : null; var normalized = raw is null ? null : KhasraNumber.Normalize(RemoveQualifier(raw, qualifier));
+            var khasraSource = Source(parcel, "khasraSource"); var areaSource = Source(parcel, "areaSource"); var classSource = Source(parcel, "landClassSource");
+            var entry = new NmSemanticParcelEntry { SourceSequence = ++sequence, RawKhasraText = raw, NormalizedKhasraText = normalized, Qualifier = qualifier, RawAreaText = StringValue(parcel, "rawAreaText"), LandClassRaw = StringValue(parcel, "landClassRaw"), SourcePage = Page(khasraSource, candidate.Page), SourceRegionJson = Region(khasraSource) ?? "{}", KhasraSourceRegionJson = Region(khasraSource), AreaSourceRegionJson = Region(areaSource), LandClassSourceRegionJson = Region(classSource), IsInherited = parcel.TryGetProperty("isInherited", out var inherited) && inherited.GetBoolean(), ValidationState = "Exception" };
+            if (string.IsNullOrWhiteSpace(raw) || khasraSource.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "Khasra", candidate, "Khasra value or its individual source region is missing.");
+            else if (string.IsNullOrWhiteSpace(normalized)) AddException(owner, "IncompleteKhasra", "Khasra", candidate, "Source did not contain a complete Khasra identity.");
+            else { var matches = await db.Khasras.Where(x => x.VillageId == nm.VillageId && x.NormalizedNumber == normalized && x.Qualifier == qualifier).Select(x => x.Id).ToListAsync(ct); if (matches.Count == 1) { entry.ExactKhasraCandidateId = matches[0]; entry.ValidationState = "ExactSourceMasterMatch"; } else { var numberExists = await db.Khasras.AnyAsync(x => x.VillageId == nm.VillageId && x.NormalizedNumber == normalized, ct); AddException(owner, numberExists ? "QualifierConflict" : "KhasraNotInVillageMaster", "Khasra", candidate, "No exact Village-scoped source match was found."); } }
+            if (!entry.IsInherited && (string.IsNullOrWhiteSpace(entry.RawAreaText) || areaSource.ValueKind == JsonValueKind.Undefined)) AddException(owner, "MissingRequiredSourceEvidence", "Area", candidate, "Area value or its individual source region is missing.");
+            group.Entries.Add(entry);
+        }
+        owner.ParcelGroups.Add(group);
+        // Explicitly mark the staging graph as new. The session was saved before
+        // worker invocation, so relationship fixup alone must not imply Update.
+        db.NmSemanticOwnerBlocks.Add(owner); session.OwnerBlocks.Add(owner);
+        if (nameSource.ValueKind == JsonValueKind.Undefined || Source(fields, "share").ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "OwnerOrShare", candidate, "Owner name and share must each retain individual source provenance.");
+        foreach (var component in payload.GetProperty("components").EnumerateObject()) { var value = component.Value; var source = Source(value, "source"); if (source.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", component.Name, candidate, "Compensation component lacks an individual source region."); owner.CompensationComponents.Add(new NmSemanticCompensationComponent { ComponentType = component.Name, RawAmountText = StringValue(value, "rawAmountText") ?? "", SourceSequence = owner.CompensationComponents.Count + 1, SourcePage = Page(source, candidate.Page), SourceRegionJson = Region(source) ?? "{}", SemanticState = source.ValueKind == JsonValueKind.Undefined ? "Exception" : "MappedByColumn" }); }
+        var relations = payload.TryGetProperty("relations", out var relationItems) && relationItems.ValueKind == JsonValueKind.Array ? relationItems.EnumerateArray().ToArray() : [];
+        foreach (var relation in relations)
+        {
+            var marker = Source(relation, "marker"); var previous = session.OwnerBlocks.LastOrDefault(x => x.PageStart == candidate.Page && x.ParcelGroups.Any());
+            if (marker.ValueKind == JsonValueKind.Undefined || previous?.ParcelGroups.SingleOrDefault() is not { } original) { AddException(owner, "AmbiguousDittoScope", "ParcelRelation", candidate, "The ditto marker could not be tied to a prior explicit parcel group."); continue; }
+            db.NmSemanticSourceRelations.Add(new NmSemanticSourceRelation { OwnerBlock = owner, RelationType = StringValue(relation, "relationType") ?? "ExplicitSourceReference", RelatedParcelGroup = original, SourcePage = Page(marker, candidate.Page), SourceRegionJson = Region(marker)!, RawSourceText = StringValue(marker, "rawSourceText") ?? "", OriginalSourcePage = original.Entries.FirstOrDefault()?.SourcePage, OriginalSourceRegionJson = original.Entries.FirstOrDefault()?.KhasraSourceRegionJson, OriginalSourceSequence = previous.SourceSequence });
+        }
+        foreach (var reason in payload.GetProperty("exceptions").EnumerateArray()) AddException(owner, reason.GetString() ?? "MissingRequiredSourceEvidence", null, candidate, "Worker semantic validation exception.");
+        var requested = StringValue(payload, "status");
+        owner.Status = requested == "AutoStructured" && owner.Exceptions.Count == 0 && group.Entries.Count > 0 && group.Entries.All(x => x.ValidationState == "ExactSourceMasterMatch" && !string.IsNullOrWhiteSpace(x.KhasraSourceRegionJson) && !string.IsNullOrWhiteSpace(x.AreaSourceRegionJson)) && (!group.Entries.Any(x => x.IsInherited) || db.ChangeTracker.Entries<NmSemanticSourceRelation>().Any(x => x.Entity.OwnerBlock == owner && (x.Entity.RelatedParcelGroupId != null || x.Entity.RelatedParcelGroup != null))) ? NmSemanticBlockStatus.AutoStructured : NmSemanticBlockStatus.Exception;
+        owner.ValidationSummaryJson = JsonSerializer.Serialize(new { requested, owner.Status, exceptions = owner.Exceptions.Select(x => x.Reason) });
+    }
+    private static JsonElement Source(JsonElement value, string name) => value.ValueKind != JsonValueKind.Undefined && value.TryGetProperty(name, out var item) && item.ValueKind != JsonValueKind.Null ? item : default;
+    private static string? Region(JsonElement source) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("sourceRegion", out var region) ? region.GetRawText() : null;
+    private static int Page(JsonElement source, int fallback) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("page", out var page) ? page.GetInt32() : fallback;
+    private static string? StringValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind != JsonValueKind.Null ? item.GetString() : null;
+    private static void AddException(NmSemanticOwnerBlock owner, string reason, string? field, LocalDocumentIntelligenceCandidate candidate, string detail) => owner.Exceptions.Add(new NmSemanticException { Reason = reason, FieldName = field, SourcePage = candidate.Page, SourceRegionJson = candidate.SourceRegion?.GetRawText(), Detail = detail });
     public async Task<int> AnalyzePilotAsync(Guid nmDocumentId, CancellationToken ct)
     {
         var nm = await db.NmDocuments.Include(x => x.Document).SingleOrDefaultAsync(x => x.Id == nmDocumentId, ct)

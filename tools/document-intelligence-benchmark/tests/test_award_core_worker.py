@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates
 
 
 def words(*values):
@@ -42,6 +42,10 @@ class AwardCoreWorkerTests(unittest.TestCase):
     def test_two_owner_anchors_make_two_blocks(self):
         output = nm_pilot_candidates(1, words("1 Ramesh Kumar S/o Mohan Khasra 12//2 0-14 Rs. 200", "2 Suresh Kumar S/o Hari Khasra 13//2 0-10 Rs. 100"), 500, 500)
         self.assertEqual(2, sum(item["candidateType"] == "NmReviewRow" for item in output))
+    def test_semantic_nm_missing_schema_is_exception_not_review_row(self):
+        output = nm_semantic_candidates(1, words("unreadable source fragment"), 500)
+        self.assertEqual("NmSemanticException", output[0]["candidateType"])
+        self.assertEqual("PageSchemaMissing", output[0]["structuredPayload"]["reason"])
     def test_supplementary_parent_is_a_suggestion(self):
         output = narrative_core_and_statutory_candidates(1, words("Supplementary Award", "Award No: SUP-2/2026", "Main Award No. MAIN-1/2025"))
         core = next(item for item in output if item["candidateType"] == "AwardCore")["structuredPayload"]

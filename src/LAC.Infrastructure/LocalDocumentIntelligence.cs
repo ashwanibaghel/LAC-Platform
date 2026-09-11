@@ -18,7 +18,7 @@ public sealed class DocumentIntelligenceOptions
     public int MaxConcurrentJobs { get; set; } = 1;
 }
 
-public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false);
+public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false);
 
 public sealed record LocalDocumentIntelligenceCandidate(
     string CandidateType,
@@ -68,7 +68,7 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
                 filePath = input.FilePath,
                 targetAwardId = input.TargetAwardId,
                 selectedVillageId = input.SelectedVillageId,
-                options = new { processTables = true, nmPilot = input.NmPilot },
+                options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic },
                 selectedPages = input.SelectedPages
             }), ct);
 
