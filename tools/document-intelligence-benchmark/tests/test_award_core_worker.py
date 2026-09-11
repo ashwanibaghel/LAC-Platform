@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates
 
 
 def words(*values):
@@ -21,6 +21,27 @@ def words(*values):
 
 
 class AwardCoreWorkerTests(unittest.TestCase):
+    def test_nm_incomplete_fragment_never_becomes_review_row(self):
+        item = _nm_band(1, 1, [("Ramesh Khasra 12//2", {"x": 1, "y": 1, "width": 80, "height": 12})])
+        self.assertEqual("UnassignedSourceFragment", item["candidateType"])
+        self.assertEqual("FragmentOnly", item["structuredPayload"]["groupingState"])
+
+    def test_nm_safe_group_requires_independent_anchors(self):
+        item = _nm_band(1, 1, [("1 Ramesh Kumar S/o Mohan Khasra 12//2 0-14 Rs. 200", {"x": 1, "y": 1, "width": 200, "height": 12})])
+        self.assertEqual("NmReviewRow", item["candidateType"])
+        self.assertEqual("SafeForReview", item["structuredPayload"]["groupingState"])
+
+    def test_numeric_lines_cannot_open_owner_records(self):
+        output = nm_pilot_candidates(1, words("12//2 0-14 Rs. 200", "3 0-10 Rs. 100"), 500, 500)
+        self.assertFalse(any(item["candidateType"] == "NmReviewRow" for item in output))
+
+    def test_one_multiline_owner_keeps_numeric_continuations_in_one_block(self):
+        output = nm_pilot_candidates(1, words("1 Ramesh Kumar S/o Mohan", "Khasra 12//2 0-14 Rs. 200", "Compensation Rs. 20"), 500, 500)
+        self.assertEqual(1, sum(item["candidateType"] == "NmReviewRow" for item in output))
+
+    def test_two_owner_anchors_make_two_blocks(self):
+        output = nm_pilot_candidates(1, words("1 Ramesh Kumar S/o Mohan Khasra 12//2 0-14 Rs. 200", "2 Suresh Kumar S/o Hari Khasra 13//2 0-10 Rs. 100"), 500, 500)
+        self.assertEqual(2, sum(item["candidateType"] == "NmReviewRow" for item in output))
     def test_supplementary_parent_is_a_suggestion(self):
         output = narrative_core_and_statutory_candidates(1, words("Supplementary Award", "Award No: SUP-2/2026", "Main Award No. MAIN-1/2025"))
         core = next(item for item in output if item["candidateType"] == "AwardCore")["structuredPayload"]

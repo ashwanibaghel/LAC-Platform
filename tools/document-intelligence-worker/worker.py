@@ -389,29 +389,28 @@ def nm_pilot_candidates(page: int, words, image_width: int, image_height: int) -
     """
     lines = list(_lines(words))
     result = []
-    # A printed NM record normally occupies several nearby lines. Keep broad
-    # bands rather than pretending that OCR columns are authoritative.
-    band, serial = [], 0
-    for text, box in lines:
-        if not text.strip():
-            continue
-        if band and box["y"] - band[-1][1]["y"] > max(70, image_height * .025):
-            if band:
-                serial += 1
-                result.append(_nm_band(page, serial, band))
-            band = []
-        band.append((text, box))
-        if len(band) >= 4:
-            serial += 1
-            result.append(_nm_band(page, serial, band))
-            band = []
-    if band:
-        serial += 1
-        result.append(_nm_band(page, serial, band))
-    return result[:4]
+    starts = [i for i, (text, _) in enumerate(lines) if _nm_owner_start(text)]
+    if not starts:
+        return [_nm_band(page, i + 1, [line], True) for i, line in enumerate(lines) if line[0].strip()]
+    # Header/weak text before the first recognised owner must remain visible to
+    # a reviewer. It is never silently swallowed by the first owner block.
+    for i, line in enumerate(lines[:starts[0]]):
+        if line[0].strip():
+            result.append(_nm_band(page, -(i + 1), [line], True))
+    for block_number, start in enumerate(starts, 1):
+        end = starts[block_number] if block_number < len(starts) else len(lines)
+        result.append(_nm_band(page, block_number, lines[start:end]))
+    return result
 
 
-def _nm_band(page: int, serial: int, band) -> dict:
+def _nm_owner_start(text: str) -> bool:
+    lower = text.lower()
+    if "name of owner" in lower or "running total" in lower:
+        return False
+    return bool(re.search(r"\b[A-Za-z]{3,}(?:\s+[A-Za-z]{3,}){0,4}\s+(?:s/o|w/o|d/o|m/o)\s+[A-Za-z]{3,}", text, re.I))
+
+
+def _nm_band(page: int, serial: int, band, force_fragment: bool = False) -> dict:
     text = " ".join(value[0] for value in band)
     left = min(value[1]["x"] for value in band); top = min(value[1]["y"] for value in band)
     right = max(value[1]["x"] + value[1]["width"] for value in band); bottom = max(value[1]["y"] + value[1]["height"] for value in band)
@@ -422,21 +421,32 @@ def _nm_band(page: int, serial: int, band) -> dict:
     areas = re.findall(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b", text)
     money = re.search(r"(?:rs\.?|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)", text, re.I)
     person = re.sub(r"\s+", " ", text).strip()[:240]
+    # A band is safe only when it has all independent business anchors.  This
+    # intentionally rejects most weak NM OCR instead of inventing a record.
+    serial_anchor = bool(re.match(r"^\s*(?:s\.?\s*)?\d{1,4}\b", text, re.I))
+    name_anchor = _nm_owner_start(text)
+    field_count = int(bool(khasras)) + int(bool(areas)) + int(bool(money))
+    vertical_span = bottom - top
+    safe = not force_fragment and name_anchor and field_count >= 2
+    state = "SafeForReview" if safe else "FragmentOnly"
+    candidate_type = "NmReviewRow" if safe else "UnassignedSourceFragment"
     return {
-        "candidateType": "NmReviewRow",
+        "candidateType": candidate_type,
         "structuredPayload": {
             "sourceRow": f"pilot-{page}-{serial}", "recordedPersonText": person,
             "rawKhasrasText": raw_khasra, "rawAreaText": areas[0] if areas else None,
             "rawShareText": None, "entitlementAmount": money.group(1).replace(",", "") if money else None,
             "entitlementBasisText": None,
             "khasras": [{"rawKhasraText": raw_khasra, "qualifier": "min" if re.search(r"\bmin\b", raw_khasra, re.I) else None,
-                         "rawAreaText": areas[0] if areas else None, "rawShareText": None}]
+                         "rawAreaText": areas[0] if areas else None, "rawShareText": None}],
+            "groupingState": state,
+            "groupingReasons": {"serialAnchor": serial_anchor, "nameAnchor": name_anchor, "fieldCount": field_count, "verticalSpan": round(vertical_span, 1)}
         },
         "page": page,
         "sourceRegion": {"x": left, "y": top, "width": right-left, "height": bottom-top, "rotationDegrees": 90},
         "rawSourceText": text, "rawOcr": text, "normalizedSuggestion": None,
         "normalizationReason": None, "confidence": None,
-        "interpretationWarnings": ["Broad local OCR source band. Review and correct every field; no canonical Khasra is selected."],
+        "interpretationWarnings": ["Safe source group requires independent serial, name and field anchors; no canonical Khasra is selected."] if safe else ["Unassigned source fragment: evidence was insufficient to form a safe logical NM record."],
     }
 
 
