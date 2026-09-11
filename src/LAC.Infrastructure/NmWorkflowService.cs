@@ -23,7 +23,9 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         try
         {
             await using (var target = File.Create(localPdf)) await content.CopyToAsync(target, ct);
-            var result = await client.RunAsync(new(1, nm.DocumentId, localPdf, nm.AwardId ?? Guid.Empty, nm.VillageId, [1,10,20,30,40,50,60,70,75], true), ct);
+            // Representative spread across the register; never a full-document run.
+            var pages = new[] { 1,4,7,10,13,16,20,23,26,30,33,36,40,43,46,50,53,56,60,63,66,70,73,75 };
+            var result = await client.RunAsync(new(1, nm.DocumentId, localPdf, nm.AwardId ?? Guid.Empty, nm.VillageId, pages, true), ct);
             if (result.Status != "Completed") throw new NmWorkflowException("Local NM analysis did not complete.", 503);
             var rows = result.Candidates.Where(x => x.CandidateType == "NmReviewRow").Take(30).ToList();
             foreach (var candidate in rows)
@@ -37,6 +39,9 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
                 var khasras = p.GetProperty("khasras").EnumerateArray().Select(k => new NmKhasraInput(k.GetProperty("rawKhasraText").GetString() ?? "OCR fragment", k.TryGetProperty("qualifier", out var q) && q.ValueKind != System.Text.Json.JsonValueKind.Null ? q.GetString() : null, area, share, candidate.SourceRegion?.GetRawText())).ToList();
                 await AddReviewRowAsync(nm.Id, new(candidate.Page, sourceRow, candidate.SourceRegion?.GetRawText() ?? "{}", person, null, share, area, amount, null, khasras), ct);
             }
+            foreach (var fragment in result.Candidates.Where(x => x.CandidateType == "UnassignedSourceFragment"))
+                db.NmReviewFragments.Add(new NmReviewFragment { NmDocumentId = nm.Id, SourcePage = fragment.Page, SourceRegionJson = fragment.SourceRegion?.GetRawText() ?? "{}", RawOcrText = fragment.RawOcr ?? fragment.RawSourceText ?? "" });
+            await db.SaveChangesAsync(ct);
             return rows.Count;
         }
         finally { try { File.Delete(localPdf); } catch { } }
