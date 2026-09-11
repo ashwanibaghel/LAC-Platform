@@ -204,6 +204,36 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         if(string.IsNullOrWhiteSpace(old.RecordedPersonText)) throw new NmWorkflowException("Recorded person as per NM is required to confirm a row."); old.Status=NmReviewStatus.Verified; old.VerifiedBy=verifiedBy.Trim(); old.VerifiedAt=DateTimeOffset.UtcNow; await db.SaveChangesAsync(ct);
     }
 
+    public async Task<NmSemanticParcelEntry> ReviewSemanticAreaAsync(Guid entryId, string rawValue, string reviewedBy, CancellationToken ct)
+    {
+        var entry = await db.NmSemanticParcelEntries.Include(x => x.ParcelGroup).ThenInclude(x => x.OwnerBlock).ThenInclude(x => x.Exceptions).SingleOrDefaultAsync(x => x.Id == entryId, ct) ?? throw new NmWorkflowException("Semantic parcel was not found.", 404);
+        if (string.IsNullOrWhiteSpace(reviewedBy)) throw new NmWorkflowException("Reviewer name is required.");
+        var normalized = NormalizeSemanticArea(rawValue);
+        if (normalized is null) throw new NmWorkflowException("NM Area must use Bigha-Biswa format, for example 3-5 or 1-16.");
+        entry.AreaReviewerValueRaw = rawValue.Trim(); entry.AreaReviewerValueNormalized = normalized; entry.AreaReviewedBy = reviewedBy.Trim(); entry.AreaReviewedAt = DateTimeOffset.UtcNow; entry.AreaFieldState = "ResolvedByReviewer";
+        foreach (var exception in entry.ParcelGroup.OwnerBlock.Exceptions.Where(e => e.FieldName == "Area").ToList()) { entry.ParcelGroup.OwnerBlock.Exceptions.Remove(exception); db.NmSemanticExceptions.Remove(exception); }
+        RecomputeSemanticStatus(entry.ParcelGroup.OwnerBlock);
+        await db.SaveChangesAsync(ct); return entry;
+    }
+
+    public async Task<NmSemanticParcelEntry> MarkSemanticAreaUnreadableAsync(Guid entryId, string reviewedBy, CancellationToken ct)
+    {
+        var entry = await db.NmSemanticParcelEntries.Include(x => x.ParcelGroup).ThenInclude(x => x.OwnerBlock).ThenInclude(x => x.Exceptions).SingleOrDefaultAsync(x => x.Id == entryId, ct) ?? throw new NmWorkflowException("Semantic parcel was not found.", 404);
+        if (string.IsNullOrWhiteSpace(reviewedBy)) throw new NmWorkflowException("Reviewer name is required.");
+        entry.AreaReviewerValueRaw = null; entry.AreaReviewerValueNormalized = null; entry.AreaReviewedBy = reviewedBy.Trim(); entry.AreaReviewedAt = DateTimeOffset.UtcNow; entry.AreaFieldState = "SourceUnreadable";
+        foreach (var exception in entry.ParcelGroup.OwnerBlock.Exceptions.Where(e => e.FieldName == "Area").ToList()) { entry.ParcelGroup.OwnerBlock.Exceptions.Remove(exception); db.NmSemanticExceptions.Remove(exception); }
+        entry.ParcelGroup.OwnerBlock.Exceptions.Add(new NmSemanticException { Reason = "ParcelAreaMismatch", FieldName = "Area", SourcePage = entry.SourcePage, SourceRegionJson = entry.AreaSourceRegionJson, Detail = "Area was marked unreadable by the reviewer." });
+        RecomputeSemanticStatus(entry.ParcelGroup.OwnerBlock);
+        await db.SaveChangesAsync(ct); return entry;
+    }
+
+    private static void RecomputeSemanticStatus(NmSemanticOwnerBlock owner)
+    {
+        var group = owner.ParcelGroups.SingleOrDefault();
+        var ready = owner.Exceptions.Count == 0 && group is not null && group.Entries.Count > 0 && group.Entries.All(x => x.ValidationState == "ExactSourceMasterMatch" && !string.IsNullOrWhiteSpace(x.KhasraSourceRegionJson) && (!string.IsNullOrWhiteSpace(x.AreaSourceRegionJson) || x.AreaFieldState == "ResolvedByReviewer"));
+        owner.Status = ready ? NmSemanticBlockStatus.ReadyForCanonicalReview : NmSemanticBlockStatus.Exception;
+    }
+
     public async Task<int> CommitAsync(Guid nmDocumentId, string committedBy, CancellationToken ct)
     {
         var nm=await db.NmDocuments.Include(x=>x.ReviewRows).ThenInclude(x=>x.Khasras).SingleOrDefaultAsync(x=>x.Id==nmDocumentId,ct) ?? throw new NmWorkflowException("NM review was not found.",404);

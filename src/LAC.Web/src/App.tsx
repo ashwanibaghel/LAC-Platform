@@ -2245,6 +2245,8 @@ function FactVerificationDrawer({candidate,documentId,awardId,reviewer,reason,on
   </form><section className="evidence-viewer"><header><strong>Source · Page {page||"not identified"}</strong>{source&&<a href={source} target="_blank" rel="noreferrer">Open full PDF</a>}</header>{source?<iframe key={source} src={source} title={`Original PDF, initially page ${page}`}/>:<p>No valid document page is available. Confirmation is blocked.</p>}</section></aside>;
 }
 
+function NmSemanticReviewWorkspace(){const {nmId=""}=useParams();const session=useApi<any>(nmId?`/nm-documents/${nmId}/semantic-sessions/latest`:undefined);const blocks=useApi<any[]>(session.data?`/nm-semantic-sessions/${session.data.id}/owner-blocks`:undefined);const exceptions=useApi<any[]>(session.data?`/nm-semantic-sessions/${session.data.id}/exceptions`:undefined);if(session.loading||blocks.loading)return <LoadingState label="Loading semantic exceptions…"/>;if(session.error||blocks.error)return <ErrorState message={session.error||blocks.error||"Semantic review unavailable."}/>;return <><PageHeader eyebrow="Human review · semantic staging" title="NM semantic exception review"><p>Review only unresolved semantic facts. Source extraction remains preserved; canonical NM records are not created.</p></PageHeader><div className="section"><h2>Semantic analysis</h2><p>Owner blocks: {blocks.data?.length||0} · Exception fields: {exceptions.data?.length||0}</p>{(blocks.data||[]).map((b:any)=><article className="review-row" key={b.id}><strong>{b.recordedNameRaw||"Owner"}</strong><span>Father/spouse: {b.fatherOrSpouseRaw||"—"} · Residence: {b.residenceRaw||"—"} · Share: {b.shareRaw||"—"}</span><small>{b.status} · Page {b.pageStart}</small>{(b.parcels||[]).map((p:any)=><div key={p.id}><strong>Khasra:</strong> {p.rawKhasraText||"—"} · <strong>Area:</strong> {p.areaReviewerValueNormalized||p.normalizedAreaText||"Unresolved"} · <span>{p.validationState}</span></div>)}{(b.exceptions||[]).map((e:any)=><div className="form-message" key={e.id}>{e.reason}: {e.fieldName||"field"} — {e.detail}</div>)}</article>)}</div></>}
+
 function Notifications() {
   const [page, setPage] = useState(0);
   const [query, setQuery] = useState("");
@@ -2998,6 +3000,7 @@ function App() {
           <Route path="/awards" element={<Awards />} />
           <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
           <Route path="/awards/:id/nm/:nmId/review" element={<NmReviewWorkspace />} />
+          <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmSemanticReviewWorkspace />} />
           <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
           <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
           <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
