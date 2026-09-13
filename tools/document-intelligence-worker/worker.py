@@ -594,12 +594,31 @@ def main() -> int:
     parser.add_argument("--input", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--crop", action="store_true")
+    parser.add_argument("--render-page", action="store_true")
+    parser.add_argument("--rotate-clockwise", action="store_true")
     parser.add_argument("--pdf", type=Path)
     parser.add_argument("--page", type=int)
     parser.add_argument("--region")
     parser.add_argument("--pages", help="Comma-separated one-based pages for local diagnostic runs")
     parser.add_argument("--disable-court", action="store_true", help="Diagnostic only: retain perception but skip Court interpretation")
     args = parser.parse_args()
+    if args.render_page:
+        if not args.pdf or not args.pdf.is_file() or args.pdf.suffix.lower() != ".pdf" or not args.page or args.page < 1:
+            return fail("invalid local page render request")
+        try:
+            import fitz
+            from PIL import Image
+            document = fitz.open(args.pdf)
+            if args.page > len(document):
+                return fail("local page out of bounds")
+            pixmap = document[args.page - 1].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+            if args.rotate_clockwise:
+                image = image.rotate(90, expand=True)
+            image.save(args.output, "PNG", optimize=True)
+            return 0
+        except Exception as exc:
+            return fail(f"local page render failed: {exc}")
     if args.crop:
         if not args.pdf or not args.pdf.is_file() or args.pdf.suffix.lower() != ".pdf" or not args.region or not args.page or args.page < 1:
             return fail("invalid local crop request")

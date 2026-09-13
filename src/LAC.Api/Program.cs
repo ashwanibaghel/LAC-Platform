@@ -38,6 +38,7 @@ builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddScoped<AwardIngestionService>();
 builder.Services.AddScoped<NmWorkflowService>();
 builder.Services.AddScoped<DocumentSourceCropService>();
+builder.Services.AddScoped<DocumentPageImageService>();
 builder.Services.AddSingleton<IAwardPdfJobQueue, AwardPdfJobQueue>();
 builder.Services.Configure<DocumentIntelligenceOptions>(builder.Configuration.GetSection("DocumentIntelligence"));
 builder.Services.AddScoped<ILocalDocumentIntelligenceClient, LocalDocumentIntelligenceClient>();
@@ -325,9 +326,34 @@ api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, Cancell
 api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    // The NM review workspace stores the NM-document identifier, whereas this
+    // generic viewer is given a stored-document identifier elsewhere. Resolve
+    // that stable NM-to-document relationship so the original source remains
+    // viewable in the semantic review without duplicating a PDF or its storage.
+    if (document is null)
+    {
+        var sourceDocumentId = await db.NmDocuments.AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(x => (Guid?)x.DocumentId)
+            .SingleOrDefaultAsync(ct);
+        if (sourceDocumentId is not null)
+            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+    }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
     return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+});
+api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
+{
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    if (document is null)
+    {
+        var sourceDocumentId = await db.NmDocuments.AsNoTracking().Where(x => x.Id == id).Select(x => (Guid?)x.DocumentId).SingleOrDefaultAsync(ct);
+        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+    }
+    if (document is null) return Results.NotFound();
+    try { return Results.File(await renderer.RenderAsync(document.StoragePath, page, rotateClockwise: true, ct), "image/png"); }
+    catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 });
 
 api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =>

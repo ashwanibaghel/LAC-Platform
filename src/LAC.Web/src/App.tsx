@@ -1950,12 +1950,13 @@ function Award() {
 }
 function DocumentPdfViewer({documentId,initialPage=1}:{documentId:string;initialPage?:number}) {
   const src=`${api}/documents/${documentId}/content#page=${initialPage}&view=FitH&navpanes=0`;
+  const pageImage=`${api}/documents/${documentId}/page-image?page=${initialPage}&view=review`;
   return <div className="document-pdf-frame">
     <div className="document-pdf-toolbar">
-      <span>Use the PDF toolbar to zoom or rotate this source.</span>
+      <span>Rendered upright for review. Open the PDF for browser controls.</span>
       <a href={src} target="_blank" rel="noreferrer">Open full PDF</a>
     </div>
-    <iframe className="document-pdf-viewer" src={src} title={`Original PDF, page ${initialPage}`} />
+    <img className="document-pdf-viewer document-page-image" src={pageImage} alt={`Original PDF, page ${initialPage}`} />
   </div>;
 }
 function AwardDocumentsSection({awardId}:{awardId:string}) {

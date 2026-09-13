@@ -8,6 +8,31 @@
   flex-direction: column;
 }
 
+/* Review mode deliberately removes application chrome: reviewing a scanned
+   source is the task here, so the PDF gets the screen rather than navigation. */
+.app-shell:has(.nm-semantic-workspace) {
+  height: 100vh;
+  min-height: 0;
+}
+
+.app-shell:has(.nm-semantic-workspace) .sidebar {
+  display: none;
+}
+
+.workspace:has(.nm-semantic-workspace) .topbar {
+  height: 48px;
+  padding: 0 18px;
+}
+
+.workspace:has(.nm-semantic-workspace) .product-title small,
+.workspace:has(.nm-semantic-workspace) .environment-badge {
+  display: none;
+}
+
+.workspace:has(.nm-semantic-workspace) .global-search {
+  width: min(520px, 52vw);
+}
+
 .workspace:has(.nm-semantic-workspace) > main {
   width: 100%;
   max-width: none;
@@ -29,13 +54,13 @@
 
 .nm-semantic-toolbar {
   flex: 0 0 auto;
-  padding: 8px 20px;
+  padding: 6px 12px;
 }
 
 .nm-semantic-grid {
   flex: 1 1 auto;
   min-height: 0;
-  padding: 10px 14px 14px;
+  padding: 8px;
   overflow: hidden;
 }
 
@@ -60,8 +85,14 @@
   min-height: 0;
 }
 
+.document-page-image {
+  display: block;
+  object-fit: contain;
+  background: #202225;
+}
+
 @media (max-width: 1500px) and (min-width: 1051px) {
   .nm-semantic-grid {
-    grid-template-columns: 250px 330px minmax(0, 1fr);
+    grid-template-columns: 220px 290px minmax(0, 1fr);
   }
 }
