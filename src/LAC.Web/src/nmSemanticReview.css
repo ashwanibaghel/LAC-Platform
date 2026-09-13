@@ -69,10 +69,52 @@
   min-height: 0;
 }
 
+.document-pdf-frame {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.document-pdf-toolbar {
+  flex-wrap: wrap;
+}
+
 .document-page-image {
   display: block;
-  object-fit: contain;
+  min-width: 100%;
+  max-width: none;
+  height: auto;
+}
+
+.document-page-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   background: #202225;
+}
+
+.document-pdf-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.document-pdf-controls span {
+  min-width: 38px;
+  color: #51697d;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.document-pdf-controls .quiet-button {
+  min-height: 28px;
+  padding: 3px 8px;
+}
+
+.document-pdf-controls a {
+  white-space: nowrap;
 }
 
 @media (max-width: 1500px) and (min-width: 1051px) {

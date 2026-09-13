@@ -1949,14 +1949,15 @@ function Award() {
   );
 }
 function DocumentPdfViewer({documentId,initialPage=1}:{documentId:string;initialPage?:number}) {
+  const [zoom,setZoom]=useState(1);
   const src=`${api}/documents/${documentId}/content#page=${initialPage}&view=FitH&navpanes=0`;
   const pageImage=`${api}/documents/${documentId}/page-image?page=${initialPage}&view=review`;
   return <div className="document-pdf-frame">
     <div className="document-pdf-toolbar">
-      <span>Rendered upright for review. Open the PDF for browser controls.</span>
-      <a href={src} target="_blank" rel="noreferrer">Open full PDF</a>
+      <span>Scroll here to inspect the page. Ctrl + wheel zooms.</span>
+      <div className="document-pdf-controls"><button type="button" className="quiet-button" aria-label="Zoom out" onClick={()=>setZoom(value=>Math.max(.5,value-.25))} disabled={zoom<=.5}>−</button><span>{Math.round(zoom*100)}%</span><button type="button" className="quiet-button" aria-label="Zoom in" onClick={()=>setZoom(value=>Math.min(3,value+.25))} disabled={zoom>=3}>+</button><button type="button" className="quiet-button" aria-label="Fit page to width" onClick={()=>setZoom(1)} disabled={zoom===1}>Fit</button><a href={src} target="_blank" rel="noreferrer">Open full PDF</a></div>
     </div>
-    <img className="document-pdf-viewer document-page-image" src={pageImage} alt={`Original PDF, page ${initialPage}`} />
+    <div className="document-page-scroll" tabIndex={0} onWheel={event=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();setZoom(value=>Math.max(.5,Math.min(3,value+(event.deltaY<0?.25:-.25))));}}><img className="document-page-image" style={{width:`${zoom*100}%`}} src={pageImage} alt={`Original PDF, page ${initialPage}`} /></div>
   </div>;
 }
 function AwardDocumentsSection({awardId}:{awardId:string}) {
