@@ -48,9 +48,9 @@ class NmOwnerBlock:
 # Specific labels precede their broad suffixes: grand total must not be
 # consumed as total and structure compensation must not become land compensation.
 _LABELS = (
-    ("grand_total", ("grand total",)), ("additional_compensation", ("additional compensation", "23(1a)")),
+    ("grand_total", ("grand total", "final total")), ("additional_compensation", ("additional compensation", "23(1a)", "@ 12%")),
     ("structure_compensation", ("structure compensation",)), ("land_compensation", ("land compensation",)),
-    ("base_total", ("base total", "total")), ("solatium", ("solatium",)), ("interest", ("interest", "u/s 34")),
+    ("base_total", ("base total", "total (7", "total")), ("solatium", ("solatium", "@ 30%")), ("interest", ("interest", "u/s 34", "@ 9%")),
     ("land_class", ("land class", "class")), ("owner", ("name of owner", "owner etc", "name of", "owner")),
     ("khasra", ("khasra no", "khasra")), ("area", ("area", "bigha", "biswa")),
 )
@@ -63,6 +63,9 @@ _KHASRA = re.compile(r"\b(?:\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?|\d{1,3}
 _AREA = re.compile(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b")
 _DITTO = re.compile(r"^\s*(?:-\s*do\s*-|ditto|do\.?|same\s+as\s+above)\s*$", re.I)
 _KITA = re.compile(r"\bkita\b", re.I)
+_SHARE = re.compile(r"\bshare\s*[:\-]?\s*(\d{1,3}\s*/\s*\d{1,3})\b", re.I)
+_MONEY = re.compile(r"^(?:rs\.?|₹)?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?$|^\d+(?:\.\d{2})?$", re.I)
+_LAND_CLASS = re.compile(r"^[A-Za-z]{1,3}$")
 
 def detect_column_schema(page: int, tokens: Iterable[NmToken], page_width: float) -> NmColumnSchema | None:
     anchors: dict[str, float] = {}
@@ -117,7 +120,9 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             parent = _PARENTAGE.search(text)
             if parent and not current.parentage: current.parentage, current.parentage_token = parent.group(1).strip(), token
             elif text.lower().startswith("r/o"): current.residence, current.residence_token = text[3:].strip(), token
-            elif re.fullmatch(r"\d+\s*/\s*\d+", text): current.share_raw, current.share_token = text, token
+            else:
+                share = _SHARE.search(text)
+                if share: current.share_raw, current.share_token = share.group(1), token
         elif column == "khasra":
             if _DITTO.match(text):
                 if prior and prior.parcels and all(p.khasra_token and p.area_token for p in prior.parcels):
@@ -133,8 +138,12 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             if len(values) == 1 and current.parcels and not current.parcels[-1].inherited:
                 current.parcels[-1].raw_area, current.parcels[-1].area_token, current.parcels[-1].area_extraction_method, current.parcels[-1].area_confidence = values[0], token, "FullPageOcr", token.confidence
             elif values: current.exceptions.append("ParcelAreaMismatch")
-        elif column == "land_class" and current.parcels and not current.parcels[-1].inherited: current.parcels[-1].land_class, current.parcels[-1].land_class_token = text, token
-        elif column in {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}: current.components[column] = (text, token)
+        elif column == "land_class" and current.parcels and not current.parcels[-1].inherited:
+            if _LAND_CLASS.fullmatch(text): current.parcels[-1].land_class, current.parcels[-1].land_class_token = text.upper(), token
+            else: current.exceptions.append("LandClassUnresolved")
+        elif column in {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}:
+            if _MONEY.fullmatch(text.replace(" ", "")): current.components[column] = (text, token)
+            else: current.exceptions.append("CompensationUnresolved")
     for block in blocks:
         if not block.parcels: block.exceptions.append("IncompleteKhasra")
         if any(not parcel.inherited and parcel.raw_area is None for parcel in block.parcels): block.exceptions.append("ParcelAreaMismatch")
