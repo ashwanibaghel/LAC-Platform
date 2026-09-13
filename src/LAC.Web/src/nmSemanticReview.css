@@ -1,5 +1,67 @@
+/* The semantic review route is a workbench, not a document page.  Keep its
+   three panes inside the available application viewport and let each pane
+   own its scrolling. */
+.workspace:has(.nm-semantic-workspace) {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace:has(.nm-semantic-workspace) > main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.nm-semantic-workspace {
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.nm-semantic-toolbar {
+  flex: 0 0 auto;
+  padding: 8px 20px;
+}
+
+.nm-semantic-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 10px 14px 14px;
+  overflow: hidden;
+}
+
+.nm-exception-queue,
+.nm-owner-card,
+.nm-semantic-source {
+  height: 100%;
+  min-height: 0;
+}
+
+.nm-queue-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+
+.nm-owner-card {
+  max-height: none;
+}
+
+.nm-semantic-source {
+  min-height: 0;
+}
+
 @media (max-width: 1500px) and (min-width: 1051px) {
   .nm-semantic-grid {
-    grid-template-columns: 270px 360px minmax(390px, 1fr);
+    grid-template-columns: 250px 330px minmax(0, 1fr);
   }
 }
