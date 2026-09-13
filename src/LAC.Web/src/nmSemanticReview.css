@@ -2,35 +2,16 @@
    three panes inside the available application viewport and let each pane
    own its scrolling. */
 .workspace:has(.nm-semantic-workspace) {
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* Review mode deliberately removes application chrome: reviewing a scanned
-   source is the task here, so the PDF gets the screen rather than navigation. */
 .app-shell:has(.nm-semantic-workspace) {
-  height: 100vh;
+  height: 100dvh;
   min-height: 0;
-}
-
-.app-shell:has(.nm-semantic-workspace) .sidebar {
-  display: none;
-}
-
-.workspace:has(.nm-semantic-workspace) .topbar {
-  height: 48px;
-  padding: 0 18px;
-}
-
-.workspace:has(.nm-semantic-workspace) .product-title small,
-.workspace:has(.nm-semantic-workspace) .environment-badge {
-  display: none;
-}
-
-.workspace:has(.nm-semantic-workspace) .global-search {
-  width: min(520px, 52vw);
+  overflow: hidden;
 }
 
 .workspace:has(.nm-semantic-workspace) > main {
@@ -38,7 +19,8 @@
   max-width: none;
   margin: 0;
   padding: 0;
-  flex: 1 1 auto;
+  height: calc(100dvh - 62px);
+  flex: 0 0 calc(100dvh - 62px);
   min-height: 0;
   overflow: hidden;
 }
@@ -47,20 +29,22 @@
   height: 100%;
   min-height: 0;
   margin: 0;
-  display: flex;
-  flex-direction: column;
+  padding: 0;
+  display: block;
   overflow: hidden;
 }
 
 .nm-semantic-toolbar {
-  flex: 0 0 auto;
-  padding: 6px 12px;
+  height: 44px;
+  min-height: 44px;
+  padding: 5px 12px;
 }
 
 .nm-semantic-grid {
-  flex: 1 1 auto;
+  height: calc(100% - 44px);
+  flex: none;
   min-height: 0;
-  padding: 8px;
+  padding: 6px 8px 8px;
   overflow: hidden;
 }
 
