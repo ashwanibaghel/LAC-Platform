@@ -1,0 +1,5 @@
+@media (max-width: 1500px) and (min-width: 1051px) {
+  .nm-semantic-grid {
+    grid-template-columns: 270px 360px minmax(390px, 1fr);
+  }
+}
