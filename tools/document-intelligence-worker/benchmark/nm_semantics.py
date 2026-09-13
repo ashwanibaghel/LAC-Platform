@@ -5,6 +5,7 @@ dependency and never fills a source value from the Village master.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 import re
 from typing import Iterable
 
@@ -21,7 +22,18 @@ class NmColumnSchema:
     page: int; bands: tuple[tuple[str, float, float], ...]; confidence: str
     def column_for(self, token: NmToken) -> str | None:
         centre = token.x + token.width / 2
-        return next((role for role, left, right in self.bands if left <= centre < right), None)
+        role = next((role for role, left, right in self.bands if left <= centre < right), None)
+        if role in _COMPENSATION_COLUMNS:
+            # A bbox may graze a printed rule. Give it to the centre column
+            # only when that column owns strictly more of the bbox than every
+            # neighboring compensation band; ties remain unresolved.
+            overlaps = {
+                band_role: max(0.0, min(token.right, right) - max(token.x, left))
+                for band_role, left, right in self.bands if band_role in _COMPENSATION_COLUMNS
+            }
+            if not overlaps or overlaps.get(role, 0) <= max((value for band_role, value in overlaps.items() if band_role != role), default=0):
+                return None
+        return role
 
 @dataclass
 class NmParcel:
@@ -29,6 +41,20 @@ class NmParcel:
     khasra_token: NmToken | None = None; area_token: NmToken | None = None; land_class_token: NmToken | None = None
     area_extraction_method: str | None = None; area_confidence: float | None = None
     inherited: bool = False
+    inherited_from_sequence: int | None = None; ditto_token: NmToken | None = None
+
+@dataclass(frozen=True)
+class MoneyCellCandidate:
+    raw_amount: str
+    tokens: tuple[NmToken, ...]
+    column: str
+    def __iter__(self):
+        # Retain the tuple protocol used by existing semantic consumers while
+        # exposing every contributing source token for staging provenance.
+        yield self.raw_amount
+        yield self.tokens[0]
+    def __getitem__(self, index: int):
+        return (self.raw_amount, self.tokens[0])[index]
 
 @dataclass
 class NmOwnerBlock:
@@ -36,7 +62,7 @@ class NmOwnerBlock:
     residence: str | None = None; share_raw: str | None = None
     name_token: NmToken | None = None; parentage_token: NmToken | None = None; residence_token: NmToken | None = None; share_token: NmToken | None = None
     parcels: list[NmParcel] = field(default_factory=list)
-    components: dict[str, tuple[str, NmToken]] = field(default_factory=dict)
+    components: dict[str, MoneyCellCandidate] = field(default_factory=dict)
     exceptions: list[str] = field(default_factory=list)
     ditto_token: NmToken | None = None; inherited_from_sequence: int | None = None
     parcel_count_as_recorded: str | None = None; total_area_as_recorded: str | None = None
@@ -61,24 +87,124 @@ _OWNER = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z .'-]{2,}?)\s+\b(?:s/o|w/o|d/o|m/o
 # restore just that separator later; two-part values remain incomplete.
 _KHASRA = re.compile(r"\b(?:\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?|\d{1,3}\s*/\s*\d{1,3}\s*/\s*\d{1,3})(?:\s+min)?\b", re.I)
 _AREA = re.compile(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b")
-_DITTO = re.compile(r"^\s*(?:-\s*do\s*-|ditto|do\.?|same\s+as\s+above)\s*$", re.I)
+_DITTO = re.compile(r"^\s*(?:-\s*(?:do|tho)\s*-|ditto|do\.?|same\s+as\s+above)\s*$", re.I)
 _KITA = re.compile(r"\bkita\b", re.I)
 _SHARE = re.compile(r"\bshare\s*[:\-]?\s*(\d{1,3}\s*/\s*\d{1,3})\b", re.I)
 _MONEY = re.compile(r"^(?:rs\.?|₹)?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?$|^\d+(?:\.\d{2})?$", re.I)
 _LAND_CLASS = re.compile(r"^[A-Za-z]{1,3}$")
 
+_COMPENSATION_COLUMNS = {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}
+
+def _header_role(text: str) -> str | None:
+    """Classify a printed compensation header without using page coordinates.
+
+    OCR may insert harmless words (for example ``etc``) between the printed
+    words of a header, or read ``@`` as ``a``.  This is intentionally limited
+    to header-region phrase candidates; body values never pass through it.
+    """
+    compact = " ".join(text.lower().replace("@", "a").split())
+    if re.search(r"\bstructure\b.*\bcompensation\b", compact): return "structure_compensation"
+    if re.search(r"\bland\b.*\bcompensation\b", compact): return "land_compensation"
+    if "solatium" in compact: return "solatium"
+    if "compensation" in compact and re.search(r"\b(?:a\s*)?12\s*%", compact): return "additional_compensation"
+    if "interest" in compact: return "interest"
+    if "final total" in compact: return "grand_total"
+    if "total" in compact: return "base_total"
+    return None
+
+def _money_value(text: str) -> str | None:
+    """Accept a printed money cell, never header rates or Running Total."""
+    compact = text.replace(" ", "")
+    if "runningtotal" in compact.lower(): return None
+    if not _MONEY.fullmatch(compact): return None
+    candidate = compact
+    # A bare percentage/header numeral (for example, 30 in '@30%') is not an
+    # owner amount. Printed amounts retain a currency prefix, comma, or cents.
+    if not any(marker in candidate.lower() for marker in ("rs", "₹", ",", ".")): return None
+    return candidate
+
+def normalize_money_amount(raw: str | None) -> Decimal | None:
+    """Return a decimal only for an already complete, printed money cell.
+
+    This is deliberately a formatting-only normalization: it removes the
+    recognized currency marker and grouping commas, then lets ``Decimal``
+    preserve the source digits and cents exactly.  It never repairs OCR.
+    """
+    if raw is None:
+        return None
+    complete = _money_value(raw)
+    if complete is None:
+        return None
+    numeric = re.sub(r"^(?:rs\.?|₹)", "", complete, flags=re.I).replace(",", "")
+    try:
+        return Decimal(numeric)
+    except InvalidOperation:
+        return None
+
+def _money_cells(tokens: list[NmToken], column: str) -> list[MoneyCellCandidate]:
+    """Build only source-complete money cells from one printed row/column."""
+    cells: list[MoneyCellCandidate] = []
+    ordered = sorted(tokens, key=lambda token: token.x)
+    index = 0
+    while index < len(ordered):
+        pieces = [ordered[index]]; cursor = index + 1
+        # A continuation must be a near, same-baseline OCR piece. Its text is
+        # concatenated verbatim: punctuation and digits are never repaired.
+        while cursor < len(ordered):
+            previous, following = pieces[-1], ordered[cursor]
+            gap = following.x - previous.right
+            if abs((following.y + following.height / 2) - (previous.y + previous.height / 2)) > 18 or gap < -2 or gap > 35: break
+            pieces.append(following); cursor += 1
+        raw = "".join(token.text.replace(" ", "") for token in pieces)
+        value = _money_value(raw)
+        if value is not None:
+            cells.append(MoneyCellCandidate(value, tuple(pieces), column))
+        # A valid-looking prefix with an adjacent source continuation is not
+        # emitted independently: the whole source cell must validate.
+        index = cursor if len(pieces) > 1 else index + 1
+    return cells
+
 def detect_column_schema(page: int, tokens: Iterable[NmToken], page_width: float) -> NmColumnSchema | None:
+    source = list(tokens)
     anchors: dict[str, float] = {}
-    for token in tokens:
-        text = token.text.lower()
+    # Header OCR frequently splits printed labels ("Land" + "Compensation")
+    # into adjacent words. Build short same-line phrases before matching role
+    # labels, but only above the first owner row so body text cannot create
+    # synthetic column anchors.
+    owner_y = min((token.y for token in source if _OWNER.search(token.text)), default=float("inf"))
+    header = [token for token in source if token.y <= owner_y]
+    candidates = list(header)
+    for left in header:
+        for right in header:
+            if right is left or right.x <= left.x: continue
+            if abs((left.y + left.height / 2) - (right.y + right.height / 2)) > 45: continue
+            if right.x - left.right > 180: continue
+            candidates.append(NmToken(page, f"{left.text} {right.text}", left.x, min(left.y, right.y), right.right - left.x, max(left.height, right.height)))
+    for token in candidates:
+        text = token.text.lower().replace("@ ", "@")
+        compensation_role = _header_role(text)
+        if compensation_role is not None:
+            centre = token.x + token.width / 2
+            if compensation_role == "base_total" and "base_total" in anchors:
+                if centre > anchors["base_total"]: anchors.setdefault("grand_total", centre)
+            else:
+                anchors.setdefault(compensation_role, centre)
+            continue
         for role, labels in _LABELS:
-            if any(label in text for label in labels): anchors.setdefault(role, token.x + token.width / 2); break
+            if any(label.replace("@ ", "@") in text for label in labels):
+                centre = token.x + token.width / 2
+                if role == "base_total" and "total" in text and "base_total" in anchors:
+                    if centre > anchors["base_total"]: anchors.setdefault("grand_total", centre)
+                else:
+                    anchors.setdefault(role, centre)
+                break
     if len(anchors) < 3 or page_width <= 0: return None
     ordered = sorted(anchors.items(), key=lambda item: item[1])
     return NmColumnSchema(page, tuple((role, 0 if i == 0 else (ordered[i-1][1] + centre) / 2, page_width if i == len(ordered)-1 else (centre + ordered[i+1][1]) / 2) for i, (role, centre) in enumerate(ordered)), "PrintedHeaderAnchors")
 
 def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | None) -> list[NmOwnerBlock]:
     if schema is None: return []
+    tokens = list(tokens)
     blocks: list[NmOwnerBlock] = []; current: NmOwnerBlock | None = None; prior: NmOwnerBlock | None = None
     awaiting_kita_count = False; awaiting_kita_area = False
     for token in sorted(tokens, key=lambda item: (item.y, item.x)):
@@ -87,6 +213,10 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
         if column == "owner":
             owner = _OWNER.search(text)
             if owner:
+                # Ditto is allowed to see only the block directly above this
+                # owner in the same source flow. Do not retain an older owner
+                # merely because the intervening block had no usable parcels.
+                prior = current
                 current = NmOwnerBlock(token.page, len(blocks) + 1, recorded_name=owner.group(1).strip(), name_token=token, source_tokens=[token]); parent = _PARENTAGE.search(text)
                 if parent: current.parentage, current.parentage_token = parent.group(1).strip(), token
                 blocks.append(current); continue
@@ -115,7 +245,7 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             # that overlap; a two-part fraction such as a share is not.
             values = _KHASRA.findall(text)
             if values:
-                current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values); prior = current
+                current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values)
                 continue
             parent = _PARENTAGE.search(text)
             if parent and not current.parentage: current.parentage, current.parentage_token = parent.group(1).strip(), token
@@ -123,16 +253,19 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             else:
                 share = _SHARE.search(text)
                 if share: current.share_raw, current.share_token = share.group(1), token
+        elif column in {"khasra", "area", "land_class"} and _DITTO.match(text):
+            # Ditto is meaningful only in a printed parcel band. It can repeat
+            # land fields from the immediately preceding same-page owner, never
+            # identity, share, summaries, or compensation.
+            safe_prior = prior and prior.page == current.page and prior.parcels and all(p.khasra_token and p.area_token and not p.inherited for p in prior.parcels)
+            if safe_prior and not current.parcels:
+                current.ditto_token, current.inherited_from_sequence = token, prior.sequence
+                current.parcels.extend(NmParcel(p.raw_khasra, p.raw_area, p.land_class, p.khasra_token, p.area_token, p.land_class_token, inherited=True, inherited_from_sequence=prior.sequence, ditto_token=token) for p in prior.parcels)
+            else: current.exceptions.append("AmbiguousDittoScope")
         elif column == "khasra":
-            if _DITTO.match(text):
-                if prior and prior.parcels and all(p.khasra_token and p.area_token for p in prior.parcels):
-                    current.ditto_token, current.inherited_from_sequence = token, prior.sequence
-                    current.parcels.extend(NmParcel(p.raw_khasra, p.raw_area, p.land_class, p.khasra_token, p.area_token, p.land_class_token, inherited=True) for p in prior.parcels)
-                else: current.exceptions.append("AmbiguousDittoScope")
-            else:
-                values = _KHASRA.findall(text)
-                if not values: current.exceptions.append("IncompleteKhasra")
-                else: current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values); prior = current
+            values = _KHASRA.findall(text)
+            if not values: current.exceptions.append("IncompleteKhasra")
+            else: current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values)
         elif column == "area":
             values = _AREA.findall(text)
             if len(values) == 1 and current.parcels and not current.parcels[-1].inherited:
@@ -141,9 +274,52 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
         elif column == "land_class" and current.parcels and not current.parcels[-1].inherited:
             if _LAND_CLASS.fullmatch(text): current.parcels[-1].land_class, current.parcels[-1].land_class_token = text.upper(), token
             else: current.exceptions.append("LandClassUnresolved")
-        elif column in {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}:
-            if _MONEY.fullmatch(text.replace(" ", "")): current.components[column] = (text, token)
+        elif column in _COMPENSATION_COLUMNS:
+            money = _money_value(text)
+            if money: current.components[column] = MoneyCellCandidate(money, (token,), column)
             else: current.exceptions.append("CompensationUnresolved")
+    # Compensation cells belong to the owner whose vertical source span contains
+    # their baseline. Rebuild component bindings from those spans rather than
+    # carrying the mutable "current" owner through subsequent rows.
+    starts = sorted(blocks, key=lambda block: block.name_token.y if block.name_token else 0)
+    page_bottom = max((token.y + token.height for token in tokens), default=0)
+    for index, block in enumerate(starts):
+        if block.name_token is None: continue
+        start_y = block.name_token.y
+        end_y = starts[index + 1].name_token.y if index + 1 < len(starts) and starts[index + 1].name_token else page_bottom + 1
+        block.components = {}
+        # Same-baseline candidate rows are intentionally evaluated only inside
+        # the span. Column bands, not token order, determine component role.
+        summary_anchors = [token.y + token.height / 2 for token in tokens if start_y <= token.y + token.height / 2 < end_y and (_KITA.search(token.text) or "total area" in token.text.lower())]
+        # Synthetic/unit fixtures may omit the printed Kita label; in that
+        # case use the densest valid money row. Real pages still anchor on
+        # the printed summary grammar, rather than an arbitrary distance from
+        # Kita, so modest baseline skew remains part of one summary cluster.
+        summary_y = min(summary_anchors, key=lambda value: abs(value - start_y)) if summary_anchors else None
+        running_baselines = [token.y + token.height / 2 for token in tokens if start_y <= token.y + token.height / 2 < end_y and "running total" in token.text.lower()]
+        money_tokens = []
+        for token in tokens:
+            baseline = token.y + token.height / 2
+            column = schema.column_for(token)
+            if not (start_y <= baseline < end_y and column in _COMPENSATION_COLUMNS): continue
+            if any(abs(baseline - running_baseline) <= 18 for running_baseline in running_baselines): continue
+            # Keep malformed money-like pieces in the row cluster so a valid
+            # prefix cannot bypass an adjacent incomplete continuation.
+            if re.search(r"(?:rs\.?|₹|\d)", token.text, re.I) and "running total" not in token.text.lower():
+                money_tokens.append((baseline, column, token))
+        # Keep only the closest money baseline cluster to the Kita/total-area
+        # anchor; a later Running Total row must never become Final/Interest.
+        clusters: list[list[tuple[float, str, NmToken]]] = []
+        for item in sorted(money_tokens, key=lambda value: value[0]):
+            cluster = next((group for group in clusters if abs(group[-1][0] - item[0]) <= 18), None)
+            if cluster is None: clusters.append([item])
+            else: cluster.append(item)
+        if clusters:
+            selected = max(clusters, key=lambda group: len(group)) if summary_y is None else min(clusters, key=lambda group: (abs(sum(item[0] for item in group) / len(group) - summary_y), -len(group)))
+            for column in _COMPENSATION_COLUMNS:
+                row_tokens = [token for _, role, token in selected if role == column]
+                cells = _money_cells(row_tokens, column)
+                if len(cells) == 1: block.components[column] = cells[0]
     for block in blocks:
         if not block.parcels: block.exceptions.append("IncompleteKhasra")
         if any(not parcel.inherited and parcel.raw_area is None for parcel in block.parcels): block.exceptions.append("ParcelAreaMismatch")

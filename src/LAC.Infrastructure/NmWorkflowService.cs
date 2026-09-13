@@ -70,7 +70,7 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
         // worker invocation, so relationship fixup alone must not imply Update.
         db.NmSemanticOwnerBlocks.Add(owner);
         if (nameSource.ValueKind == JsonValueKind.Undefined || Source(fields, "share").ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", "OwnerOrShare", candidate, "Owner name and share must each retain individual source provenance.");
-        foreach (var component in payload.GetProperty("components").EnumerateObject()) { var value = component.Value; var source = Source(value, "source"); if (source.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", component.Name, candidate, "Compensation component lacks an individual source region."); owner.CompensationComponents.Add(new NmSemanticCompensationComponent { ComponentType = component.Name, RawAmountText = StringValue(value, "rawAmountText") ?? "", SourceSequence = owner.CompensationComponents.Count + 1, SourcePage = Page(source, candidate.Page), SourceRegionJson = Region(source) ?? "{}", SemanticState = source.ValueKind == JsonValueKind.Undefined ? "Exception" : "MappedByColumn" }); }
+        foreach (var component in payload.GetProperty("components").EnumerateObject()) { var value = component.Value; var source = Source(value, "source"); if (source.ValueKind == JsonValueKind.Undefined) AddException(owner, "MissingRequiredSourceEvidence", component.Name, candidate, "Compensation component lacks an individual source region."); owner.CompensationComponents.Add(new NmSemanticCompensationComponent { ComponentType = component.Name, RawAmountText = StringValue(value, "rawAmountText") ?? "", Amount = NormalizedMoneyAmount(StringValue(value, "normalizedAmount")), SourceSequence = owner.CompensationComponents.Count + 1, SourcePage = Page(source, candidate.Page), SourceRegionJson = Region(source) ?? "{}", SemanticState = source.ValueKind == JsonValueKind.Undefined ? "Exception" : "MappedByColumn" }); }
         var relations = payload.TryGetProperty("relations", out var relationItems) && relationItems.ValueKind == JsonValueKind.Array ? relationItems.EnumerateArray().ToArray() : [];
         foreach (var relation in relations)
         {
@@ -88,6 +88,7 @@ public sealed class NmWorkflowService(LacDbContext db, IDocumentStorage? storage
     private static int Page(JsonElement source, int fallback) => source.ValueKind != JsonValueKind.Undefined && source.TryGetProperty("page", out var page) ? page.GetInt32() : fallback;
     private static string? StringValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind != JsonValueKind.Null ? item.GetString() : null;
     private static decimal? DecimalValue(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.Number ? item.GetDecimal() : null;
+    private static decimal? NormalizedMoneyAmount(string? value) => decimal.TryParse(value, System.Globalization.NumberStyles.AllowDecimalPoint, System.Globalization.CultureInfo.InvariantCulture, out var amount) ? amount : null;
     private static string? NormalizeSemanticKhasra(string? raw, string? qualifier)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;

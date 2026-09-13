@@ -548,13 +548,13 @@ def recover_missing_nm_areas(page: int, blocks, schema, image, ocr):
 def nm_semantic_candidates(page: int, words, image_width: int, image=None, ocr=None) -> list[dict]:
     """Emit staging-only semantic observations. Missing schema is an exception."""
     try:
-        from benchmark.nm_semantics import NmToken, detect_column_schema, semantic_owner_blocks
+        from benchmark.nm_semantics import NmToken, detect_column_schema, normalize_money_amount, semantic_owner_blocks
     except ModuleNotFoundError:
         # The benchmark package is also available in a developer checkout.
         # Keep the semantic module local to the worker when running directly.
         import sys
         sys.path.insert(0, str(Path(__file__).parent / "benchmark"))
-        from nm_semantics import NmToken, detect_column_schema, semantic_owner_blocks
+        from nm_semantics import NmToken, detect_column_schema, normalize_money_amount, semantic_owner_blocks
     tokens = [NmToken(page, word.text, word.bounding_box.x, word.bounding_box.y, word.bounding_box.width, word.bounding_box.height, getattr(word, "confidence", None)) for word in words]
     schema = detect_column_schema(page, tokens, image_width)
     if schema is None:
@@ -572,6 +572,12 @@ def nm_semantic_candidates(page: int, words, image_width: int, image=None, ocr=N
     semantic_tokens = []
     for (role, _), group in grouped.items():
         group.sort(key=lambda item: item.x)
+        # Preserve individual compensation cells. Joining adjacent OCR words
+        # here can create a synthetic token spanning two money columns, making
+        # an otherwise ambiguous value look like a valid neighboring amount.
+        if role in {"land_compensation", "structure_compensation", "base_total", "solatium", "additional_compensation", "interest", "grand_total"}:
+            semantic_tokens.extend(group)
+            continue
         first = group[0]
         confidences = [item.confidence for item in group if item.confidence is not None]
         semantic_tokens.append(NmToken(page, " ".join(item.text for item in group), first.x, min(item.y for item in group), max(item.right for item in group) - first.x, max(item.height for item in group), min(confidences) if confidences else None))
@@ -582,7 +588,7 @@ def nm_semantic_candidates(page: int, words, image_width: int, image=None, ocr=N
     for block in blocks:
         box = {"x": min(token.x for token in block.source_tokens), "y": min(token.y for token in block.source_tokens), "width": max(token.right for token in block.source_tokens) - min(token.x for token in block.source_tokens), "height": max(token.y + token.height for token in block.source_tokens) - min(token.y for token in block.source_tokens), "rotationDegrees": 90}
         source = lambda token: None if token is None else {"page": token.page, "rawSourceText": token.text, "sourceRegion": token.region()}
-        payload = {"sourceSequence": block.sequence, "recordedNameRaw": block.recorded_name, "fatherOrSpouseRaw": block.parentage, "residenceRaw": block.residence, "shareRaw": block.share_raw, "fieldSources": {"recordedName": source(block.name_token), "fatherOrSpouse": source(block.parentage_token), "residence": source(block.residence_token), "share": source(block.share_token)}, "status": "AutoStructured" if block.auto_structured else "Exception", "parcelCountAsRecorded": block.parcel_count_as_recorded, "totalAreaAsRecorded": block.total_area_as_recorded, "parcels": [{"rawKhasraText": parcel.raw_khasra, "rawAreaText": parcel.raw_area, "normalizedAreaText": normalize_nm_area(parcel.raw_area), "areaExtractionMethod": parcel.area_extraction_method, "areaOcrConfidence": parcel.area_confidence, "landClassRaw": parcel.land_class, "isInherited": parcel.inherited, "khasraSource": source(parcel.khasra_token), "areaSource": source(parcel.area_token), "landClassSource": source(parcel.land_class_token)} for parcel in block.parcels], "components": {role: {"rawAmountText": value, "source": source(token)} for role, (value, token) in block.components.items()}, "relations": [] if block.ditto_token is None else [{"relationType": "ParcelInheritedFromPreviousOwnerBlock", "relatedSourceSequence": block.inherited_from_sequence, "marker": source(block.ditto_token)}], "exceptions": block.exceptions, "schema": schema.confidence}
+        payload = {"sourceSequence": block.sequence, "recordedNameRaw": block.recorded_name, "fatherOrSpouseRaw": block.parentage, "residenceRaw": block.residence, "shareRaw": block.share_raw, "fieldSources": {"recordedName": source(block.name_token), "fatherOrSpouse": source(block.parentage_token), "residence": source(block.residence_token), "share": source(block.share_token)}, "status": "AutoStructured" if block.auto_structured else "Exception", "parcelCountAsRecorded": block.parcel_count_as_recorded, "totalAreaAsRecorded": block.total_area_as_recorded, "parcels": [{"rawKhasraText": parcel.raw_khasra, "rawAreaText": parcel.raw_area, "normalizedAreaText": normalize_nm_area(parcel.raw_area), "areaExtractionMethod": parcel.area_extraction_method, "areaOcrConfidence": parcel.area_confidence, "landClassRaw": parcel.land_class, "isInherited": parcel.inherited, "khasraSource": source(parcel.khasra_token), "areaSource": source(parcel.area_token), "landClassSource": source(parcel.land_class_token)} for parcel in block.parcels], "components": {role: {"rawAmountText": value, "normalizedAmount": str(normalize_money_amount(value)), "source": source(token), "sources": [source(part) for part in cell.tokens]} for role, cell in block.components.items() for value, token in [tuple(cell)]}, "relations": [] if block.ditto_token is None else [{"relationType": "ParcelInheritedFromPreviousOwnerBlock", "relatedSourceSequence": block.inherited_from_sequence, "marker": source(block.ditto_token)}], "exceptions": block.exceptions, "schema": schema.confidence}
         output.append({"candidateType": "NmSemanticOwnerBlock", "structuredPayload": payload, "page": page, "sourceRegion": box, "rawSourceText": " ".join(token.text for token in block.source_tokens), "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Semantic staging only; canonical NM facts are not created."]})
     if not output:
         output.append({"candidateType": "NmSemanticException", "structuredPayload": {"reason": "OwnerUnreadable", "detail": "A page schema was found but no coherent owner block could be isolated."}, "page": page, "sourceRegion": None, "rawSourceText": None, "rawOcr": None, "normalizedSuggestion": None, "normalizationReason": None, "confidence": None, "interpretationWarnings": ["Page retained as semantic exception."]})
