@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using System.Text.Json;
+using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -12,8 +14,41 @@ namespace LAC.Tests;
 public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
 {
     private readonly HttpClient _client;
+    private readonly ApiFactory _factory;
 
-    public ApiNavigationTests(ApiFactory factory) => _client = factory.CreateClient();
+    public ApiNavigationTests(ApiFactory factory) { _factory = factory; _client = factory.CreateClient(); }
+
+    [Fact]
+    public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
+    {
+        var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };
+        var village = new Village { Name = "Review village" };
+        var nm = new NmDocument { Document = document, Village = village, Status = NmReviewStatus.NeedsReview };
+        var session = new NmSemanticAnalysisSession { NmDocument = nm, ParserVersion = "test", SourcePagesJson = "[1]", Status = NmSemanticSessionStatus.Completed };
+        var owner = new NmSemanticOwnerBlock { AnalysisSession = session, SourceSequence = 1, PageStart = 1, PageEnd = 1, RecordedNameRaw = "Review owner", ShareRaw = "1/3" };
+        var group = new NmSemanticParcelGroup { OwnerBlock = owner, SourceSequence = 1, ParcelCountAsRecorded = "3", TotalAreaAsRecorded = "6-3" };
+        var parcel = new NmSemanticParcelEntry { ParcelGroup = group, SourceSequence = 1, RawKhasraText = "26/21/3", RawAreaText = "6-3", LandClassRaw = "A", SourcePage = 1 };
+        var land = new NmSemanticCompensationComponent { OwnerBlock = owner, ComponentType = "land_compensation", RawAmountText = "Rs590,229.17", Amount = 590229.17m, SourcePage = 1, SemanticState = "MappedByColumn" };
+        var structure = new NmSemanticCompensationComponent { OwnerBlock = owner, ComponentType = "structure_compensation", RawAmountText = "Rs0.00", Amount = 0m, SourcePage = 1, SemanticState = "MappedByColumn" };
+        var running = new NmSemanticCompensationComponent { OwnerBlock = owner, ComponentType = "running_total", RawAmountText = "Rs999.00", Amount = 999m, SourcePage = 1, SemanticState = "RunningTotal" };
+        using (var scope = _factory.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); db.AddRange(session, owner, group, parcel, land, structure, running); await db.SaveChangesAsync(); }
+
+        using var response = await _client.GetAsync($"/api/nm-semantic-sessions/{session.Id}/review-workspace");
+        response.EnsureSuccessStatusCode();
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var card = json.RootElement.GetProperty("owners")[0];
+        Assert.Equal("3", card.GetProperty("summary").GetProperty("parcelCountAsRecorded").GetString());
+        Assert.Equal("6-3", card.GetProperty("summary").GetProperty("totalAreaAsRecorded").GetString());
+        var compensation = card.GetProperty("compensation");
+        var projectedLand = compensation.EnumerateArray().Single(item => item.GetProperty("componentType").GetString() == "land_compensation");
+        var projectedStructure = compensation.EnumerateArray().Single(item => item.GetProperty("componentType").GetString() == "structure_compensation");
+        var projectedFinal = compensation.EnumerateArray().Single(item => item.GetProperty("componentType").GetString() == "grand_total");
+        Assert.Equal("Rs590,229.17", projectedLand.GetProperty("rawAmountText").GetString()); Assert.Equal(590229.17m, projectedLand.GetProperty("amount").GetDecimal());
+        Assert.Equal(0m, projectedStructure.GetProperty("amount").GetDecimal()); Assert.True(projectedStructure.GetProperty("isResolved").GetBoolean());
+        Assert.Equal("NeedsReview", projectedFinal.GetProperty("semanticState").GetString()); Assert.Equal(JsonValueKind.Null, projectedFinal.GetProperty("amount").ValueKind);
+        Assert.DoesNotContain(compensation.EnumerateArray(), item => item.GetProperty("componentType").GetString() == "running_total");
+        Assert.Equal("Rs999.00", card.GetProperty("runningTotals")[0].GetProperty("rawAmountText").GetString());
+    }
 
     [Fact]
     public async Task Village_khasra_award_and_back_to_khasra_use_canonical_detail_endpoints()

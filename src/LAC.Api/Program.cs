@@ -517,12 +517,33 @@ api.MapGet("/nm-semantic-sessions/{id:guid}/review-workspace", async(Guid id,Lac
     var owners = await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x => x.AnalysisSessionId == session.Id).OrderBy(x => x.SourceSequence)
         .Include(x => x.Exceptions).Include(x => x.ParcelGroups).ThenInclude(x => x.Entries).ThenInclude(x => x.ExactKhasraCandidate)
         .Include(x => x.CompensationComponents).ToListAsync(ct);
+    var compensationDefinitions = new[] {
+        ("land_compensation", "Land Compensation"),
+        ("structure_compensation", "Structure Compensation"),
+        ("base_total", "Total"),
+        ("solatium", "Solatium @30%"),
+        ("additional_compensation", "Addl Compensation u/s23(1A) @12%"),
+        ("interest", "Addl Interest u/s34 @9%"),
+        ("grand_total", "Final Total")
+    };
+    NmCompensationReviewItem ProjectComponent(NmSemanticCompensationComponent component, string label) => new(
+        component.ComponentType, label, component.RawAmountText, component.Amount, component.SourcePage,
+        component.SemanticState, component.Amount is not null);
     var ownerCards = owners.Select(owner => new {
         owner.Id, owner.SourceSequence, owner.PageStart, owner.PageEnd, owner.RecordedNameRaw, owner.FatherOrSpouseRaw, owner.ResidenceRaw, owner.ShareRaw, owner.ReviewState, owner.ReviewerName, owner.ReviewerFatherOrSpouse, owner.ReviewerResidence, owner.ReviewerShare, owner.Status, owner.SourceRegionJson, owner.FieldSourcesJson,
+        Summary = owner.ParcelGroups.OrderBy(group => group.SourceSequence).Select(group => new { group.ParcelCountAsRecorded, group.TotalAreaAsRecorded }).FirstOrDefault(),
         Parcels = owner.ParcelGroups.SelectMany(group => group.Entries).OrderBy(parcel => parcel.SourceSequence).Select(parcel => new {
             parcel.Id, parcel.SourceSequence, parcel.RawKhasraText, parcel.NormalizedKhasraText, parcel.Qualifier, parcel.ReviewerKhasra, parcel.ReviewerKhasraNormalized, parcel.RawAreaText, parcel.NormalizedAreaText, parcel.AreaReviewerValueRaw, parcel.AreaReviewerValueNormalized, parcel.ReviewerLandClass, parcel.AreaFieldState, parcel.AreaReviewedAt, parcel.AreaReviewedBy, parcel.LandClassRaw, parcel.IsInherited, parcel.ValidationState, parcel.SourcePage, parcel.SourceRegionJson, parcel.KhasraSourceRegionJson, parcel.AreaSourceRegionJson, parcel.LandClassSourceRegionJson,
             Master = parcel.ExactKhasraCandidate == null ? null : new { parcel.ExactKhasraCandidate.DisplayNumber, parcel.ExactKhasraCandidate.AreaBigha, parcel.ExactKhasraCandidate.AreaBiswa, parcel.ExactKhasraCandidate.AreaBiswansi, parcel.ExactKhasraCandidate.TotalArea, parcel.ExactKhasraCandidate.AreaUnit }
         }).ToList(),
+        Compensation = compensationDefinitions.Select(definition => {
+            var component = owner.CompensationComponents.SingleOrDefault(item => item.ComponentType == definition.Item1);
+            return component is null
+                ? new NmCompensationReviewItem(definition.Item1, definition.Item2, null, null, null, "NeedsReview", false)
+                : ProjectComponent(component, definition.Item2);
+        }).ToList(),
+        RunningTotals = owner.CompensationComponents.Where(component => component.ComponentType == "running_total")
+            .Select(component => ProjectComponent(component, "Running Total")).ToList(),
         Exceptions = owner.Exceptions.Select(exception => new { exception.Id, exception.Reason, exception.FieldName, exception.Detail, exception.SourcePage, exception.SourceRegionJson }).ToList()
     }).ToList();
     var queue = ownerCards.SelectMany(owner => owner.Exceptions.Select(exception => new {
@@ -750,6 +771,7 @@ static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page,
 
 public partial class Program { }
 public sealed record PageResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
+public sealed record NmCompensationReviewItem(string ComponentType, string Label, string? RawAmountText, decimal? Amount, int? SourcePage, string SemanticState, bool IsResolved);
 public sealed record DistrictListItem(Guid Id, string Name, int SubDivisionCount);
 public sealed record DistrictReference(Guid Id, string Name);
 public sealed record DistrictDetail(Guid Id, string Name, IReadOnlyList<SubDivisionListItem> SubDivisions);
