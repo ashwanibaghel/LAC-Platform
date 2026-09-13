@@ -511,9 +511,10 @@ api.MapPost("/nm-semantic-parcels/{id:guid}/area/unreadable", async(Guid id, Rev
 api.MapPut("/nm-semantic-owners/{id:guid}/review", async(Guid id, ReviewNmSemanticOwnerRequest request, LacDbContext db, CancellationToken ct) => { var owner=await db.NmSemanticOwnerBlocks.Include(x=>x.ParcelGroups).ThenInclude(x=>x.Entries).SingleOrDefaultAsync(x=>x.Id==id,ct); if(owner is null)return Results.NotFound(); owner.ReviewerName=request.Name?.Trim();owner.ReviewerFatherOrSpouse=request.FatherOrSpouse?.Trim();owner.ReviewerResidence=request.Residence?.Trim();owner.ReviewerShare=request.Share?.Trim();owner.ReviewedBy=request.ReviewedBy.Trim();owner.ReviewedAt=DateTimeOffset.UtcNow;owner.ReviewState=request.SourceUnclear?"SourceUnclear":"Reviewed"; foreach(var item in request.Parcels){var entry=owner.ParcelGroups.SelectMany(x=>x.Entries).SingleOrDefault(x=>x.Id==item.Id);if(entry is null)continue;entry.ReviewerKhasra=item.Khasra?.Trim();entry.ReviewerKhasraNormalized=string.IsNullOrWhiteSpace(item.Khasra)?null:KhasraNumber.Normalize(item.Khasra);entry.AreaReviewerValueRaw=item.Area?.Trim();entry.ReviewerLandClass=item.LandClass?.Trim();}await db.SaveChangesAsync(ct);return Results.NoContent();});
 api.MapGet("/nm-semantic-sessions/{id:guid}/review-workspace", async(Guid id,LacDbContext db,CancellationToken ct) =>
 {
-    var session = await db.NmSemanticAnalysisSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    var session = await db.NmSemanticAnalysisSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct)
+        ?? await db.NmSemanticAnalysisSessions.AsNoTracking().Where(x => x.NmDocumentId == id).OrderByDescending(x => x.StartedAt).FirstOrDefaultAsync(ct);
     if (session is null) return Results.NotFound();
-    var owners = await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x => x.AnalysisSessionId == id).OrderBy(x => x.SourceSequence)
+    var owners = await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x => x.AnalysisSessionId == session.Id).OrderBy(x => x.SourceSequence)
         .Include(x => x.Exceptions).Include(x => x.ParcelGroups).ThenInclude(x => x.Entries).ThenInclude(x => x.ExactKhasraCandidate)
         .Include(x => x.CompensationComponents).ToListAsync(ct);
     var ownerCards = owners.Select(owner => new {
