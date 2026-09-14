@@ -381,11 +381,13 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
     if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
     if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
-    var villageId = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => (Guid?)x.VillageId).FirstOrDefaultAsync(ct);
-    if (villageId is null) return NotFound("Award", id);
+    var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
+    if (villageIds.Count == 0) return NotFound("Award", id);
     await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
     var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
-    db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role }); db.Add(new DocumentVillage { VillageId = villageId.Value, Document = document }); await db.SaveChangesAsync(ct);
+    db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role });
+    foreach (var villageId in villageIds) db.Add(new DocumentVillage { VillageId = villageId, Document = document });
+    await db.SaveChangesAsync(ct);
     return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
 }).DisableAntiforgery();
 api.MapGet("/villages/{id:guid}/matters", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Matters.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault() }).ToListAsync(ct)));

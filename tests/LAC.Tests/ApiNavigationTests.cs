@@ -63,6 +63,31 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Core_document_upload_links_the_single_document_to_every_award_village()
+    {
+        Guid awardId; Guid firstVillageId; Guid secondVillageId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var first = await db.Villages.OrderBy(x => x.Name).FirstAsync();
+            var second = new Village { Name = "Core document second village", SubDivisionId = first.SubDivisionId };
+            var award = new Award { AwardNumber = "MULTI-VILLAGE-CORE" };
+            db.Add(second); db.Add(award); db.AddRange(new AwardVillage { Award = award, VillageId = first.Id }, new AwardVillage { Award = award, Village = second });
+            await db.SaveChangesAsync(); awardId = award.Id; firstVillageId = first.Id; secondVillageId = second.Id;
+        }
+        using var content = new MultipartFormDataContent();
+        content.Add(new StreamContent(new MemoryStream("%PDF-test"u8.ToArray())), "file", "source.pdf");
+        using var response = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM", content);
+        response.EnsureSuccessStatusCode();
+        var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("documentId").GetGuid();
+        using var verify = _factory.Services.CreateScope(); var check = verify.ServiceProvider.GetRequiredService<LacDbContext>();
+        var links = await check.DocumentVillages.Where(x => x.DocumentId == created).Select(x => x.VillageId).ToListAsync();
+        Assert.Equal(new[] { firstVillageId, secondVillageId }.Order(), links.Order());
+        Assert.Equal(1, await check.Documents.CountAsync(x => x.Id == created));
+        await verify.ServiceProvider.GetRequiredService<IDocumentStorage>().DeleteAsync((await check.Documents.SingleAsync(x => x.Id == created)).StoragePath, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };
