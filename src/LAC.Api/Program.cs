@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using System.Text.Json.Serialization;
+using System.IO.Compression;
 
 var builder = WebApplication.CreateBuilder(args);
 var pdfMaxFileSizeMb = Math.Clamp(builder.Configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024);
@@ -402,6 +403,36 @@ api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationTo
 {
     var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
     return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
+});
+api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
+    return Results.Ok(await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.Document.UploadedAt).Select(x => new { x.DocumentId, x.DocumentRole, x.DisplayName, x.Document.OriginalFileName, x.Document.UploadedAt }).ToListAsync(ct));
+});
+api.MapPost("/matters/{id:guid}/documents", async (Guid id, string role, string? displayName, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
+    var matter = await db.Matters.SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
+    await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
+    var document = new Document { DocumentType = "Matter", OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
+    db.Add(document); db.Add(new DocumentVillage { Document = document, VillageId = matter.VillageId }); db.Add(new MatterDocument { MatterId = id, Document = document, DocumentRole = role?.Trim(), DisplayName = displayName?.Trim() }); await db.SaveChangesAsync(ct);
+    return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id });
+}).DisableAntiforgery();
+api.MapPost("/matters/{id:guid}/documents/link", async (Guid id, LinkMatterDocumentRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
+    var allowed = await db.Documents.AsNoTracking().AnyAsync(d => d.Id == request.DocumentId && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))), ct);
+    if (!allowed) return Validation("documentId", "Only a document from this Matter's Village or selected Award may be attached.");
+    if (!await db.MatterDocuments.AnyAsync(x => x.MatterId == id && x.DocumentId == request.DocumentId, ct)) db.Add(new MatterDocument { MatterId = id, DocumentId = request.DocumentId, DocumentRole = request.Role?.Trim(), DisplayName = request.DisplayName?.Trim() });
+    await db.SaveChangesAsync(ct); return Results.NoContent();
+});
+api.MapPost("/matters/{id:guid}/export", async (Guid id, ExportMatterDocumentsRequest request, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
+    var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
+    var requested = request.DocumentIds.Distinct().ToList(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
+    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct); using var zipStream = new MemoryStream(); using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true)) { var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (var document in docs) { var name = Path.GetFileName(document.OriginalFileName); var candidate = name; var n = 2; while (!names.Add(candidate)) candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}"; var entry = zip.CreateEntry(candidate, CompressionLevel.Fastest); await using var input = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new InvalidOperationException("A selected document is unavailable."); await using var output = entry.Open(); await input.CopyToAsync(output, ct); } }
+    return Results.File(zipStream.ToArray(), "application/zip", $"matter-{id:N}-documents.zip");
 });
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
@@ -920,6 +951,8 @@ public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int V
 public sealed record IdResponse(Guid Id);
 public sealed record CreateVillageAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Remarks);
 public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId);
+public sealed record LinkMatterDocumentRequest(Guid DocumentId, string? Role, string? DisplayName);
+public sealed record ExportMatterDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
 public sealed record KhatauniListItem(Guid Id, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string VerificationStatus, int KhataCount, int RecordedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<KhatauniRecord, KhatauniListItem>> Selector = x => new(x.Id, x.ReferenceNumber, x.RecordYearText, x.AsOfDate, x.VerificationStatus.ToString(), x.Khatas.Count, x.Khatas.SelectMany(k => k.KhasraLinks).Count()); }
 public sealed record KhataSummary(Guid Id, string KhataNumber, int KhasraCount, int OwnerCount, string ShareValidation, bool IsVerified);
 public sealed record KhatauniDetail(Guid Id, Guid VillageId, string VillageName, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, string? Remarks, string VerificationStatus, int Version, Guid? SourceDocumentId, string? SourceDocumentName, int TotalKhatas, int TotalLinkedKhasras, int TotalRecordedParties, IReadOnlyList<KhataSummary> Khatas);

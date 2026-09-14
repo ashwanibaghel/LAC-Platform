@@ -88,6 +88,24 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Matter_can_link_existing_village_document_but_rejects_unrelated_document()
+    {
+        Guid matterId; Guid allowedId; Guid unrelatedId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var village = await db.Villages.FirstAsync();
+            var matter = new Matter { VillageId = village.Id, Title = "Matter document test" }; var allowed = new Document { OriginalFileName = "allowed.pdf", StoragePath = "allowed.pdf" }; var unrelated = new Document { OriginalFileName = "other.pdf", StoragePath = "other.pdf" };
+            db.AddRange(matter, allowed, unrelated); db.Add(new DocumentVillage { Document = allowed, VillageId = village.Id }); await db.SaveChangesAsync(); matterId = matter.Id; allowedId = allowed.Id; unrelatedId = unrelated.Id;
+        }
+        using var allowedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = allowedId, role = "Application" });
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, allowedResponse.StatusCode);
+        using var rejectedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = unrelatedId, role = "Other" });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, rejectedResponse.StatusCode);
+        var linked = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/documents");
+        Assert.Equal(allowedId, linked[0].GetProperty("documentId").GetGuid());
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };
