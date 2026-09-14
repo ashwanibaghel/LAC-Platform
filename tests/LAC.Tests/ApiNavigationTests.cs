@@ -36,6 +36,33 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Matters_inherit_award_core_documents_without_creating_document_copies()
+    {
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+        var award = new Award { AwardNumber = "CORE-TEST" };
+        var document = new Document { DocumentType = "NM", OriginalFileName = "nm.pdf", StoragePath = "nm.pdf" };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = villageId });
+            db.Add(document); db.Add(new DocumentAward { Award = award, Document = document, CoreDocumentRole = "NM" });
+            await db.SaveChangesAsync();
+        }
+        async Task<Guid> Create(string title)
+        {
+            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", status = "Open", awardId = award.Id });
+            response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        }
+        var first = await Create("Dharambir"); var second = await Create("Second matter");
+        var firstDetail = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{first}");
+        var secondDetail = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{second}");
+        Assert.Equal(document.Id.ToString(), firstDetail.GetProperty("award").GetProperty("documents")[0].GetProperty("documentId").GetString());
+        Assert.Equal(document.Id.ToString(), secondDetail.GetProperty("award").GetProperty("documents")[0].GetProperty("documentId").GetString());
+        using var verify = _factory.Services.CreateScope(); Assert.Equal(1, await verify.ServiceProvider.GetRequiredService<LacDbContext>().Documents.CountAsync(x => x.Id == document.Id));
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };

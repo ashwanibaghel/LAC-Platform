@@ -696,6 +696,7 @@ function Villages() {
 
 function Village() {
   const { id = "" } = useParams();
+  const [section,setSection]=useState<"overview"|"core"|"matters"|"khasras">("overview");
   const village = useApi<any>(`/villages/${id}`);
   if (village.loading) return <LoadingState />;
   if (village.error) return <ErrorState message={village.error} />;
@@ -721,7 +722,7 @@ function Village() {
         eyebrow={`${data.subDivision.district.name} · ${data.subDivision.name}`}
         title={data.name}
       >
-        <p>Village Khasra workspace</p>
+        <p>Village acquisition workspace</p>
       </PageHeader>
       <div className="summary-strip">
         <Metric label="Khasras" value={data.totalKhasras} />
@@ -729,11 +730,22 @@ function Village() {
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
       </div>
-      <VillageOverview id={id} />
-      <VillageKhasras id={id} />
+      <div className="section-tabs">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
+      {section==="overview"&&<VillageOverview id={id} />}
+      {section==="core"&&<VillageCoreRecords id={id} />}
+      {section==="matters"&&<VillageMatters id={id} />}
+      {section==="khasras"&&<VillageKhasras id={id} />}
     </>
   );
 }
+function VillageCoreRecords({id}:{id:string}){
+  const [refresh,setRefresh]=useState(0);const [award,setAward]=useState({awardNumber:"",awardDate:"",awardType:""});const [upload,setUpload]=useState<{awardId:string;role:string;file?:File}>({awardId:"",role:"Award"});const [message,setMessage]=useState("");const records=useApi<any[]>(`/villages/${id}/core-records?r=${refresh}`);
+  const create=async()=>{try{await post(`/villages/${id}/awards`,{...award,awardDate:award.awardDate||null,remarks:null});setAward({awardNumber:"",awardDate:"",awardType:""});setRefresh(x=>x+1)}catch(e){setMessage(e instanceof Error?e.message:"Could not add Award.")}};
+  const send=async()=>{if(!upload.file)return;try{const form=new FormData();form.append("file",upload.file);await fetch(`${api}/awards/${upload.awardId}/core-documents?role=${encodeURIComponent(upload.role)}`,{method:"POST",body:form}).then(async r=>{if(!r.ok)throw new Error(await r.text())});setUpload({awardId:"",role:"Award"});setRefresh(x=>x+1)}catch(e){setMessage(e instanceof Error?e.message:"Could not upload core document.")}};
+  return <section className="section"><div className="section-heading"><div><h2>Core Records</h2><span>Award-level files are reusable by every Matter that selects the Award.</span></div></div><div className="field-grid"><label>Award number<input value={award.awardNumber} onChange={e=>setAward({...award,awardNumber:e.target.value})}/></label><label>Award date<input type="date" value={award.awardDate} onChange={e=>setAward({...award,awardDate:e.target.value})}/></label><label>Award type<input value={award.awardType} onChange={e=>setAward({...award,awardType:e.target.value})}/></label><button disabled={!award.awardNumber.trim()} onClick={()=>void create()}>Add Award</button></div>{records.loading?<LoadingState/>:records.data?.map(a=><article className="section" key={a.id}><h3><EntityLink to={route.award(a.id)}>{a.awardNumber}</EntityLink></h3><p>{date(a.awardDate)} · {a.awardType||"Type not recorded"}</p>{a.roles.map((r:any)=><p key={r.role}><strong>{r.role}</strong> · {r.count?`${r.count} file${r.count>1?"s":""}`:"Missing"}</p>)}<div className="field-grid"><select value={upload.awardId===a.id?upload.role:"Award"} onChange={e=>setUpload({...upload,awardId:a.id,role:e.target.value})}><option>Award</option><option>NM</option><option>StatementA</option><option>PossessionProceeding</option></select><input type="file" accept="application/pdf,.pdf" onChange={e=>setUpload({...upload,awardId:a.id,file:e.target.files?.[0]})}/><button disabled={upload.awardId!==a.id||!upload.file} onClick={()=>void send()}>Upload core document</button></div></article>)}{message&&<p role="alert">{message}</p>}</section>;
+}
+function VillageMatters({id}:{id:string}){const [refresh,setRefresh]=useState(0);const [form,setForm]=useState<any>({title:"",matterType:"Court Case",status:"Open",awardId:"",khasraReferenceText:""});const matters=useApi<any[]>(`/villages/${id}/matters?r=${refresh}`);const awards=useApi<any[]>(`/villages/${id}/core-records`);const create=async()=>{try{await post(`/villages/${id}/matters`,{...form,awardId:form.awardId||null,referenceNumber:null,remarks:null});setRefresh(x=>x+1);setForm({...form,title:"",khasraReferenceText:""})}catch{}};return <section className="section"><h2>Matters</h2><div className="field-grid"><label>Title<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Type<select value={form.matterType} onChange={e=>setForm({...form,matterType:e.target.value})}><option>Court Case</option><option>Compensation</option><option>Demarcation</option><option>Possession</option><option>Other</option></select></label><label>Award<select value={form.awardId} onChange={e=>setForm({...form,awardId:e.target.value})}><option value="">No Award selected</option>{awards.data?.map(a=><option key={a.id} value={a.id}>{a.awardNumber}</option>)}</select></label><label>Optional Khasra reference<input value={form.khasraReferenceText} onChange={e=>setForm({...form,khasraReferenceText:e.target.value})}/></label><button disabled={!form.title.trim()} onClick={()=>void create()}>Create Matter</button></div>{matters.data?.map(m=><p key={m.id}><EntityLink to={`/matters/${m.id}`}>{m.title}</EntityLink> · {m.matterType} · {m.award?.awardNumber||"No Award"}</p>)}<p className="hint">Case-specific documents will be added in the next phase.</p></section>}
+function Matter(){const {id=""}=useParams();const data=useApi<any>(`/matters/${id}`);if(data.loading)return <LoadingState/>;if(data.error||!data.data)return <ErrorState message={data.error||"Matter not found."}/>;const m=data.data;return <><Breadcrumbs items={[{label:"Village",to:route.village(m.villageId)},{label:m.title}]}/><PageHeader eyebrow="Matter workspace" title={m.title}><p>{m.matterType} · {m.status}</p></PageHeader><section className="section"><h2>Core documents for {m.award?.awardNumber||"selected Award"}</h2>{m.award?.documents?.length?m.award.documents.map((d:any)=><p key={d.documentId}><strong>{d.role}</strong> · <a href={`${api}/documents/${d.documentId}/content`} target="_blank" rel="noreferrer">{d.originalFileName}</a></p>):<p>No Award core documents are available.</p>}<p className="hint">These files are linked to the Award and are not copied into this Matter. Case-specific documents will be added in the next phase.</p></section></>}
 function VillageOverview({ id }: { id: string }) {
   const overview = useApi<any>(`/villages/${id}/overview`);
   if (overview.loading) return <LoadingState label="Loading village overview…" />;
@@ -3019,6 +3031,7 @@ function App() {
           <Route path="/subdivisions/:id" element={<Subdivision />} />
           <Route path="/villages" element={<Villages />} />
           <Route path="/villages/:id" element={<Village />} />
+          <Route path="/matters/:id" element={<Matter />} />
           <Route
             path="/villages/:villageId/lr/:lrId"
             element={<LrRegister />}

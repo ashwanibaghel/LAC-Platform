@@ -355,6 +355,52 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
     return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
 });
+api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
+    var awards = await db.Awards.AsNoTracking().Where(a => a.VillageLinks.Any(v => v.VillageId == id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
+        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
+    return Results.Ok(awards.Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, roles = new[] { "Award", "NM", "StatementA", "PossessionProceeding" }.Select(role => new { role, count = a.documents.Count(d => d.CoreDocumentRole == role), available = a.documents.Any(d => d.CoreDocumentRole == role) }), documents = a.documents }));
+});
+api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.AwardNumber)) return Validation("awardNumber", "Award number is required.");
+    if (!await db.Villages.AnyAsync(v => v.Id == id, ct)) return NotFound("Village", id);
+    var award = new Award { AwardNumber = request.AwardNumber.Trim(), AwardDate = request.AwardDate, AwardType = request.AwardType?.Trim(), Status = "Draft", Remarks = request.Remarks?.Trim() };
+    db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = id }); await db.SaveChangesAsync(ct);
+    return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id));
+});
+api.MapGet("/awards/{id:guid}/core-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
+    return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null).OrderByDescending(x => x.Document.UploadedAt)
+        .Select(x => new { x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType, x.Document.UploadedAt }).ToListAsync(ct));
+});
+api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
+    if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
+    if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
+    var villageId = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => (Guid?)x.VillageId).FirstOrDefaultAsync(ct);
+    if (villageId is null) return NotFound("Award", id);
+    await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
+    var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
+    db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role }); db.Add(new DocumentVillage { VillageId = villageId.Value, Document = document }); await db.SaveChangesAsync(ct);
+    return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
+}).DisableAntiforgery();
+api.MapGet("/villages/{id:guid}/matters", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Matters.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault() }).ToListAsync(ct)));
+api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Title)) return Validation("title", "Matter title is required."); if (!await db.Villages.AnyAsync(v => v.Id == id, ct)) return NotFound("Village", id);
+    var matter = new Matter { VillageId = id, Title = request.Title.Trim(), MatterType = request.MatterType?.Trim() is { Length: > 0 } type ? type : "Other", Status = request.Status?.Trim() is { Length: > 0 } status ? status : "Open", ReferenceNumber = request.ReferenceNumber?.Trim(), Remarks = request.Remarks?.Trim(), KhasraReferenceText = request.KhasraReferenceText?.Trim() };
+    if (request.AwardId is not null) { if (!await db.AwardVillages.AnyAsync(x => x.AwardId == request.AwardId && x.VillageId == id, ct)) return Validation("awardId", "Select an Award belonging to this village."); matter.AwardLinks.Add(new MatterAward { AwardId = request.AwardId.Value, IsPrimary = true }); }
+    db.Add(matter); await db.SaveChangesAsync(ct); return Results.Created($"/api/matters/{matter.Id}", new IdResponse(matter.Id));
+});
+api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
+    return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
+});
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
@@ -870,6 +916,8 @@ public sealed record LrReviewItem(Guid Id, Guid VillageLrId, Guid VillageId, str
 }
 public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int Verified, int Committed);
 public sealed record IdResponse(Guid Id);
+public sealed record CreateVillageAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Remarks);
+public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId);
 public sealed record KhatauniListItem(Guid Id, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string VerificationStatus, int KhataCount, int RecordedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<KhatauniRecord, KhatauniListItem>> Selector = x => new(x.Id, x.ReferenceNumber, x.RecordYearText, x.AsOfDate, x.VerificationStatus.ToString(), x.Khatas.Count, x.Khatas.SelectMany(k => k.KhasraLinks).Count()); }
 public sealed record KhataSummary(Guid Id, string KhataNumber, int KhasraCount, int OwnerCount, string ShareValidation, bool IsVerified);
 public sealed record KhatauniDetail(Guid Id, Guid VillageId, string VillageName, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, string? Remarks, string VerificationStatus, int Version, Guid? SourceDocumentId, string? SourceDocumentName, int TotalKhatas, int TotalLinkedKhasras, int TotalRecordedParties, IReadOnlyList<KhataSummary> Khatas);
