@@ -80,16 +80,23 @@ _LABELS = (
     ("land_class", ("land class", "class")), ("owner", ("name of owner", "owner etc", "name of", "owner")),
     ("khasra", ("khasra no", "khasra")), ("area", ("area", "bigha", "biswa")),
 )
-_PARENTAGE = re.compile(r"\b(?:s/o|w/o|d/o|m/o)\s+(.+)", re.I)
-_OWNER = re.compile(r"(?:^|\s)([A-Za-z][A-Za-z .'-]{2,}?)\s+\b(?:s/o|w/o|d/o|m/o)\b", re.I)
+_RELATIONSHIP_MARKER = r"(?:[swdm]\s*/?\s*o)"
+_PARENTAGE = re.compile(rf"\b{_RELATIONSHIP_MARKER}\s+(.+)", re.I)
+_OWNER = re.compile(rf"(?:^|\s)([A-Za-z][A-Za-z .'-]{{2,}}?)\s+\b{_RELATIONSHIP_MARKER}\b", re.I)
 # The register sometimes prints the rectangle separator as a single slash in
 # OCR (for example, ``26/21/3``).  Three explicit numeric parts are enough to
 # restore just that separator later; two-part values remain incomplete.
 _KHASRA = re.compile(r"\b(?:\d{1,3}\s*/\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})?|\d{1,3}\s*/\s*\d{1,3}\s*/\s*\d{1,3})(?:\s+min)?\b", re.I)
-_AREA = re.compile(r"\b\d+\s*[-–—]\s*\d+(?:\s*[-–—]\s*\d+)?\b")
+_AREA = re.compile(r"\b\d+\s*[-–—]+\s*\d+(?:\s*[-–—]+\s*\d+)?\b")
+# A two-part slash value may be a source-present but incomplete Khasra OCR
+# observation (for example, ``31/11``).  It is kept raw only when an Area on
+# the same printed baseline independently proves that it is a parcel row; it
+# is never normalized into additional numeric parts.
+_PARCEL_SOURCE = re.compile(r"\b\d{1,3}\s*/\s*\d{1,3}(?:\s*/\s*\d{1,3})*\b", re.I)
 _DITTO = re.compile(r"^\s*(?:-\s*(?:do|tho)\s*-|ditto|do\.?|same\s+as\s+above)\s*$", re.I)
 _KITA = re.compile(r"\bkita\b", re.I)
 _SHARE = re.compile(r"\bshare\s*[:\-]?\s*(\d{1,3}\s*/\s*\d{1,3})\b", re.I)
+_BARE_SHARE = re.compile(r"^\s*(\d{1,3}\s*/\s*\d{1,3})\s*$")
 _MONEY = re.compile(r"^(?:rs\.?|₹)?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?$|^\d+(?:\.\d{2})?$", re.I)
 _LAND_CLASS = re.compile(r"^[A-Za-z]{1,3}$")
 
@@ -207,6 +214,21 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
     tokens = list(tokens)
     blocks: list[NmOwnerBlock] = []; current: NmOwnerBlock | None = None; prior: NmOwnerBlock | None = None
     awaiting_kita_count = False; awaiting_kita_area = False
+    def baseline(token: NmToken) -> float: return token.y + token.height / 2
+    def same_row(left: NmToken, right: NmToken) -> bool: return abs(baseline(left) - baseline(right)) <= 22
+    def has_row_area(token: NmToken) -> bool:
+        return any(schema.column_for(candidate) == "area" and same_row(token, candidate) and len(_AREA.findall(candidate.text)) == 1 for candidate in tokens)
+    def attach_area(block: NmOwnerBlock, token: NmToken, value: str) -> bool:
+        candidates = [parcel for parcel in block.parcels if not parcel.inherited and parcel.khasra_token and parcel.raw_area is None and same_row(parcel.khasra_token, token)]
+        if len(candidates) != 1: return False
+        parcel = candidates[0]
+        parcel.raw_area, parcel.area_token, parcel.area_extraction_method, parcel.area_confidence = value, token, "FullPageOcr", token.confidence
+        return True
+    def attach_land_class(block: NmOwnerBlock, token: NmToken, value: str) -> bool:
+        candidates = [parcel for parcel in block.parcels if not parcel.inherited and parcel.khasra_token and parcel.land_class is None and same_row(parcel.khasra_token, token)]
+        if len(candidates) != 1: return False
+        candidates[0].land_class, candidates[0].land_class_token = value.upper(), token
+        return True
     for token in sorted(tokens, key=lambda item: (item.y, item.x)):
         column = schema.column_for(token); text = " ".join(token.text.split())
         if not text or column is None: continue
@@ -243,16 +265,26 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             # Printed Khasra cells begin left of the header-derived band on
             # these registers. A complete Khasra grammar is unambiguous in
             # that overlap; a two-part fraction such as a share is not.
+            share = _SHARE.search(text)
+            if share:
+                current.share_raw, current.share_token = share.group(1), token
+                continue
+            bare_share = _BARE_SHARE.fullmatch(text)
+            if bare_share and not current.share_raw and not current.parcels:
+                current.share_raw, current.share_token = bare_share.group(1), token
+                continue
             values = _KHASRA.findall(text)
             if values:
                 current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values)
                 continue
+            source_values = _PARCEL_SOURCE.findall(text)
+            if source_values and has_row_area(token):
+                current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in source_values)
+                continue
             parent = _PARENTAGE.search(text)
             if parent and not current.parentage: current.parentage, current.parentage_token = parent.group(1).strip(), token
             elif text.lower().startswith("r/o"): current.residence, current.residence_token = text[3:].strip(), token
-            else:
-                share = _SHARE.search(text)
-                if share: current.share_raw, current.share_token = share.group(1), token
+            else: pass
         elif column in {"khasra", "area", "land_class"} and _DITTO.match(text):
             # Ditto is meaningful only in a printed parcel band. It can repeat
             # land fields from the immediately preceding same-page owner, never
@@ -264,15 +296,20 @@ def semantic_owner_blocks(tokens: Iterable[NmToken], schema: NmColumnSchema | No
             else: current.exceptions.append("AmbiguousDittoScope")
         elif column == "khasra":
             values = _KHASRA.findall(text)
-            if not values: current.exceptions.append("IncompleteKhasra")
-            else: current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values)
+            if values:
+                current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in values)
+            else:
+                source_values = _PARCEL_SOURCE.findall(text)
+                if source_values and has_row_area(token): current.parcels.extend(NmParcel(raw_khasra=value, khasra_token=token) for value in source_values)
+                else: current.exceptions.append("IncompleteKhasra")
         elif column == "area":
             values = _AREA.findall(text)
-            if len(values) == 1 and current.parcels and not current.parcels[-1].inherited:
-                current.parcels[-1].raw_area, current.parcels[-1].area_token, current.parcels[-1].area_extraction_method, current.parcels[-1].area_confidence = values[0], token, "FullPageOcr", token.confidence
+            if len(values) == 1 and attach_area(current, token, values[0]):
+                pass
             elif values: current.exceptions.append("ParcelAreaMismatch")
-        elif column == "land_class" and current.parcels and not current.parcels[-1].inherited:
-            if _LAND_CLASS.fullmatch(text): current.parcels[-1].land_class, current.parcels[-1].land_class_token = text.upper(), token
+        elif column == "land_class" and current.parcels:
+            if _LAND_CLASS.fullmatch(text) and attach_land_class(current, token, text):
+                pass
             else: current.exceptions.append("LandClassUnresolved")
         elif column in _COMPENSATION_COLUMNS:
             money = _money_value(text)
