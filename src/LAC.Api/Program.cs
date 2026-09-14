@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Npgsql;
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using System.IO.Compression;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -404,6 +405,38 @@ api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationTo
 {
     var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
     return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
+});
+api.MapGet("/matters/{id:guid}/drafts", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
+    return Results.Ok(await db.MatterDrafts.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.UpdatedAt).Select(x => new { x.Id, x.Title, draftType = x.DraftType.ToString(), status = x.Status.ToString(), x.Revision, x.UpdatedAt }).ToListAsync(ct));
+});
+api.MapPost("/matters/{id:guid}/drafts", async (Guid id, CreateMatterDraftRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    if (!await db.Matters.AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
+    if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
+    if (!Enum.TryParse<MatterDraftType>(request.DraftType, true, out var draftType)) return Validation("draftType", "Choose Letter or Noting.");
+    var draft = new MatterDraft { MatterId = id, Title = title, DraftType = draftType };
+    db.Add(draft); await db.SaveChangesAsync(ct);
+    return Results.Created($"/api/matter-drafts/{draft.Id}", new IdResponse(draft.Id));
+});
+api.MapGet("/matter-drafts/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var draft = await db.MatterDrafts.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.MatterId, matterTitle = x.Matter.Title, x.Title, draftType = x.DraftType.ToString(), status = x.Status.ToString(), x.ContentJson, x.Revision, x.PageSize, x.Orientation, x.MarginTopMm, x.MarginRightMm, x.MarginBottomMm, x.MarginLeftMm, x.UpdatedAt }).SingleOrDefaultAsync(ct);
+    return draft is null ? NotFound("Matter draft", id) : Results.Ok(draft);
+});
+api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest request, LacDbContext db, CancellationToken ct) =>
+{
+    var draft = await db.MatterDrafts.SingleOrDefaultAsync(x => x.Id == id, ct); if (draft is null) return NotFound("Matter draft", id);
+    if (draft.Revision != request.ExpectedRevision) return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving.");
+    if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
+    if (!TryValidateDraftContent(request.ContentJson, out var contentProblem)) return Validation("contentJson", contentProblem);
+    if (!TryValidateDraftLayout(request, out var layoutProblem)) return Validation("pageLayout", layoutProblem);
+    draft.Title = title; draft.ContentJson = request.ContentJson; draft.PageSize = request.PageSize; draft.Orientation = request.Orientation;
+    draft.MarginTopMm = request.MarginTopMm; draft.MarginRightMm = request.MarginRightMm; draft.MarginBottomMm = request.MarginBottomMm; draft.MarginLeftMm = request.MarginLeftMm; draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
+    try { await db.SaveChangesAsync(ct); }
+    catch (DbUpdateConcurrencyException) { return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving."); }
+    return Results.Ok(new { draft.Id, draft.Revision, draft.UpdatedAt });
 });
 api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -862,6 +895,10 @@ app.Run();
 
 static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: $"{entityName} not found", detail: $"No {entityName.ToLowerInvariant()} exists for id {id}.");
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
+static bool TryDraftTitle(string? value, out string title, out string problem) { title = value?.Trim() ?? ""; problem = title.Length switch { 0 => "Draft title is required.", > 300 => "Draft title must be 300 characters or fewer.", _ => "" }; return problem.Length == 0; }
+static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, out string problem) { problem = ""; if (!string.Equals(request.PageSize, "A4", StringComparison.OrdinalIgnoreCase)) problem = "Only A4 page size is supported."; else if (request.Orientation is not ("Portrait" or "Landscape")) problem = "Orientation must be Portrait or Landscape."; else if (new[] { request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm }.Any(x => x < 0 || x > 50)) problem = "Margins must be between 0 and 50 mm."; return problem.Length == 0; }
+static bool TryValidateDraftContent(string? contentJson, out string problem) { problem = ""; if (string.IsNullOrWhiteSpace(contentJson)) { problem = "Structured editor content is required."; return false; } if (contentJson.Length > 1_000_000) { problem = "Draft content must be 1 MB or smaller."; return false; } try { using var document = JsonDocument.Parse(contentJson); if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("type", out var rootType) || rootType.GetString() != "doc") { problem = "Content must be a structured editor document."; return false; } if (!IsSafeDraftJson(document.RootElement)) { problem = "Draft content cannot include HTML, scripts, embeds, images, or external resources."; return false; } return true; } catch (JsonException) { problem = "Content must be valid structured editor JSON."; return false; } }
+static bool IsSafeDraftJson(JsonElement element) { if (element.ValueKind == JsonValueKind.Object) { foreach (var property in element.EnumerateObject()) { if (property.Name is "html" or "src" or "href") return false; if (property.Name == "type" && property.Value.ValueKind == JsonValueKind.String && property.Value.GetString() is "image" or "iframe" or "embed" or "script" or "html") return false; if (!IsSafeDraftJson(property.Value)) return false; } } else if (element.ValueKind == JsonValueKind.Array) foreach (var item in element.EnumerateArray()) if (!IsSafeDraftJson(item)) return false; else if (element.ValueKind == JsonValueKind.String) { var text = element.GetString() ?? ""; if (text.Contains("<script", StringComparison.OrdinalIgnoreCase) || text.Contains("<iframe", StringComparison.OrdinalIgnoreCase) || text.Contains("data:image", StringComparison.OrdinalIgnoreCase)) return false; } return true; }
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
@@ -963,6 +1000,8 @@ public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int V
 public sealed record IdResponse(Guid Id);
 public sealed record CreateVillageAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Remarks);
 public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId);
+public sealed record CreateMatterDraftRequest(string Title, string DraftType);
+public sealed record UpdateMatterDraftRequest(string Title, string ContentJson, string PageSize, string Orientation, decimal MarginTopMm, decimal MarginRightMm, decimal MarginBottomMm, decimal MarginLeftMm, int ExpectedRevision);
 public sealed record LinkMatterDocumentRequest(Guid DocumentId, string? Role, string? DisplayName);
 public sealed record ExportMatterDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
 public sealed record KhatauniListItem(Guid Id, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string VerificationStatus, int KhataCount, int RecordedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<KhatauniRecord, KhatauniListItem>> Selector = x => new(x.Id, x.ReferenceNumber, x.RecordYearText, x.AsOfDate, x.VerificationStatus.ToString(), x.Khatas.Count, x.Khatas.SelectMany(k => k.KhasraLinks).Count()); }

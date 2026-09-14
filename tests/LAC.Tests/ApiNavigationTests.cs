@@ -116,6 +116,39 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Matter_drafts_are_isolated_structured_and_revision_safe()
+    {
+        Guid villageId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            villageId = (await db.Villages.FirstAsync()).Id;
+        }
+        async Task<Guid> CreateMatter(string title)
+        {
+            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", status = "Open" });
+            response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        }
+        var firstMatter = await CreateMatter("Draft matter A"); var secondMatter = await CreateMatter("Draft matter B");
+        using var invalidType = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Bad", draftType = "Memo" });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, invalidType.StatusCode);
+        using var created = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Reply to Court", draftType = "Letter" });
+        created.EnsureSuccessStatusCode(); var draftId = (await created.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        var firstList = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{firstMatter}/drafts"); var secondList = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{secondMatter}/drafts");
+        Assert.Single(firstList.EnumerateArray()); Assert.Empty(secondList.EnumerateArray());
+        const string content = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Reply to Court\",\"marks\":[{\"type\":\"bold\"}]}]}]}";
+        var update = new { title = "Updated reply", contentJson = content, pageSize = "A4", orientation = "Landscape", marginTopMm = 18, marginRightMm = 19, marginBottomMm = 20, marginLeftMm = 21, expectedRevision = 0 };
+        using var saved = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", update); saved.EnsureSuccessStatusCode();
+        var savedBody = await saved.Content.ReadFromJsonAsync<JsonElement>(); Assert.Equal(1, savedBody.GetProperty("revision").GetInt32());
+        var reloaded = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{draftId}"); Assert.Equal(content, reloaded.GetProperty("contentJson").GetString()); Assert.Equal("Updated reply", reloaded.GetProperty("title").GetString());
+        using var stale = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", update); Assert.Equal(System.Net.HttpStatusCode.Conflict, stale.StatusCode);
+        using var unsafeContent = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Unsafe", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"image\",\"attrs\":{\"src\":\"data:image/png;base64,x\"}}]}", pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 1 });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, unsafeContent.StatusCode);
+        using var oversized = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Too large", contentJson = new string('x', 1_000_001), pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 1 });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, oversized.StatusCode);
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };
