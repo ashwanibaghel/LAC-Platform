@@ -296,11 +296,19 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
             logger.LogError(ex, "PDF extraction job {JobId} failed", jobId);
             // Discard the invalid pending page before recording the job failure.
             db.ChangeTracker.Clear();
-            var failed = await db.AwardDocumentExtractionJobs.SingleAsync(x => x.Id == jobId, CancellationToken.None); failed.Status = AwardDocumentExtractionJobStatus.Failed; failed.ErrorMessage = ex.Message; failed.FailedAt = DateTimeOffset.UtcNow; failed.CurrentStage = "Processing could not be completed"; failed.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(CancellationToken.None);
+            var failed = await db.AwardDocumentExtractionJobs.SingleAsync(x => x.Id == jobId, CancellationToken.None); failed.Status = AwardDocumentExtractionJobStatus.Failed; failed.ErrorMessage = OfficerMessage(ex); failed.FailedAt = DateTimeOffset.UtcNow; failed.CurrentStage = "Processing failed"; failed.UpdatedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync(CancellationToken.None);
         }
     }
 
     private bool UseLocalIntelligence() => intelligenceOptions?.Value.Enabled == true && intelligence is not null;
+
+    private static string OfficerMessage(Exception exception) => exception switch
+    {
+        TimeoutException => "Worker timed out.",
+        InvalidOperationException when exception.Message is "Python runtime not found." or "Worker script not found." or "Worker could not start." => exception.Message,
+        InvalidOperationException when exception.Message.Contains("not configured", StringComparison.OrdinalIgnoreCase) => "OCR worker is not configured.",
+        _ => "Processing could not be completed. Check the worker health endpoint."
+    };
 
     private async Task RunLocalIntelligenceAsync(AwardDocumentExtractionJob job, CancellationToken ct)
     {

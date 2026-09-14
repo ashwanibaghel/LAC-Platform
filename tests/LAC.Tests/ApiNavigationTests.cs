@@ -19,6 +19,23 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     public ApiNavigationTests(ApiFactory factory) { _factory = factory; _client = factory.CreateClient(); }
 
     [Fact]
+    public async Task Unknown_api_route_is_not_served_as_the_spa()
+    {
+        using var response = await _client.GetAsync("/api/does-not-exist");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Document_intelligence_health_is_read_only_and_reports_configuration()
+    {
+        using var response = await _client.GetAsync("/api/health/document-intelligence");
+        Assert.True(response.StatusCode is System.Net.HttpStatusCode.OK or System.Net.HttpStatusCode.ServiceUnavailable);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("enabled", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pythonExists", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };

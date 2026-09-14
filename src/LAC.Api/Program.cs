@@ -60,6 +60,10 @@ if (app.Environment.IsDevelopment()) app.UseDeveloperExceptionPage(); else app.U
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors();
+// The published React build is staged in wwwroot by scripts/publish-office.ps1.
+// Development still uses Vite; IIS serves this same-site build in production.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -84,6 +88,14 @@ api.MapGet("/health", async (LacDbContext db, IDocumentStorage storage, Cancella
     return (databaseReachable && documentStorage.Writable)
         ? Results.Ok(new { status = "Healthy", database = "Reachable", documentStorage = new { writable = true, freeBytes = documentStorage.FreeBytes, totalBytes = documentStorage.TotalBytes } })
         : Results.Json(new { status = "Degraded", database = databaseReachable ? "Reachable" : "Unavailable", documentStorage = new { writable = documentStorage.Writable, freeBytes = documentStorage.FreeBytes, totalBytes = documentStorage.TotalBytes } }, statusCode: StatusCodes.Status503ServiceUnavailable);
+});
+
+api.MapGet("/health/document-intelligence", (ILocalDocumentIntelligenceClient intelligence) =>
+{
+    var result = intelligence.GetPreflight();
+    return result.Status == "Misconfigured"
+        ? Results.Json(result, statusCode: StatusCodes.Status503ServiceUnavailable)
+        : Results.Ok(result);
 });
 
 api.MapGet("/districts", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
@@ -752,6 +764,9 @@ api.MapPost("/parties", async (CreatePartyRequest request, OwnershipService owne
 api.MapPost("/khatas/{id:guid}/shares", async (Guid id, AddShareRequest request, OwnershipService ownership, CancellationToken ct) => { try { var share = await ownership.AddShareAsync(id, request.PartyId, request.RawShareText, request.ShareNumerator, request.ShareDenominator, request.Remarks, request.VerificationStatus, ct); return Results.Created($"/api/khatas/{id}/shares/{share.Id}", new IdResponse(share.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
 api.MapPost("/khatauni/{id:guid}/verify", async (Guid id, VerifyKhatauniRequest request, OwnershipService ownership, CancellationToken ct) => { try { await ownership.VerifyKhatauniAsync(id, request.ExpectedVersion, ct); return Results.NoContent(); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } });
 
+// Keep unmatched API paths as real 404s; only browser routes receive index.html.
+api.MapFallback(() => Results.NotFound());
+app.MapFallbackToFile("index.html");
 app.Run();
 
 static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: $"{entityName} not found", detail: $"No {entityName.ToLowerInvariant()} exists for id {id}.");
