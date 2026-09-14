@@ -9,6 +9,7 @@ using System.IO.Compression;
 var builder = WebApplication.CreateBuilder(args);
 var pdfMaxFileSizeMb = Math.Clamp(builder.Configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024);
 var pdfMaxRequestBytes = pdfMaxFileSizeMb * 1024L * 1024L;
+var matterDocumentExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".png", ".jpg", ".jpeg", ".tif", ".tiff" };
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = pdfMaxRequestBytes);
 builder.Services.Configure<Microsoft.AspNetCore.Builder.IISServerOptions>(options => options.MaxRequestBodySize = pdfMaxRequestBytes);
 builder.Services.AddProblemDetails();
@@ -409,14 +410,24 @@ api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, Canc
     if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
     return Results.Ok(await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.Document.UploadedAt).Select(x => new { x.DocumentId, x.DocumentRole, x.DisplayName, x.Document.OriginalFileName, x.Document.UploadedAt }).ToListAsync(ct));
 });
+api.MapGet("/matters/{id:guid}/eligible-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
+    var linked = db.MatterDocuments.Where(x => x.MatterId == id).Select(x => x.DocumentId);
+    return Results.Ok(await db.Documents.AsNoTracking().Where(d => !linked.Contains(d.Id) && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))))
+        .OrderByDescending(d => d.UploadedAt).Select(d => new { d.Id, d.OriginalFileName, d.DocumentType, d.UploadedAt, source = d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId)) ? "Selected Award" : "Village" }).ToListAsync(ct));
+});
 api.MapPost("/matters/{id:guid}/documents", async (Guid id, string role, string? displayName, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
+    if (file.Length > pdfMaxRequestBytes) return Validation("file", $"Document exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
+    if (!matterDocumentExtensions.Contains(Path.GetExtension(file.FileName))) return Validation("file", "Choose a supported office document, image, or PDF file.");
     var matter = await db.Matters.SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
     await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
-    var document = new Document { DocumentType = "Matter", OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
-    db.Add(document); db.Add(new DocumentVillage { Document = document, VillageId = matter.VillageId }); db.Add(new MatterDocument { MatterId = id, Document = document, DocumentRole = role?.Trim(), DisplayName = displayName?.Trim() }); await db.SaveChangesAsync(ct);
-    return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id });
+    try { var document = new Document { DocumentType = "Matter", OriginalFileName = Path.GetFileName(file.FileName), StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
+        db.Add(document); db.Add(new DocumentVillage { Document = document, VillageId = matter.VillageId }); db.Add(new MatterDocument { MatterId = id, Document = document, DocumentRole = role?.Trim(), DisplayName = displayName?.Trim() }); await db.SaveChangesAsync(ct);
+        return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id }); }
+    catch { db.ChangeTracker.Clear(); await storage.DeleteAsync(stored.StoragePath, CancellationToken.None); throw; }
 }).DisableAntiforgery();
 api.MapPost("/matters/{id:guid}/documents/link", async (Guid id, LinkMatterDocumentRequest request, LacDbContext db, CancellationToken ct) =>
 {
@@ -431,8 +442,9 @@ api.MapPost("/matters/{id:guid}/export", async (Guid id, ExportMatterDocumentsRe
     var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
     var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
     var requested = request.DocumentIds.Distinct().ToList(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
-    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct); using var zipStream = new MemoryStream(); using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true)) { var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (var document in docs) { var name = Path.GetFileName(document.OriginalFileName); var candidate = name; var n = 2; while (!names.Add(candidate)) candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}"; var entry = zip.CreateEntry(candidate, CompressionLevel.Fastest); await using var input = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new InvalidOperationException("A selected document is unavailable."); await using var output = entry.Open(); await input.CopyToAsync(output, ct); } }
-    return Results.File(zipStream.ToArray(), "application/zip", $"matter-{id:N}-documents.zip");
+    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct); var tempPath = Path.Combine(Path.GetTempPath(), $"lac-matter-{Guid.NewGuid():N}.zip"); var zipStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 131072, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+    try { using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true)) { var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (var document in docs) { var name = Path.GetFileName(document.OriginalFileName); var candidate = name; var n = 2; while (!names.Add(candidate)) candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}"; var entry = zip.CreateEntry(candidate, CompressionLevel.Fastest); await using var input = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new InvalidOperationException("A selected document is unavailable."); await using var output = entry.Open(); await input.CopyToAsync(output, ct); } } zipStream.Position = 0; return Results.File(zipStream, "application/zip", $"matter-{id:N}-documents.zip"); }
+    catch { await zipStream.DisposeAsync(); throw; }
 });
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {

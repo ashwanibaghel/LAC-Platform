@@ -106,6 +106,16 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Matter_upload_rejects_unsupported_files_before_storage()
+    {
+        Guid matterId; using (var scope = _factory.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var village = await db.Villages.FirstAsync(); var matter = new Matter { VillageId = village.Id, Title = "Upload validation" }; db.Add(matter); await db.SaveChangesAsync(); matterId = matter.Id; }
+        using var content = new MultipartFormDataContent(); content.Add(new StreamContent(new MemoryStream([1, 2, 3])), "file", "unsafe.exe");
+        using var response = await _client.PostAsync($"/api/matters/{matterId}/documents?role=Other", content);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        using var verify = _factory.Services.CreateScope(); Assert.Empty(await verify.ServiceProvider.GetRequiredService<LacDbContext>().MatterDocuments.Where(x => x.MatterId == matterId).ToListAsync());
+    }
+
+    [Fact]
     public async Task Nm_owner_review_projects_summary_money_states_and_keeps_running_total_separate()
     {
         var document = new Document { DocumentType = "NM", OriginalFileName = "review.pdf", StoragePath = "review.pdf" };
