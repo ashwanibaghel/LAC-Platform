@@ -690,6 +690,21 @@
   margin-top: 0 !important;
 }
 
+/* Valid inline-only page displacement for a single paragraph that crosses a
+   physical sheet.  Width forces this zero-text widget onto its own line; the
+   following text starts on the next white sheet. */
+.draft-inline-page-break-spacer {
+  display: inline-block !important;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
+  vertical-align: top;
+  pointer-events: none;
+  user-select: none;
+}
+
 .draft-table-page-break-spacer {
   pointer-events: none;
   user-select: none;

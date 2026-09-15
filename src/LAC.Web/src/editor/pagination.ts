@@ -10,6 +10,7 @@ export interface PageBreak {
   heightPx: number;
   pageIndex: number;
   isTableBreak?: boolean;
+  isInlineBreak?: boolean;
 }
 
 export interface PaginationPluginState {
@@ -52,6 +53,23 @@ function createPageBreakSpacer(heightPx: number, pageNumber: number): HTMLElemen
   spacer.style.pointerEvents = "none";
   spacer.style.userSelect = "none";
   spacer.contentEditable = "false";
+  return spacer;
+}
+
+/**
+ * A paragraph can be taller than a physical page.  A block widget is invalid in
+ * that location, but an inline widget is valid inside a <p>.  Its full-line
+ * width makes the following text start at the next physical sheet while the
+ * ProseMirror document itself remains a single semantic paragraph.
+ */
+function createInlinePageBreakSpacer(heightPx: number, pageNumber: number): HTMLElement {
+  const spacer = document.createElement("span");
+  spacer.className = "draft-inline-page-break-spacer";
+  spacer.setAttribute("data-page-break", "true");
+  spacer.setAttribute("data-next-page", String(pageNumber));
+  spacer.style.height = `${Math.max(0, Math.round(heightPx * 10) / 10)}px`;
+  spacer.contentEditable = "false";
+  spacer.setAttribute("aria-hidden", "true");
   return spacer;
 }
 
@@ -116,6 +134,59 @@ function measureBlock(
   }
 }
 
+function findFirstPositionAtOrBelow(
+  view: EditorView,
+  from: number,
+  to: number,
+  targetY: number,
+  viewTop: number,
+  safeZoom: number
+): { pos: number; topY: number } | null {
+  let low = from;
+  let high = to;
+  let result: { pos: number; topY: number } | null = null;
+
+  while (low <= high) {
+    const pos = Math.floor((low + high) / 2);
+    try {
+      const topY = (view.coordsAtPos(pos).top - viewTop) / safeZoom;
+      if (topY >= targetY) {
+        result = { pos, topY };
+        high = pos - 1;
+      } else {
+        low = pos + 1;
+      }
+    } catch {
+      low = pos + 1;
+    }
+  }
+
+  if (!result) return null;
+
+  // coordsAtPos may first report the target Y in the middle of a wrapped text
+  // line (the cursor boundary around a word-wrap is ambiguous).  Move to that
+  // visual line's first safe document position so no leading word remains in
+  // the inter-sheet gap before the inline widget.
+  let firstPos = result.pos;
+  for (let steps = 0; firstPos > from && steps < 512; steps++) {
+    try {
+      const previousTopY = (view.coordsAtPos(firstPos - 1).top - viewTop) / safeZoom;
+      if (previousTopY < result.topY - 0.5) break;
+      firstPos--;
+    } catch {
+      break;
+    }
+  }
+  try {
+    return {
+      pos: firstPos,
+      topY: (view.coordsAtPos(firstPos).top - viewTop) / safeZoom,
+    };
+  } catch {
+    return result;
+  }
+}
+
 /**
  * Compute page breaks, inserting spacers ONLY between top-level doc blocks.
  *
@@ -154,7 +225,7 @@ function computePageBreaks(
 
   // Hide existing spacers to measure pure natural content flow
   const existingSpacers = view.dom.querySelectorAll<HTMLElement>(
-    ".draft-page-break-spacer, .draft-table-page-break-spacer"
+    ".draft-page-break-spacer, .draft-table-page-break-spacer, .draft-inline-page-break-spacer"
   );
   existingSpacers.forEach(el => { el.style.display = "none"; });
   void view.dom.offsetHeight; // synchronous reflow
@@ -209,10 +280,67 @@ function computePageBreaks(
 
       // Guard: if the block itself is taller than an entire printable page, we cannot
       // split it, so accept it across as many pages as it spans and advance pageIndex accordingly.
-      if (blockHeight >= printableHeightPx - 4) {
-        const pagesSpanned = Math.max(1, Math.ceil(blockBottomOnPage / printableHeightPx));
-        pageIndex += pagesSpanned - 1;
-        pageTopY += (pagesSpanned - 1) * printableHeightPx;
+      if (blockHeight >= printableHeightPx - 4 && node.type.name === "paragraph") {
+        // Keep a large paragraph together semantically, but move it to a fresh
+        // sheet if this page already has content.  Its internal line breaks are
+        // then rendered as inline-only pagination widgets below.
+        if (lastFitBottomY > pageTopY) {
+          const contentUsedPx = Math.max(0, lastFitBottomY - pageTopY);
+          const remainingPx = Math.max(0, printableHeightPx - contentUsedPx);
+          breaks.push({
+            pos: nodeStart,
+            heightPx: remainingPx + marginBottomPx + SHEET_GAP_PX + marginTopPx,
+            pageIndex: pageIndex + 1,
+          });
+          pageIndex++;
+          pageTopY = blockTopY;
+          lastFitBottomY = pageTopY;
+          i--;
+          continue;
+        }
+
+        // We deliberately locate safe *text positions* from Chrome's actual
+        // line coordinates.  The widgets are inline spans, so no invalid block
+        // DOM is inserted inside the ProseMirror paragraph.
+        const paragraphFrom = nodeStart + 1;
+        const paragraphTo = Math.max(paragraphFrom, nodeStart + nodeSize - 1);
+        const firstInlinePageTopY = pageTopY;
+        let nextPageTopY = pageTopY;
+        let searchFrom = paragraphFrom;
+        let priorInlineDisplacementPx = 0;
+        while (true) {
+          const overflow = findFirstPositionAtOrBelow(
+            view,
+            searchFrom,
+            paragraphTo,
+            nextPageTopY + printableHeightPx,
+            viewTop,
+            safeZoom
+          );
+          if (!overflow || overflow.pos >= paragraphTo) break;
+
+          // Each later inline break must account for the displacement already
+          // introduced by earlier inline widgets.  Calculating every height in
+          // isolation works for page two but drifts upward from page three when
+          // margins change.  Keep one continuous physical coordinate model:
+          // raw text coordinate + prior widgets + this widget = next sheet.
+          const nextPhysicalPageTopY = firstInlinePageTopY + (pageIndex + 1) * (totalPageHeightPx + SHEET_GAP_PX);
+          const spacerHeightPx = Math.max(
+            0,
+            nextPhysicalPageTopY - overflow.topY - priorInlineDisplacementPx
+          );
+          breaks.push({
+            pos: overflow.pos,
+            heightPx: spacerHeightPx,
+            pageIndex: pageIndex + 1,
+            isInlineBreak: true,
+          });
+          priorInlineDisplacementPx += spacerHeightPx;
+          pageIndex++;
+          nextPageTopY += printableHeightPx;
+          searchFrom = overflow.pos + 1;
+        }
+        pageTopY = nextPageTopY;
         lastFitBottomY = blockBottomY;
         continue;
       }
@@ -323,7 +451,7 @@ function computePageBreaks(
   } finally {
     // Restore existing spacers
     existingSpacers.forEach(el => {
-      el.style.display = el.tagName === "TR" ? "" : "block";
+      el.style.display = el.tagName === "TR" ? "" : el.classList.contains("draft-inline-page-break-spacer") ? "inline-block" : "block";
     });
   }
 
@@ -337,6 +465,21 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
   let isMeasuring = false;
   let rafId = 0;
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastLayoutSignature = "";
+
+  const getLayoutSignature = () => {
+    const profile = options.getProfile();
+    return [
+      profile.widthMm,
+      profile.heightMm,
+      profile.marginTopMm,
+      profile.marginRightMm,
+      profile.marginBottomMm,
+      profile.marginLeftMm,
+      profile.reservedTopMm ?? 0,
+      options.getZoom(),
+    ].join(":");
+  };
 
   return Extension.create<MatterDraftPaginationOptions, PaginationStorage>({
     name: "matterDraftPagination",
@@ -403,11 +546,17 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
               try {
                 const profile = extensionOptions.getProfile();
                 const zoom = extensionOptions.getZoom();
+                lastLayoutSignature = getLayoutSignature();
                 const { pageCount, breaks } = computePageBreaks(view, profile, zoom);
 
-                const signature = breaks
-                  .map(b => `${b.pos}:${Math.round(b.heightPx * 10)}`)
-                  .join("|");
+                // Profile changes can alter the editor padding even when the
+                // same document positions still happen to be selected.  Keep
+                // that stable layout identity in the decoration signature so
+                // A4/Legal and margin changes always replace stale spacers.
+                const signature = [
+                  lastLayoutSignature,
+                  ...breaks.map(b => `${b.pos}:${Math.round(b.heightPx * 10)}`),
+                ].join("|");
                 const currentState = paginationPluginKey.getState(view.state);
 
                 if (
@@ -421,6 +570,8 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                         b.pos,
                         b.isTableBreak
                           ? () => createTableRowSpacer(b.heightPx, b.pageIndex + 1)
+                          : b.isInlineBreak
+                            ? () => createInlinePageBreakSpacer(b.heightPx, b.pageIndex + 1)
                           : () => createPageBreakSpacer(b.heightPx, b.pageIndex + 1),
                         {
                           // side: -1 → widget appears BEFORE the node at `pos`
@@ -485,9 +636,26 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
             return {
               update(view, prevState) {
                 const docChanged = !view.state.doc.eq(prevState.doc);
-                const layoutChanged = !!view.state.tr.getMeta("layoutChanged");
+                const layoutChanged = getLayoutSignature() !== lastLayoutSignature;
 
                 if (!docChanged && !layoutChanged) {
+                  return;
+                }
+
+                // A profile change alters CSS padding before the next measure.
+                // Remove the old render-only widgets first so their former
+                // physical displacement cannot be reused against new margins.
+                if (layoutChanged) {
+                  const current = paginationPluginKey.getState(view.state);
+                  if (current?.breaks.length) {
+                    view.dispatch(view.state.tr.setMeta(paginationPluginKey, {
+                      pageCount: 1,
+                      breaks: [],
+                      decorations: DecorationSet.empty,
+                      signature: "",
+                    } satisfies PaginationPluginState));
+                  }
+                  scheduleMeasurement(0);
                   return;
                 }
 
