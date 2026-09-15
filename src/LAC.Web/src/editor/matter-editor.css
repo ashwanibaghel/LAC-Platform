@@ -668,12 +668,16 @@
 }
 
 .draft-page-break-spacer {
-  display: block;
+  display: block !important;
   width: 100%;
   pointer-events: none;
   user-select: none;
   background: transparent;
   box-sizing: border-box;
+  /* Must not collapse — not a paragraph margin */
+  overflow: hidden;
+  font-size: 0;
+  line-height: 0;
 }
 
 .draft-table-page-break-spacer {

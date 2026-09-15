@@ -1,0 +1,165 @@
+[
+  {
+    "page": 1,
+    "khasra": "26/21/3",
+    "crop": {
+      "x": 361,
+      "y": 589,
+      "width": 129,
+      "height": 36,
+      "file": "page-1-parcel-1.png"
+    },
+    "observations": [
+      {
+        "scale": 1,
+        "tokens": []
+      },
+      {
+        "scale": 2,
+        "tokens": [
+          {
+            "text": "3",
+            "x": 388.5,
+            "y": 601.0,
+            "width": 27.0,
+            "height": 23.5,
+            "confidence": 0.99936
+          },
+          {
+            "text": "--5",
+            "x": 405.0,
+            "y": 603.0,
+            "width": 41.0,
+            "height": 21.5,
+            "confidence": 0.93923
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "page": 1,
+    "khasra": "261/21/2",
+    "crop": {
+      "x": 361,
+      "y": 613,
+      "width": 129,
+      "height": 37,
+      "file": "page-1-parcel-2.png"
+    },
+    "observations": [
+      {
+        "scale": 1,
+        "tokens": [
+          {
+            "text": "3",
+            "x": 393.0,
+            "y": 613.0,
+            "width": 15.0,
+            "height": 12.0,
+            "confidence": 0.99753
+          },
+          {
+            "text": "- 3",
+            "x": 408.0,
+            "y": 613.0,
+            "width": 31.0,
+            "height": 15.0,
+            "confidence": 0.55982
+          },
+          {
+            "text": "0",
+            "x": 392.0,
+            "y": 631.0,
+            "width": 18.0,
+            "height": 18.0,
+            "confidence": 0.99901
+          },
+          {
+            "text": "-- 9",
+            "x": 406.0,
+            "y": 628.0,
+            "width": 36.0,
+            "height": 21.0,
+            "confidence": 0.91494
+          }
+        ]
+      },
+      {
+        "scale": 2,
+        "tokens": [
+          {
+            "text": "3",
+            "x": 394.0,
+            "y": 613.0,
+            "width": 13.5,
+            "height": 11.0,
+            "confidence": 0.98751
+          },
+          {
+            "text": "-- 5",
+            "x": 408.0,
+            "y": 613.0,
+            "width": 32.0,
+            "height": 16.0,
+            "confidence": 0.84109
+          },
+          {
+            "text": "0",
+            "x": 393.0,
+            "y": 632.0,
+            "width": 16.0,
+            "height": 16.5,
+            "confidence": 0.99866
+          },
+          {
+            "text": "-- 9",
+            "x": 407.0,
+            "y": 628.5,
+            "width": 34.5,
+            "height": 21.0,
+            "confidence": 0.94736
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "page": 30,
+    "khasra": "11//24/1",
+    "crop": {
+      "x": 404,
+      "y": 530,
+      "width": 126,
+      "height": 36,
+      "file": "page-30-parcel-2.png"
+    },
+    "observations": [
+      {
+        "scale": 1,
+        "tokens": []
+      },
+      {
+        "scale": 2,
+        "tokens": [
+          {
+            "text": "3",
+            "x": 420.0,
+            "y": 539.0,
+            "width": 22.5,
+            "height": 24.0,
+            "confidence": 0.55292
+          },
+          {
+            "text": "--10",
+            "x": 434.5,
+            "y": 537.5,
+            "width": 48.5,
+            "height": 28.0,
+            "confidence": 0.9785
+          }
+        ]
+      }
+    ]
+  }
+]

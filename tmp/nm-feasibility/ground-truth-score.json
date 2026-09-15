@@ -1,0 +1,253 @@
+{
+  "records": 17,
+  "pages": [
+    1,
+    10,
+    20,
+    30,
+    40,
+    50,
+    60,
+    70,
+    75
+  ],
+  "person": {
+    "ExactUseful": 8,
+    "Useful": 2,
+    "GroundTruthUnreadable": 1,
+    "WrongOrManualRequired": 6
+  },
+  "khasraRaw": {
+    "GroundTruthUnreadable": 5,
+    "WrongOrManualRequired": 6,
+    "ExactUseful": 6
+  },
+  "khasraNormalizedValid": 0,
+  "khasraMasterExact": 0,
+  "area": {
+    "GroundTruthUnreadable": 4,
+    "ExactUseful": 12,
+    "WrongOrManualRequired": 1
+  },
+  "share": {
+    "ExactUseful": 10,
+    "GroundTruthUnreadable": 1,
+    "WrongOrManualRequired": 6
+  },
+  "amount": {
+    "GroundTruthUnreadable": 4,
+    "ExactUseful": 12,
+    "WrongOrManualRequired": 1
+  },
+  "grouping": {
+    "Whole": 6,
+    "Partial": 10,
+    "Wrong": 1
+  },
+  "rows": [
+    {
+      "page": 1,
+      "record": "1a",
+      "person": "ExactUseful",
+      "khasraRaw": "GroundTruthUnreadable",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "GroundTruthUnreadable",
+      "amount": "GroundTruthUnreadable",
+      "grouping": "Whole"
+    },
+    {
+      "page": 1,
+      "record": "1b",
+      "person": "Useful",
+      "khasraRaw": "GroundTruthUnreadable",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "GroundTruthUnreadable",
+      "amount": "GroundTruthUnreadable",
+      "grouping": "Partial"
+    },
+    {
+      "page": 1,
+      "record": "1c",
+      "person": "GroundTruthUnreadable",
+      "khasraRaw": "GroundTruthUnreadable",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "GroundTruthUnreadable",
+      "area": "GroundTruthUnreadable",
+      "amount": "GroundTruthUnreadable",
+      "grouping": "Wrong"
+    },
+    {
+      "page": 10,
+      "record": "18",
+      "person": "ExactUseful",
+      "khasraRaw": "GroundTruthUnreadable",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Whole"
+    },
+    {
+      "page": 20,
+      "record": "36",
+      "person": "ExactUseful",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "WrongOrManualRequired",
+      "amount": "WrongOrManualRequired",
+      "grouping": "Partial"
+    },
+    {
+      "page": 20,
+      "record": "37",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 30,
+      "record": "52",
+      "person": "ExactUseful",
+      "khasraRaw": "GroundTruthUnreadable",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "GroundTruthUnreadable",
+      "amount": "GroundTruthUnreadable",
+      "grouping": "Whole"
+    },
+    {
+      "page": 30,
+      "record": "53",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 40,
+      "record": "70",
+      "person": "ExactUseful",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Whole"
+    },
+    {
+      "page": 50,
+      "record": "86",
+      "person": "Useful",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 50,
+      "record": "87",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 60,
+      "record": "105",
+      "person": "ExactUseful",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Whole"
+    },
+    {
+      "page": 60,
+      "record": "106",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 70,
+      "record": "123",
+      "person": "ExactUseful",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 70,
+      "record": "124",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "WrongOrManualRequired",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    },
+    {
+      "page": 75,
+      "record": "133",
+      "person": "ExactUseful",
+      "khasraRaw": "ExactUseful",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Whole"
+    },
+    {
+      "page": 75,
+      "record": "134",
+      "person": "WrongOrManualRequired",
+      "khasraRaw": "WrongOrManualRequired",
+      "khasraNormalized": false,
+      "khasraMasterExact": false,
+      "share": "ExactUseful",
+      "area": "ExactUseful",
+      "amount": "ExactUseful",
+      "grouping": "Partial"
+    }
+  ]
+}

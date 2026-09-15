@@ -1,0 +1,149 @@
+{
+  "variantComparison": {
+    "1": {
+      "original": {
+        "wordCount": 103,
+        "meanConfidence": 0.916,
+        "headerSignals": 6,
+        "numericTokens": 61,
+        "ocrSeconds": 6.03
+      },
+      "dark-low-saturation": {
+        "wordCount": 76,
+        "meanConfidence": 0.855,
+        "headerSignals": 4,
+        "numericTokens": 40,
+        "ocrSeconds": 7.01
+      },
+      "adaptive-grayscale": {
+        "wordCount": 91,
+        "meanConfidence": 0.865,
+        "headerSignals": 5,
+        "numericTokens": 53,
+        "ocrSeconds": 7.02
+      }
+    },
+    "20": {
+      "original": {
+        "wordCount": 84,
+        "meanConfidence": 0.936,
+        "headerSignals": 6,
+        "numericTokens": 50,
+        "ocrSeconds": 6.72
+      },
+      "dark-low-saturation": {
+        "wordCount": 68,
+        "meanConfidence": 0.877,
+        "headerSignals": 5,
+        "numericTokens": 34,
+        "ocrSeconds": 5.75
+      },
+      "adaptive-grayscale": {
+        "wordCount": 88,
+        "meanConfidence": 0.857,
+        "headerSignals": 5,
+        "numericTokens": 51,
+        "ocrSeconds": 7.22
+      }
+    },
+    "50": {
+      "original": {
+        "wordCount": 86,
+        "meanConfidence": 0.948,
+        "headerSignals": 6,
+        "numericTokens": 52,
+        "ocrSeconds": 6.94
+      },
+      "dark-low-saturation": {
+        "wordCount": 76,
+        "meanConfidence": 0.903,
+        "headerSignals": 6,
+        "numericTokens": 41,
+        "ocrSeconds": 6.8
+      },
+      "adaptive-grayscale": {
+        "wordCount": 85,
+        "meanConfidence": 0.911,
+        "headerSignals": 6,
+        "numericTokens": 50,
+        "ocrSeconds": 6.95
+      }
+    }
+  },
+  "pageMetrics": {
+    "1": {
+      "wordCount": 103,
+      "meanConfidence": 0.916,
+      "headerSignals": 6,
+      "numericTokens": 61,
+      "ocrSeconds": 7.66
+    },
+    "10": {
+      "wordCount": 66,
+      "meanConfidence": 0.927,
+      "headerSignals": 6,
+      "numericTokens": 39,
+      "ocrSeconds": 6.13
+    },
+    "20": {
+      "wordCount": 84,
+      "meanConfidence": 0.936,
+      "headerSignals": 6,
+      "numericTokens": 50,
+      "ocrSeconds": 6.5
+    },
+    "30": {
+      "wordCount": 87,
+      "meanConfidence": 0.927,
+      "headerSignals": 6,
+      "numericTokens": 55,
+      "ocrSeconds": 6.94
+    },
+    "40": {
+      "wordCount": 68,
+      "meanConfidence": 0.928,
+      "headerSignals": 6,
+      "numericTokens": 39,
+      "ocrSeconds": 6.08
+    },
+    "50": {
+      "wordCount": 86,
+      "meanConfidence": 0.948,
+      "headerSignals": 6,
+      "numericTokens": 52,
+      "ocrSeconds": 7.09
+    },
+    "60": {
+      "wordCount": 89,
+      "meanConfidence": 0.941,
+      "headerSignals": 6,
+      "numericTokens": 56,
+      "ocrSeconds": 8.57
+    },
+    "70": {
+      "wordCount": 117,
+      "meanConfidence": 0.884,
+      "headerSignals": 6,
+      "numericTokens": 83,
+      "ocrSeconds": 9.15
+    },
+    "75": {
+      "wordCount": 112,
+      "meanConfidence": 0.886,
+      "headerSignals": 6,
+      "numericTokens": 80,
+      "ocrSeconds": 8.74
+    }
+  },
+  "bandsPerPage": {
+    "1": 0,
+    "10": 1,
+    "20": 3,
+    "30": 3,
+    "40": 1,
+    "50": 2,
+    "60": 2,
+    "70": 2,
+    "75": 2
+  }
+}

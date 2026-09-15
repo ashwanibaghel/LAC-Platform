@@ -1,0 +1,543 @@
+[
+  {
+    "page": 1,
+    "areaBand": {
+      "left": 367.25,
+      "right": 484.25
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Bigha-Riswa",
+        "x": 365.0,
+        "y": 299.0,
+        "width": 112.0,
+        "height": 29.0,
+        "confidence": 0.99635
+      },
+      {
+        "text": "Area",
+        "x": 374.0,
+        "y": 283.0,
+        "width": 47.0,
+        "height": 22.0,
+        "confidence": 0.99915
+      },
+      {
+        "text": "5",
+        "x": 391.0,
+        "y": 328.0,
+        "width": 17.0,
+        "height": 20.0,
+        "confidence": 0.99984
+      },
+      {
+        "text": "30",
+        "x": 392.0,
+        "y": 256.0,
+        "width": 28.0,
+        "height": 20.0,
+        "confidence": 0.99678
+      },
+      {
+        "text": "3 -- 5",
+        "x": 390.0,
+        "y": 604.0,
+        "width": 50.0,
+        "height": 25.0,
+        "confidence": 0.8697
+      },
+      {
+        "text": "0 -- 9",
+        "x": 390.0,
+        "y": 628.0,
+        "width": 50.0,
+        "height": 25.0,
+        "confidence": 0.87676
+      },
+      {
+        "text": "2 -- 9",
+        "x": 389.0,
+        "y": 651.0,
+        "width": 52.0,
+        "height": 28.0,
+        "confidence": 0.95485
+      },
+      {
+        "text": "6 - 3",
+        "x": 395.0,
+        "y": 677.0,
+        "width": 50.0,
+        "height": 28.0,
+        "confidence": 0.95671
+      },
+      {
+        "text": "-0p-",
+        "x": 394.0,
+        "y": 754.0,
+        "width": 44.0,
+        "height": 29.0,
+        "confidence": 0.83376
+      }
+    ],
+    "parcels": [
+      {
+        "rawKhasraText": "26/21/3",
+        "fullPageArea": null,
+        "khasraSource": {
+          "x": 190.0,
+          "y": 595.0,
+          "width": 63.0,
+          "height": 23.0,
+          "rotationDegrees": 90
+        },
+        "crop": {
+          "x": 361,
+          "y": 589,
+          "width": 129,
+          "height": 35,
+          "file": "page-1-parcel-1.png"
+        },
+        "cropTokens": [
+          {
+            "text": "3--5",
+            "x": 385.0,
+            "y": 598.0,
+            "width": 66.0,
+            "height": 25.0,
+            "confidence": 0.98847
+          }
+        ]
+      },
+      {
+        "rawKhasraText": "261/21/2",
+        "fullPageArea": null,
+        "khasraSource": {
+          "x": 191.0,
+          "y": 620.0,
+          "width": 62.0,
+          "height": 24.0,
+          "rotationDegrees": 90
+        },
+        "crop": {
+          "x": 361,
+          "y": 614,
+          "width": 129,
+          "height": 36,
+          "file": "page-1-parcel-2.png"
+        },
+        "cropTokens": [
+          {
+            "text": "3",
+            "x": 394.0,
+            "y": 614.0,
+            "width": 13.0,
+            "height": 10.0,
+            "confidence": 0.98455
+          },
+          {
+            "text": "0",
+            "x": 393.0,
+            "y": 632.0,
+            "width": 15.0,
+            "height": 16.0,
+            "confidence": 0.9996
+          },
+          {
+            "text": "-- 9",
+            "x": 407.0,
+            "y": 628.0,
+            "width": 35.0,
+            "height": 21.0,
+            "confidence": 0.90334
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "page": 4,
+    "areaBand": {
+      "left": 369.5,
+      "right": 482.0
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Area",
+        "x": 388.0,
+        "y": 246.0,
+        "width": 46.0,
+        "height": 22.0,
+        "confidence": 0.94752
+      },
+      {
+        "text": "Bigha-Bisw a",
+        "x": 381.0,
+        "y": 266.0,
+        "width": 105.0,
+        "height": 23.0,
+        "confidence": 0.98077
+      },
+      {
+        "text": "5",
+        "x": 402.0,
+        "y": 291.0,
+        "width": 16.0,
+        "height": 20.0,
+        "confidence": 0.99783
+      },
+      {
+        "text": "-do-",
+        "x": 393.0,
+        "y": 377.0,
+        "width": 40.0,
+        "height": 22.0,
+        "confidence": 0.9963
+      },
+      {
+        "text": "0 - 10",
+        "x": 389.0,
+        "y": 547.0,
+        "width": 59.0,
+        "height": 24.0,
+        "confidence": 0.97003
+      },
+      {
+        "text": "-0pi-",
+        "x": 388.0,
+        "y": 624.0,
+        "width": 38.0,
+        "height": 22.0,
+        "confidence": 0.70857
+      },
+      {
+        "text": "0 - 10",
+        "x": 382.0,
+        "y": 791.0,
+        "width": 58.0,
+        "height": 24.0,
+        "confidence": 0.99217
+      }
+    ],
+    "parcels": []
+  },
+  {
+    "page": 10,
+    "areaBand": {
+      "left": 430.25,
+      "right": 536.75
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Bigha-Biswa",
+        "x": 431.0,
+        "y": 268.0,
+        "width": 97.0,
+        "height": 20.0,
+        "confidence": 0.99992
+      },
+      {
+        "text": "Area",
+        "x": 437.0,
+        "y": 249.0,
+        "width": 44.0,
+        "height": 21.0,
+        "confidence": 0.99835
+      },
+      {
+        "text": "5",
+        "x": 451.0,
+        "y": 291.0,
+        "width": 13.0,
+        "height": 18.0,
+        "confidence": 0.9962
+      },
+      {
+        "text": "-do-",
+        "x": 439.0,
+        "y": 368.0,
+        "width": 38.0,
+        "height": 23.0,
+        "confidence": 0.99455
+      },
+      {
+        "text": "19 - 16",
+        "x": 423.0,
+        "y": 527.0,
+        "width": 62.0,
+        "height": 21.0,
+        "confidence": 0.97507
+      }
+    ],
+    "parcels": []
+  },
+  {
+    "page": 20,
+    "areaBand": {
+      "left": 386.0,
+      "right": 493.75
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Area",
+        "x": 403.0,
+        "y": 203.0,
+        "width": 45.0,
+        "height": 22.0,
+        "confidence": 0.99961
+      },
+      {
+        "text": "Bigha-Biswa",
+        "x": 395.0,
+        "y": 220.0,
+        "width": 102.0,
+        "height": 26.0,
+        "confidence": 0.99963
+      },
+      {
+        "text": "5",
+        "x": 416.0,
+        "y": 247.0,
+        "width": 16.0,
+        "height": 20.0,
+        "confidence": 0.99979
+      },
+      {
+        "text": "-do-",
+        "x": 407.0,
+        "y": 332.0,
+        "width": 39.0,
+        "height": 23.0,
+        "confidence": 0.99766
+      },
+      {
+        "text": "0 - 7",
+        "x": 403.0,
+        "y": 501.0,
+        "width": 46.0,
+        "height": 22.0,
+        "confidence": 0.96923
+      },
+      {
+        "text": "-tdo-",
+        "x": 399.0,
+        "y": 577.0,
+        "width": 36.0,
+        "height": 22.0,
+        "confidence": 0.9081
+      },
+      {
+        "text": "0 - 7",
+        "x": 389.0,
+        "y": 745.0,
+        "width": 47.0,
+        "height": 22.0,
+        "confidence": 0.91036
+      }
+    ],
+    "parcels": []
+  },
+  {
+    "page": 30,
+    "areaBand": {
+      "left": 410.25,
+      "right": 524.0
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Bigha-Biswa",
+        "x": 410.0,
+        "y": 191.0,
+        "width": 105.0,
+        "height": 25.0,
+        "confidence": 0.99916
+      },
+      {
+        "text": "Area",
+        "x": 418.0,
+        "y": 172.0,
+        "width": 47.0,
+        "height": 24.0,
+        "confidence": 0.98787
+      },
+      {
+        "text": "5",
+        "x": 433.0,
+        "y": 219.0,
+        "width": 13.0,
+        "height": 17.0,
+        "confidence": 0.99979
+      },
+      {
+        "text": "1 - 16",
+        "x": 422.0,
+        "y": 517.0,
+        "width": 58.0,
+        "height": 21.0,
+        "confidence": 0.86756
+      },
+      {
+        "text": "3 --10",
+        "x": 421.0,
+        "y": 542.0,
+        "width": 58.0,
+        "height": 21.0,
+        "confidence": 0.89183
+      },
+      {
+        "text": "9 - \u00a7",
+        "x": 426.0,
+        "y": 568.0,
+        "width": 48.0,
+        "height": 22.0,
+        "confidence": 0.78354
+      },
+      {
+        "text": "-do-",
+        "x": 426.0,
+        "y": 647.0,
+        "width": 38.0,
+        "height": 23.0,
+        "confidence": 0.9587
+      },
+      {
+        "text": "5 - 6",
+        "x": 423.0,
+        "y": 827.0,
+        "width": 47.0,
+        "height": 22.0,
+        "confidence": 0.93375
+      }
+    ],
+    "parcels": [
+      {
+        "rawKhasraText": "11//17/2",
+        "fullPageArea": "1 - 16",
+        "khasraSource": {
+          "x": 220.0,
+          "y": 511.0,
+          "width": 63.0,
+          "height": 25.0,
+          "rotationDegrees": 90
+        },
+        "crop": {
+          "x": 404,
+          "y": 505,
+          "width": 126,
+          "height": 37,
+          "file": "page-30-parcel-1.png"
+        },
+        "cropTokens": [
+          {
+            "text": "1",
+            "x": 416.0,
+            "y": 511.0,
+            "width": 30.0,
+            "height": 29.0,
+            "confidence": 0.99678
+          },
+          {
+            "text": "-16",
+            "x": 436.0,
+            "y": 514.0,
+            "width": 44.0,
+            "height": 26.0,
+            "confidence": 0.99853
+          },
+          {
+            "text": "L",
+            "x": 477.0,
+            "y": 512.0,
+            "width": 30.0,
+            "height": 27.0,
+            "confidence": 0.92412
+          }
+        ]
+      },
+      {
+        "rawKhasraText": "11//24/1",
+        "fullPageArea": null,
+        "khasraSource": {
+          "x": 221.0,
+          "y": 540.0,
+          "width": 62.0,
+          "height": 20.0,
+          "rotationDegrees": 90
+        },
+        "crop": {
+          "x": 404,
+          "y": 534,
+          "width": 126,
+          "height": 32,
+          "file": "page-30-parcel-2.png"
+        },
+        "cropTokens": []
+      }
+    ]
+  },
+  {
+    "page": 60,
+    "areaBand": {
+      "left": 394.5,
+      "right": 502.75
+    },
+    "fullPageAreaTokens": [
+      {
+        "text": "Area",
+        "x": 412.0,
+        "y": 180.0,
+        "width": 44.0,
+        "height": 22.0,
+        "confidence": 0.99938
+      },
+      {
+        "text": "Bigha-Biswa",
+        "x": 405.0,
+        "y": 200.0,
+        "width": 100.0,
+        "height": 23.0,
+        "confidence": 0.9999
+      },
+      {
+        "text": "5",
+        "x": 425.0,
+        "y": 225.0,
+        "width": 17.0,
+        "height": 21.0,
+        "confidence": 0.99964
+      },
+      {
+        "text": "-do-",
+        "x": 418.0,
+        "y": 312.0,
+        "width": 41.0,
+        "height": 26.0,
+        "confidence": 0.99426
+      },
+      {
+        "text": "12 - 8",
+        "x": 409.0,
+        "y": 487.0,
+        "width": 54.0,
+        "height": 23.0,
+        "confidence": 0.93777
+      },
+      {
+        "text": "-do-",
+        "x": 413.0,
+        "y": 565.0,
+        "width": 38.0,
+        "height": 23.0,
+        "confidence": 0.87052
+      },
+      {
+        "text": "12 - 8",
+        "x": 398.0,
+        "y": 738.0,
+        "width": 55.0,
+        "height": 22.0,
+        "confidence": 0.9794
+      }
+    ],
+    "parcels": []
+  }
+]

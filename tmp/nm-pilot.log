@@ -1,0 +1,15 @@
+warning: The `fitz` API is deprecated and will be removed in future. Use `import pymupdf` instead.
+[INFO] 2026-09-11 10:49:19,702 [RapidOCR] base.py:23: Using engine_name: torch
+[INFO] 2026-09-11 10:49:23,770 [RapidOCR] device_config.py:57: Using CPU device
+[INFO] 2026-09-11 10:49:23,822 [RapidOCR] download_file.py:60: File exists and is valid: C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\PP-OCRv6_det_small.pth
+[INFO] 2026-09-11 10:49:23,823 [RapidOCR] main.py:50: Using C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\PP-OCRv6_det_small.pth
+[INFO] 2026-09-11 10:49:24,163 [RapidOCR] base.py:23: Using engine_name: torch
+[INFO] 2026-09-11 10:49:24,164 [RapidOCR] device_config.py:57: Using CPU device
+[INFO] 2026-09-11 10:49:24,169 [RapidOCR] download_file.py:60: File exists and is valid: C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\ch_ptocr_mobile_v2.0_cls_mobile.pth
+[INFO] 2026-09-11 10:49:24,170 [RapidOCR] main.py:50: Using C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\ch_ptocr_mobile_v2.0_cls_mobile.pth
+[INFO] 2026-09-11 10:49:24,342 [RapidOCR] base.py:23: Using engine_name: torch
+[INFO] 2026-09-11 10:49:24,343 [RapidOCR] device_config.py:57: Using CPU device
+[INFO] 2026-09-11 10:49:24,433 [RapidOCR] download_file.py:60: File exists and is valid: C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\PP-OCRv6_rec_small.pth
+[INFO] 2026-09-11 10:49:24,434 [RapidOCR] main.py:50: Using C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\rapidocr\models\PP-OCRv6_rec_small.pth
+C:\LAC-Platform\tools\document-intelligence-benchmark\.venv\Lib\site-packages\torch\nn\modules\conv.py:560: UserWarning: Using padding='same' with even kernel lengths and odd dilation may require a zero-padded copy of the input be created (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\native\Convolution.cpp:1105.)
+  return F.conv2d(

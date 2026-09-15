@@ -1,0 +1,9 @@
+{
+  "contractVersion": 1,
+  "documentId": "e1076449-70d5-4e04-bee5-9e6ae4d8a928",
+  "filePath": "C:\\LAC-Platform\\src\\LAC.Api\\App_Data\\documents\\1cc7703d86c848e6a458a2782f819ca6-NM Pochanpur 30, 2002-04.pdf",
+  "targetAwardId": "00000000-0000-0000-0000-000000000000",
+  "selectedVillageId": null,
+  "options": { "processTables": true, "nmPilot": false, "nmSemantic": true },
+  "selectedPages": [1, 4, 10, 20, 30, 60]
+}

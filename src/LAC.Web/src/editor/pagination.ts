@@ -32,14 +32,23 @@ export interface MatterDraftPaginationOptions {
 
 const SHEET_GAP_PX = 32;
 
+/**
+ * Creates a page-break spacer placed BETWEEN top-level ProseMirror block nodes.
+ *
+ * KEY FIX: Uses a <div> (not a <span>), and is placed only at inter-block positions.
+ * A display:block element inside a <p> is invalid HTML and was causing:
+ *   - Failure A: text on grey surface (misaligned backdrop/editor)
+ *   - Failure B: text inside page gap (spacer spanning boundary)
+ *   - Failure C: huge empty space (wrong geometry accumulated mid-paragraph)
+ */
 function createPageBreakSpacer(heightPx: number, pageNumber: number): HTMLElement {
-  const spacer = document.createElement("span");
+  const spacer = document.createElement("div");
   spacer.className = "draft-page-break-spacer";
   spacer.setAttribute("data-page-break", "true");
   spacer.setAttribute("data-next-page", String(pageNumber));
-  spacer.style.display = "block";
   spacer.style.height = `${Math.max(0, Math.round(heightPx * 10) / 10)}px`;
   spacer.style.width = "100%";
+  spacer.style.display = "block";
   spacer.style.pointerEvents = "none";
   spacer.style.userSelect = "none";
   spacer.contentEditable = "false";
@@ -62,6 +71,49 @@ function createTableRowSpacer(heightPx: number, pageNumber: number): HTMLElement
   return tr;
 }
 
+/**
+ * Measures a block's top and bottom coordinates in the spacer-hidden layout.
+ * Returns null if measurement fails.
+ */
+function measureBlock(
+  view: EditorView,
+  nodeStart: number,
+  nodeSize: number,
+  viewTop: number,
+  safeZoom: number
+): { topY: number; bottomY: number } | null {
+  const nodeEnd = nodeStart + nodeSize;
+  try {
+    const safeStart = Math.min(nodeStart + 1, nodeEnd - 1);
+    const safeEnd = Math.max(nodeEnd - 1, nodeStart + 1);
+    const topCoords = view.coordsAtPos(safeStart);
+    const bottomCoords = view.coordsAtPos(safeEnd);
+    return {
+      topY: (topCoords.top - viewTop) / safeZoom,
+      bottomY: (bottomCoords.bottom - viewTop) / safeZoom,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Compute page breaks, inserting spacers ONLY between top-level doc blocks.
+ *
+ * Geometry invariants:
+ * 1. Spacers are placed at block boundaries (between paragraphs/headings/lists/tables),
+ *    never inside a paragraph. This eliminates display:block-in-<p> DOM anomalies.
+ * 2. Spacer height = remainingPrintable + marginBottom + SHEET_GAP + marginTop
+ *    This ensures the first line of the next page lands exactly at:
+ *    spacer.bottom + marginTop (already encoded by the spacer height)
+ *    = prev_page_top + pageHeight + SHEET_GAP + marginTop
+ *    which matches the backdrop card geometry exactly.
+ * 3. Coordinates are measured with spacers hidden → relative measurements are
+ *    invariant to upstream spacer heights.
+ * 4. pageTopY tracks the natural-layout Y of the start of the printable area on
+ *    the current page. For page 1 this is coordsAtPos(1).top. For subsequent pages
+ *    it is updated to the natural-layout top of the first block on that page.
+ */
 function computePageBreaks(
   view: EditorView,
   profile: PageProfile,
@@ -81,197 +133,178 @@ function computePageBreaks(
   const viewTop = domRect.top;
   const safeZoom = Math.max(0.2, zoom || 1);
 
-  // Temporarily collapse existing spacers to measure pure natural content flow
-  const existingSpacers = view.dom.querySelectorAll<HTMLElement>(".draft-page-break-spacer, .draft-table-page-break-spacer");
+  // Hide existing spacers to measure pure natural content flow
+  const existingSpacers = view.dom.querySelectorAll<HTMLElement>(
+    ".draft-page-break-spacer, .draft-table-page-break-spacer"
+  );
   existingSpacers.forEach(el => { el.style.display = "none"; });
-
-  // Force synchronous reflow so subsequent coordsAtPos reflect unspaced geometry
-  void view.dom.offsetHeight;
+  void view.dom.offsetHeight; // synchronous reflow
 
   const breaks: PageBreak[] = [];
   let pageIndex = 0;
-  let currentRangeStart = 0;
 
   try {
-    let pageTopY = 0;
+    // pageTopY = natural-layout Y of the top of the printable area on the current page.
+    // For page 1 this is where the first character starts (after CSS padding-top).
+    let pageTopY: number;
     try {
       pageTopY = (view.coordsAtPos(1).top - viewTop) / safeZoom;
     } catch {
-      pageTopY = 0;
+      pageTopY = marginTopPx;
     }
 
-    let blockPos = 0;
+    // lastFitBottomY = natural-layout absolute Y of the bottom of the last block
+    // that fits on the current page. Used to compute remaining space.
+    let lastFitBottomY = pageTopY; // start of page = no content yet
+
+    // Build array of (nodeStart, nodeSize) for all top-level blocks
+    const blocks: Array<{ start: number; size: number }> = [];
+    let pos = 0;
     for (let i = 0; i < doc.childCount; i++) {
+      const n = doc.child(i);
+      blocks.push({ start: pos, size: n.nodeSize });
+      pos += n.nodeSize;
+    }
+
+    for (let i = 0; i < blocks.length; i++) {
+      const { start: nodeStart, size: nodeSize } = blocks[i];
       const node = doc.child(i);
-      const nodeSize = node.nodeSize;
-      const nodeStart = blockPos;
-      const nodeEnd = blockPos + nodeSize;
 
-      // Skip blocks already completely placed on previous pages
-      if (nodeEnd <= currentRangeStart) {
-        blockPos += nodeSize;
-        continue;
-      }
+      const measured = measureBlock(view, nodeStart, nodeSize, viewTop, safeZoom);
+      if (!measured) continue;
 
-      let blockTopY = 0;
-      let blockBottomY = 0;
-      try {
-        const topCoords = view.coordsAtPos(nodeStart + 1);
-        const bottomCoords = view.coordsAtPos(nodeEnd - 1);
-        blockTopY = (topCoords.top - viewTop) / safeZoom;
-        blockBottomY = (bottomCoords.bottom - viewTop) / safeZoom;
-      } catch {
-        blockPos += nodeSize;
-        continue;
-      }
+      const { topY: blockTopY, bottomY: blockBottomY } = measured;
+      const blockHeight = blockBottomY - blockTopY;
 
-      // Check if this block fits within the remaining printable budget of the current page
+      // Relative to current page's printable top
+      const blockTopOnPage = blockTopY - pageTopY;
       const blockBottomOnPage = blockBottomY - pageTopY;
 
       if (blockBottomOnPage <= printableHeightPx) {
-        blockPos += nodeSize;
+        // Block fits entirely on this page
+        lastFitBottomY = blockBottomY;
         continue;
       }
 
-      // Block crosses page boundary
-      let splitPos = nodeStart;
-      let isTableBreak = false;
+      // Block does NOT fit on the current page.
 
-      if (node.type.name === "heading") {
-        // Orphan prevention: push heading if it's not at the very top of the page
-        if (nodeStart > currentRangeStart) {
-          splitPos = nodeStart;
+      // Guard: if the block itself is taller than an entire printable page, we cannot
+      // split it (no contentJson mutation allowed), so accept it where it is and move on.
+      // This prevents an infinite loop where a giant paragraph keeps triggering a break.
+      if (blockHeight >= printableHeightPx - 4) {
+        // Giant block: it cannot fit on any page. Accept it on this page (or current new page).
+        lastFitBottomY = blockBottomY;
+        continue;
+      }
+
+      // ── Choose spacer position ─────────────────────────────────────────────
+      let spacerPos: number;
+      let isTableBreak = false;
+      let reEvaluateCurrentBlock = false; // whether to re-examine block i on next page
+
+      if (node.type.name === "table") {
+        const spaceRemaining = printableHeightPx - blockTopOnPage;
+        if (spaceRemaining < mmToPx(35) && i > 0 && lastFitBottomY > pageTopY) {
+          // Push entire table to next page
+          spacerPos = nodeStart;
+          reEvaluateCurrentBlock = true;
         } else {
-          blockPos += nodeSize;
-          continue;
-        }
-      } else if (node.type.name === "table") {
-        const tableTopOnPage = blockTopY - pageTopY;
-        if (printableHeightPx - tableTopOnPage < mmToPx(35) && nodeStart > currentRangeStart) {
-          splitPos = nodeStart;
-        } else {
-          let rowPos = nodeStart + 1;
-          let foundRowBreak = false;
+          // Find the last table row that fits
+          let lastFittingRowEnd = -1;
+          let rowDocPos = nodeStart + 1;
           for (let r = 0; r < node.childCount; r++) {
             const rowNode = node.child(r);
+            const rowEndPos = rowDocPos + rowNode.nodeSize;
             try {
-              const rowBottom = (view.coordsAtPos(rowPos + rowNode.nodeSize - 1).bottom - viewTop) / safeZoom;
-              if (rowBottom - pageTopY > printableHeightPx && rowPos > nodeStart + 1) {
-                splitPos = rowPos;
-                isTableBreak = true;
-                foundRowBreak = true;
+              const rowBottomCoords = view.coordsAtPos(rowEndPos - 1);
+              const rowBottomOnPage = (rowBottomCoords.bottom - viewTop) / safeZoom - pageTopY;
+              if (rowBottomOnPage <= printableHeightPx) {
+                lastFittingRowEnd = rowEndPos;
+              } else {
                 break;
               }
-            } catch {
-              // fallback
-            }
-            rowPos += rowNode.nodeSize;
+            } catch { /* skip */ }
+            rowDocPos += rowNode.nodeSize;
           }
-          if (!foundRowBreak) {
-            splitPos = nodeStart > currentRangeStart ? nodeStart : nodeEnd;
+
+          if (lastFittingRowEnd > nodeStart) {
+            spacerPos = lastFittingRowEnd;
+            isTableBreak = true;
+            // table continues on next page; do NOT re-evaluate (advance past table)
+          } else if (i > 0 && lastFitBottomY > pageTopY) {
+            // No rows fit but there's content before — push table to next page
+            spacerPos = nodeStart;
+            reEvaluateCurrentBlock = true;
+          } else {
+            // Table is first on page and no rows fit — accept entire table on this page
+            lastFitBottomY = blockBottomY;
+            continue;
           }
         }
       } else {
-        // Paragraph or list item: test if at least 1 line fits
-        let line1BottomY = blockTopY;
-        try {
-          const line1Coords = view.coordsAtPos(nodeStart + 1);
-          line1BottomY = (line1Coords.bottom - viewTop) / safeZoom;
-        } catch {
-          line1BottomY = blockTopY;
-        }
+        // Paragraph, heading, list, etc.
+        // Always break at a block boundary — never mid-paragraph.
 
-        if (line1BottomY - pageTopY > printableHeightPx - 4 && nodeStart > currentRangeStart) {
-          // Not even 1 line fits on current page; push the whole block
-          splitPos = nodeStart;
+        if (blockTopOnPage >= printableHeightPx - 4) {
+          // This block starts at/past the printable bottom (orphaned).
+          // There must be content before it (lastFitBottomY > pageTopY guaranteed by
+          // the early-continue above if there's no content yet).
+          spacerPos = nodeStart;
+          reEvaluateCurrentBlock = true;
+        } else if (lastFitBottomY > pageTopY) {
+          // There's content before this block on this page.
+          // Break before this block.
+          spacerPos = nodeStart;
+          reEvaluateCurrentBlock = true;
         } else {
-          // Binary search for the last fitting word boundary on this page
-          let low = nodeStart + 1;
-          let high = nodeEnd - 1;
-          let best = low;
-
-          while (low <= high) {
-            const mid = Math.floor((low + high) / 2);
-            try {
-              const coords = view.coordsAtPos(mid);
-              const midBottomY = (coords.bottom - viewTop) / safeZoom;
-              if (midBottomY - pageTopY <= printableHeightPx) {
-                best = mid;
-                low = mid + 1;
-              } else {
-                high = mid - 1;
-              }
-            } catch {
-              high = mid - 1;
-            }
-          }
-
-          let snapped = best;
-          while (snapped > nodeStart + 1) {
-            try {
-              const char = doc.textBetween(snapped - 1, snapped);
-              if (char === " " || char === "\n" || char === "\t") {
-                break;
-              }
-            } catch {
-              break;
-            }
-            snapped--;
-          }
-
-          if (snapped > nodeStart + 1) {
-            splitPos = snapped;
-          } else {
-            splitPos = best;
-          }
+          // This block is the first on this page and overflows (but blockHeight < printableHeight,
+          // so it theoretically fits — this shouldn't happen if measurements are stable).
+          // Accept it on this page.
+          lastFitBottomY = blockBottomY;
+          continue;
         }
       }
 
-      if (splitPos <= currentRangeStart) {
-        blockPos += nodeSize;
-        continue;
-      }
-
-      let lastFitBottomY = blockTopY;
-      try {
-        const lastFitCoords = view.coordsAtPos(Math.max(1, splitPos - 1));
-        lastFitBottomY = (lastFitCoords.bottom - viewTop) / safeZoom;
-      } catch {
-        lastFitBottomY = blockTopY;
-      }
-
-      const contentHeightOnThisPage = Math.max(0, lastFitBottomY - pageTopY);
-      const remainingSpace = Math.max(0, printableHeightPx - contentHeightOnThisPage);
-      const heightPx = remainingSpace + marginBottomPx + SHEET_GAP_PX + marginTopPx;
+      // ── Compute spacer height ─────────────────────────────────────────────
+      const contentUsedPx = Math.max(0, lastFitBottomY - pageTopY);
+      const remainingPx = Math.max(0, printableHeightPx - contentUsedPx);
+      const spacerHeightPx = remainingPx + marginBottomPx + SHEET_GAP_PX + marginTopPx;
 
       breaks.push({
-        pos: splitPos,
-        heightPx,
+        pos: spacerPos,
+        heightPx: spacerHeightPx,
         pageIndex: pageIndex + 1,
         isTableBreak,
       });
 
-      // Advance to next page
       pageIndex++;
-      currentRangeStart = splitPos;
 
-      try {
-        const nextLineCoords = view.coordsAtPos(splitPos);
-        pageTopY = (nextLineCoords.top - viewTop) / safeZoom;
-      } catch {
-        pageTopY = lastFitBottomY;
+      // ── Update pageTopY for next page ────────────────────────────────────
+      // The next page's first block (in natural hidden-spacer layout) tells us where
+      // the new page starts. This makes all subsequent relative measurements correct.
+      const nextIdx = reEvaluateCurrentBlock ? i : i + 1;
+      if (nextIdx < blocks.length) {
+        const { start: nextStart, size: nextSize } = blocks[nextIdx];
+        const nextMeasured = measureBlock(view, nextStart, nextSize, viewTop, safeZoom);
+        if (nextMeasured) {
+          pageTopY = nextMeasured.topY;
+        } else {
+          pageTopY = lastFitBottomY + remainingPx + marginBottomPx + SHEET_GAP_PX;
+        }
       }
 
-      // Re-evaluate remainder of this block on the new page if split was inside the block
-      if (splitPos < nodeEnd && splitPos > nodeStart) {
+      lastFitBottomY = pageTopY; // reset: no content consumed on new page yet
+
+      if (reEvaluateCurrentBlock) {
+        // Process block i again on the new page
         i--;
-      } else {
-        blockPos += nodeSize;
       }
     }
   } finally {
-    // Restore existing spacers display
-    existingSpacers.forEach(el => { el.style.display = el.tagName === "TR" ? "" : "block"; });
+    // Restore existing spacers
+    existingSpacers.forEach(el => {
+      el.style.display = el.tagName === "TR" ? "" : "block";
+    });
   }
 
   return {
@@ -352,10 +385,15 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                 const zoom = extensionOptions.getZoom();
                 const { pageCount, breaks } = computePageBreaks(view, profile, zoom);
 
-                const signature = breaks.map(b => `${b.pos}:${Math.round(b.heightPx * 10)}`).join("|");
+                const signature = breaks
+                  .map(b => `${b.pos}:${Math.round(b.heightPx * 10)}`)
+                  .join("|");
                 const currentState = paginationPluginKey.getState(view.state);
 
-                if (currentState?.signature !== signature || currentState?.pageCount !== pageCount) {
+                if (
+                  currentState?.signature !== signature ||
+                  currentState?.pageCount !== pageCount
+                ) {
                   const decorations = DecorationSet.create(
                     view.state.doc,
                     breaks.map(b =>
@@ -364,7 +402,12 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                         b.isTableBreak
                           ? () => createTableRowSpacer(b.heightPx, b.pageIndex + 1)
                           : () => createPageBreakSpacer(b.heightPx, b.pageIndex + 1),
-                        { side: 0, key: `page-break-${b.pageIndex}-${b.pos}` }
+                        {
+                          // side: -1 → widget appears BEFORE the node at `pos`
+                          // This ensures the spacer is between blocks, not inside one.
+                          side: -1,
+                          key: `page-break-${b.pageIndex}-${b.pos}`,
+                        }
                       )
                     )
                   );
@@ -403,7 +446,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
               }, delayMs);
             };
 
-            // Observe ONLY meaningful container WIDTH changes (ignore height changes from spacers)
+            // Observe ONLY container WIDTH changes (ignore height changes from spacers)
             let lastObservedWidth = view.dom.clientWidth;
             const resizeObserver = new ResizeObserver(entries => {
               for (const entry of entries) {
@@ -421,7 +464,6 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
 
             return {
               update(view, prevState) {
-                // Ignore pagination's own metadata transactions (prevents loop!)
                 const docChanged = !view.state.doc.eq(prevState.doc);
                 const layoutChanged = !!view.state.tr.getMeta("layoutChanged");
 
@@ -429,20 +471,22 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                   return;
                 }
 
-                // Prevent grey-surface content flash on large paste:
-                // Instantly expand visual sheet capacity while precise calculation is pending
+                // Prevent grey-surface flash on large paste:
+                // Instantly expand the backdrop deck while precise calculation is pending.
                 if (docChanged && extensionOptions.onPageCountChange) {
                   const profile = extensionOptions.getProfile();
                   const totalPageHeightPx = mmToPx(profile.heightMm);
                   const approxHeight = view.dom.scrollHeight || 0;
-                  const approxPages = Math.max(1, Math.ceil(approxHeight / Math.max(100, totalPageHeightPx)));
+                  const approxPages = Math.max(
+                    1,
+                    Math.ceil(approxHeight / Math.max(100, totalPageHeightPx))
+                  );
                   const currentPages = storage.pageCount || 1;
                   if (approxPages > currentPages) {
                     extensionOptions.onPageCountChange(approxPages);
                   }
                 }
 
-                // Schedule coalesced measurement pass
                 scheduleMeasurement(docChanged ? 30 : 0);
               },
 
@@ -463,7 +507,9 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
  * Losslessly unwraps legacy { type: "draftPage", content: [...] } structures into flat
  * TipTap { type: "doc", content: [...] } AST without mutating or losing marks/attributes.
  */
-export function normalizeToFlatContent(contentJson: string | Record<string, unknown>): Record<string, unknown> {
+export function normalizeToFlatContent(
+  contentJson: string | Record<string, unknown>
+): Record<string, unknown> {
   let docObj: Record<string, unknown>;
   if (typeof contentJson === "string") {
     try {
@@ -479,7 +525,9 @@ export function normalizeToFlatContent(contentJson: string | Record<string, unkn
     return { type: "doc", content: [{ type: "paragraph" }] };
   }
 
-  const hasDraftPage = docObj.content.some((node: unknown) => (node as { type?: string })?.type === "draftPage");
+  const hasDraftPage = docObj.content.some(
+    (node: unknown) => (node as { type?: string })?.type === "draftPage"
+  );
   if (!hasDraftPage) {
     return docObj.content.length > 0 ? docObj : { type: "doc", content: [{ type: "paragraph" }] };
   }
