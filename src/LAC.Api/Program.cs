@@ -897,8 +897,78 @@ static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCod
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 static bool TryDraftTitle(string? value, out string title, out string problem) { title = value?.Trim() ?? ""; problem = title.Length switch { 0 => "Draft title is required.", > 300 => "Draft title must be 300 characters or fewer.", _ => "" }; return problem.Length == 0; }
 static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, out string problem) { problem = ""; if (!string.Equals(request.PageSize, "A4", StringComparison.OrdinalIgnoreCase)) problem = "Only A4 page size is supported."; else if (request.Orientation is not ("Portrait" or "Landscape")) problem = "Orientation must be Portrait or Landscape."; else if (new[] { request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm }.Any(x => x < 0 || x > 50)) problem = "Margins must be between 0 and 50 mm."; return problem.Length == 0; }
-static bool TryValidateDraftContent(string? contentJson, out string problem) { problem = ""; if (string.IsNullOrWhiteSpace(contentJson)) { problem = "Structured editor content is required."; return false; } if (contentJson.Length > 1_000_000) { problem = "Draft content must be 1 MB or smaller."; return false; } try { using var document = JsonDocument.Parse(contentJson); if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("type", out var rootType) || rootType.GetString() != "doc") { problem = "Content must be a structured editor document."; return false; } if (!IsSafeDraftJson(document.RootElement)) { problem = "Draft content cannot include HTML, scripts, embeds, images, or external resources."; return false; } return true; } catch (JsonException) { problem = "Content must be valid structured editor JSON."; return false; } }
-static bool IsSafeDraftJson(JsonElement element) { if (element.ValueKind == JsonValueKind.Object) { foreach (var property in element.EnumerateObject()) { if (property.Name is "html" or "src" or "href") return false; if (property.Name == "type" && property.Value.ValueKind == JsonValueKind.String && property.Value.GetString() is "image" or "iframe" or "embed" or "script" or "html") return false; if (!IsSafeDraftJson(property.Value)) return false; } } else if (element.ValueKind == JsonValueKind.Array) foreach (var item in element.EnumerateArray()) if (!IsSafeDraftJson(item)) return false; else if (element.ValueKind == JsonValueKind.String) { var text = element.GetString() ?? ""; if (text.Contains("<script", StringComparison.OrdinalIgnoreCase) || text.Contains("<iframe", StringComparison.OrdinalIgnoreCase) || text.Contains("data:image", StringComparison.OrdinalIgnoreCase)) return false; } return true; }
+static bool TryValidateDraftContent(string? contentJson, out string problem)
+{
+    problem = "";
+    if (string.IsNullOrWhiteSpace(contentJson)) { problem = "Structured editor content is required."; return false; }
+    if (contentJson.Length > 1_000_000) { problem = "Draft content must be 1 MB or smaller."; return false; }
+    try
+    {
+        using var document = JsonDocument.Parse(contentJson);
+        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("type", out var rootType) || rootType.GetString() != "doc") { problem = "Content must be a structured editor document."; return false; }
+        return TryValidateDraftNode(document.RootElement, isRoot: true, out problem);
+    }
+    catch (JsonException) { problem = "Content must be valid structured editor JSON."; return false; }
+}
+static bool TryValidateDraftNode(JsonElement node, bool isRoot, out string problem)
+{
+    problem = "";
+    if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty("type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String) { problem = "Every editor node must have a type."; return false; }
+    var type = typeValue.GetString()!;
+    var allowedNodes = new HashSet<string>(StringComparer.Ordinal) { "doc", "paragraph", "text", "heading", "bulletList", "orderedList", "listItem", "hardBreak", "blockquote", "horizontalRule", "table", "tableRow", "tableHeader", "tableCell" };
+    if (!allowedNodes.Contains(type)) { problem = $"Editor node type '{type}' is not supported."; return false; }
+    if (isRoot != (type == "doc")) { problem = isRoot ? "The root editor node must be a document." : "A document node is only allowed at the root."; return false; }
+    foreach (var property in node.EnumerateObject())
+    {
+        if (property.Name is "html" or "src" or "href") { problem = "Draft content cannot include HTML or external resources."; return false; }
+        if (property.Name == "content")
+        {
+            if (property.Value.ValueKind != JsonValueKind.Array) { problem = "Node content must be an array."; return false; }
+            foreach (var child in property.Value.EnumerateArray()) if (!TryValidateDraftNode(child, false, out problem)) return false;
+        }
+        else if (property.Name == "marks")
+        {
+            if (property.Value.ValueKind != JsonValueKind.Array) { problem = "Node marks must be an array."; return false; }
+            foreach (var mark in property.Value.EnumerateArray()) if (!TryValidateDraftMark(mark, out problem)) return false;
+        }
+        else if (property.Name == "attrs")
+        {
+            if (!TryValidateDraftAttributes(property.Value, type, out problem)) return false;
+        }
+        else if (property.Name == "text")
+        {
+            if (type != "text" || property.Value.ValueKind != JsonValueKind.String) { problem = "Only text nodes may contain plain text."; return false; }
+        }
+        else if (property.Name != "type") { problem = $"Unsupported editor node property '{property.Name}'."; return false; }
+    }
+    return true;
+}
+static bool TryValidateDraftMark(JsonElement mark, out string problem)
+{
+    problem = "";
+    if (mark.ValueKind != JsonValueKind.Object || !mark.TryGetProperty("type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String) { problem = "Every text mark must have a type."; return false; }
+    if (!new HashSet<string>(StringComparer.Ordinal) { "bold", "italic", "underline", "textStyle" }.Contains(typeValue.GetString()!)) { problem = $"Text mark type '{typeValue.GetString()}' is not supported."; return false; }
+    foreach (var property in mark.EnumerateObject()) { if (property.Name == "type") continue; if (property.Name == "attrs" && TryValidateDraftAttributes(property.Value, "textStyle", out problem)) continue; problem = $"Unsupported text mark property '{property.Name}'."; return false; }
+    return true;
+}
+static bool TryValidateDraftAttributes(JsonElement attributes, string nodeType, out string problem)
+{
+    problem = "";
+    if (attributes.ValueKind != JsonValueKind.Object) { problem = "Editor attributes must be an object."; return false; }
+    var allowed = nodeType switch
+    {
+        "paragraph" or "heading" => new HashSet<string>(StringComparer.Ordinal) { "textAlign", "level" },
+        "textStyle" => new HashSet<string>(StringComparer.Ordinal) { "color", "fontFamily", "fontSize" },
+        "tableCell" or "tableHeader" => new HashSet<string>(StringComparer.Ordinal) { "colspan", "rowspan", "colwidth" },
+        _ => new HashSet<string>(StringComparer.Ordinal)
+    };
+    foreach (var property in attributes.EnumerateObject())
+    {
+        if (property.Name is "src" or "href" or "html" || !allowed.Contains(property.Name)) { problem = $"Editor attribute '{property.Name}' is not supported."; return false; }
+        if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array && property.Name != "colwidth") { problem = $"Editor attribute '{property.Name}' has an invalid value."; return false; }
+    }
+    return true;
+}
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);

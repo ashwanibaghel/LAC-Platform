@@ -144,7 +144,12 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         using var stale = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", update); Assert.Equal(System.Net.HttpStatusCode.Conflict, stale.StatusCode);
         using var unsafeContent = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Unsafe", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"image\",\"attrs\":{\"src\":\"data:image/png;base64,x\"}}]}", pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 1 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, unsafeContent.StatusCode);
-        using var oversized = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Too large", contentJson = new string('x', 1_000_001), pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 1 });
+        const string literalText = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Literal <script> and data:image text are not executable.\"}]}]}";
+        using var ordinaryText = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Plain text", contentJson = literalText, pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 1 });
+        ordinaryText.EnsureSuccessStatusCode();
+        using var unknownNode = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Unknown", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"customWidget\"}]}", pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 2 });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, unknownNode.StatusCode);
+        using var oversized = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Too large", contentJson = new string('x', 1_000_001), pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 2 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, oversized.StatusCode);
     }
 
