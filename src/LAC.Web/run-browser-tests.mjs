@@ -472,10 +472,10 @@ async function main() {
   const notingNote = await page.locator(".noting-info-note").innerText();
   console.log(`Noting Badge: ${notingBadge}`);
   console.log(`Noting Dimensions: ${notingDims}`);
-  console.log(`Noting Provisional Note: ${notingNote}`);
+  console.log(`Noting Layout Note: ${notingNote}`);
   assert.equal(notingBadge, "FIXED PROFILE");
-  assert.ok(notingDims.includes("210 × 297 mm (A4) · Portrait"));
-  assert.ok(notingNote.includes("Provisional calibration"));
+  assert.ok(notingDims.includes("Legal · Portrait · Mirrored 45 mm binding gutter · Top/Bottom: 25 mm"));
+  assert.ok(notingNote.includes("Odd pages reserve the left gutter; even pages reserve the right gutter."));
 
   // Check no editable dropdowns exist in Noting page setup
   const notingSelectCount = await page.locator(".draft-page-setup-panel select").count();
@@ -498,7 +498,14 @@ async function main() {
   const firstNotingBadge = await page.locator(".draft-sheet-badge").first().innerText();
   console.log(`First Noting Badge text: "${firstNotingBadge}"`);
   assert.ok(firstNotingBadge.includes("Noting Sheet"), "Noting badge must indicate Noting Sheet");
-  assert.ok(firstNotingBadge.includes("Provisional"), "Noting badge must indicate Provisional calibration");
+  assert.ok(firstNotingBadge.includes("Left 45 mm binding gutter"), "Odd noting page must show its left 45 mm binding gutter");
+
+  const firstSeparator = await page.locator(".noting-sheet-frame .noting-sheet-separator").first().evaluate(el => {
+    const separator = el.getBoundingClientRect();
+    const sheet = el.parentElement.getBoundingClientRect();
+    return { offsetMm: (separator.left - sheet.left) / (96 / 25.4) };
+  });
+  assert.ok(Math.abs(firstSeparator.offsetMm - 45) < 0.5, "Odd noting separator must be rendered at 45 mm");
 
   // Save Noting draft
   await page.locator(".draft-save").click();

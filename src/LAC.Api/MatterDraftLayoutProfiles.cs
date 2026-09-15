@@ -4,14 +4,12 @@ public readonly record struct MatterDraftLayout(string PageSize, string Orientat
 
 public static class MatterDraftLayoutProfiles
 {
-    // Provisional calibration only: update this one profile after measuring the real office noting sheet.
-    public static readonly MatterDraftLayout NotingSheetV1Provisional = new("A4", "Portrait", 25m, 20m, 20m, 25m);
-
-    // Official alias matching the centralized DelhiLacNotingV1 terminology
-    public static readonly MatterDraftLayout DelhiLacNotingV1 = NotingSheetV1Provisional;
+    // Fixed physical paper profile. The 45 mm mirrored gutter is derived by
+    // page parity in the frontend layout profile, not stored as mutable margins.
+    public static readonly MatterDraftLayout DelhiLacNotingLegalMirrorV1 = new("Legal", "Portrait", 25m, 0m, 25m, 0m);
 
     public static MatterDraftLayout For(MatterDraft draft) => draft.DraftType == MatterDraftType.Noting
-        ? DelhiLacNotingV1
+        ? DelhiLacNotingLegalMirrorV1
         : new MatterDraftLayout(draft.PageSize, draft.Orientation, draft.MarginTopMm, draft.MarginRightMm, draft.MarginBottomMm, draft.MarginLeftMm);
 }
 
