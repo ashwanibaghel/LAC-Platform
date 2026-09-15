@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
+import { Slice, Fragment } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import { TextStyle } from "@tiptap/extension-text-style";
@@ -142,6 +143,14 @@ function MatterDraftCanvas({
     editorProps: {
       attributes: {
         class: "draft-prosemirror"
+      },
+      clipboardTextParser(text, _context, _plain, view) {
+        const lines = text.split(/\r?\n/);
+        const schema = view.state.schema;
+        const nodes = lines.map(line =>
+          line ? schema.nodes.paragraph.create(null, schema.text(line)) : schema.nodes.paragraph.create()
+        );
+        return new Slice(Fragment.from(nodes), 0, 0);
       }
     },
     onUpdate: ({ editor: current }) => onChange(JSON.stringify(current.getJSON()))

@@ -208,10 +208,11 @@ function computePageBreaks(
       // Block does NOT fit on the current page.
 
       // Guard: if the block itself is taller than an entire printable page, we cannot
-      // split it (no contentJson mutation allowed), so accept it where it is and move on.
-      // This prevents an infinite loop where a giant paragraph keeps triggering a break.
+      // split it, so accept it across as many pages as it spans and advance pageIndex accordingly.
       if (blockHeight >= printableHeightPx - 4) {
-        // Giant block: it cannot fit on any page. Accept it on this page (or current new page).
+        const pagesSpanned = Math.max(1, Math.ceil(blockBottomOnPage / printableHeightPx));
+        pageIndex += pagesSpanned - 1;
+        pageTopY += (pagesSpanned - 1) * printableHeightPx;
         lastFitBottomY = blockBottomY;
         continue;
       }
