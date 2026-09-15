@@ -81,24 +81,24 @@ function computePageBreaks(
   const viewTop = domRect.top;
   const safeZoom = Math.max(0.2, zoom || 1);
 
-  // Temporarily collapse any active spacer elements to measure pure natural document coordinates
+  // Temporarily collapse existing spacers to measure pure natural content flow
   const existingSpacers = view.dom.querySelectorAll<HTMLElement>(".draft-page-break-spacer, .draft-table-page-break-spacer");
   existingSpacers.forEach(el => { el.style.display = "none"; });
+
+  // Force synchronous reflow so subsequent coordsAtPos reflect unspaced geometry
+  void view.dom.offsetHeight;
 
   const breaks: PageBreak[] = [];
   let pageIndex = 0;
   let currentRangeStart = 0;
-  let currentRangeTopY = 0;
 
   try {
+    let pageTopY = 0;
     try {
-      const firstBlockCoords = view.coordsAtPos(1);
-      currentRangeTopY = (firstBlockCoords.top - viewTop) / safeZoom;
+      pageTopY = (view.coordsAtPos(1).top - viewTop) / safeZoom;
     } catch {
-      currentRangeTopY = 0;
+      pageTopY = 0;
     }
-
-    let pageThresholdY = currentRangeTopY + printableHeightPx;
 
     let blockPos = 0;
     for (let i = 0; i < doc.childCount; i++) {
@@ -107,6 +107,7 @@ function computePageBreaks(
       const nodeStart = blockPos;
       const nodeEnd = blockPos + nodeSize;
 
+      // Skip blocks already completely placed on previous pages
       if (nodeEnd <= currentRangeStart) {
         blockPos += nodeSize;
         continue;
@@ -124,38 +125,38 @@ function computePageBreaks(
         continue;
       }
 
-      // Check if the current block fits within the remaining budget of this page
-      if (blockBottomY <= pageThresholdY) {
+      // Check if this block fits within the remaining printable budget of the current page
+      const blockBottomOnPage = blockBottomY - pageTopY;
+
+      if (blockBottomOnPage <= printableHeightPx) {
         blockPos += nodeSize;
         continue;
       }
 
-      // Block crosses the page boundary threshold
+      // Block crosses page boundary
       let splitPos = nodeStart;
       let isTableBreak = false;
 
       if (node.type.name === "heading") {
-        // Orphan prevention: heading must not sit alone at bottom of page
+        // Orphan prevention: push heading if it's not at the very top of the page
         if (nodeStart > currentRangeStart) {
           splitPos = nodeStart;
         } else {
-          // Heading is at top of page, keep it
           blockPos += nodeSize;
           continue;
         }
       } else if (node.type.name === "table") {
-        // For tables, push the entire table if fewer than ~2 rows fit
-        if (pageThresholdY - blockTopY < mmToPx(35) && nodeStart > currentRangeStart) {
+        const tableTopOnPage = blockTopY - pageTopY;
+        if (printableHeightPx - tableTopOnPage < mmToPx(35) && nodeStart > currentRangeStart) {
           splitPos = nodeStart;
         } else {
-          // Find row crossing threshold
           let rowPos = nodeStart + 1;
           let foundRowBreak = false;
           for (let r = 0; r < node.childCount; r++) {
             const rowNode = node.child(r);
             try {
               const rowBottom = (view.coordsAtPos(rowPos + rowNode.nodeSize - 1).bottom - viewTop) / safeZoom;
-              if (rowBottom > pageThresholdY && rowPos > nodeStart + 1) {
+              if (rowBottom - pageTopY > printableHeightPx && rowPos > nodeStart + 1) {
                 splitPos = rowPos;
                 isTableBreak = true;
                 foundRowBreak = true;
@@ -171,7 +172,7 @@ function computePageBreaks(
           }
         }
       } else {
-        // Normal paragraph or list item: Check if at least 1 line fits
+        // Paragraph or list item: test if at least 1 line fits
         let line1BottomY = blockTopY;
         try {
           const line1Coords = view.coordsAtPos(nodeStart + 1);
@@ -180,11 +181,11 @@ function computePageBreaks(
           line1BottomY = blockTopY;
         }
 
-        if (line1BottomY > pageThresholdY - 4 && nodeStart > currentRangeStart) {
-          // Not even 1 line fits; push the whole paragraph
+        if (line1BottomY - pageTopY > printableHeightPx - 4 && nodeStart > currentRangeStart) {
+          // Not even 1 line fits on current page; push the whole block
           splitPos = nodeStart;
         } else {
-          // At least 1 line fits: Binary search for the last word boundary before the threshold
+          // Binary search for the last fitting word boundary on this page
           let low = nodeStart + 1;
           let high = nodeEnd - 1;
           let best = low;
@@ -194,7 +195,7 @@ function computePageBreaks(
             try {
               const coords = view.coordsAtPos(mid);
               const midBottomY = (coords.bottom - viewTop) / safeZoom;
-              if (midBottomY <= pageThresholdY) {
+              if (midBottomY - pageTopY <= printableHeightPx) {
                 best = mid;
                 low = mid + 1;
               } else {
@@ -205,7 +206,6 @@ function computePageBreaks(
             }
           }
 
-          // Snap backward to nearest whitespace or punctuation
           let snapped = best;
           while (snapped > nodeStart + 1) {
             try {
@@ -228,12 +228,10 @@ function computePageBreaks(
       }
 
       if (splitPos <= currentRangeStart) {
-        // Guard against zero-step advancement
         blockPos += nodeSize;
         continue;
       }
 
-      // Measure the bottom of the last fitting text element
       let lastFitBottomY = blockTopY;
       try {
         const lastFitCoords = view.coordsAtPos(Math.max(1, splitPos - 1));
@@ -242,7 +240,8 @@ function computePageBreaks(
         lastFitBottomY = blockTopY;
       }
 
-      const remainingSpace = Math.max(0, pageThresholdY - lastFitBottomY);
+      const contentHeightOnThisPage = Math.max(0, lastFitBottomY - pageTopY);
+      const remainingSpace = Math.max(0, printableHeightPx - contentHeightOnThisPage);
       const heightPx = remainingSpace + marginBottomPx + SHEET_GAP_PX + marginTopPx;
 
       breaks.push({
@@ -258,21 +257,20 @@ function computePageBreaks(
 
       try {
         const nextLineCoords = view.coordsAtPos(splitPos);
-        currentRangeTopY = (nextLineCoords.top - viewTop) / safeZoom;
+        pageTopY = (nextLineCoords.top - viewTop) / safeZoom;
       } catch {
-        currentRangeTopY = lastFitBottomY;
+        pageTopY = lastFitBottomY;
       }
-      pageThresholdY = currentRangeTopY + printableHeightPx;
 
-      // Re-evaluate the remainder of this block on the new page
-      if (splitPos < nodeEnd) {
-        i--; // re-inspect current block for further breaks if it is taller than a page
+      // Re-evaluate remainder of this block on the new page if split was inside the block
+      if (splitPos < nodeEnd && splitPos > nodeStart) {
+        i--;
       } else {
         blockPos += nodeSize;
       }
     }
   } finally {
-    // Restore existing spacers display before returning
+    // Restore existing spacers display
     existingSpacers.forEach(el => { el.style.display = el.tagName === "TR" ? "" : "block"; });
   }
 
@@ -285,6 +283,7 @@ function computePageBreaks(
 export function matterDraftPagination(options: MatterDraftPaginationOptions) {
   let isMeasuring = false;
   let rafId = 0;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   return Extension.create<MatterDraftPaginationOptions, PaginationStorage>({
     name: "matterDraftPagination",
@@ -341,7 +340,10 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
 
           view(view) {
             const runMeasurement = () => {
-              rafId = 0;
+              if (rafId) {
+                cancelAnimationFrame(rafId);
+                rafId = 0;
+              }
               if (isMeasuring || !view.dom.isConnected) return;
               isMeasuring = true;
 
@@ -388,30 +390,66 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
               }
             };
 
-            const schedule = () => {
-              if (!rafId) {
-                rafId = window.requestAnimationFrame(runMeasurement);
-              }
+            const scheduleMeasurement = (delayMs = 25) => {
+              if (debounceTimer) clearTimeout(debounceTimer);
+              if (rafId) cancelAnimationFrame(rafId);
+
+              debounceTimer = setTimeout(() => {
+                rafId = requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    runMeasurement();
+                  });
+                });
+              }, delayMs);
             };
 
-            const resizeObserver = new ResizeObserver(() => {
-              if (!isMeasuring) {
-                schedule();
+            // Observe ONLY meaningful container WIDTH changes (ignore height changes from spacers)
+            let lastObservedWidth = view.dom.clientWidth;
+            const resizeObserver = new ResizeObserver(entries => {
+              for (const entry of entries) {
+                const width = entry.contentRect.width;
+                if (Math.abs(width - lastObservedWidth) > 3) {
+                  lastObservedWidth = width;
+                  scheduleMeasurement(50);
+                }
               }
             });
-
             resizeObserver.observe(view.dom);
-            schedule();
+
+            // Initial layout calculation
+            scheduleMeasurement(0);
 
             return {
-              update() {
-                schedule();
+              update(view, prevState) {
+                // Ignore pagination's own metadata transactions (prevents loop!)
+                const docChanged = !view.state.doc.eq(prevState.doc);
+                const layoutChanged = !!view.state.tr.getMeta("layoutChanged");
+
+                if (!docChanged && !layoutChanged) {
+                  return;
+                }
+
+                // Prevent grey-surface content flash on large paste:
+                // Instantly expand visual sheet capacity while precise calculation is pending
+                if (docChanged && extensionOptions.onPageCountChange) {
+                  const profile = extensionOptions.getProfile();
+                  const totalPageHeightPx = mmToPx(profile.heightMm);
+                  const approxHeight = view.dom.scrollHeight || 0;
+                  const approxPages = Math.max(1, Math.ceil(approxHeight / Math.max(100, totalPageHeightPx)));
+                  const currentPages = storage.pageCount || 1;
+                  if (approxPages > currentPages) {
+                    extensionOptions.onPageCountChange(approxPages);
+                  }
+                }
+
+                // Schedule coalesced measurement pass
+                scheduleMeasurement(docChanged ? 30 : 0);
               },
+
               destroy() {
                 resizeObserver.disconnect();
-                if (rafId) {
-                  window.cancelAnimationFrame(rafId);
-                }
+                if (debounceTimer) clearTimeout(debounceTimer);
+                if (rafId) cancelAnimationFrame(rafId);
               },
             };
           },
@@ -463,4 +501,3 @@ export function normalizeToFlatContent(contentJson: string | Record<string, unkn
 }
 
 export const normalizeDraftPages = normalizeToFlatContent;
-
