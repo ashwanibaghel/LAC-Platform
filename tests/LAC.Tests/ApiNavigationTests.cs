@@ -151,6 +151,13 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, unknownNode.StatusCode);
         using var oversized = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Too large", contentJson = new string('x', 1_000_001), pageSize = "A4", orientation = "Portrait", marginTopMm = 20, marginRightMm = 20, marginBottomMm = 20, marginLeftMm = 20, expectedRevision = 2 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, oversized.StatusCode);
+        using var legal = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Legal letter", contentJson = literalText, pageSize = "Legal", orientation = "Landscape", marginTopMm = 15, marginRightMm = 16, marginBottomMm = 17, marginLeftMm = 18, expectedRevision = 2 });
+        legal.EnsureSuccessStatusCode();
+        using var notingCreated = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Office noting", draftType = "Noting" });
+        notingCreated.EnsureSuccessStatusCode(); var notingId = (await notingCreated.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(25m, noting.GetProperty("marginLeftMm").GetDecimal());
+        using var alteredNoting = await _client.PutAsJsonAsync($"/api/matter-drafts/{notingId}", new { title = "Office noting", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}", pageSize = "Legal", orientation = "Landscape", marginTopMm = 1, marginRightMm = 1, marginBottomMm = 1, marginLeftMm = 1, expectedRevision = 0 });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, alteredNoting.StatusCode);
     }
 
     [Fact]

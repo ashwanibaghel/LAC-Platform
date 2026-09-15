@@ -417,13 +417,16 @@ api.MapPost("/matters/{id:guid}/drafts", async (Guid id, CreateMatterDraftReques
     if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
     if (!Enum.TryParse<MatterDraftType>(request.DraftType, true, out var draftType)) return Validation("draftType", "Choose Letter or Noting.");
     var draft = new MatterDraft { MatterId = id, Title = title, DraftType = draftType };
+    if (draftType == MatterDraftType.Noting) ApplyDraftLayout(draft, MatterDraftLayoutProfiles.NotingSheetV1Provisional);
     db.Add(draft); await db.SaveChangesAsync(ct);
     return Results.Created($"/api/matter-drafts/{draft.Id}", new IdResponse(draft.Id));
 });
 api.MapGet("/matter-drafts/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
-    var draft = await db.MatterDrafts.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.MatterId, matterTitle = x.Matter.Title, x.Title, draftType = x.DraftType.ToString(), status = x.Status.ToString(), x.ContentJson, x.Revision, x.PageSize, x.Orientation, x.MarginTopMm, x.MarginRightMm, x.MarginBottomMm, x.MarginLeftMm, x.UpdatedAt }).SingleOrDefaultAsync(ct);
-    return draft is null ? NotFound("Matter draft", id) : Results.Ok(draft);
+    var draft = await db.MatterDrafts.AsNoTracking().Include(x => x.Matter).SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (draft is null) return NotFound("Matter draft", id);
+    var layout = MatterDraftLayoutProfiles.For(draft);
+    return Results.Ok(new { draft.Id, draft.MatterId, matterTitle = draft.Matter.Title, draft.Title, draftType = draft.DraftType.ToString(), status = draft.Status.ToString(), draft.ContentJson, draft.Revision, layout.PageSize, layout.Orientation, layout.MarginTopMm, layout.MarginRightMm, layout.MarginBottomMm, layout.MarginLeftMm, draft.UpdatedAt });
 });
 api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest request, LacDbContext db, CancellationToken ct) =>
 {
@@ -431,9 +434,8 @@ api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest 
     if (draft.Revision != request.ExpectedRevision) return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving.");
     if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
     if (!TryValidateDraftContent(request.ContentJson, out var contentProblem)) return Validation("contentJson", contentProblem);
-    if (!TryValidateDraftLayout(request, out var layoutProblem)) return Validation("pageLayout", layoutProblem);
-    draft.Title = title; draft.ContentJson = request.ContentJson; draft.PageSize = request.PageSize; draft.Orientation = request.Orientation;
-    draft.MarginTopMm = request.MarginTopMm; draft.MarginRightMm = request.MarginRightMm; draft.MarginBottomMm = request.MarginBottomMm; draft.MarginLeftMm = request.MarginLeftMm; draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
+    if (!TryValidateDraftLayout(request, draft.DraftType, out var layout, out var layoutProblem)) return Validation("pageLayout", layoutProblem);
+    draft.Title = title; draft.ContentJson = request.ContentJson; ApplyDraftLayout(draft, layout); draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
     try { await db.SaveChangesAsync(ct); }
     catch (DbUpdateConcurrencyException) { return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving."); }
     return Results.Ok(new { draft.Id, draft.Revision, draft.UpdatedAt });
@@ -896,7 +898,23 @@ app.Run();
 static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: $"{entityName} not found", detail: $"No {entityName.ToLowerInvariant()} exists for id {id}.");
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
 static bool TryDraftTitle(string? value, out string title, out string problem) { title = value?.Trim() ?? ""; problem = title.Length switch { 0 => "Draft title is required.", > 300 => "Draft title must be 300 characters or fewer.", _ => "" }; return problem.Length == 0; }
-static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, out string problem) { problem = ""; if (!string.Equals(request.PageSize, "A4", StringComparison.OrdinalIgnoreCase)) problem = "Only A4 page size is supported."; else if (request.Orientation is not ("Portrait" or "Landscape")) problem = "Orientation must be Portrait or Landscape."; else if (new[] { request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm }.Any(x => x < 0 || x > 50)) problem = "Margins must be between 0 and 50 mm."; return problem.Length == 0; }
+static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, MatterDraftType draftType, out MatterDraftLayout layout, out string problem)
+{
+    problem = ""; layout = default;
+    if (draftType == MatterDraftType.Noting)
+    {
+        layout = MatterDraftLayoutProfiles.NotingSheetV1Provisional;
+        if (request.PageSize != layout.PageSize || request.Orientation != layout.Orientation || request.MarginTopMm != layout.MarginTopMm || request.MarginRightMm != layout.MarginRightMm || request.MarginBottomMm != layout.MarginBottomMm || request.MarginLeftMm != layout.MarginLeftMm) { problem = "Noting Sheet layout is fixed by the office profile."; return false; }
+        return true;
+    }
+    if (request.PageSize is not ("A4" or "Legal")) problem = "Page size must be A4 or Legal.";
+    else if (request.Orientation is not ("Portrait" or "Landscape")) problem = "Orientation must be Portrait or Landscape.";
+    else if (new[] { request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm }.Any(x => x < 0 || x > 50)) problem = "Margins must be between 0 and 50 mm.";
+    if (problem.Length > 0) return false;
+    layout = new MatterDraftLayout(request.PageSize, request.Orientation, request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm);
+    return true;
+}
+static void ApplyDraftLayout(MatterDraft draft, MatterDraftLayout layout) { draft.PageSize = layout.PageSize; draft.Orientation = layout.Orientation; draft.MarginTopMm = layout.MarginTopMm; draft.MarginRightMm = layout.MarginRightMm; draft.MarginBottomMm = layout.MarginBottomMm; draft.MarginLeftMm = layout.MarginLeftMm; }
 static bool TryValidateDraftContent(string? contentJson, out string problem)
 {
     problem = "";
