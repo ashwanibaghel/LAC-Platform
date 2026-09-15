@@ -210,6 +210,37 @@ function MatterDraftCanvas({
   );
 }
 
+function ArrowLeftIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
+function CompressIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="4 14 10 14 10 20" />
+      <polyline points="20 10 14 10 14 4" />
+      <line x1="14" y1="10" x2="21" y2="3" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </svg>
+  );
+}
+
 export function MatterDraftEditorPage() {
   const { id = "" } = useParams();
   const [draft, setDraft] = useState<Draft>();
@@ -219,7 +250,6 @@ export function MatterDraftEditorPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [focusMode, setFocusMode] = useState(false);
-  const [headerExpanded, setHeaderExpanded] = useState(false);
   const [pageSetupExpanded, setPageSetupExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const editGeneration = useRef(0);
@@ -369,20 +399,51 @@ export function MatterDraftEditorPage() {
 
   return (
     <div className={`draft-workspace ${focusMode ? "draft-focus-mode" : ""}`}>
-      <header className={`draft-header ${headerExpanded ? "" : "draft-header-collapsed"}`}>
+      <header className="draft-header">
         <div className="draft-document-identity">
-          <Link to={`/matters/${draft.matterId}`} onClick={backToMatter}>← Back to {draft.matterTitle}</Link>
-          <input aria-label="Draft title" className="draft-title" value={draft.title} onChange={e => update({ title: e.target.value })} />
-          <span><b>{draft.draftType}</b><i />{dirty ? "Unsaved changes" : "Saved"}</span>
+          <Link
+            to={`/matters/${draft.matterId}`}
+            onClick={backToMatter}
+            className="draft-back-link"
+            title={`Back to ${draft.matterTitle}`}
+          >
+            <ArrowLeftIcon />
+            <span className="draft-back-text">{draft.matterTitle}</span>
+          </Link>
+          <span className="draft-crumb-sep">/</span>
+          <input
+            aria-label="Draft title"
+            className="draft-title"
+            value={draft.title}
+            placeholder="Untitled draft"
+            onChange={e => update({ title: e.target.value })}
+          />
+          <div className="draft-badges-group">
+            <span className={`draft-type-badge draft-type-${draft.draftType.toLowerCase()}`}>
+              {draft.draftType}
+            </span>
+            <span className={`draft-status-pill ${dirty ? "status-dirty" : "status-saved"}`}>
+              <span className="draft-status-dot" />
+              <span>{saving ? "Saving…" : dirty ? "Unsaved changes" : "Saved"}</span>
+            </span>
+          </div>
         </div>
         <div className="draft-header-actions">
-          <button className="secondary-button" onClick={() => setHeaderExpanded(value => !value)}>
-            {headerExpanded ? "Collapse header" : "Expand header"}
+          <button
+            type="button"
+            className="draft-action-btn"
+            onClick={() => setFocusMode(value => !value)}
+            title={focusMode ? "Exit full screen" : "Full screen view"}
+          >
+            {focusMode ? <CompressIcon /> : <ExpandIcon />}
+            <span>{focusMode ? "Exit full screen" : "Full screen"}</span>
           </button>
-          <button className="secondary-button" onClick={() => setFocusMode(value => !value)}>
-            {focusMode ? "Exit full screen" : "Full screen"}
-          </button>
-          <button className="draft-save" onClick={() => void save()} disabled={saving || !dirty}>
+          <button
+            type="button"
+            className="draft-save"
+            onClick={() => void save()}
+            disabled={saving || !dirty}
+          >
             {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
           </button>
         </div>

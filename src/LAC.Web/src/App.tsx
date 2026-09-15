@@ -7,6 +7,7 @@ import {
   NavLink,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
   useSearchParams,
@@ -418,6 +419,11 @@ function GlobalSearch() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  if (location.pathname.startsWith("/matter-drafts/")) {
+    return <main className="studio-root" id="main-content" tabIndex={-1}>{children}</main>;
+  }
+
   const [collapsed, setCollapsed] = useState(false);
   const links = [
     ["Home", "/", "⌂"],
