@@ -84,6 +84,25 @@ function measureBlock(
 ): { topY: number; bottomY: number } | null {
   const nodeEnd = nodeStart + nodeSize;
   try {
+    // Try to get the actual top-level DOM element for exact border-box measurements
+    try {
+      const dom = view.nodeDOM(nodeStart);
+      const rawEl = (dom instanceof HTMLElement ? dom : null) ??
+        (view.domAtPos(nodeStart + 1).node instanceof HTMLElement
+          ? (view.domAtPos(nodeStart + 1).node as HTMLElement)
+          : view.domAtPos(nodeStart + 1).node.parentElement);
+      const blockEl = rawEl?.closest(".draft-prosemirror > *") as HTMLElement | null;
+      if (blockEl && !blockEl.classList.contains("draft-page-break-spacer")) {
+        const rect = blockEl.getBoundingClientRect();
+        return {
+          topY: (rect.top - viewTop) / safeZoom,
+          bottomY: (rect.bottom - viewTop) / safeZoom,
+        };
+      }
+    } catch {
+      // fallback to coordsAtPos
+    }
+
     const safeStart = Math.min(nodeStart + 1, nodeEnd - 1);
     const safeEnd = Math.max(nodeEnd - 1, nodeStart + 1);
     const topCoords = view.coordsAtPos(safeStart);
@@ -144,19 +163,6 @@ function computePageBreaks(
   let pageIndex = 0;
 
   try {
-    // pageTopY = natural-layout Y of the top of the printable area on the current page.
-    // For page 1 this is where the first character starts (after CSS padding-top).
-    let pageTopY: number;
-    try {
-      pageTopY = (view.coordsAtPos(1).top - viewTop) / safeZoom;
-    } catch {
-      pageTopY = marginTopPx;
-    }
-
-    // lastFitBottomY = natural-layout absolute Y of the bottom of the last block
-    // that fits on the current page. Used to compute remaining space.
-    let lastFitBottomY = pageTopY; // start of page = no content yet
-
     // Build array of (nodeStart, nodeSize) for all top-level blocks
     const blocks: Array<{ start: number; size: number }> = [];
     let pos = 0;
@@ -165,6 +171,19 @@ function computePageBreaks(
       blocks.push({ start: pos, size: n.nodeSize });
       pos += n.nodeSize;
     }
+
+    // pageTopY = natural-layout Y of the top of the printable area on the current page.
+    let pageTopY: number;
+    if (blocks.length > 0) {
+      const firstMeasured = measureBlock(view, blocks[0].start, blocks[0].size, viewTop, safeZoom);
+      pageTopY = firstMeasured ? firstMeasured.topY : marginTopPx;
+    } else {
+      pageTopY = marginTopPx;
+    }
+
+    // lastFitBottomY = natural-layout absolute Y of the bottom of the last block
+    // that fits on the current page. Used to compute remaining space.
+    let lastFitBottomY = pageTopY; // start of page = no content yet
 
     for (let i = 0; i < blocks.length; i++) {
       const { start: nodeStart, size: nodeSize } = blocks[i];

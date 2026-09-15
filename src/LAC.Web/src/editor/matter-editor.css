@@ -667,6 +667,11 @@
   caret-color: #1f5bc2;
 }
 
+/* Page break spacers and margin elimination */
+:has(+ .draft-page-break-spacer) {
+  margin-bottom: 0 !important;
+}
+
 .draft-page-break-spacer {
   display: block !important;
   width: 100%;
@@ -674,10 +679,15 @@
   user-select: none;
   background: transparent;
   box-sizing: border-box;
-  /* Must not collapse — not a paragraph margin */
   overflow: hidden;
   font-size: 0;
   line-height: 0;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.draft-page-break-spacer + * {
+  margin-top: 0 !important;
 }
 
 .draft-table-page-break-spacer {
