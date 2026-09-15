@@ -13,8 +13,9 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { EditorToolbar } from "./EditorToolbar";
+import { NotingSheetFrame } from "./NotingSheetFrame";
 import { matterDraftPagination, normalizeDraftPages } from "./pagination";
-import { DELHI_LAC_NOTING_V1, profilePrintSize, resolvePageProfile } from "./pageProfiles";
+import { profilePrintSize, resolvePageProfile } from "./pageProfiles";
 import "./matter-editor.css";
 
 const api = "/api";
@@ -111,6 +112,7 @@ function MatterDraftCanvas({
   onResetZoom: () => void;
 }) {
   const profile = resolvePageProfile(draft);
+  const isNoting = draft.draftType === "Noting";
   const [pageCount, setPageCount] = useState(1);
 
   const profileRef = useRef(profile);
@@ -141,7 +143,7 @@ function MatterDraftCanvas({
     content: normalizeDraftPages(contentJson || JSON.stringify(emptyDocument)),
     editorProps: {
       attributes: {
-        class: "draft-prosemirror"
+        class: isNoting ? "draft-prosemirror draft-prosemirror-noting" : "draft-prosemirror"
       }
     },
     onUpdate: ({ editor: current }) => onChange(JSON.stringify(current.getJSON()))
@@ -189,16 +191,12 @@ function MatterDraftCanvas({
       />
       {pageSetup}
       <div className="draft-page-wrap">
-        <div className="draft-canvas" style={pageStyle}>
+        <div className={`draft-canvas ${isNoting ? "draft-noting-canvas" : ""}`} style={pageStyle}>
           <div className="draft-backdrop-deck" aria-hidden="true">
             {Array.from({ length: pageCount }).map((_, i) => (
-              <div key={i} className="draft-sheet-card">
-                <div className="draft-sheet-badge">
-                  {draft.draftType === "Noting"
-                    ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
-                    : `Page ${i + 1} of ${pageCount}`}
-                </div>
-              </div>
+              isNoting
+                ? <NotingSheetFrame key={i} pageNumber={i + 1} />
+                : <div key={i} className="draft-sheet-card"><div className="draft-sheet-badge">Page {i + 1} of {pageCount}</div></div>
             ))}
           </div>
           <div className="draft-editor-layer">
@@ -306,7 +304,7 @@ export function MatterDraftEditorPage() {
         body: JSON.stringify({
           title: savedDraft.title,
           contentJson: savedContent,
-          pageSize: profile.pageSize === "NotingSheet" ? "A4" : profile.pageSize,
+          pageSize: profile.pageSize,
           orientation: savedDraft.draftType === "Noting" ? "Portrait" : savedDraft.orientation,
           marginTopMm: profile.marginTopMm,
           marginRightMm: profile.marginRightMm,
@@ -356,11 +354,11 @@ export function MatterDraftEditorPage() {
       {noting ? (
         <div className="draft-noting-layout-info">
           <div className="noting-info-header">
-            <strong>Delhi LAC Noting Sheet (Provisional)</strong>
+            <strong>Noting Sheet</strong>
             <span className="noting-locked-badge">Fixed Profile</span>
           </div>
-          <span className="noting-info-dims">210 × 297 mm (A4) · Portrait · Margins: Top 25mm, Right 20mm, Bottom 20mm, Left 25mm (File thread clearance)</span>
-          <small className="noting-info-note">{DELHI_LAC_NOTING_V1.calibrationNote}</small>
+          <span className="noting-info-dims">Legal · Portrait · Mirrored 45 mm binding gutter · Top/Bottom: 25 mm</span>
+          <small className="noting-info-note">Odd pages reserve the left gutter; even pages reserve the right gutter.</small>
         </div>
       ) : (
         <div className="draft-letter-layout-controls">

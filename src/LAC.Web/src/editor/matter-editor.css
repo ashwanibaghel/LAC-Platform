@@ -633,6 +633,22 @@
   box-sizing: border-box;
 }
 
+/* Physical frame only. The paginator will later consume getNotingPageGeometry
+   to apply the matching odd/even writing zone to each editable page segment. */
+.noting-sheet-frame {
+  overflow: hidden;
+}
+
+.noting-sheet-separator {
+  position: absolute;
+  left: var(--noting-separator-x);
+  top: var(--noting-separator-top);
+  width: 1px;
+  height: var(--noting-separator-height);
+  background: #94a3b8;
+  transform: translateX(-0.5px);
+}
+
 .draft-sheet-badge {
   position: absolute;
   top: -22px;
@@ -665,6 +681,12 @@
   line-height: 1.45;
   color: #152236;
   caret-color: #1f5bc2;
+}
+
+/* The physical gutter is intentionally not implemented as a global editor
+   margin: its side changes for every page and requires the paginator seam. */
+.draft-prosemirror-noting {
+  --noting-writing-width: 170.9mm;
 }
 
 .draft-page-break-spacer {

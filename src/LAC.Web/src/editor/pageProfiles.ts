@@ -1,3 +1,5 @@
+import { DELHI_LAC_NOTING_LEGAL_MIRROR_V1 } from "./notingLayoutProfile";
+
 export type Orientation = "Portrait" | "Landscape";
 
 export type PageProfile = {
@@ -21,23 +23,19 @@ export const LETTER_PAPER_PROFILES = {
   Legal: { widthMm: 215.9, heightMm: 355.6, displayName: "Legal (215.9 × 355.6 mm)" },
 } as const;
 
-// PROVISIONAL CALIBRATION ONLY.
-// We do not yet possess verified physical noting sheet measurements from the Delhi LAC.
-// This profile must be calibrated against an authentic blank physical noting sheet and test print.
+// The mirrored 45 mm binding gutter is derived from notingLayoutProfile by page parity;
+// it is intentionally not represented as mutable left/right draft margins.
 export const DELHI_LAC_NOTING_V1: PageProfile = {
-  id: "delhi-lac-noting-v1-provisional",
-  displayName: "Delhi LAC Noting Sheet (Provisional)",
-  pageSize: "NotingSheet",
-  widthMm: 210.0,
-  heightMm: 297.0,
-  marginTopMm: 25.0,
-  marginRightMm: 20.0,
-  marginBottomMm: 20.0,
-  marginLeftMm: 25.0, // Clearance for physical thread file-binding (tag/dori)
-  reservedTopMm: 0,
+  id: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.id,
+  displayName: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.displayName,
+  pageSize: "Legal",
+  widthMm: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.pageWidthMm,
+  heightMm: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.pageHeightMm,
+  marginTopMm: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.topMm,
+  marginRightMm: 0,
+  marginBottomMm: DELHI_LAC_NOTING_LEGAL_MIRROR_V1.bottomMm,
+  marginLeftMm: 0,
   locked: true,
-  isProvisional: true,
-  calibrationNote: "Provisional calibration based on standard A4 file dimensions. Exact millimetre values to be updated upon physical measurement of authentic blank LAC noting sheets.",
 };
 
 // Backwards compatibility alias for existing callers
@@ -82,4 +80,3 @@ export function mmToPx(mm: number): number {
 export function pxToMm(px: number): number {
   return (px * 25.4) / 96;
 }
-
