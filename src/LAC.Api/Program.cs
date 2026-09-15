@@ -976,8 +976,9 @@ static bool TryValidateDraftAttributes(JsonElement attributes, string nodeType, 
     var allowed = nodeType switch
     {
         "paragraph" or "heading" => new HashSet<string>(StringComparer.Ordinal) { "textAlign", "level" },
+        "orderedList" => new HashSet<string>(StringComparer.Ordinal) { "start" },
         "textStyle" => new HashSet<string>(StringComparer.Ordinal) { "color", "fontFamily", "fontSize" },
-        "tableCell" or "tableHeader" => new HashSet<string>(StringComparer.Ordinal) { "colspan", "rowspan", "colwidth" },
+        "tableCell" or "tableHeader" => new HashSet<string>(StringComparer.Ordinal) { "colspan", "rowspan", "colwidth", "align" },
         _ => new HashSet<string>(StringComparer.Ordinal)
     };
     foreach (var property in attributes.EnumerateObject())

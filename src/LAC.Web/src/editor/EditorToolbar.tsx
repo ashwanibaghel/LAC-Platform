@@ -12,8 +12,20 @@ type Props = {
 };
 
 export function EditorToolbar({ editor, onPrint, zoom, onZoomChange, onResetZoom, pageSetupExpanded, onTogglePageSetup, pageCount = 1 }: Props) {
-  const command = (action: () => boolean) => () => action();
-  return <div className="draft-toolbar" aria-label="Editor formatting tools">
+  const command = (action: () => boolean) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    action();
+  };
+  return <div
+    className="draft-toolbar"
+    aria-label="Editor formatting tools"
+    onMouseDown={e => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag !== "SELECT" && tag !== "INPUT") {
+        e.preventDefault();
+      }
+    }}
+  >
     <div className="toolbar-group toolbar-view-group">
       <span className="toolbar-group-label">View</span>
       <button className={pageSetupExpanded ? "active" : ""} title="Show or hide page setup" onClick={onTogglePageSetup}>Page setup</button>

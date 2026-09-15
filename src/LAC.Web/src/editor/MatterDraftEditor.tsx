@@ -147,6 +147,22 @@ function MatterDraftCanvas({
     onUpdate: ({ editor: current }) => onChange(JSON.stringify(current.getJSON()))
   });
 
+  useEffect(() => {
+    if (editor && !editor.isDestroyed) {
+      editor.view.dispatch(editor.view.state.tr.setMeta("layoutChanged", true));
+    }
+  }, [
+    profile.widthMm,
+    profile.heightMm,
+    profile.marginTopMm,
+    profile.marginRightMm,
+    profile.marginBottomMm,
+    profile.marginLeftMm,
+    profile.reservedTopMm,
+    zoom,
+    editor
+  ]);
+
   const pageStyle = useMemo(() => ({
     "--draft-page-width": `${profile.widthMm}mm`,
     "--draft-page-height": `${profile.heightMm}mm`,
@@ -207,6 +223,7 @@ export function MatterDraftEditorPage() {
   const [pageSetupExpanded, setPageSetupExpanded] = useState(false);
   const [zoom, setZoom] = useState(1);
   const editGeneration = useRef(0);
+  const contentJsonRef = useRef("");
 
   useEffect(() => {
     request<Draft>(`/matter-drafts/${id}`)
@@ -214,6 +231,7 @@ export function MatterDraftEditorPage() {
         editGeneration.current = 0;
         setDraft(value);
         setContentJson(value.contentJson);
+        contentJsonRef.current = value.contentJson;
         setDirty(false);
         setLoading(false);
       })
@@ -246,7 +264,7 @@ export function MatterDraftEditorPage() {
   const save = async () => {
     if (!draft || saving) return;
     const savedDraft = draft;
-    const savedContent = contentJson;
+    const savedContent = contentJsonRef.current || contentJson;
     const savedGeneration = editGeneration.current;
     const profile = resolvePageProfile(savedDraft);
     setSaving(true);
@@ -371,11 +389,12 @@ export function MatterDraftEditorPage() {
       </header>
       {error && <p className="error draft-error">{error}</p>}
       <MatterDraftCanvas
-        key={`${draft.id}:${draft.pageSize}:${draft.orientation}:${draft.marginTopMm}:${draft.marginRightMm}:${draft.marginBottomMm}:${draft.marginLeftMm}`}
+        key={draft.id}
         draft={draft}
         contentJson={contentJson}
         zoom={zoom}
         onChange={json => {
+          contentJsonRef.current = json;
           setContentJson(json);
           markDirty();
         }}

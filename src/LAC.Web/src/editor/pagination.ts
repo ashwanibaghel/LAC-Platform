@@ -91,184 +91,190 @@ function computePageBreaks(
   let currentRangeTopY = 0;
 
   try {
-    const firstBlockCoords = view.coordsAtPos(1);
-    currentRangeTopY = (firstBlockCoords.top - viewTop) / safeZoom;
-  } catch {
-    currentRangeTopY = 0;
-  }
-
-  let pageThresholdY = currentRangeTopY + printableHeightPx;
-
-  let blockPos = 0;
-  for (let i = 0; i < doc.childCount; i++) {
-    const node = doc.child(i);
-    const nodeSize = node.nodeSize;
-    const nodeStart = blockPos;
-    const nodeEnd = blockPos + nodeSize;
-
-    if (nodeEnd <= currentRangeStart) {
-      blockPos += nodeSize;
-      continue;
-    }
-
-    let blockTopY = 0;
-    let blockBottomY = 0;
     try {
-      const topCoords = view.coordsAtPos(nodeStart + 1);
-      const bottomCoords = view.coordsAtPos(nodeEnd - 1);
-      blockTopY = (topCoords.top - viewTop) / safeZoom;
-      blockBottomY = (bottomCoords.bottom - viewTop) / safeZoom;
+      const firstBlockCoords = view.coordsAtPos(1);
+      currentRangeTopY = (firstBlockCoords.top - viewTop) / safeZoom;
     } catch {
-      blockPos += nodeSize;
-      continue;
+      currentRangeTopY = 0;
     }
 
-    // Check if the current block fits within the remaining budget of this page
-    if (blockBottomY <= pageThresholdY) {
-      blockPos += nodeSize;
-      continue;
-    }
+    let pageThresholdY = currentRangeTopY + printableHeightPx;
 
-    // Block crosses the page boundary threshold
-    let splitPos = nodeStart;
-    let isTableBreak = false;
+    let blockPos = 0;
+    for (let i = 0; i < doc.childCount; i++) {
+      const node = doc.child(i);
+      const nodeSize = node.nodeSize;
+      const nodeStart = blockPos;
+      const nodeEnd = blockPos + nodeSize;
 
-    if (node.type.name === "heading") {
-      // Orphan prevention: heading must not sit alone at bottom of page
-      if (nodeStart > currentRangeStart) {
-        splitPos = nodeStart;
-      } else {
-        // Heading is at top of page, keep it
+      if (nodeEnd <= currentRangeStart) {
         blockPos += nodeSize;
         continue;
       }
-    } else if (node.type.name === "table") {
-      // For tables, push the entire table if fewer than ~2 rows fit
-      if (pageThresholdY - blockTopY < mmToPx(35) && nodeStart > currentRangeStart) {
-        splitPos = nodeStart;
-      } else {
-        // Find row crossing threshold
-        let rowPos = nodeStart + 1;
-        let foundRowBreak = false;
-        for (let r = 0; r < node.childCount; r++) {
-          const rowNode = node.child(r);
-          try {
-            const rowBottom = (view.coordsAtPos(rowPos + rowNode.nodeSize - 1).bottom - viewTop) / safeZoom;
-            if (rowBottom > pageThresholdY && rowPos > nodeStart + 1) {
-              splitPos = rowPos;
-              isTableBreak = true;
-              foundRowBreak = true;
-              break;
-            }
-          } catch {
-            // fallback
-          }
-          rowPos += rowNode.nodeSize;
-        }
-        if (!foundRowBreak) {
-          splitPos = nodeStart > currentRangeStart ? nodeStart : nodeEnd;
-        }
-      }
-    } else {
-      // Normal paragraph or list item: Check if at least 1 line fits
-      let line1BottomY = blockTopY;
+
+      let blockTopY = 0;
+      let blockBottomY = 0;
       try {
-        const line1Coords = view.coordsAtPos(nodeStart + 1);
-        line1BottomY = (line1Coords.bottom - viewTop) / safeZoom;
+        const topCoords = view.coordsAtPos(nodeStart + 1);
+        const bottomCoords = view.coordsAtPos(nodeEnd - 1);
+        blockTopY = (topCoords.top - viewTop) / safeZoom;
+        blockBottomY = (bottomCoords.bottom - viewTop) / safeZoom;
       } catch {
-        line1BottomY = blockTopY;
+        blockPos += nodeSize;
+        continue;
       }
 
-      if (line1BottomY > pageThresholdY - 4 && nodeStart > currentRangeStart) {
-        // Not even 1 line fits; push the whole paragraph
-        splitPos = nodeStart;
-      } else {
-        // At least 1 line fits: Binary search for the last word boundary before the threshold
-        let low = nodeStart + 1;
-        let high = nodeEnd - 1;
-        let best = low;
+      // Check if the current block fits within the remaining budget of this page
+      if (blockBottomY <= pageThresholdY) {
+        blockPos += nodeSize;
+        continue;
+      }
 
-        while (low <= high) {
-          const mid = Math.floor((low + high) / 2);
-          try {
-            const coords = view.coordsAtPos(mid);
-            const midBottomY = (coords.bottom - viewTop) / safeZoom;
-            if (midBottomY <= pageThresholdY) {
-              best = mid;
-              low = mid + 1;
-            } else {
+      // Block crosses the page boundary threshold
+      let splitPos = nodeStart;
+      let isTableBreak = false;
+
+      if (node.type.name === "heading") {
+        // Orphan prevention: heading must not sit alone at bottom of page
+        if (nodeStart > currentRangeStart) {
+          splitPos = nodeStart;
+        } else {
+          // Heading is at top of page, keep it
+          blockPos += nodeSize;
+          continue;
+        }
+      } else if (node.type.name === "table") {
+        // For tables, push the entire table if fewer than ~2 rows fit
+        if (pageThresholdY - blockTopY < mmToPx(35) && nodeStart > currentRangeStart) {
+          splitPos = nodeStart;
+        } else {
+          // Find row crossing threshold
+          let rowPos = nodeStart + 1;
+          let foundRowBreak = false;
+          for (let r = 0; r < node.childCount; r++) {
+            const rowNode = node.child(r);
+            try {
+              const rowBottom = (view.coordsAtPos(rowPos + rowNode.nodeSize - 1).bottom - viewTop) / safeZoom;
+              if (rowBottom > pageThresholdY && rowPos > nodeStart + 1) {
+                splitPos = rowPos;
+                isTableBreak = true;
+                foundRowBreak = true;
+                break;
+              }
+            } catch {
+              // fallback
+            }
+            rowPos += rowNode.nodeSize;
+          }
+          if (!foundRowBreak) {
+            splitPos = nodeStart > currentRangeStart ? nodeStart : nodeEnd;
+          }
+        }
+      } else {
+        // Normal paragraph or list item: Check if at least 1 line fits
+        let line1BottomY = blockTopY;
+        try {
+          const line1Coords = view.coordsAtPos(nodeStart + 1);
+          line1BottomY = (line1Coords.bottom - viewTop) / safeZoom;
+        } catch {
+          line1BottomY = blockTopY;
+        }
+
+        if (line1BottomY > pageThresholdY - 4 && nodeStart > currentRangeStart) {
+          // Not even 1 line fits; push the whole paragraph
+          splitPos = nodeStart;
+        } else {
+          // At least 1 line fits: Binary search for the last word boundary before the threshold
+          let low = nodeStart + 1;
+          let high = nodeEnd - 1;
+          let best = low;
+
+          while (low <= high) {
+            const mid = Math.floor((low + high) / 2);
+            try {
+              const coords = view.coordsAtPos(mid);
+              const midBottomY = (coords.bottom - viewTop) / safeZoom;
+              if (midBottomY <= pageThresholdY) {
+                best = mid;
+                low = mid + 1;
+              } else {
+                high = mid - 1;
+              }
+            } catch {
               high = mid - 1;
             }
-          } catch {
-            high = mid - 1;
           }
-        }
 
-        // Snap backward to nearest whitespace or punctuation
-        let snapped = best;
-        while (snapped > nodeStart + 1) {
-          const char = doc.textBetween(snapped - 1, snapped);
-          if (char === " " || char === "\n" || char === "\t") {
-            break;
+          // Snap backward to nearest whitespace or punctuation
+          let snapped = best;
+          while (snapped > nodeStart + 1) {
+            try {
+              const char = doc.textBetween(snapped - 1, snapped);
+              if (char === " " || char === "\n" || char === "\t") {
+                break;
+              }
+            } catch {
+              break;
+            }
+            snapped--;
           }
-          snapped--;
-        }
 
-        if (snapped > nodeStart + 1) {
-          splitPos = snapped;
-        } else {
-          splitPos = best;
+          if (snapped > nodeStart + 1) {
+            splitPos = snapped;
+          } else {
+            splitPos = best;
+          }
         }
       }
+
+      if (splitPos <= currentRangeStart) {
+        // Guard against zero-step advancement
+        blockPos += nodeSize;
+        continue;
+      }
+
+      // Measure the bottom of the last fitting text element
+      let lastFitBottomY = blockTopY;
+      try {
+        const lastFitCoords = view.coordsAtPos(Math.max(1, splitPos - 1));
+        lastFitBottomY = (lastFitCoords.bottom - viewTop) / safeZoom;
+      } catch {
+        lastFitBottomY = blockTopY;
+      }
+
+      const remainingSpace = Math.max(0, pageThresholdY - lastFitBottomY);
+      const heightPx = remainingSpace + marginBottomPx + SHEET_GAP_PX + marginTopPx;
+
+      breaks.push({
+        pos: splitPos,
+        heightPx,
+        pageIndex: pageIndex + 1,
+        isTableBreak,
+      });
+
+      // Advance to next page
+      pageIndex++;
+      currentRangeStart = splitPos;
+
+      try {
+        const nextLineCoords = view.coordsAtPos(splitPos);
+        currentRangeTopY = (nextLineCoords.top - viewTop) / safeZoom;
+      } catch {
+        currentRangeTopY = lastFitBottomY;
+      }
+      pageThresholdY = currentRangeTopY + printableHeightPx;
+
+      // Re-evaluate the remainder of this block on the new page
+      if (splitPos < nodeEnd) {
+        i--; // re-inspect current block for further breaks if it is taller than a page
+      } else {
+        blockPos += nodeSize;
+      }
     }
-
-    if (splitPos <= currentRangeStart) {
-      // Guard against zero-step advancement
-      blockPos += nodeSize;
-      continue;
-    }
-
-    // Measure the bottom of the last fitting text element
-    let lastFitBottomY = blockTopY;
-    try {
-      const lastFitCoords = view.coordsAtPos(Math.max(1, splitPos - 1));
-      lastFitBottomY = (lastFitCoords.bottom - viewTop) / safeZoom;
-    } catch {
-      lastFitBottomY = blockTopY;
-    }
-
-    const remainingSpace = Math.max(0, pageThresholdY - lastFitBottomY);
-    const heightPx = remainingSpace + marginBottomPx + SHEET_GAP_PX + marginTopPx;
-
-    breaks.push({
-      pos: splitPos,
-      heightPx,
-      pageIndex: pageIndex + 1,
-      isTableBreak,
-    });
-
-    // Advance to next page
-    pageIndex++;
-    currentRangeStart = splitPos;
-
-    try {
-      const nextLineCoords = view.coordsAtPos(splitPos);
-      currentRangeTopY = (nextLineCoords.top - viewTop) / safeZoom;
-    } catch {
-      currentRangeTopY = lastFitBottomY;
-    }
-    pageThresholdY = currentRangeTopY + printableHeightPx;
-
-    // Re-evaluate the remainder of this block on the new page
-    if (splitPos < nodeEnd) {
-      i--; // re-inspect current block for further breaks if it is taller than a page
-    } else {
-      blockPos += nodeSize;
-    }
+  } finally {
+    // Restore existing spacers display before returning
+    existingSpacers.forEach(el => { el.style.display = el.tagName === "TR" ? "" : "block"; });
   }
-
-  // Restore existing spacers display if calculation aborted or before decoration re-apply
-  existingSpacers.forEach(el => { el.style.display = ""; });
 
   return {
     pageCount: Math.max(1, pageIndex + 1),
