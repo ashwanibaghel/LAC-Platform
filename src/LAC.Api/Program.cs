@@ -933,7 +933,7 @@ static bool TryValidateDraftNode(JsonElement node, bool isRoot, out string probl
     problem = "";
     if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty("type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String) { problem = "Every editor node must have a type."; return false; }
     var type = typeValue.GetString()!;
-    var allowedNodes = new HashSet<string>(StringComparer.Ordinal) { "doc", "paragraph", "text", "heading", "bulletList", "orderedList", "listItem", "hardBreak", "blockquote", "horizontalRule", "table", "tableRow", "tableHeader", "tableCell" };
+    var allowedNodes = new HashSet<string>(StringComparer.Ordinal) { "doc", "draftPage", "paragraph", "text", "heading", "bulletList", "orderedList", "listItem", "hardBreak", "blockquote", "horizontalRule", "table", "tableRow", "tableHeader", "tableCell" };
     if (!allowedNodes.Contains(type)) { problem = $"Editor node type '{type}' is not supported."; return false; }
     if (isRoot != (type == "doc")) { problem = isRoot ? "The root editor node must be a document." : "A document node is only allowed at the root."; return false; }
     foreach (var property in node.EnumerateObject())

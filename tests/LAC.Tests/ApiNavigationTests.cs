@@ -153,6 +153,9 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, oversized.StatusCode);
         using var legal = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Legal letter", contentJson = literalText, pageSize = "Legal", orientation = "Landscape", marginTopMm = 15, marginRightMm = 16, marginBottomMm = 17, marginLeftMm = 18, expectedRevision = 2 });
         legal.EnsureSuccessStatusCode();
+        const string pagedContent = "{\"type\":\"doc\",\"content\":[{\"type\":\"draftPage\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Paged editor content\"}]}]}]}";
+        using var paged = await _client.PutAsJsonAsync($"/api/matter-drafts/{draftId}", new { title = "Paged letter", contentJson = pagedContent, pageSize = "Legal", orientation = "Landscape", marginTopMm = 15, marginRightMm = 16, marginBottomMm = 17, marginLeftMm = 18, expectedRevision = 3 });
+        paged.EnsureSuccessStatusCode();
         using var notingCreated = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Office noting", draftType = "Noting" });
         notingCreated.EnsureSuccessStatusCode(); var notingId = (await notingCreated.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(25m, noting.GetProperty("marginLeftMm").GetDecimal());

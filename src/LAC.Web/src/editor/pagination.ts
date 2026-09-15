@@ -1,56 +1,67 @@
-import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Extension, Node } from "@tiptap/core";
+import { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Plugin } from "@tiptap/pm/state";
+import { EditorView } from "@tiptap/pm/view";
 
-type PaginationSettings = { contentHeightPx: number; pageGapPx: number; onPageCount: (count: number) => void };
-type Break = { position: number; height: number };
-const paginationKey = new PluginKey("matterDraftPagination");
+export const DraftPage = Node.create({
+  name: "draftPage",
+  group: "block",
+  content: "block+",
+  isolating: true,
+  defining: true,
+  parseHTML: () => [{ tag: "section[data-draft-page]" }],
+  renderHTML: () => ["section", { class: "draft-page", "data-draft-page": "true" }, 0],
+});
 
-export function matterDraftPagination(getSettings: () => PaginationSettings) {
+function pageOverflowStart(view: EditorView, pagePosition: number, pageNode: ProseMirrorNode) {
+  const pageElement = view.nodeDOM(pagePosition);
+  if (!(pageElement instanceof HTMLElement) || pageElement.scrollHeight <= pageElement.clientHeight + 1) return null;
+  const bottom = pageElement.clientHeight - Number.parseFloat(getComputedStyle(pageElement).paddingBottom || "0");
+  let childPosition = pagePosition + 1;
+  for (let index = 0; index < pageNode.childCount; index++) {
+    const childElement = view.nodeDOM(childPosition);
+    if (childElement instanceof HTMLElement && childElement.offsetTop + childElement.offsetHeight > bottom) return { index, position: childPosition };
+    childPosition += pageNode.child(index).nodeSize;
+  }
+  return null;
+}
+
+export function matterDraftPagination() {
   return Extension.create({
     name: "matterDraftPagination",
     addProseMirrorPlugins() {
       return [new Plugin({
-        key: paginationKey,
-        state: {
-          init: () => DecorationSet.empty,
-          apply: (transaction, decorations) => transaction.getMeta(paginationKey) ?? decorations.map(transaction.mapping, transaction.doc),
-        },
-        props: { decorations: state => paginationKey.getState(state) },
         view: view => {
-          let frame = 0; let lastSignature = "";
+          let frame = 0;
           const measure = () => {
             frame = 0;
-            const settings = getSettings();
-            if (!Number.isFinite(settings.contentHeightPx) || settings.contentHeightPx <= 0) return;
-            const blocks: Array<{ position: number; height: number }> = [];
-            view.state.doc.forEach((_, offset) => {
-              const position = offset + 1;
-              const dom = view.nodeDOM(position);
-              if (dom instanceof HTMLElement) blocks.push({ position, height: Math.max(dom.offsetHeight, 1) });
-            });
-            let used = 0; let pageCount = 1; const breaks: Break[] = [];
-            for (const block of blocks) {
-              if (used > 0 && used + block.height > settings.contentHeightPx) {
-                breaks.push({ position: block.position, height: Math.max(0, settings.contentHeightPx - used) + settings.pageGapPx });
-                pageCount++; used = 0;
+            const document = view.state.doc;
+            for (let pageIndex = 0, pagePosition = 0; pageIndex < document.childCount; pageIndex++) {
+              const pageNode = document.child(pageIndex);
+              const overflow = pageOverflowStart(view, pagePosition, pageNode);
+              if (overflow && overflow.index > 0 && overflow.index < pageNode.childCount) {
+                const moving = document.slice(overflow.position, pagePosition + pageNode.nodeSize - 1).content;
+                const transaction = view.state.tr.delete(overflow.position, pagePosition + pageNode.nodeSize - 1);
+                const nextPagePosition = pagePosition + pageNode.nodeSize - moving.size;
+                if (pageIndex + 1 < document.childCount) transaction.insert(nextPagePosition + 1, moving);
+                else transaction.insert(nextPagePosition, view.state.schema.nodes.draftPage.create(null, moving));
+                view.dispatch(transaction);
+                return;
               }
-              used += block.height;
-              if (block.height > settings.contentHeightPx) { pageCount++; used = 0; }
+              pagePosition += pageNode.nodeSize;
             }
-            const signature = breaks.map(item => `${item.position}:${Math.round(item.height)}`).join(",");
-            const decorations = DecorationSet.create(view.state.doc, breaks.map(item => Decoration.widget(item.position, () => {
-              const gap = document.createElement("div"); gap.className = "draft-page-break-gap"; gap.style.height = `${item.height}px`; return gap;
-            }, { key: `draft-page-${item.position}-${Math.round(item.height)}`, side: -1 })));
-            if (lastSignature !== signature) { lastSignature = signature; view.dispatch(view.state.tr.setMeta(paginationKey, decorations)); }
-            settings.onPageCount(Math.max(1, pageCount));
           };
           const schedule = () => { if (!frame) frame = window.requestAnimationFrame(measure); };
           const observer = new ResizeObserver(schedule); observer.observe(view.dom); schedule();
-          window.addEventListener("resize", schedule);
-          return { update: schedule, destroy: () => { observer.disconnect(); window.removeEventListener("resize", schedule); if (frame) window.cancelAnimationFrame(frame); } };
+          return { update: schedule, destroy: () => { observer.disconnect(); if (frame) window.cancelAnimationFrame(frame); } };
         },
       })];
     },
   });
+}
+
+export function normalizeDraftPages(contentJson: string) {
+  const content = JSON.parse(contentJson || '{"type":"doc","content":[]}');
+  if (content.content?.every((node: { type?: string }) => node.type === "draftPage")) return content;
+  return { type: "doc", content: [{ type: "draftPage", content: content.content?.length ? content.content : [{ type: "paragraph" }] }] };
 }
