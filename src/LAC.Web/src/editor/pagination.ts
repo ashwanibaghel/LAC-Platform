@@ -131,6 +131,57 @@ function createTableRowSpacer(heightPx: number, pageNumber: number): HTMLElement
 }
 
 /**
+ * Returns render-only lane decorations for complete, top-level text blocks.
+ * A node participates only when one paginator-owned segment fully contains
+ * its exact ProseMirror range. Spanning and complex nodes deliberately remain
+ * undecorated until a later phase can provide a safe carrier for them.
+ */
+function createPageContentLaneDecorations(
+  view: EditorView,
+  pageCount: number,
+  segments: readonly PageSegment[],
+  getPageContentGeometry: ((pageNumber: number) => PageContentGeometry | null) | undefined,
+): Decoration[] {
+  if (!getPageContentGeometry || !arePageSegmentsConsistent(view.state.doc.content.size, pageCount, segments)) {
+    return [];
+  }
+
+  const decorations: Decoration[] = [];
+  let nodeStart = 0;
+  for (let index = 0; index < view.state.doc.childCount; index++) {
+    const node = view.state.doc.child(index);
+    const nodeEnd = nodeStart + node.nodeSize;
+    if (node.type.name === "paragraph" || node.type.name === "heading") {
+      const segment = segments.find(candidate => candidate.from <= nodeStart && nodeEnd <= candidate.to);
+      const geometry = segment ? getPageContentGeometry(segment.pageNumber) : null;
+      if (
+        geometry &&
+        Number.isFinite(geometry.contentLeftMm) && geometry.contentLeftMm >= 0 &&
+        Number.isFinite(geometry.contentWidthMm) && geometry.contentWidthMm > 0
+      ) {
+        decorations.push(Decoration.node(nodeStart, nodeEnd, {
+          class: "draft-page-content-lane",
+          style: `--draft-page-content-left: ${geometry.contentLeftMm}mm`,
+        }));
+      }
+    }
+    nodeStart = nodeEnd;
+  }
+  return decorations;
+}
+
+function arePageSegmentsConsistent(docSize: number, pageCount: number, segments: readonly PageSegment[]): boolean {
+  return segments.length === pageCount &&
+    segments.length > 0 &&
+    segments.every((segment, index) =>
+      segment.pageNumber === index + 1 &&
+      Number.isInteger(segment.from) && Number.isInteger(segment.to) &&
+      segment.from >= 0 && segment.to >= segment.from && segment.to <= docSize &&
+      (index === 0 ? segment.from === 0 : segment.from === segments[index - 1].to)) &&
+    segments[segments.length - 1].to === docSize;
+}
+
+/**
  * Measures a block's top and bottom coordinates in the spacer-hidden layout.
  * Returns null if measurement fails.
  */
@@ -510,6 +561,10 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
 
   const getLayoutSignature = () => {
     const profile = options.getProfile();
+    const geometrySignature = [1, 2].map(pageNumber => {
+      const geometry = options.getPageContentGeometry?.(pageNumber);
+      return geometry ? `${geometry.contentLeftMm}:${geometry.contentWidthMm}` : "none";
+    }).join(",");
     return [
       profile.widthMm,
       profile.heightMm,
@@ -519,6 +574,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
       profile.marginLeftMm,
       profile.reservedTopMm ?? 0,
       options.getZoom(),
+      geometrySignature,
     ].join(":");
   };
 
@@ -607,9 +663,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                   currentState?.signature !== signature ||
                   currentState?.pageCount !== pageCount
                 ) {
-                  const decorations = DecorationSet.create(
-                    view.state.doc,
-                    breaks.map(b =>
+                  const spacerDecorations = breaks.map(b =>
                       Decoration.widget(
                         b.pos,
                         b.isTableBreak
@@ -624,8 +678,17 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                           key: `page-break-${b.pageIndex}-${b.pos}`,
                         }
                       )
-                    )
+                    );
+                  const laneDecorations = createPageContentLaneDecorations(
+                    view,
+                    pageCount,
+                    segments,
+                    extensionOptions.getPageContentGeometry,
                   );
+                  const decorations = DecorationSet.create(view.state.doc, [
+                    ...spacerDecorations,
+                    ...laneDecorations,
+                  ]);
 
                   const newState: PaginationPluginState = {
                     pageCount,

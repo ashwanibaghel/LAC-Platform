@@ -686,6 +686,12 @@
   padding-right: 0;
 }
 
+/* Render-only N1B1 lane for complete, paginator-owned text blocks. */
+.draft-canvas--noting .draft-page-content-lane {
+  position: relative;
+  left: var(--draft-page-content-left);
+}
+
 /* Page break spacers and margin elimination */
 :has(+ .draft-page-break-spacer) {
   margin-bottom: 0 !important;
