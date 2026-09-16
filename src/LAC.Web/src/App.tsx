@@ -398,7 +398,12 @@ function GlobalSearch() {
     delayed.length >= 2 ? path("/search", { q: delayed }) : undefined,
   );
   const items = results.data || [];
-  const hasSuggestions = open && term.trim().length >= 2;
+  const query = term.trim();
+  const searchActive = open && query.length >= 2;
+  const waitingForQuery = query.length >= 2 && delayed !== query;
+  const hasSuggestions = searchActive && items.length > 0;
+  const hasFeedback = searchActive && !items.length;
+  const activeSuggestion = activeIndex >= 0 && activeIndex < items.length ? activeIndex : -1;
   const choose = (target: string) => {
     setTerm("");
     setOpen(false);
@@ -406,7 +411,14 @@ function GlobalSearch() {
     navigate(target);
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (composing || event.nativeEvent.isComposing || !items.length) return;
+    if (composing || event.nativeEvent.isComposing) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      setActiveIndex(-1);
+      return;
+    }
+    if (!items.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setOpen(true);
@@ -414,13 +426,9 @@ function GlobalSearch() {
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
       setActiveIndex((index) => Math.max(index - 1, 0));
-    } else if (event.key === "Enter" && activeIndex >= 0) {
+    } else if (event.key === "Enter" && activeSuggestion >= 0) {
       event.preventDefault();
-      choose(items[activeIndex].route);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setOpen(false);
-      setActiveIndex(-1);
+      choose(items[activeSuggestion].route);
     }
   };
   return (
@@ -440,26 +448,18 @@ function GlobalSearch() {
           aria-autocomplete="list"
           aria-expanded={hasSuggestions}
           aria-controls={hasSuggestions ? listboxId : undefined}
-          aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+          aria-activedescendant={hasSuggestions && activeSuggestion >= 0 ? `${listboxId}-option-${activeSuggestion}` : undefined}
         />
       </label>
       {hasSuggestions && (
         <div className="search-results" id={listboxId} role="listbox" aria-label="Search suggestions">
-          {results.loading && <LoadingState label="Searching…" />}
-          {results.error && <ErrorState message={results.error} />}
-          {items.length === 0 && !results.loading && !results.error && (
-            <EmptyState
-              title="No matching records"
-              detail="Try a village name, khasra number, or award reference."
-            />
-          )}
           {items.map((result, index) => (
             <button
               key={`${result.type}-${result.id}`}
               id={`${listboxId}-option-${index}`}
               role="option"
-              aria-selected={activeIndex === index}
-              className={activeIndex === index ? "active" : undefined}
+              aria-selected={activeSuggestion === index}
+              className={activeSuggestion === index ? "active" : undefined}
               onMouseDown={(event) => event.preventDefault()}
               onMouseMove={() => setActiveIndex(index)}
               onClick={() => choose(result.route)}
@@ -471,6 +471,11 @@ function GlobalSearch() {
               </span>
             </button>
           ))}
+        </div>
+      )}
+      {hasFeedback && (
+        <div className="search-results search-feedback" role={results.error ? "alert" : "status"}>
+          {waitingForQuery || results.loading ? "Searching…" : results.error || "No matching records. Try a village name, khasra number, or award reference."}
         </div>
       )}
     </div>
