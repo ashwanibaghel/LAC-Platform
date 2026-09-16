@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import {
   BrowserRouter,
   Link,
@@ -385,6 +385,10 @@ function Pagination({
 function GlobalSearch() {
   const [term, setTerm] = useState("");
   const [delayed, setDelayed] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [open, setOpen] = useState(false);
+  const [composing, setComposing] = useState(false);
+  const listboxId = useId();
   const navigate = useNavigate();
   useEffect(() => {
     const timer = window.setTimeout(() => setDelayed(term.trim()), 250);
@@ -393,31 +397,71 @@ function GlobalSearch() {
   const results = useApi<any[]>(
     delayed.length >= 2 ? path("/search", { q: delayed }) : undefined,
   );
+  const items = results.data || [];
+  const hasSuggestions = open && term.trim().length >= 2;
   const choose = (target: string) => {
     setTerm("");
+    setOpen(false);
+    setActiveIndex(-1);
     navigate(target);
+  };
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (composing || event.nativeEvent.isComposing || !items.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setOpen(true);
+      setActiveIndex((index) => Math.min(index + 1, items.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      choose(items[activeIndex].route);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      setActiveIndex(-1);
+    }
   };
   return (
     <div className="global-search">
-      <SearchInput
-        value={term}
-        onChange={setTerm}
-        placeholder="Search village, khasra, or award"
-      />
-      {term.length >= 2 && (
-        <div className="search-results" role="listbox">
+      <label className="search-input">
+        <span className="sr-only">Search village, khasra, or award</span>
+        <input
+          value={term}
+          onChange={(event) => { setTerm(event.target.value); setOpen(true); setActiveIndex(-1); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
+          onKeyDown={onKeyDown}
+          placeholder="Search village, khasra, or award"
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={hasSuggestions}
+          aria-controls={hasSuggestions ? listboxId : undefined}
+          aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+        />
+      </label>
+      {hasSuggestions && (
+        <div className="search-results" id={listboxId} role="listbox" aria-label="Search suggestions">
           {results.loading && <LoadingState label="Searching…" />}
           {results.error && <ErrorState message={results.error} />}
-          {results.data?.length === 0 && (
+          {items.length === 0 && !results.loading && !results.error && (
             <EmptyState
               title="No matching records"
               detail="Try a village name, khasra number, or award reference."
             />
           )}
-          {results.data?.map((result) => (
+          {items.map((result, index) => (
             <button
               key={`${result.type}-${result.id}`}
+              id={`${listboxId}-option-${index}`}
               role="option"
+              aria-selected={activeIndex === index}
+              className={activeIndex === index ? "active" : undefined}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseMove={() => setActiveIndex(index)}
               onClick={() => choose(result.route)}
             >
               <StatusBadge>{result.type}</StatusBadge>
@@ -3698,7 +3742,7 @@ function LrRegister() {
         />
       </div>
       <section className="section">
-        <DataTable
+        <DataTable actionColumn={7}
           headers={[
             "Row",
             "Raw Khasra",
@@ -3754,7 +3798,7 @@ function LrRegister() {
                   {row.verificationStatus}
                 </StatusBadge>
               </td>
-              <td>
+              <td className="table-action-cell">
                 <div className="row-actions">
                   {row.verificationStatus !== "Committed" && (
                     <button onClick={() => setStatus(row)}>
