@@ -408,7 +408,11 @@ function GlobalSearch() {
     setTerm("");
     setOpen(false);
     setActiveIndex(-1);
-    navigate(target);
+    if (target.startsWith("/api/")) {
+      window.open(target, "_blank");
+    } else {
+      navigate(target);
+    }
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (composing || event.nativeEvent.isComposing) return;
@@ -434,7 +438,7 @@ function GlobalSearch() {
   return (
     <div className="global-search">
       <label className="search-input">
-        <span className="sr-only">Search village, khasra, or award</span>
+        <span className="sr-only">Search village, khasra, award, matter, or document</span>
         <input
           value={term}
           onChange={(event) => { setTerm(event.target.value); setOpen(true); setActiveIndex(-1); }}
@@ -443,7 +447,7 @@ function GlobalSearch() {
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
           onKeyDown={onKeyDown}
-          placeholder="Search village, khasra, or award"
+          placeholder="Search village, khasra, award, matter, or document"
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={hasSuggestions}
@@ -475,7 +479,7 @@ function GlobalSearch() {
       )}
       {hasFeedback && (
         <div className="search-results search-feedback" role={results.error ? "alert" : "status"}>
-          {waitingForQuery || results.loading ? "Searching…" : results.error || "No matching records. Try a village name, khasra number, or award reference."}
+          {waitingForQuery || results.loading ? "Searching…" : results.error || "No matching records. Try a village, khasra, award, matter, or document."}
         </div>
       )}
     </div>
@@ -2580,7 +2584,7 @@ function SearchPage() {
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder="Search village, khasra, or award"
+          placeholder="Search village, khasra, award, matter, or document"
         />
       </div>
       {query.trim().length < 2 ? (
@@ -2595,19 +2599,34 @@ function SearchPage() {
       ) : !results.data?.length ? (
         <EmptyState
           title="No results"
-          detail="No village, khasra, or award matched the search."
+          detail="No village, khasra, award, matter, or document matched the search."
         />
       ) : (
         <section className="search-page-results">
-          {results.data.map((result) => (
-            <Link key={`${result.type}-${result.id}`} to={result.route}>
-              <StatusBadge>{result.type}</StatusBadge>
-              <span>
-                <strong>{result.label}</strong>
-                <small>{result.context || "No additional context"}</small>
-              </span>
-            </Link>
-          ))}
+          {results.data.map((result) =>
+            result.route.startsWith("/api/") ? (
+              <a
+                key={`${result.type}-${result.id}`}
+                href={result.route}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <StatusBadge>{result.type}</StatusBadge>
+                <span>
+                  <strong>{result.label}</strong>
+                  <small>{result.context || "No additional context"}</small>
+                </span>
+              </a>
+            ) : (
+              <Link key={`${result.type}-${result.id}`} to={result.route}>
+                <StatusBadge>{result.type}</StatusBadge>
+                <span>
+                  <strong>{result.label}</strong>
+                  <small>{result.context || "No additional context"}</small>
+                </span>
+              </Link>
+            )
+          )}
         </section>
       )}
     </>

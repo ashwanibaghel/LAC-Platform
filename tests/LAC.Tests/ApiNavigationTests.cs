@@ -249,6 +249,231 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Equal(1, progress!.TotalRows);
         Assert.Single(review!.Items);
     }
+
+    [Fact]
+    public async Task Enhanced_documents_endpoint_returns_context_and_filters_correctly()
+    {
+        Guid villageId;
+        Guid awardId;
+        Guid matterId;
+        Guid docId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var village = await db.Villages.OrderBy(x => x.Name).FirstAsync();
+            villageId = village.Id;
+
+            var award = new Award { AwardNumber = "DOC-CTX-AWARD" };
+            db.Add(award);
+            db.Add(new AwardVillage { Award = award, VillageId = villageId });
+
+            var storagePath = await storage.SaveAsync(new MemoryStream("document content"u8.ToArray()), "acquisition_plan.pdf", CancellationToken.None);
+            var document = new Document
+            {
+                OriginalFileName = "Acquisition_Plan_2026.pdf",
+                DocumentType = "Award",
+                StoragePath = storagePath,
+                MimeType = "application/pdf",
+                Status = "Active",
+                Remarks = "Draft acquisition layout"
+            };
+            db.Add(document);
+            db.Add(new DocumentVillage { Document = document, VillageId = villageId });
+            db.Add(new DocumentAward { Document = document, Award = award, CoreDocumentRole = "Plan" });
+
+            var matter = new Matter
+            {
+                VillageId = villageId,
+                Title = "Acquisition Land Dispute",
+                ReferenceNumber = "REF-2026-001",
+                Status = "Open",
+                MatterType = "Court Case"
+            };
+            db.Add(matter);
+            db.Add(new MatterDocument
+            {
+                Matter = matter,
+                Document = document,
+                DocumentRole = "Evidence",
+                DisplayName = "Key Acquisition Evidence"
+            });
+
+            await db.SaveChangesAsync();
+            awardId = award.Id;
+            matterId = matter.Id;
+            docId = document.Id;
+        }
+
+        // Test GET /api/documents without filter
+        var list = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>("/api/documents?page=0&pageSize=10");
+        Assert.NotNull(list);
+        var item = Assert.Single(list!.Items, d => d.Id == docId);
+        Assert.Equal("Acquisition_Plan_2026.pdf", item.OriginalFileName);
+        Assert.Equal("Award", item.DocumentType);
+        Assert.Equal("Active", item.Status);
+
+        var vCtx = Assert.Single(item.Villages);
+        Assert.Equal(villageId, vCtx.Id);
+
+        var aCtx = Assert.Single(item.Awards);
+        Assert.Equal(awardId, aCtx.Id);
+        Assert.Equal("DOC-CTX-AWARD", aCtx.AwardNumber);
+        Assert.Equal("Plan", aCtx.CoreDocumentRole);
+
+        var mCtx = Assert.Single(item.Matters);
+        Assert.Equal(matterId, mCtx.Id);
+        Assert.Equal("Acquisition Land Dispute", mCtx.Title);
+        Assert.Equal("REF-2026-001", mCtx.ReferenceNumber);
+        Assert.Equal("Evidence", mCtx.DocumentRole);
+        Assert.Equal("Key Acquisition Evidence", mCtx.DisplayName);
+
+        // Filter by q
+        var filterQ = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>("/api/documents?q=Acquisition_Plan");
+        Assert.Contains(filterQ!.Items, d => d.Id == docId);
+
+        var filterQNone = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>("/api/documents?q=NonExistentFilename999");
+        Assert.DoesNotContain(filterQNone!.Items, d => d.Id == docId);
+
+        // Filter by documentType
+        var filterType = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>("/api/documents?documentType=award");
+        Assert.Contains(filterType!.Items, d => d.Id == docId);
+
+        var filterTypeMismatch = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>("/api/documents?documentType=Khasra");
+        Assert.DoesNotContain(filterTypeMismatch!.Items, d => d.Id == docId);
+
+        // Filter by villageId
+        var filterVillage = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>($"/api/documents?villageId={villageId}");
+        Assert.Contains(filterVillage!.Items, d => d.Id == docId);
+
+        var filterVillageMismatch = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>($"/api/documents?villageId={Guid.NewGuid()}");
+        Assert.DoesNotContain(filterVillageMismatch!.Items, d => d.Id == docId);
+    }
+
+    [Fact]
+    public async Task Search_returns_matters_and_documents_with_rich_context_and_routes()
+    {
+        Guid villageId;
+        Guid matterId;
+        Guid docIdWithMatter;
+        Guid standaloneDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var village = await db.Villages.OrderBy(x => x.Name).FirstAsync();
+            villageId = village.Id;
+
+            var matter = new Matter
+            {
+                VillageId = villageId,
+                Title = "UniqueSearchMatterTitle",
+                ReferenceNumber = "SEARCH-REF-777",
+                Status = "Open",
+                MatterType = "Court Case"
+            };
+            db.Add(matter);
+
+            var path1 = await storage.SaveAsync(new MemoryStream("doc1"u8.ToArray()), "search_evidence.pdf", CancellationToken.None);
+            var doc1 = new Document
+            {
+                OriginalFileName = "UniqueSearchEvidenceDoc.pdf",
+                DocumentType = "Order",
+                StoragePath = path1,
+                MimeType = "application/pdf",
+                Status = "Active"
+            };
+            db.Add(doc1);
+            db.Add(new MatterDocument { Matter = matter, Document = doc1, DocumentRole = "Order" });
+
+            var path2 = await storage.SaveAsync(new MemoryStream("doc2"u8.ToArray()), "unlinked_record.pdf", CancellationToken.None);
+            var doc2 = new Document
+            {
+                OriginalFileName = "StandaloneSearchDoc.pdf",
+                DocumentType = "Notice",
+                StoragePath = path2,
+                MimeType = "application/pdf",
+                Status = "Active",
+                Remarks = "StandaloneNoticeRemarks"
+            };
+            db.Add(doc2);
+
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+            docIdWithMatter = doc1.Id;
+            standaloneDocId = doc2.Id;
+        }
+
+        // Search for Matter by title
+        var searchMatter = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=UniqueSearchMatter");
+        Assert.NotNull(searchMatter);
+        var mItem = Assert.Single(searchMatter!, item => item.Type == "Matter" && item.Id == matterId);
+        Assert.Equal("UniqueSearchMatterTitle (SEARCH-REF-777)", mItem.Label);
+        Assert.Equal($"/matters/{matterId}", mItem.Route);
+
+        // Search for Matter by reference
+        var searchMatterRef = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=SEARCH-REF-777");
+        Assert.Contains(searchMatterRef!, item => item.Type == "Matter" && item.Id == matterId);
+
+        // Search for Document by filename (linked to matter -> route goes to matter)
+        var searchDoc1 = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=UniqueSearchEvidence");
+        var d1Item = Assert.Single(searchDoc1!, item => item.Type == "Document" && item.Id == docIdWithMatter);
+        Assert.Equal("UniqueSearchEvidenceDoc.pdf", d1Item.Label);
+        Assert.Equal($"/matters/{matterId}", d1Item.Route);
+        Assert.Contains("UniqueSearchMatterTitle", d1Item.Context);
+
+        // Search for Document by remarks (unlinked -> route goes to /api/documents/{id}/content)
+        var searchDoc2 = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=StandaloneNoticeRemarks");
+        var d2Item = Assert.Single(searchDoc2!, item => item.Type == "Document" && item.Id == standaloneDocId);
+        Assert.Equal("StandaloneSearchDoc.pdf", d2Item.Label);
+        Assert.Equal($"/api/documents/{standaloneDocId}/content", d2Item.Route);
+
+        // Confirm existing searches (Village) still work
+        var searchVillage = await _client.GetFromJsonAsync<List<SearchResultItem>>("/api/search?q=GALIB");
+        Assert.Contains(searchVillage!, item => item.Type == "Village");
+    }
+
+    [Fact]
+    public async Task Document_content_download_flag_sets_attachment_disposition_and_preserves_inline()
+    {
+        Guid docId;
+        string originalFileName = "Special_Document_Download_Test.pdf";
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var path = await storage.SaveAsync(new MemoryStream("%PDF-test-bytes"u8.ToArray()), "download_test.pdf", CancellationToken.None);
+            var doc = new Document
+            {
+                OriginalFileName = originalFileName,
+                DocumentType = "Award",
+                StoragePath = path,
+                MimeType = "application/pdf",
+                Status = "Active"
+            };
+            db.Add(doc);
+            await db.SaveChangesAsync();
+            docId = doc.Id;
+        }
+
+        // Test with ?download=true -> Content-Disposition: attachment; filename="Special_Document_Download_Test.pdf"
+        using var downloadResponse = await _client.GetAsync($"/api/documents/{docId}/content?download=true");
+        downloadResponse.EnsureSuccessStatusCode();
+        var disposition = downloadResponse.Content.Headers.ContentDisposition;
+        Assert.NotNull(disposition);
+        Assert.Equal("attachment", disposition!.DispositionType);
+        Assert.Equal(originalFileName, disposition.FileName?.Trim('"'));
+
+        // Test with download absent -> inline streaming (enableRangeProcessing: true)
+        using var inlineResponse = await _client.GetAsync($"/api/documents/{docId}/content");
+        inlineResponse.EnsureSuccessStatusCode();
+        var inlineDisposition = inlineResponse.Content.Headers.ContentDisposition;
+        Assert.True(inlineDisposition == null || inlineDisposition.DispositionType != "attachment");
+        Assert.Contains("bytes", inlineResponse.Headers.AcceptRanges);
+    }
 }
 
 public sealed class ApiFactory : WebApplicationFactory<Program>

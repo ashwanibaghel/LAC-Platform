@@ -337,8 +337,39 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
     return notification is null ? NotFound("Notification", id) : Results.Ok(notification);
 });
 
-api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Documents.AsNoTracking().OrderByDescending(x => x.UploadedAt).Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status)), page, pageSize, ct)));
-api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+api.MapGet("/documents", async (string? q, string? documentType, Guid? villageId, int? page, int? pageSize, LacDbContext db, CancellationToken ct) =>
+{
+    var documents = db.Documents.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(q))
+    {
+        var term = q.Trim().ToUpperInvariant();
+        documents = documents.Where(x =>
+            x.OriginalFileName.ToUpper().Contains(term) ||
+            x.DocumentType.ToUpper().Contains(term) ||
+            (x.Remarks != null && x.Remarks.ToUpper().Contains(term)));
+    }
+    if (!string.IsNullOrWhiteSpace(documentType))
+    {
+        var typeTerm = documentType.Trim().ToUpperInvariant();
+        documents = documents.Where(x => x.DocumentType.ToUpper() == typeTerm);
+    }
+    if (villageId.HasValue)
+    {
+        documents = documents.Where(x => x.VillageLinks.Any(v => v.VillageId == villageId.Value));
+    }
+    var projected = documents.OrderByDescending(x => x.UploadedAt).Select(x => new DocumentDetailItem(
+        x.Id,
+        x.OriginalFileName,
+        x.DocumentType,
+        x.UploadedAt,
+        x.Status,
+        x.VillageLinks.Select(v => new DocumentVillageContext(v.Village.Id, v.Village.Name)).ToList(),
+        x.AwardLinks.Select(a => new DocumentAwardContext(a.Award.Id, a.Award.AwardNumber, a.CoreDocumentRole)).ToList(),
+        db.MatterDocuments.Where(md => md.DocumentId == x.Id).Select(md => new DocumentMatterContext(md.Matter.Id, md.Matter.Title, md.Matter.ReferenceNumber, md.DocumentRole, md.DisplayName)).ToList()
+    ));
+    return Results.Ok(await ToPageAsync(projected, page ?? 0, pageSize ?? 25, ct));
+});
+api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
     // The NM review workspace stores the NM-document identifier, whereas this
@@ -356,7 +387,13 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
     }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
-    return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+    if (stream is null) return Results.NotFound();
+    var mimeType = document.MimeType ?? "application/octet-stream";
+    if (download == true)
+    {
+        return Results.File(stream, mimeType, fileDownloadName: document.OriginalFileName);
+    }
+    return Results.File(stream, mimeType, enableRangeProcessing: true);
 });
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -503,8 +540,36 @@ api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =
     var villages = await db.Villages.AsNoTracking().Where(x => x.Name.ToUpper().Contains(term)).Take(8).Select(x => new SearchResultItem("Village", x.Id, x.Name, x.SubDivision.Name, $"/villages/{x.Id}")).ToListAsync(ct);
     var khasras = await db.Khasras.AsNoTracking().Where(x => x.NormalizedNumber.Contains(normalizedKhasra) || x.DisplayNumber.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Khasra", x.Id, x.DisplayNumber, x.Village.Name, $"/khasras/{x.Id}")).ToListAsync(ct);
     var awards = await db.Awards.AsNoTracking().Where(x => x.AwardNumber.ToUpper().Contains(term)).Take(8).Select(x => new SearchResultItem("Award", x.Id, x.AwardNumber, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, $"/awards/{x.Id}")).ToListAsync(ct);
+    var matters = await db.Matters.AsNoTracking()
+        .Where(x => x.Title.ToUpper().Contains(term) || (x.ReferenceNumber != null && x.ReferenceNumber.ToUpper().Contains(term)))
+        .Take(8)
+        .Select(x => new SearchResultItem(
+            "Matter",
+            x.Id,
+            string.IsNullOrWhiteSpace(x.ReferenceNumber) ? x.Title : $"{x.Title} ({x.ReferenceNumber})",
+            x.Village.Name + (x.AwardLinks.Where(a => a.IsPrimary).Select(a => " · Award " + a.Award.AwardNumber).FirstOrDefault() ?? ""),
+            $"/matters/{x.Id}"))
+        .ToListAsync(ct);
+    var documents = await db.Documents.AsNoTracking()
+        .Where(x => x.OriginalFileName.ToUpper().Contains(term) ||
+                    x.DocumentType.ToUpper().Contains(term) ||
+                    (x.Remarks != null && x.Remarks.ToUpper().Contains(term)))
+        .Take(12)
+        .Select(x => new SearchResultItem(
+            "Document",
+            x.Id,
+            x.OriginalFileName,
+            db.MatterDocuments.Where(md => md.DocumentId == x.Id).Select(md => "Matter: " + md.Matter.Title).FirstOrDefault()
+            ?? x.AwardLinks.Select(a => "Award " + a.Award.AwardNumber + (a.Award.VillageLinks.Select(v => " · " + v.Village.Name).FirstOrDefault() ?? "")).FirstOrDefault()
+            ?? x.VillageLinks.Select(v => "Village " + v.Village.Name).FirstOrDefault()
+            ?? x.DocumentType,
+            db.MatterDocuments.Where(md => md.DocumentId == x.Id).Select(md => $"/matters/{md.MatterId}").FirstOrDefault()
+            ?? x.AwardLinks.Select(a => $"/awards/{a.AwardId}").FirstOrDefault()
+            ?? x.VillageLinks.Select(v => $"/villages/{v.VillageId}").FirstOrDefault()
+            ?? $"/api/documents/{x.Id}/content"))
+        .ToListAsync(ct);
     var parties = await db.Parties.AsNoTracking().Where(x => x.DisplayName.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Recorded Party", x.Id, x.DisplayName, x.PartyType.ToString() + " · " + (x.KhataShares.Select(s => s.Khata.KhatauniRecord.Village.Name + " / " + s.Khata.KhataNumber).FirstOrDefault() ?? "No recorded holding"), $"/parties/{x.Id}")).ToListAsync(ct);
-    return Results.Ok(villages.Concat(khasras).Concat(awards).Concat(parties));
+    return Results.Ok(villages.Concat(khasras).Concat(awards).Concat(matters).Concat(documents).Concat(parties));
 });
 
 api.MapGet("/village-lrs/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
@@ -1036,6 +1101,10 @@ public sealed record ProjectReference(Guid Id, string Name, string? RequiringAge
 public sealed record AwardListItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? ProjectName, string? RequiringAgency, string? VillageNames, int LinkedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<Award, AwardListItem>> Selector = x => new AwardListItem(x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.Status, x.ActRegime, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, x.AcquisitionProject == null ? null : x.AcquisitionProject.RequiringAgency, string.Join(", ", x.KhasraLinks.Select(link => link.Khasra.Village.Name).Distinct()), x.KhasraLinks.Count); }
 public sealed record AwardKhasraItem(Guid Id, string DisplayNumber, string VillageName, decimal? AcquiredArea, string? AreaUnit, string? AcquisitionStatus);
 public sealed record DocumentListItem(Guid Id, string OriginalFileName, string DocumentType, DateTimeOffset UploadedAt, string Status);
+public sealed record DocumentVillageContext(Guid Id, string Name);
+public sealed record DocumentAwardContext(Guid Id, string AwardNumber, string? CoreDocumentRole);
+public sealed record DocumentMatterContext(Guid Id, string Title, string? ReferenceNumber, string? DocumentRole, string? DisplayName);
+public sealed record DocumentDetailItem(Guid Id, string OriginalFileName, string DocumentType, DateTimeOffset UploadedAt, string Status, IReadOnlyList<DocumentVillageContext> Villages, IReadOnlyList<DocumentAwardContext> Awards, IReadOnlyList<DocumentMatterContext> Matters);
 public sealed record AwardDetail(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, string Status, string? ActRegime, string? Remarks, ProjectReference? Project, int LinkedKhasraCount, decimal? TotalAcquiredArea, IReadOnlyList<AwardKhasraItem> Khasras, IReadOnlyList<NotificationLinkItem> Notifications, IReadOnlyList<DocumentListItem> Documents);
 public sealed record NotificationListItem(Guid Id, string NotificationNumber, string SectionType, DateOnly? NotificationDate) { public static readonly System.Linq.Expressions.Expression<Func<Notification, NotificationListItem>> Selector = x => new NotificationListItem(x.Id, x.NotificationNumber, x.SectionType, x.NotificationDate); }
 public sealed record NotificationKhasraItem(Guid Id, string DisplayNumber, string VillageName, decimal? NotifiedArea, string? AreaUnit);
