@@ -421,6 +421,8 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
     if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
     if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
+    if (file.Length > pdfMaxRequestBytes) return Validation("file", $"Document exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
+    if (!matterDocumentExtensions.Contains(Path.GetExtension(file.FileName))) return Validation("file", "Choose a supported office document, image, or PDF file.");
     var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
     if (villageIds.Count == 0) return NotFound("Award", id);
     await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
@@ -440,7 +442,7 @@ api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest r
 });
 api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
-    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
+    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
     return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
 });
 api.MapGet("/matters/{id:guid}/drafts", async (Guid id, LacDbContext db, CancellationToken ct) =>

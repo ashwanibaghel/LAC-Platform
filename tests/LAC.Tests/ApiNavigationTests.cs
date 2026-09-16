@@ -474,6 +474,149 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.True(inlineDisposition == null || inlineDisposition.DispositionType != "attachment");
         Assert.Contains("bytes", inlineResponse.Headers.AcceptRanges);
     }
+
+    [Fact]
+    public async Task Award_core_upload_and_retrieval_supports_all_canonical_roles_and_allows_multiple_records_without_overwrite()
+    {
+        Guid awardId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            var award = new Award { AwardNumber = "CORE-ROLE-TEST" };
+            db.Add(award);
+            db.Add(new AwardVillage { Award = award, VillageId = village.Id });
+            await db.SaveChangesAsync();
+            awardId = award.Id;
+        }
+
+        // 1. Invalid file extension is rejected
+        using (var badContent = new MultipartFormDataContent())
+        {
+            badContent.Add(new StreamContent(new MemoryStream([1, 2, 3])), "file", "malicious.exe");
+            using var badResponse = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role=Award", badContent);
+            Assert.Equal(System.Net.HttpStatusCode.BadRequest, badResponse.StatusCode);
+        }
+
+        // 2. Upload one for each canonical role
+        async Task<Guid> UploadCore(string role, string filename)
+        {
+            using var content = new MultipartFormDataContent();
+            content.Add(new StreamContent(new MemoryStream("%PDF-dummy-content"u8.ToArray())), "file", filename);
+            using var response = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role={role}", content);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            return json.GetProperty("documentId").GetGuid();
+        }
+
+        var awardDocId = await UploadCore("Award", "Award_Signed.pdf");
+        var nmDocId = await UploadCore("NM", "NM_Register.pdf");
+        var stmtA1Id = await UploadCore("StatementA", "Statement_A_Part1.pdf");
+        // Upload a second StatementA to prove multiple documents for a role are preserved without silent overwrite
+        var stmtA2Id = await UploadCore("StatementA", "Statement_A_Part2.pdf");
+        var possId = await UploadCore("PossessionProceeding", "Possession_Report.pdf");
+
+        // 3. Retrieve core documents via GET /api/awards/{id}/core-documents
+        var coreList = await _client.GetFromJsonAsync<JsonElement>($"/api/awards/{awardId}/core-documents");
+        Assert.Equal(5, coreList.GetArrayLength());
+
+        var items = coreList.EnumerateArray().ToList();
+        Assert.Contains(items, x => x.GetProperty("documentId").GetGuid() == awardDocId && x.GetProperty("role").GetString() == "Award" && x.GetProperty("originalFileName").GetString() == "Award_Signed.pdf");
+        Assert.Contains(items, x => x.GetProperty("documentId").GetGuid() == nmDocId && x.GetProperty("role").GetString() == "NM" && x.GetProperty("originalFileName").GetString() == "NM_Register.pdf");
+        Assert.Contains(items, x => x.GetProperty("documentId").GetGuid() == stmtA1Id && x.GetProperty("role").GetString() == "StatementA" && x.GetProperty("originalFileName").GetString() == "Statement_A_Part1.pdf");
+        Assert.Contains(items, x => x.GetProperty("documentId").GetGuid() == stmtA2Id && x.GetProperty("role").GetString() == "StatementA" && x.GetProperty("originalFileName").GetString() == "Statement_A_Part2.pdf");
+        Assert.Contains(items, x => x.GetProperty("documentId").GetGuid() == possId && x.GetProperty("role").GetString() == "PossessionProceeding" && x.GetProperty("originalFileName").GetString() == "Possession_Report.pdf");
+    }
+
+    [Fact]
+    public async Task Matter_upload_and_download_preserves_role_display_name_and_original_filename()
+    {
+        Guid matterId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            var matter = new Matter { VillageId = village.Id, Title = "Court Stay Matter" };
+            db.Add(matter);
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+        }
+
+        using var content = new MultipartFormDataContent();
+        content.Add(new StreamContent(new MemoryStream("%PDF-stay-order"u8.ToArray())), "file", "hc-stay-2024.pdf");
+        using var response = await _client.PostAsync($"/api/matters/{matterId}/documents?role=Court%20Order&displayName=High%20Court%20Interim%20Stay%20Order", content);
+        response.EnsureSuccessStatusCode();
+        var uploadJson = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var docId = uploadJson.GetProperty("documentId").GetGuid();
+
+        // Check Matter documents endpoint
+        var matterDocs = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/documents");
+        var docItem = matterDocs.EnumerateArray().Single(x => x.GetProperty("documentId").GetGuid() == docId);
+        Assert.Equal("Court Order", docItem.GetProperty("documentRole").GetString());
+        Assert.Equal("High Court Interim Stay Order", docItem.GetProperty("displayName").GetString());
+        Assert.Equal("hc-stay-2024.pdf", docItem.GetProperty("originalFileName").GetString());
+
+        // Check download header
+        using var dlResponse = await _client.GetAsync($"/api/documents/{docId}/content?download=true");
+        dlResponse.EnsureSuccessStatusCode();
+        Assert.Equal("attachment", dlResponse.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Equal("hc-stay-2024.pdf", dlResponse.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
+    }
+
+    [Fact]
+    public async Task Matter_link_existing_reuses_document_and_creates_no_new_binary_or_document_row()
+    {
+        Guid matterId;
+        Guid villageDocId;
+        int initialDocCount;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            var matter = new Matter { VillageId = village.Id, Title = "Linking Reusability Matter" };
+            var doc = new Document { OriginalFileName = "reusable_khatoni.pdf", StoragePath = "reusable_khatoni.pdf", DocumentType = "Khatoni" };
+            db.Add(matter);
+            db.Add(doc);
+            db.Add(new DocumentVillage { Document = doc, VillageId = village.Id });
+            await db.SaveChangesAsync();
+
+            matterId = matter.Id;
+            villageDocId = doc.Id;
+            initialDocCount = await db.Documents.CountAsync();
+        }
+
+        // 1. Verify it is initially eligible
+        var eligibleBefore = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/eligible-documents");
+        Assert.Contains(eligibleBefore.EnumerateArray(), x => x.GetProperty("id").GetGuid() == villageDocId && x.GetProperty("source").GetString() == "Village");
+
+        // 2. Link existing document
+        using var linkResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = villageDocId, role = "Khatoni", displayName = "Village Master Khatoni" });
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, linkResponse.StatusCode);
+
+        // 3. PROOF: Documents count has NOT increased; storage path has NOT changed
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var finalDocCount = await db.Documents.CountAsync();
+            Assert.Equal(initialDocCount, finalDocCount); // No new Document row!
+
+            var matterDoc = await db.MatterDocuments.SingleOrDefaultAsync(x => x.MatterId == matterId && x.DocumentId == villageDocId);
+            Assert.NotNull(matterDoc);
+            Assert.Equal("Khatoni", matterDoc.DocumentRole);
+            Assert.Equal("Village Master Khatoni", matterDoc.DisplayName);
+        }
+
+        // 4. Verify it appears in matter documents
+        var matterDocs = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/documents");
+        var linkedItem = matterDocs.EnumerateArray().Single(x => x.GetProperty("documentId").GetGuid() == villageDocId);
+        Assert.Equal("reusable_khatoni.pdf", linkedItem.GetProperty("originalFileName").GetString());
+        Assert.Equal("Village Master Khatoni", linkedItem.GetProperty("displayName").GetString());
+
+        // 5. Verify it is no longer in eligible documents
+        var eligibleAfter = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/eligible-documents");
+        Assert.DoesNotContain(eligibleAfter.EnumerateArray(), x => x.GetProperty("id").GetGuid() == villageDocId);
+    }
 }
 
 public sealed class ApiFactory : WebApplicationFactory<Program>

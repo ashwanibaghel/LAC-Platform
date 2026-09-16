@@ -37,6 +37,46 @@ const apiCachePrefix = "lac-platform:api-cache:v1:";
 const apiCacheTtlMs = 5 * 60 * 1000;
 const apiRequestTimeoutMs = 8_000;
 
+const CANONICAL_AWARD_ROLES = [
+  { role: "Award", label: "Award" },
+  { role: "NM", label: "NM" },
+  { role: "StatementA", label: "Statement A" },
+  { role: "PossessionProceeding", label: "Possession Proceeding" },
+] as const;
+
+const MATTER_ROLES = [
+  "Application",
+  "Court Order",
+  "ADM Letter",
+  "Joint Declaration",
+  "Khatoni",
+  "Demarcation",
+  "Correspondence",
+  "Other",
+] as const;
+
+const SUPPORTED_DOCUMENT_EXTENSIONS = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".txt",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".tif",
+  ".tiff",
+];
+const MAX_DOCUMENT_UPLOAD_BYTES = 250 * 1024 * 1024;
+
+function formatFileSize(bytes?: number | null): string {
+  if (bytes == null || isNaN(bytes)) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // Explicit local recovery clears only this application's cached API responses and job pointer.
 if (new URLSearchParams(window.location.search).get("resetCache") === "1") {
   try {
@@ -790,7 +830,7 @@ function Villages() {
 
 function Village() {
   const { id = "" } = useParams();
-  const [section,setSection]=useState<"overview"|"core"|"matters"|"khasras">("overview");
+  const [section, setSection] = useState<"overview" | "core" | "matters" | "khasras" | "documents">("overview");
   const village = useApi<any>(`/villages/${id}`);
   if (village.loading) return <LoadingState />;
   if (village.error) return <ErrorState message={village.error} />;
@@ -824,11 +864,27 @@ function Village() {
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
       </div>
-      <div className="section-tabs" aria-label="Village workspace sections">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} aria-pressed={section===value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
-      {section==="overview"&&<VillageOverview id={id} />}
-      {section==="core"&&<VillageCoreRecords id={id} />}
-      {section==="matters"&&<VillageMatters id={id} />}
-      {section==="khasras"&&<VillageKhasras id={id} />}
+      <div className="section-tabs" aria-label="Village workspace sections">
+        {(["overview", "core", "matters", "khasras", "documents"] as const).map((value) => (
+          <button
+            key={value}
+            aria-pressed={section === value}
+            className={section === value ? "active" : ""}
+            onClick={() => setSection(value)}
+          >
+            {value === "core"
+              ? "Core Records"
+              : value === "documents"
+              ? "Documents"
+              : value[0].toUpperCase() + value.slice(1)}
+          </button>
+        ))}
+      </div>
+      {section === "overview" && <VillageOverview id={id} />}
+      {section === "core" && <VillageCoreRecords id={id} />}
+      {section === "matters" && <VillageMatters id={id} />}
+      {section === "khasras" && <VillageKhasras id={id} />}
+      {section === "documents" && <VillageDocuments id={id} />}
     </>
   );
 }
@@ -839,7 +895,542 @@ function VillageCoreRecords({id}:{id:string}){
   return <section className="section village-core-records"><div className="section-heading"><div><h2>Core Records</h2><span>Award-level files are reusable by every Matter that selects the Award.</span></div></div><div className="field-grid"><label>Award number<input value={award.awardNumber} onChange={e=>setAward({...award,awardNumber:e.target.value})}/></label><label>Award date<input type="date" value={award.awardDate} onChange={e=>setAward({...award,awardDate:e.target.value})}/></label><label>Award type<input value={award.awardType} onChange={e=>setAward({...award,awardType:e.target.value})}/></label><button className="primary-button" disabled={!award.awardNumber.trim()} onClick={()=>void create()}>Add Award</button></div>{records.loading?<LoadingState/>:records.data?.map(a=><article className="core-record-row" key={a.id}><div><h3><EntityLink to={route.award(a.id)}>{a.awardNumber}</EntityLink></h3><p>{date(a.awardDate)} · {a.awardType||"Type not recorded"}</p></div><div className="core-role-list">{a.roles.map((r:any)=><span key={r.role}><strong>{r.role}</strong> · {r.count?`${r.count} file${r.count>1?"s":""}`:"Missing"}</span>)}</div><div className="field-grid"><select value={upload.awardId===a.id?upload.role:"Award"} onChange={e=>setUpload({...upload,awardId:a.id,role:e.target.value})}><option>Award</option><option>NM</option><option>StatementA</option><option>PossessionProceeding</option></select><input type="file" accept="application/pdf,.pdf" onChange={e=>setUpload({...upload,awardId:a.id,file:e.target.files?.[0]})}/><button className="primary-button" disabled={upload.awardId!==a.id||!upload.file} onClick={()=>void send()}>Upload core document</button></div></article>)}{message&&<p role="alert">{message}</p>}</section>;
 }
 function VillageMatters({id}:{id:string}){const [refresh,setRefresh]=useState(0);const [form,setForm]=useState<any>({title:"",matterType:"Court Case",status:"Open",awardId:"",khasraReferenceText:""});const matters=useApi<any[]>(`/villages/${id}/matters?r=${refresh}`);const awards=useApi<any[]>(`/villages/${id}/core-records`);const create=async()=>{try{await post(`/villages/${id}/matters`,{...form,awardId:form.awardId||null,referenceNumber:null,remarks:null});setRefresh(x=>x+1);setForm({...form,title:"",khasraReferenceText:""})}catch{}};return <section className="section village-matters"><div className="section-heading"><div><h2>Matters</h2><span>Case files linked to this village and, where applicable, an Award.</span></div></div><div className="field-grid"><label>Title<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Type<select value={form.matterType} onChange={e=>setForm({...form,matterType:e.target.value})}><option>Court Case</option><option>Compensation</option><option>Demarcation</option><option>Possession</option><option>Other</option></select></label><label>Award<select value={form.awardId} onChange={e=>setForm({...form,awardId:e.target.value})}><option value="">No Award selected</option>{awards.data?.map(a=><option key={a.id} value={a.id}>{a.awardNumber}</option>)}</select></label><label>Optional Khasra reference<input value={form.khasraReferenceText} onChange={e=>setForm({...form,khasraReferenceText:e.target.value})}/></label><button className="primary-button" disabled={!form.title.trim()} onClick={()=>void create()}>Create Matter</button></div><div className="matter-row-list">{matters.data?.map(m=><div className="matter-row" key={m.id}><EntityLink to={`/matters/${m.id}`}>{m.title}</EntityLink><span>{m.matterType}</span><span>{m.award?.awardNumber||"No Award"}</span></div>)}</div><p className="hint">Case-specific documents will be added in the next phase.</p></section>}
-function Matter(){const {id=""}=useParams();const [refresh,setRefresh]=useState(0);const [selected,setSelected]=useState<string[]>([]);const [file,setFile]=useState<File>();const [role,setRole]=useState("Application");const [core,setCore]=useState<{role:string;file?:File}>();const [picker,setPicker]=useState(false);const data=useApi<any>(`/matters/${id}?r=${refresh}`);const docs=useApi<any[]>(`/matters/${id}/documents?r=${refresh}`);const eligible=useApi<any[]>(picker?`/matters/${id}/eligible-documents?r=${refresh}`:undefined);const toggle=(docId:string)=>setSelected(x=>x.includes(docId)?x.filter(v=>v!==docId):[...x,docId]);const upload=async()=>{if(!file)return;const form=new FormData();form.append("file",file);const r=await fetch(`${api}/matters/${id}/documents?role=${encodeURIComponent(role)}`,{method:"POST",body:form});if(r.ok){setFile(undefined);setRefresh(x=>x+1)}};const uploadCore=async()=>{if(!core?.file||!data.data?.award)return;const form=new FormData();form.append("file",core.file);const r=await fetch(`${api}/awards/${data.data.award.awardId}/core-documents?role=${core.role}`,{method:"POST",body:form});if(r.ok){setCore(undefined);setRefresh(x=>x+1)}};const linkExisting=async(documentId:string)=>{const r=await post(`/matters/${id}/documents/link`,{documentId,role:"Other"});if(r!==undefined){setPicker(false);setRefresh(x=>x+1)}};const exportZip=async()=>{const r=await fetch(`${api}/matters/${id}/export`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({documentIds:selected})});if(!r.ok)return;const u=URL.createObjectURL(await r.blob());const a=document.createElement("a");a.href=u;a.download="matter-documents.zip";a.click();URL.revokeObjectURL(u)};if(data.loading)return <LoadingState/>;if(data.error||!data.data)return <ErrorState message={data.error||"Matter not found."}/>;const m=data.data;const roles=["Award","NM","StatementA","PossessionProceeding"];return <div className="matter-workspace"><Breadcrumbs items={[{label:"Village",to:route.village(m.villageId)},{label:m.title}]}/><PageHeader eyebrow="Matter workspace" title={m.title}><p>{m.matterType} · {m.status} · {m.award?.awardNumber||"No Award"}</p></PageHeader><section className="section"><h2>Core Records</h2>{m.award&&roles.map(coreRole=><div className="matter-core-row" key={coreRole}><div><strong>{coreRole}</strong>{m.award.documents.filter((d:any)=>d.role===coreRole).map((d:any)=><p key={d.documentId}><input type="checkbox" checked={selected.includes(d.documentId)} onChange={()=>toggle(d.documentId)}/> <a href={`${api}/documents/${d.documentId}/content`} target="_blank" rel="noreferrer">{d.originalFileName}</a></p>)}{!m.award.documents.some((d:any)=>d.role===coreRole)&&<span className="hint">No linked document</span>}</div><button className="quiet-button" onClick={()=>setCore({role:coreRole})}>+ Add {coreRole}</button></div>)}{core&&<div className="field-grid"><input type="file" onChange={e=>setCore({...core,file:e.target.files?.[0]})}/><button className="primary-button" disabled={!core.file} onClick={()=>void uploadCore()}>Upload {core.role}</button><button className="quiet-button" onClick={()=>setCore(undefined)}>Cancel</button></div>}</section><section className="section"><h2>Matter Documents</h2><div className="field-grid"><select value={role} onChange={e=>setRole(e.target.value)}>{["Application","Court Order","ADM Letter","Joint Declaration","Khatoni","Demarcation","Correspondence","Other"].map(x=><option key={x}>{x}</option>)}</select><input type="file" onChange={e=>setFile(e.target.files?.[0])}/><button className="primary-button" disabled={!file} onClick={()=>void upload()}>Upload Document</button><button className="secondary-button" onClick={()=>setPicker(true)}>+ Add Existing Document</button><button className="secondary-button" disabled={!selected.length} onClick={()=>void exportZip()}>Export Selected ({selected.length})</button></div>{docs.data?.map(d=><div className="matter-document-row" key={d.documentId}><label><input type="checkbox" checked={selected.includes(d.documentId)} onChange={()=>toggle(d.documentId)}/><strong>{d.documentRole||"Other"}</strong></label><a href={`${api}/documents/${d.documentId}/content`} target="_blank" rel="noreferrer">{d.displayName||d.originalFileName}</a></div>)}{picker&&<aside className="section"><h3>Add Existing Document</h3>{eligible.data?.length?eligible.data.map(d=><p key={d.id}><strong>{d.originalFileName}</strong> · {d.documentType} · {d.source} · {date(d.uploadedAt)} <button className="secondary-button" onClick={()=>void linkExisting(d.id)}>Attach</button></p>):<p>No eligible documents are available.</p>}<button className="quiet-button" onClick={()=>setPicker(false)}>Close</button></aside>}</section><MatterDrafts matterId={id}/></div>}
+function Matter() {
+  const { id = "" } = useParams();
+  const [refresh, setRefresh] = useState(0);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [role, setRole] = useState<string>("Application");
+  const [displayName, setDisplayName] = useState("");
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+
+  const [picker, setPicker] = useState(false);
+  const [linkRoles, setLinkRoles] = useState<Record<string, string>>({});
+  const [linkDisplayNames, setLinkDisplayNames] = useState<Record<string, string>>({});
+  const [linkBusy, setLinkBusy] = useState<Record<string, boolean>>({});
+  const [pickerMessage, setPickerMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+
+  const matterFileInputRef = useRef<HTMLInputElement>(null);
+
+  const data = useApi<any>(`/matters/${id}?r=${refresh}`);
+  const docs = useApi<any[]>(`/matters/${id}/documents?r=${refresh}`);
+  const eligible = useApi<any[]>(picker ? `/matters/${id}/eligible-documents?r=${refresh}` : undefined);
+
+  const toggle = (docId: string) =>
+    setSelected((x) => (x.includes(docId) ? x.filter((v) => v !== docId) : [...x, docId]));
+
+  const handleMatterFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const chosen = e.target.files?.[0] || null;
+    setUploadMessage(null);
+    if (!chosen) {
+      setFile(null);
+      return;
+    }
+    if (chosen.size > MAX_DOCUMENT_UPLOAD_BYTES) {
+      setUploadMessage({ text: "Document exceeds the configured 250 MB upload limit.", tone: "error" });
+      setFile(null);
+      return;
+    }
+    const ext = chosen.name.slice(chosen.name.lastIndexOf(".")).toLowerCase();
+    if (!SUPPORTED_DOCUMENT_EXTENSIONS.includes(ext)) {
+      setUploadMessage({ text: "Choose a supported office document, image, or PDF file.", tone: "error" });
+      setFile(null);
+      return;
+    }
+    setFile(chosen);
+  };
+
+  const handleUploadMatterDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || uploadBusy) return;
+
+    setUploadBusy(true);
+    setUploadMessage(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const url = path(`/matters/${id}/documents`, {
+        role: role.trim(),
+        displayName: displayName.trim() || undefined,
+      });
+      const r = await fetch(`${api}${url}`, { method: "POST", body: form });
+      if (!r.ok) {
+        let errText = "Upload failed.";
+        try {
+          const problem = await r.json();
+          errText = problem.detail || problem.title || (problem.errors ? Object.values(problem.errors).flat().join(" ") : errText);
+        } catch {
+          errText = (await r.text()) || errText;
+        }
+        throw new Error(errText);
+      }
+
+      setUploadMessage({ text: `Successfully uploaded "${file.name}" as ${role}.`, tone: "success" });
+      setFile(null);
+      setDisplayName("");
+      if (matterFileInputRef.current) matterFileInputRef.current.value = "";
+      setRefresh((x) => x + 1);
+    } catch (err: any) {
+      setUploadMessage({ text: err.message || "Could not upload matter document.", tone: "error" });
+    } finally {
+      setUploadBusy(false);
+    }
+  };
+
+  const handleLinkExisting = async (docId: string, assignedRole: string, customName: string) => {
+    setLinkBusy((prev) => ({ ...prev, [docId]: true }));
+    setPickerMessage(null);
+    try {
+      const res = await post(`/matters/${id}/documents/link`, {
+        documentId: docId,
+        role: assignedRole || "Other",
+        displayName: customName.trim() || null,
+      });
+      if (res !== undefined) {
+        setPickerMessage({ text: "Document attached successfully to this matter.", tone: "success" });
+        setRefresh((x) => x + 1);
+      }
+    } catch (err: any) {
+      setPickerMessage({ text: err.message || "Failed to attach document.", tone: "error" });
+    } finally {
+      setLinkBusy((prev) => ({ ...prev, [docId]: false }));
+    }
+  };
+
+  const exportZip = async () => {
+    if (!selected.length) return;
+    try {
+      const r = await fetch(`${api}/matters/${id}/export`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ documentIds: selected }),
+      });
+      if (!r.ok) return;
+      const u = URL.createObjectURL(await r.blob());
+      const a = document.createElement("a");
+      a.href = u;
+      a.download = "matter-documents.zip";
+      a.click();
+      URL.revokeObjectURL(u);
+    } catch {
+      /* Export download failed */
+    }
+  };
+
+  if (data.loading) return <LoadingState label="Loading matter workspace…" />;
+  if (data.error || !data.data) return <ErrorState message={data.error || "Matter not found."} />;
+  const m = data.data;
+
+  return (
+    <div className="matter-workspace">
+      <Breadcrumbs
+        items={[
+          { label: "Home", to: "/" },
+          { label: m.villageName || "Village", to: route.village(m.villageId) },
+          { label: m.title },
+        ]}
+      />
+      <PageHeader eyebrow="Matter workspace" title={m.title}>
+        <p>
+          {m.matterType} · {m.status} ·{" "}
+          {m.award ? (
+            <EntityLink to={route.award(m.award.awardId)}>
+              Award {m.award.awardNumber}
+            </EntityLink>
+          ) : (
+            "No Award linked"
+          )}
+        </p>
+      </PageHeader>
+
+      <section className="section matter-inherited-core">
+        <div className="section-heading">
+          <div>
+            <h2>Award Core Records (Inherited)</h2>
+            <span>
+              {m.award ? (
+                <>
+                  Inherited from canonical{" "}
+                  <EntityLink to={route.award(m.award.awardId)}>
+                    Award {m.award.awardNumber}
+                  </EntityLink>
+                  . Shared across all matters for this award and not duplicated.
+                </>
+              ) : (
+                "No canonical Award linked to this matter."
+              )}
+            </span>
+          </div>
+          {m.award && (
+            <EntityLink to={route.award(m.award.awardId)} className="secondary-button">
+              Open Award {m.award.awardNumber} ↗
+            </EntityLink>
+          )}
+        </div>
+
+        {m.award ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "200px" }}>Record</th>
+                  <th>Document</th>
+                  <th style={{ width: "130px" }}>Uploaded</th>
+                  <th className="table-action-cell" style={{ width: "160px", textAlign: "right" }}>
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {CANONICAL_AWARD_ROLES.map(({ role: coreRole, label }) => {
+                  const matching = m.award.documents.filter((d: any) => d.role === coreRole);
+                  const hasDocs = matching.length > 0;
+                  return (
+                    <tr key={coreRole}>
+                      <td><strong>{label}</strong></td>
+                      <td>
+                        {hasDocs ? (
+                          <div style={{ display: "grid", gap: "4px" }}>
+                            {matching.map((d: any) => (
+                              <label key={d.documentId} style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected.includes(d.documentId)}
+                                  onChange={() => toggle(d.documentId)}
+                                  aria-label={`Select ${d.originalFileName}`}
+                                />
+                                <span className="document-name">{d.originalFileName}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="vault-empty-dash">—</span>
+                        )}
+                      </td>
+                      <td>
+                        {hasDocs ? (
+                          <div style={{ display: "grid", gap: "4px" }}>
+                            {matching.map((d: any) => (
+                              <span key={d.documentId}>{date(d.uploadedAt?.slice(0, 10)) || "—"}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="vault-empty-dash">—</span>
+                        )}
+                      </td>
+                      <td className="table-action-cell">
+                        <div className="vault-actions">
+                          {hasDocs ? (
+                            matching.map((d: any) => (
+                              <span key={d.documentId} style={{ display: "inline-flex", gap: "8px" }}>
+                                <a
+                                  href={`${api}/documents/${d.documentId}/content`}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  className="text-action"
+                                >
+                                  Open
+                                </a>
+                                <a
+                                  href={`${api}/documents/${d.documentId}/content?download=true`}
+                                  download
+                                  className="text-action"
+                                >
+                                  Download
+                                </a>
+                              </span>
+                            ))
+                          ) : (
+                            <span className="hint">No document in Award</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            title="No Award linked"
+            detail="Link an Award to this matter to inherit its canonical core documents."
+          />
+        )}
+      </section>
+
+      <section className="section matter-documents-section">
+        <div className="section-heading">
+          <div>
+            <h2>Matter Documents</h2>
+            <span>Case-specific documents attached to this matter.</span>
+          </div>
+          <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "8px" }}>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => { setShowUpload(!showUpload); setUploadMessage(null); }}
+            >
+              {showUpload ? "Close Upload" : "+ Upload Document"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => { setPicker(!picker); setPickerMessage(null); }}
+            >
+              {picker ? "Close Existing" : "+ Add Existing Document"}
+            </button>
+            {selected.length > 0 && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => void exportZip()}
+              >
+                Export Selected ({selected.length})
+              </button>
+            )}
+          </div>
+        </div>
+
+        {showUpload && (
+          <form className="matter-upload-panel field-grid" onSubmit={handleUploadMatterDoc}>
+            <label>
+              Document Role
+              <select value={role} onChange={(e) => setRole(e.target.value)} disabled={uploadBusy}>
+                {MATTER_ROLES.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Display Name (Optional)
+              <input
+                placeholder="e.g. High Court Interim Stay Order"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                disabled={uploadBusy}
+              />
+            </label>
+            <label>
+              File
+              <input
+                ref={matterFileInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+                onChange={handleMatterFileChange}
+                disabled={uploadBusy}
+              />
+            </label>
+            <div className="upload-btn-group">
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={!file || uploadBusy}
+              >
+                {uploadBusy ? "Uploading…" : "Upload Document"}
+              </button>
+              <button
+                type="button"
+                className="quiet-button"
+                onClick={() => { setShowUpload(false); setFile(null); setUploadMessage(null); }}
+                disabled={uploadBusy}
+              >
+                Cancel
+              </button>
+            </div>
+            {file && (
+              <p className="hint">Selected: {file.name} ({formatFileSize(file.size)})</p>
+            )}
+            <p className="hint">Supported: PDF, Word, Excel, Images, Text up to 250 MB.</p>
+          </form>
+        )}
+
+        {uploadMessage && (
+          <p className={`form-message ${uploadMessage.tone === "error" ? "form-message-error" : ""}`} role="alert">
+            {uploadMessage.text}
+          </p>
+        )}
+
+        {picker && (
+          <aside className="matter-existing-picker section">
+            <div className="section-heading">
+              <div>
+                <h3>Attach Existing Document</h3>
+                <span>
+                  Attach existing document reuses the stored file from this matter's Village or Award without re-uploading or duplicating storage.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="quiet-button"
+                onClick={() => setPicker(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            {pickerMessage && (
+              <p className={`form-message ${pickerMessage.tone === "error" ? "form-message-error" : ""}`} role="alert">
+                {pickerMessage.text}
+              </p>
+            )}
+
+            {eligible.loading ? (
+              <LoadingState label="Loading eligible documents…" />
+            ) : eligible.error ? (
+              <ErrorState message={eligible.error} />
+            ) : !eligible.data?.length ? (
+              <p className="hint">No eligible documents are available to attach from this village or award.</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>File Name</th>
+                      <th>Type</th>
+                      <th>Source</th>
+                      <th>Uploaded</th>
+                      <th>Attach As Role</th>
+                      <th>Display Name (Optional)</th>
+                      <th className="table-action-cell" style={{ textAlign: "right" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {eligible.data.map((doc: any) => {
+                      const isBusy = linkBusy[doc.id];
+                      const assignedRole = linkRoles[doc.id] || "Other";
+                      const customName = linkDisplayNames[doc.id] || "";
+
+                      return (
+                        <tr key={doc.id}>
+                          <td><strong className="document-name">{doc.originalFileName}</strong></td>
+                          <td><span className="vault-type-badge">{doc.documentType}</span></td>
+                          <td><StatusBadge tone="neutral">{doc.source}</StatusBadge></td>
+                          <td>{date(doc.uploadedAt?.slice(0, 10)) || "—"}</td>
+                          <td>
+                            <select
+                              value={assignedRole}
+                              onChange={(e) => setLinkRoles((x) => ({ ...x, [doc.id]: e.target.value }))}
+                              disabled={isBusy}
+                              style={{ minHeight: "30px", fontSize: "12px" }}
+                            >
+                              {MATTER_ROLES.map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input
+                              placeholder="Custom name (optional)"
+                              value={customName}
+                              onChange={(e) => setLinkDisplayNames((x) => ({ ...x, [doc.id]: e.target.value }))}
+                              disabled={isBusy}
+                              style={{ minHeight: "30px", fontSize: "12px" }}
+                            />
+                          </td>
+                          <td className="table-action-cell">
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={isBusy}
+                              onClick={() => void handleLinkExisting(doc.id, assignedRole, customName)}
+                              style={{ minHeight: "30px", fontSize: "12px" }}
+                            >
+                              {isBusy ? "Attaching…" : "Attach"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </aside>
+        )}
+
+        {docs.loading ? (
+          <LoadingState label="Loading matter documents…" />
+        ) : docs.error ? (
+          <ErrorState message={docs.error} />
+        ) : !docs.data?.length ? (
+          <EmptyState
+            title="No matter documents yet"
+            detail="Upload case-specific documents or attach an existing file from this village or award."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style={{ width: "36px" }}>
+                    <span className="sr-only">Select</span>
+                  </th>
+                  <th>Document</th>
+                  <th style={{ width: "160px" }}>Role</th>
+                  <th style={{ width: "130px" }}>Uploaded</th>
+                  <th className="table-action-cell" style={{ width: "160px", textAlign: "right" }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docs.data.map((d: any) => (
+                  <tr key={d.documentId}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(d.documentId)}
+                        onChange={() => toggle(d.documentId)}
+                        aria-label={`Select ${d.displayName || d.originalFileName}`}
+                      />
+                    </td>
+                    <td>
+                      <div style={{ display: "grid", gap: "2px" }}>
+                        <strong className="document-name">
+                          {d.displayName || d.originalFileName}
+                        </strong>
+                        {d.displayName && d.displayName !== d.originalFileName && (
+                          <small style={{ color: "var(--ui-text-muted)" }}>{d.originalFileName}</small>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <span className="vault-type-badge">{d.documentRole || "Other"}</span>
+                    </td>
+                    <td>{date(d.uploadedAt?.slice(0, 10)) || "—"}</td>
+                    <td className="table-action-cell">
+                      <div className="vault-actions">
+                        <a
+                          href={`${api}/documents/${d.documentId}/content`}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="text-action"
+                        >
+                          Open
+                        </a>
+                        <a
+                          href={`${api}/documents/${d.documentId}/content?download=true`}
+                          download
+                          className="text-action"
+                        >
+                          Download
+                        </a>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <MatterDrafts matterId={id} />
+    </div>
+  );
+}
 function VillageOverview({ id }: { id: string }) {
   const overview = useApi<any>(`/villages/${id}/overview`);
   if (overview.loading) return <LoadingState label="Loading village overview…" />;
@@ -1569,20 +2160,125 @@ function VillageLrs({ id }: { id: string }) {
   );
 }
 function VillageDocuments({ id }: { id: string }) {
-  const result = useApi<any[]>(`/villages/${id}/documents`);
+  const [page, setPage] = useState(0);
+  const result = useApi<Page<any>>(path("/documents", { villageId: id, page, pageSize: 25 }));
+
   return (
-    <TabTable
-      result={result}
-      headers={["Document", "Type", "Uploaded"]}
-      rows={(doc) => (
-        <tr key={doc.id}>
-          <td>{doc.originalFileName}</td>
-          <td>{doc.documentType}</td>
-          <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
-        </tr>
+    <section className="section village-documents-section">
+      <div className="section-heading">
+        <div>
+          <h2>Village Documents</h2>
+          <span>
+            Documents linked to this village through its awards and matters.
+            Award core records are uploaded in the Award workspace; case documents are uploaded in the Matter workspace.
+          </span>
+        </div>
+      </div>
+
+      {result.loading ? (
+        <LoadingState label="Loading village documents…" />
+      ) : result.error ? (
+        <ErrorState message={result.error} />
+      ) : !result.data?.items?.length ? (
+        <EmptyState
+          title="No documents linked to this village"
+          detail="Upload core records in an Award workspace or case documents in a Matter workspace linked to this village."
+        />
+      ) : (
+        <>
+          <DataTable
+            headers={[
+              "File name",
+              "Type",
+              "Award",
+              "Matter",
+              "Uploaded",
+              "Actions",
+            ]}
+            actionColumn={5}
+          >
+            {result.data.items.map((doc: any) => {
+              const primaryAward = doc.awards?.[0];
+              const primaryMatter = doc.matters?.[0];
+
+              return (
+                <tr key={doc.id}>
+                  <td>
+                    <strong className="document-name" title={doc.originalFileName}>
+                      {doc.originalFileName}
+                    </strong>
+                  </td>
+                  <td>
+                    <span className="vault-type-badge">{doc.documentType}</span>
+                  </td>
+                  <td>
+                    {primaryAward ? (
+                      <span className="vault-cell-context">
+                        <EntityLink to={route.award(primaryAward.id)}>
+                          {primaryAward.awardNumber}
+                        </EntityLink>
+                        {primaryAward.role && (
+                          <span className="vault-type-badge" style={{ fontSize: "10px" }}>
+                            {primaryAward.role === "StatementA" ? "Statement A" : primaryAward.role === "PossessionProceeding" ? "Possession Proceeding" : primaryAward.role}
+                          </span>
+                        )}
+                        {doc.awards.length > 1 && (
+                          <span className="context-more" title={doc.awards.map((a: any) => a.awardNumber).join(", ")}>
+                            +{doc.awards.length - 1}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="vault-empty-dash">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {primaryMatter ? (
+                      <span className="vault-cell-context">
+                        <EntityLink to={route.matter(primaryMatter.id)}>
+                          {primaryMatter.title || primaryMatter.matterNumber}
+                        </EntityLink>
+                        {primaryMatter.role && (
+                          <span className="role-subtext">({primaryMatter.role})</span>
+                        )}
+                        {doc.matters.length > 1 && (
+                          <span className="context-more" title={doc.matters.map((m: any) => m.title).join(", ")}>
+                            +{doc.matters.length - 1}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="vault-empty-dash">—</span>
+                    )}
+                  </td>
+                  <td>{date(doc.uploadedAt?.slice(0, 10)) || "—"}</td>
+                  <td className="table-action-cell">
+                    <div className="vault-actions">
+                      <a
+                        href={`${api}/documents/${doc.id}/content`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="text-action"
+                      >
+                        Open
+                      </a>
+                      <a
+                        href={`${api}/documents/${doc.id}/content?download=true`}
+                        download
+                        className="text-action"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </DataTable>
+          <Pagination {...result.data} onChange={setPage} />
+        </>
       )}
-      empty="No documents are linked to this village."
-    />
+    </section>
   );
 }
 function TabTable({
@@ -2049,6 +2745,7 @@ function Award() {
         />
       )}
       {related && <AwardRelatedPanel award={a} khasras={rows} onClose={() => setRelated(false)} onSaved={() => { setRelated(false); setRefresh(x => x + 1); }} />}
+      <AwardCoreRecordsSection key={`core-${id}-${refresh}`} awardId={id} onUpdated={() => setRefresh((x) => x + 1)} />
       <AwardDocumentsSection key={`${id}-${refresh}`} awardId={id} />
       <PermanentSourceLines endpoint={`/awards/${id}/evidence`} />
       {pdfImport && <AwardPdfImportPanel award={a} onUploaded={() => setRefresh(v => v + 1)} onClose={() => setPdfImport(false)} />}
@@ -2077,6 +2774,245 @@ function DocumentPdfViewer({documentId,initialPage=1}:{documentId:string;initial
     <div className="document-page-scroll" tabIndex={0} onWheel={event=>{if(!event.ctrlKey&&!event.metaKey)return;event.preventDefault();setZoom(value=>Math.max(.5,Math.min(3,value+(event.deltaY<0?.25:-.25))));}}><img className="document-page-image" style={{width:`${zoom*100}%`}} src={pageImage} alt={`Original PDF, page ${initialPage}`} /></div>
   </div>;
 }
+function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUpdated?: () => void }) {
+  const [refresh, setRefresh] = useState(0);
+  const [uploadRole, setUploadRole] = useState<string>("Award");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const coreDocs = useApi<any[]>(`/awards/${awardId}/core-documents?r=${refresh}`);
+
+  const handleRoleSelect = (role: string) => {
+    setUploadRole(role);
+    setShowForm(true);
+    setMessage(null);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const chosen = e.target.files?.[0] || null;
+    setMessage(null);
+    if (!chosen) {
+      setFile(null);
+      return;
+    }
+    if (chosen.size > MAX_DOCUMENT_UPLOAD_BYTES) {
+      setMessage({ text: "Document exceeds the configured 250 MB upload limit.", tone: "error" });
+      setFile(null);
+      return;
+    }
+    const ext = chosen.name.slice(chosen.name.lastIndexOf(".")).toLowerCase();
+    if (!SUPPORTED_DOCUMENT_EXTENSIONS.includes(ext)) {
+      setMessage({ text: "Choose a supported office document, image, or PDF file.", tone: "error" });
+      setFile(null);
+      return;
+    }
+    setFile(chosen);
+  };
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!file || busy) return;
+
+    setBusy(true);
+    setMessage(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${api}/awards/${awardId}/core-documents?role=${encodeURIComponent(uploadRole)}`, {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        let errText = "Upload failed.";
+        try {
+          const problem = await res.json();
+          errText = problem.detail || problem.title || (problem.errors ? Object.values(problem.errors).flat().join(" ") : errText);
+        } catch {
+          errText = (await res.text()) || errText;
+        }
+        throw new Error(errText);
+      }
+
+      const roleObj = CANONICAL_AWARD_ROLES.find((r) => r.role === uploadRole);
+      setMessage({ text: `Successfully uploaded "${file.name}" as ${roleObj?.label || uploadRole}.`, tone: "success" });
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setRefresh((x) => x + 1);
+      if (onUpdated) onUpdated();
+    } catch (err: any) {
+      setMessage({ text: err.message || "Failed to upload document.", tone: "error" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const docsByRole = (role: string) => coreDocs.data?.filter((d: any) => d.role === role) || [];
+
+  return (
+    <section className="section award-core-records-section">
+      <div className="section-heading">
+        <div>
+          <h2>Core Records</h2>
+          <span>The 4 canonical records for this Award. Reusable across all linked Matters.</span>
+        </div>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => { setShowForm(!showForm); setMessage(null); }}
+        >
+          {showForm ? "Close Upload" : "+ Upload Core Document"}
+        </button>
+      </div>
+
+      {showForm && (
+        <form className="core-upload-panel field-grid" onSubmit={handleUpload}>
+          <label>
+            Document Role
+            <select value={uploadRole} onChange={(e) => setUploadRole(e.target.value)} disabled={busy}>
+              {CANONICAL_AWARD_ROLES.map((r) => (
+                <option key={r.role} value={r.role}>{r.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            File
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.png,.jpg,.jpeg,.tif,.tiff"
+              onChange={handleFileChange}
+              disabled={busy}
+            />
+          </label>
+          <div className="upload-btn-group">
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={!file || busy}
+            >
+              {busy ? "Uploading…" : `Upload ${CANONICAL_AWARD_ROLES.find((r) => r.role === uploadRole)?.label || "Document"}`}
+            </button>
+            <button
+              type="button"
+              className="quiet-button"
+              onClick={() => { setShowForm(false); setFile(null); setMessage(null); }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          </div>
+          {file && (
+            <p className="hint">Selected: {file.name} ({formatFileSize(file.size)})</p>
+          )}
+          <p className="hint">Supported: PDF, Word, Excel, Images, Text up to 250 MB.</p>
+        </form>
+      )}
+
+      {message && (
+        <p className={`form-message ${message.tone === "error" ? "form-message-error" : ""}`} role="alert">
+          {message.text}
+        </p>
+      )}
+
+      {coreDocs.loading ? (
+        <LoadingState label="Loading core records…" />
+      ) : coreDocs.error ? (
+        <ErrorState message={coreDocs.error} />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style={{ width: "200px" }}>Record</th>
+                <th style={{ width: "120px" }}>Status</th>
+                <th>Document(s)</th>
+                <th style={{ width: "130px" }}>Uploaded</th>
+                <th className="table-action-cell" style={{ width: "180px", textAlign: "right" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CANONICAL_AWARD_ROLES.map(({ role, label }) => {
+                const docs = docsByRole(role);
+                const hasDocs = docs.length > 0;
+                return (
+                  <tr key={role}>
+                    <td><strong>{label}</strong></td>
+                    <td>
+                      <StatusBadge tone={hasDocs ? "success" : "warning"}>
+                        {hasDocs ? (docs.length > 1 ? `${docs.length} files` : "Available") : "Missing"}
+                      </StatusBadge>
+                    </td>
+                    <td>
+                      {hasDocs ? (
+                        <div style={{ display: "grid", gap: "4px" }}>
+                          {docs.map((d: any) => (
+                            <div key={d.documentId} className="core-doc-item">
+                              <strong className="document-name" title={d.originalFileName}>{d.originalFileName}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="vault-empty-dash">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {hasDocs ? (
+                        <div style={{ display: "grid", gap: "4px" }}>
+                          {docs.map((d: any) => (
+                            <span key={d.documentId}>{date(d.uploadedAt?.slice(0, 10)) || "—"}</span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="vault-empty-dash">—</span>
+                      )}
+                    </td>
+                    <td className="table-action-cell">
+                      <div className="vault-actions">
+                        {hasDocs && docs.map((d: any) => (
+                          <span key={d.documentId} style={{ display: "inline-flex", gap: "8px" }}>
+                            <a
+                              href={`${api}/documents/${d.documentId}/content`}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="text-action"
+                            >
+                              Open
+                            </a>
+                            <a
+                              href={`${api}/documents/${d.documentId}/content?download=true`}
+                              download
+                              className="text-action"
+                            >
+                              Download
+                            </a>
+                          </span>
+                        ))}
+                        <button
+                          type="button"
+                          className="quiet-button"
+                          onClick={() => handleRoleSelect(role)}
+                          style={{ padding: "2px 6px", fontSize: "11px", height: "auto", minHeight: "26px" }}
+                        >
+                          {hasDocs ? "+ Add another" : "+ Add document"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AwardDocumentsSection({awardId}:{awardId:string}) {
   const [refresh,setRefresh]=useState(0);const [message,setMessage]=useState("");const [preview,setPreview]=useState<any>();const [localJobs,setLocalJobs]=useState<Record<string,any>>({});const viewerRef=useRef<HTMLElement>(null);
   const result=useApi<any[]>(`/awards/${awardId}/documents?r=${refresh}`);
@@ -4264,7 +5200,6 @@ void [
   VillageNotifications,
   VillageKhatauni,
   VillageLrs,
-  VillageDocuments,
 ];
 
 export default App;
