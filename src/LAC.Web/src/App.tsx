@@ -535,13 +535,13 @@ function Home() {
         <DataTable headers={["Sub-division", "Villages", ""]} actionColumn={2}>
           {district.subDivisions.map((subdivision: any) => (
             <tr key={subdivision.id}>
-              <td className="table-action-cell">
+              <td>
                 <EntityLink to={route.subdivision(subdivision.id)}>
                   {subdivision.name}
                 </EntityLink>
               </td>
               <td>{subdivision.villageCount}</td>
-              <td>
+              <td className="table-action-cell">
                 <Link
                   className="text-action"
                   to={route.subdivision(subdivision.id)}
@@ -570,7 +570,7 @@ function District() {
         items={[{ label: "Home", to: "/" }, { label: district.name }]}
       />
       <PageHeader eyebrow="District" title={district.name} />
-      <DataTable headers={["Sub-division", "Villages", ""]}>
+      <DataTable headers={["Sub-division", "Villages", ""]} actionColumn={2}>
         {district.subDivisions.map((subdivision: any) => (
           <tr key={subdivision.id}>
             <td>
@@ -579,7 +579,7 @@ function District() {
               </EntityLink>
             </td>
             <td>{subdivision.villageCount}</td>
-            <td>
+            <td className="table-action-cell">
               <Link
                 className="text-action"
                 to={route.subdivision(subdivision.id)}
@@ -640,13 +640,13 @@ function Subdivision() {
             <DataTable headers={["Village", "Khasras", ""]} actionColumn={2}>
               {subdivision.villages.items.map((village: any) => (
                 <tr key={village.id}>
-                  <td className="table-action-cell">
+                  <td>
                     <EntityLink to={route.village(village.id)}>
                       {village.name}
                     </EntityLink>
                   </td>
                   <td>{village.khasraCount}</td>
-                  <td>
+                  <td className="table-action-cell">
                     <Link
                       className="text-action"
                       to={route.village(village.id)}
@@ -709,13 +709,13 @@ function Villages() {
             <DataTable headers={["Village", "Khasras", ""]} actionColumn={2}>
               {result.data.items.map((village) => (
                 <tr key={village.id}>
-                  <td className="table-action-cell">
+                  <td>
                     <EntityLink to={route.village(village.id)}>
                       {village.name}
                     </EntityLink>
                   </td>
                   <td>{village.khasraCount}</td>
-                  <td>
+                  <td className="table-action-cell">
                     <Link
                       className="text-action"
                       to={route.village(village.id)}
@@ -770,7 +770,7 @@ function Village() {
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
       </div>
-      <div className="section-tabs" role="tablist" aria-label="Village workspace sections">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} role="tab" aria-selected={section===value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
+      <div className="section-tabs" aria-label="Village workspace sections">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} aria-pressed={section===value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
       {section==="overview"&&<VillageOverview id={id} />}
       {section==="core"&&<VillageCoreRecords id={id} />}
       {section==="matters"&&<VillageMatters id={id} />}
@@ -2264,7 +2264,7 @@ function AwardIngestionReview() {
     {confirmAction && <section className="workspace-panel" role="alertdialog" aria-label="Confirm reviewed group"><h3>{confirmAction==="exact"?"Confirm exact Khasra matches":"Commit human-verified records"}</h3><p>{confirmAction==="exact"?`${exactSelection} existing Khasras will be confirmed for linking. 0 new Khasras. 0 uncertain rows or conflicts included. This step verifies only; commit remains separate.`:`${verified} human-verified records will be committed. Their document, page, confirmed values and your verification will be preserved permanently.`}</p><button disabled={busy} onClick={runConfirm}>Confirm</button> <button disabled={busy} onClick={()=>setConfirmAction(undefined)}>Cancel</button></section>}
     {message && <p className="form-message" role="alert">{message}</p>}
     {records.error ? <ErrorState message={records.error}/> : records.data ? <section className="section"><h2>{bucket==="attention"?"Items needing your attention":bucket==="exact"?"Exact matches":bucket==="verified"?"Human-verified records":bucket==="committed"?"Committed records":"Review items"}</h2>
-      <DataTable headers={["Section","Detected value","Source page","Review","Action"]}>{records.data.items.map(c=><tr key={c.id}><td>{reviewSectionName(c.candidateType)}</td><td>{display(c)}</td><td>{c.sourcePage || (()=>{try{const source=JSON.parse(c.sourceLocatorJson||"{}");return source.Page||source.page||"Not identified";}catch{return "Not identified";}})()}</td><td>{reviewLabel(c)}</td><td><button className="link-button" onClick={()=>setActive(c)}>{c.verifiedAt?"View source":"Review / correct"}</button></td></tr>)}</DataTable>
+      <DataTable headers={["Section","Detected value","Source page","Review","Action"]} actionColumn={4}>{records.data.items.map(c=><tr key={c.id}><td>{reviewSectionName(c.candidateType)}</td><td>{display(c)}</td><td>{c.sourcePage || (()=>{try{const source=JSON.parse(c.sourceLocatorJson||"{}");return source.Page||source.page||"Not identified";}catch{return "Not identified";}})()}</td><td>{reviewLabel(c)}</td><td className="table-action-cell"><button className="link-button" onClick={()=>setActive(c)}>{c.verifiedAt?"View source":"Review / correct"}</button></td></tr>)}</DataTable>
       {records.data.items.length===0 && <p>No items in this group.</p>}
       <Pagination {...records.data} onChange={setPage}/>
       {active && <FactVerificationDrawer key={active.id} candidate={active} documentId={s.sourceDocumentId} awardId={s.targetAwardId || id} reviewer={reviewer} reason={reason(active)} onClose={()=>setActive(undefined)} onSaved={()=>{const next=records.data?.items[records.data.items.findIndex(c=>c.id===active.id)+1];setActive(next);changed();}}/>}
@@ -2463,8 +2463,8 @@ function Documents() {
       <Breadcrumbs items={[{ label: "Documents" }]} />
       <PageHeader eyebrow="Document metadata" title="Documents">
         <p>
-          Physical document metadata is canonical; related records surface it in
-          their detail views.
+          Open the source file from its canonical record. Related acquisition
+          records surface the same document without duplicating the binary.
         </p>
       </PageHeader>
       {result.loading ? (
@@ -2484,18 +2484,30 @@ function Documents() {
 }
 function DocumentTable({ documents }: { documents: any[] }) {
   return (
-    <DataTable headers={["File name", "Type", "Uploaded", "Status"]}>
-      {documents.map((doc) => (
-        <tr key={doc.id}>
-          <td>{doc.originalFileName}</td>
-          <td>{doc.documentType}</td>
-          <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
-          <td>
-            <StatusBadge>{doc.status}</StatusBadge>
-          </td>
-        </tr>
-      ))}
-    </DataTable>
+    <section className="document-vault" aria-label="Available documents">
+      <div className="document-table-toolbar">
+        <div>
+          <h2>Available documents</h2>
+          <span>{documents.length} shown</span>
+        </div>
+        <span>Open files in a separate tab for review or download.</span>
+      </div>
+      <DataTable headers={["Document", "Type", "Uploaded", "Status", ""]} actionColumn={4}>
+        {documents.map((doc) => (
+          <tr key={doc.id}>
+            <td><strong className="document-name">{doc.originalFileName}</strong></td>
+            <td>{doc.documentType}</td>
+            <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
+            <td>
+              <StatusBadge>{doc.status}</StatusBadge>
+            </td>
+            <td className="table-action-cell">
+              <a className="text-action" href={`${api}/documents/${doc.id}/content`} target="_blank" rel="noreferrer">Open file</a>
+            </td>
+          </tr>
+        ))}
+      </DataTable>
+    </section>
   );
 }
 
@@ -2515,11 +2527,13 @@ function SearchPage() {
           numbers are not globally unique.
         </p>
       </PageHeader>
-      <SearchInput
-        value={query}
-        onChange={setQuery}
-        placeholder="Search village, khasra, or award"
-      />
+      <div className="search-workspace">
+        <SearchInput
+          value={query}
+          onChange={setQuery}
+          placeholder="Search village, khasra, or award"
+        />
+      </div>
       {query.trim().length < 2 ? (
         <EmptyState
           title="Start a search"
