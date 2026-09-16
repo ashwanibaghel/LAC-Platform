@@ -216,6 +216,7 @@ const route = {
   village: (id: string) => `/villages/${id}`,
   khasra: (id: string) => `/khasras/${id}`,
   award: (id: string) => `/awards/${id}`,
+  matter: (id: string) => `/matters/${id}`,
   notification: (id: string) => `/notifications/${id}`,
   subdivision: (id: string) => `/subdivisions/${id}`,
   district: (id: string) => `/districts/${id}`,
@@ -2507,60 +2508,365 @@ function Notification() {
   );
 }
 
+const KNOWN_DOCUMENT_TYPES = [
+  "Award",
+  "Award PDF",
+  "NM",
+  "StatementA",
+  "PossessionProceeding",
+  "Matter",
+  "Notice",
+  "Other",
+];
+
 function Documents() {
-  const result = useApi<Page<any>>(
-    path("/documents", { page: 0, pageSize: 25 }),
+  const [term, setTerm] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [docType, setDocType] = useState("");
+  const [villageId, setVillageId] = useState("");
+  const [page, setPage] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQ(term.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [term]);
+
+  const onSearchChange = (value: string) => {
+    setTerm(value);
+    setPage(0);
+  };
+  const onTypeChange = (value: string) => {
+    setDocType(value);
+    setPage(0);
+  };
+  const onVillageChange = (value: string) => {
+    setVillageId(value);
+    setPage(0);
+  };
+  const resetFilters = () => {
+    setTerm("");
+    setDebouncedQ("");
+    setDocType("");
+    setVillageId("");
+    setPage(0);
+  };
+
+  const hasFilters = Boolean(term.trim() || docType || villageId);
+
+  const villages = useApi<Page<{ id: string; name: string }>>(
+    path("/villages", { page: 0, pageSize: 100 }),
   );
+
+  const documentsUrl = path("/documents", {
+    page,
+    pageSize: 25,
+    q: debouncedQ || undefined,
+    documentType: docType || undefined,
+    villageId: villageId || undefined,
+    ...(refreshKey ? { r: refreshKey } : {}),
+  });
+
+  const result = useApi<Page<any>>(documentsUrl);
+  const totalCount = result.data?.totalCount ?? 0;
+  const pageSize = result.data?.pageSize ?? 25;
+  const lastPage = Math.max(0, Math.ceil(totalCount / pageSize) - 1);
+
   return (
     <>
       <Breadcrumbs items={[{ label: "Documents" }]} />
-      <PageHeader eyebrow="Document metadata" title="Documents">
+      <PageHeader eyebrow="Document vault" title="Documents">
         <p>
-          Open the source file from its canonical record. Related acquisition
-          records surface the same document without duplicating the binary.
+          Find, open, and download office documents with their linked village,
+          award, and matter context.
         </p>
       </PageHeader>
-      {result.loading ? (
-        <LoadingState />
-      ) : result.error ? (
-        <ErrorState message={result.error} />
-      ) : result.data?.items.length ? (
-        <DocumentTable documents={result.data.items} />
-      ) : (
-        <EmptyState
-          title="No documents in dummy data"
-          detail="Documents will appear here when they are linked to official records."
-        />
-      )}
-    </>
-  );
-}
-function DocumentTable({ documents }: { documents: any[] }) {
-  return (
-    <section className="document-vault" aria-label="Available documents">
-      <div className="document-table-toolbar">
-        <div>
-          <h2>Available documents</h2>
-          <span>{documents.length} shown</span>
+
+      <div className="vault-workspace">
+        <div className="vault-toolbar" role="search" aria-label="Document filters">
+          <div className="vault-filters">
+            <div className="vault-search-box">
+              <label className="search-input">
+                <span className="sr-only">Search documents</span>
+                <input
+                  type="search"
+                  value={term}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Search filename, type, or remarks…"
+                  aria-label="Search documents by filename, type, or remarks"
+                />
+              </label>
+              {term && (
+                <button
+                  type="button"
+                  className="vault-clear-search"
+                  onClick={() => onSearchChange("")}
+                  aria-label="Clear search text"
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <label className="vault-filter-label">
+              <span className="sr-only">Filter by document type</span>
+              <select
+                className="vault-filter-select"
+                value={docType}
+                onChange={(e) => onTypeChange(e.target.value)}
+                aria-label="Filter by document type"
+              >
+                <option value="">All document types</option>
+                {KNOWN_DOCUMENT_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="vault-filter-label">
+              <span className="sr-only">Filter by village</span>
+              <select
+                className="vault-filter-select"
+                value={villageId}
+                onChange={(e) => onVillageChange(e.target.value)}
+                aria-label="Filter by village"
+              >
+                <option value="">All villages</option>
+                {villages.data?.items?.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {hasFilters && (
+              <button
+                type="button"
+                className="secondary-button vault-reset-button"
+                onClick={resetFilters}
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+
+          <div className="vault-meta">
+            {result.loading ? (
+              <span>Searching…</span>
+            ) : result.data ? (
+              <span>
+                {totalCount} {totalCount === 1 ? "document" : "documents"}
+              </span>
+            ) : null}
+          </div>
         </div>
-        <span>Open files in a separate tab for review or download.</span>
+
+        {result.loading && !result.data ? (
+          <LoadingState label="Loading document vault…" />
+        ) : result.error ? (
+          <div className="state error" role="alert">
+            <strong>Unable to load document vault</strong>
+            <span>{result.error || "Could not retrieve documents from the server."}</span>
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  clearApiCache();
+                  setRefreshKey((k) => k + 1);
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : !result.data?.items?.length ? (
+          hasFilters ? (
+            <div>
+              <EmptyState
+                title="No documents match these filters"
+                detail="Try adjusting your search terms or clearing the selected village and document type filters."
+              />
+              <div style={{ textAlign: "center", marginTop: "12px" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={resetFilters}
+                >
+                  Clear filters & search
+                </button>
+              </div>
+            </div>
+          ) : (
+            <EmptyState
+              title="No documents yet"
+              detail="Documents appear here when uploaded from their Village, Award, or Matter office context."
+            />
+          )
+        ) : (
+          <section className="document-vault" aria-label="Available documents">
+            <DataTable
+              headers={[
+                "File name",
+                "Type",
+                "Village",
+                "Award",
+                "Matter",
+                "Uploaded",
+                "Status",
+                "Actions",
+              ]}
+              actionColumn={7}
+            >
+              {result.data.items.map((doc: any) => {
+                const primaryVillage = doc.villages?.[0];
+                const primaryAward = doc.awards?.[0];
+                const primaryMatter = doc.matters?.[0];
+
+                return (
+                  <tr key={doc.id}>
+                    <td>
+                      <strong className="document-name" title={doc.originalFileName}>
+                        {doc.originalFileName}
+                      </strong>
+                    </td>
+                    <td>
+                      <span className="vault-type-badge">{doc.documentType}</span>
+                    </td>
+                    <td>
+                      {primaryVillage ? (
+                        <span className="vault-cell-context">
+                          <EntityLink to={route.village(primaryVillage.id)}>
+                            {primaryVillage.name}
+                          </EntityLink>
+                          {doc.villages.length > 1 && (
+                            <span
+                              className="context-more"
+                              title={doc.villages.map((v: any) => v.name).join(", ")}
+                            >
+                              +{doc.villages.length - 1}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="vault-empty-dash">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {primaryAward ? (
+                        <span className="vault-cell-context">
+                          <EntityLink to={route.award(primaryAward.id)}>
+                            Award {primaryAward.awardNumber}
+                          </EntityLink>
+                          {primaryAward.coreDocumentRole && (
+                            <span className="role-subtext">
+                              {" "}· {primaryAward.coreDocumentRole}
+                            </span>
+                          )}
+                          {doc.awards.length > 1 && (
+                            <span
+                              className="context-more"
+                              title={doc.awards
+                                .map((a: any) => `Award ${a.awardNumber}`)
+                                .join(", ")}
+                            >
+                              +{doc.awards.length - 1}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="vault-empty-dash">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {primaryMatter ? (
+                        <span className="vault-cell-context">
+                          <EntityLink to={route.matter(primaryMatter.id)}>
+                            {primaryMatter.title}
+                          </EntityLink>
+                          {primaryMatter.documentRole && (
+                            <span className="role-subtext">
+                              {" "}· {primaryMatter.documentRole}
+                            </span>
+                          )}
+                          {doc.matters.length > 1 && (
+                            <span
+                              className="context-more"
+                              title={doc.matters.map((m: any) => m.title).join(", ")}
+                            >
+                              +{doc.matters.length - 1}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="vault-empty-dash">—</span>
+                      )}
+                    </td>
+                    <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
+                    <td>
+                      <StatusBadge tone={doc.status === "Active" ? "success" : undefined}>
+                        {doc.status}
+                      </StatusBadge>
+                    </td>
+                    <td className="table-action-cell vault-actions">
+                      <a
+                        className="text-action"
+                        href={`${api}/documents/${doc.id}/content`}
+                        target="_blank"
+                        rel="noreferrer"
+                        aria-label={`Open ${doc.originalFileName}`}
+                      >
+                        Open
+                      </a>
+                      <a
+                        className="text-action"
+                        href={`${api}/documents/${doc.id}/content?download=true`}
+                        download={doc.originalFileName}
+                        aria-label={`Download ${doc.originalFileName}`}
+                      >
+                        Download
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
+            </DataTable>
+
+            <div className="pagination" aria-label="Document pagination">
+              <span>
+                Showing {totalCount === 0 ? 0 : page * pageSize + 1}–
+                {Math.min((page + 1) * pageSize, totalCount)} of {totalCount}{" "}
+                {totalCount === 1 ? "document" : "documents"}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  disabled={page === 0 || result.loading}
+                  onClick={() => setPage((p) => p - 1)}
+                  aria-label="Previous page"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= lastPage || result.loading}
+                  onClick={() => setPage((p) => p + 1)}
+                  aria-label="Next page"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
-      <DataTable headers={["Document", "Type", "Uploaded", "Status", ""]} actionColumn={4}>
-        {documents.map((doc) => (
-          <tr key={doc.id}>
-            <td><strong className="document-name">{doc.originalFileName}</strong></td>
-            <td>{doc.documentType}</td>
-            <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
-            <td>
-              <StatusBadge>{doc.status}</StatusBadge>
-            </td>
-            <td className="table-action-cell">
-              <a className="text-action" href={`${api}/documents/${doc.id}/content`} target="_blank" rel="noreferrer">Open file</a>
-            </td>
-          </tr>
-        ))}
-      </DataTable>
-    </section>
+    </>
   );
 }
 
