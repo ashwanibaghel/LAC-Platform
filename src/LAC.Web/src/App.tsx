@@ -301,9 +301,11 @@ function PageHeader({
 function DataTable({
   headers,
   children,
+  actionColumn,
 }: {
   headers: string[];
   children: ReactNode;
+  actionColumn?: number;
 }) {
   return (
     <div className="table-wrap">
@@ -311,7 +313,7 @@ function DataTable({
         <thead>
           <tr>
             {headers.map((header, index) => (
-              <th key={`${header}-${index}`} scope="col">
+              <th key={`${header}-${index}`} scope="col" className={index === actionColumn ? "table-action-cell" : undefined}>
                 {header}
               </th>
             ))}
@@ -321,6 +323,18 @@ function DataTable({
       </table>
     </div>
   );
+}
+
+function NavigationIcon({ name }: { name: string }) {
+  const common = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  const paths: Record<string, ReactNode> = {
+    Home: <><path {...common} d="m3 10 9-7 9 7" /><path {...common} d="M5.5 9v10h13V9M9.5 19v-5h5v5" /></>,
+    Villages: <><path {...common} d="M4 20V9l8-5 8 5v11" /><path {...common} d="M8 20v-5h8v5M8 10h.01M12 10h.01M16 10h.01" /></>,
+    Awards: <><path {...common} d="M5 4h14v16H5z" /><path {...common} d="M8 8h8M8 12h8M8 16h5" /></>,
+    Documents: <><path {...common} d="M6 3h8l4 4v14H6z" /><path {...common} d="M14 3v5h5M9 13h6M9 17h6" /></>,
+    Search: <><circle {...common} cx="10.5" cy="10.5" r="5.5" /><path {...common} d="m15 15 5 5" /></>,
+  };
+  return <svg className="nav-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 function SearchInput({
   value,
@@ -427,11 +441,11 @@ function Shell({ children }: { children: ReactNode }) {
   }
 
   const links = [
-    ["Home", "/", "⌂"],
-    ["Villages", "/villages", "⌘"],
-    ["Awards", "/awards", "▤"],
-    ["Documents", "/documents", "▧"],
-    ["Search", "/search", "⌕"],
+    ["Home", "/"],
+    ["Villages", "/villages"],
+    ["Awards", "/awards"],
+    ["Documents", "/documents"],
+    ["Search", "/search"],
   ];
   return (
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
@@ -451,7 +465,7 @@ function Shell({ children }: { children: ReactNode }) {
           </button>
         </div>
         <nav aria-label="Primary navigation">
-          {links.map(([label, to, icon]) => (
+          {links.map(([label, to]) => (
             <NavLink
               key={to}
               to={to}
@@ -459,7 +473,7 @@ function Shell({ children }: { children: ReactNode }) {
               aria-label={label}
               title={collapsed ? label : undefined}
             >
-              <i aria-hidden="true">{icon}</i>
+              <NavigationIcon name={label} />
               <span>{label}</span>
             </NavLink>
           ))}
@@ -518,10 +532,10 @@ function Home() {
           <h2>Sub-divisions</h2>
           <span>{district.subDivisions.length} available</span>
         </div>
-        <DataTable headers={["Sub-division", "Villages", ""]}>
+        <DataTable headers={["Sub-division", "Villages", ""]} actionColumn={2}>
           {district.subDivisions.map((subdivision: any) => (
             <tr key={subdivision.id}>
-              <td>
+              <td className="table-action-cell">
                 <EntityLink to={route.subdivision(subdivision.id)}>
                   {subdivision.name}
                 </EntityLink>
@@ -623,10 +637,10 @@ function Subdivision() {
         </div>
         {subdivision.villages.items.length ? (
           <>
-            <DataTable headers={["Village", "Khasras", ""]}>
+            <DataTable headers={["Village", "Khasras", ""]} actionColumn={2}>
               {subdivision.villages.items.map((village: any) => (
                 <tr key={village.id}>
-                  <td>
+                  <td className="table-action-cell">
                     <EntityLink to={route.village(village.id)}>
                       {village.name}
                     </EntityLink>
@@ -692,10 +706,10 @@ function Villages() {
           />
         ) : (
           <>
-            <DataTable headers={["Village", "Khasras", ""]}>
+            <DataTable headers={["Village", "Khasras", ""]} actionColumn={2}>
               {result.data.items.map((village) => (
                 <tr key={village.id}>
-                  <td>
+                  <td className="table-action-cell">
                     <EntityLink to={route.village(village.id)}>
                       {village.name}
                     </EntityLink>
