@@ -20,6 +20,7 @@ import "./verification.css";
 import "./awardPdfUpload.css";
 import "./supplementaryAward.css";
 import "./nmSemanticReview.css";
+import "./ui-system.css";
 
 const api = "/api";
 type Page<T> = {
@@ -427,7 +428,9 @@ function Shell({ children }: { children: ReactNode }) {
 
   const links = [
     ["Home", "/", "⌂"],
-    ["Awards", "/awards", "⌑"],
+    ["Villages", "/villages", "⌘"],
+    ["Awards", "/awards", "▤"],
+    ["Documents", "/documents", "▧"],
     ["Search", "/search", "⌕"],
   ];
   return (
@@ -493,10 +496,23 @@ function Home() {
       <Breadcrumbs items={[{ label: "Home" }]} />
       <PageHeader eyebrow="Land acquisition records" title={district.name}>
         <p>
-          Begin with the administrative hierarchy, then follow connected
-          land-records to their canonical detail pages.
+          Work from the administrative hierarchy into village, award and matter
+          records with a clear view of the current office register.
         </p>
       </PageHeader>
+      <section className="dashboard-overview" aria-label="Register overview">
+        <div className="overview-primary">
+          <span className="overview-kicker">Directory</span>
+          <strong>{district.subDivisions.reduce((total: number, subdivision: any) => total + subdivision.villageCount, 0)}</strong>
+          <span>villages in the current register</span>
+          <Link className="overview-action" to="/villages">Open village directory <span aria-hidden="true">→</span></Link>
+        </div>
+        <div className="overview-context">
+          <span className="overview-kicker">Workflow</span>
+          <strong>Village → Award → Matter</strong>
+          <span>Follow the record hierarchy without leaving the workspace.</span>
+        </div>
+      </section>
       <section className="section">
         <div className="section-heading">
           <h2>Sub-divisions</h2>
@@ -652,7 +668,10 @@ function Villages() {
       <PageHeader eyebrow="Directory" title="Villages" />
       <section className="section">
         <div className="section-heading">
-          <h2>Land-record villages</h2>
+          <div>
+            <h2>Land-record villages</h2>
+            <span>{result.data ? `${result.data.totalCount} villages in the register` : "Browse the village register"}</span>
+          </div>
           <SearchInput
             value={query}
             onChange={(value) => {
