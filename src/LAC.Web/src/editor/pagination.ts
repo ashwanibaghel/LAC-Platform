@@ -13,9 +13,43 @@ export interface PageBreak {
   isInlineBreak?: boolean;
 }
 
+/** Runtime-only mapping from a ProseMirror half-open range to a physical page. */
+export interface PageSegment {
+  pageNumber: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Derives the sole page-position mapping from the paginator's final breaks.
+ * `PageBreak.pageIndex` is the zero-based index of the page *created* by the
+ * break, so a side:-1 widget at `pos` makes `pos` the first position on that
+ * new page: [previousFrom, pos), [pos, nextPos).
+ */
+export function derivePageSegments(docSize: number, pageCount: number, breaks: readonly PageBreak[]): PageSegment[] {
+  const malformed = !Number.isInteger(docSize) || docSize < 0 || !Number.isInteger(pageCount) || pageCount < 1 ||
+    breaks.length !== pageCount - 1 || breaks.some((pageBreak, index) =>
+      !Number.isInteger(pageBreak.pos) || pageBreak.pos < 0 || pageBreak.pos > docSize ||
+      pageBreak.pageIndex !== index + 1 || (index > 0 && pageBreak.pos < breaks[index - 1].pos));
+  if (malformed) {
+    // Safe editor fallback; malformed paginator state stays visible to developers.
+    console.warn("Invalid matter draft pagination breaks; falling back to one runtime segment.", { docSize, pageCount, breaks });
+    return [{ pageNumber: 1, from: 0, to: docSize }];
+  }
+  const segments: PageSegment[] = [];
+  let from = 0;
+  for (const pageBreak of breaks) {
+    segments.push({ pageNumber: segments.length + 1, from, to: pageBreak.pos });
+    from = pageBreak.pos;
+  }
+  segments.push({ pageNumber: segments.length + 1, from, to: docSize });
+  return segments;
+}
+
 export interface PaginationPluginState {
   pageCount: number;
   breaks: PageBreak[];
+  segments: PageSegment[];
   decorations: DecorationSet;
   signature: string;
 }
@@ -23,6 +57,7 @@ export interface PaginationPluginState {
 export interface PaginationStorage {
   pageCount: number;
   breaks: PageBreak[];
+  segments: PageSegment[];
 }
 
 export interface MatterDraftPaginationOptions {
@@ -492,6 +527,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
       return {
         pageCount: 1,
         breaks: [],
+        segments: [{ pageNumber: 1, from: 0, to: 0 }],
       };
     },
 
@@ -504,10 +540,11 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
           key: paginationPluginKey,
 
           state: {
-            init() {
+            init(_config, state) {
               return {
                 pageCount: 1,
                 breaks: [],
+                segments: [{ pageNumber: 1, from: 0, to: state.doc.content.size }],
                 decorations: DecorationSet.empty,
                 signature: "",
               };
@@ -548,6 +585,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                 const zoom = extensionOptions.getZoom();
                 lastLayoutSignature = getLayoutSignature();
                 const { pageCount, breaks } = computePageBreaks(view, profile, zoom);
+                const segments = derivePageSegments(view.state.doc.content.size, pageCount, breaks);
 
                 // Profile changes can alter the editor padding even when the
                 // same document positions still happen to be selected.  Keep
@@ -586,12 +624,14 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                   const newState: PaginationPluginState = {
                     pageCount,
                     breaks,
+                    segments,
                     decorations,
                     signature,
                   };
 
                   storage.pageCount = pageCount;
                   storage.breaks = breaks;
+                  storage.segments = segments;
                   if (extensionOptions.onPageCountChange) {
                     extensionOptions.onPageCountChange(pageCount);
                   }
@@ -651,6 +691,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                     view.dispatch(view.state.tr.setMeta(paginationPluginKey, {
                       pageCount: 1,
                       breaks: [],
+                      segments: [{ pageNumber: 1, from: 0, to: view.state.doc.content.size }],
                       decorations: DecorationSet.empty,
                       signature: "",
                     } satisfies PaginationPluginState));
