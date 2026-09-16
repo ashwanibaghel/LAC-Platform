@@ -667,6 +667,25 @@
   caret-color: #1f5bc2;
 }
 
+.noting-sheet-frame { overflow: hidden; }
+.noting-sheet-separator {
+  position: absolute;
+  left: var(--noting-separator-x);
+  top: var(--noting-separator-top);
+  width: 1px;
+  height: var(--noting-separator-height);
+  background: #94a3b8;
+  transform: translateX(-0.5px);
+}
+
+/* Fixed Noting base lane.  Physical page remains Legal-width; the later
+   page-segment carrier will only move this already-correct 170.9mm lane. */
+.draft-canvas--noting .draft-prosemirror {
+  width: var(--noting-writing-width);
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* Page break spacers and margin elimination */
 :has(+ .draft-page-break-spacer) {
   margin-bottom: 0 !important;

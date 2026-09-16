@@ -30,7 +30,7 @@ export function derivePageSegments(docSize: number, pageCount: number, breaks: r
   const malformed = !Number.isInteger(docSize) || docSize < 0 || !Number.isInteger(pageCount) || pageCount < 1 ||
     breaks.length !== pageCount - 1 || breaks.some((pageBreak, index) =>
       !Number.isInteger(pageBreak.pos) || pageBreak.pos < 0 || pageBreak.pos > docSize ||
-      pageBreak.pageIndex !== index + 1 || (index > 0 && pageBreak.pos < breaks[index - 1].pos));
+      pageBreak.pageIndex !== index + 1 || (index > 0 && pageBreak.pos <= breaks[index - 1].pos));
   if (malformed) {
     // Safe editor fallback; malformed paginator state stays visible to developers.
     console.warn("Invalid matter draft pagination breaks; falling back to one runtime segment.", { docSize, pageCount, breaks });
@@ -60,9 +60,15 @@ export interface PaginationStorage {
   segments: PageSegment[];
 }
 
+export interface PageContentGeometry {
+  contentLeftMm: number;
+  contentWidthMm: number;
+}
+
 export interface MatterDraftPaginationOptions {
   getProfile: () => PageProfile;
   getZoom: () => number;
+  getPageContentGeometry?: (pageNumber: number) => PageContentGeometry | null;
   onPageCountChange?: (pageCount: number) => void;
 }
 
