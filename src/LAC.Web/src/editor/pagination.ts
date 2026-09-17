@@ -13,9 +13,43 @@ export interface PageBreak {
   isInlineBreak?: boolean;
 }
 
+/** Runtime-only mapping from a ProseMirror half-open range to a physical page. */
+export interface PageSegment {
+  pageNumber: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * Derives the sole page-position mapping from the paginator's final breaks.
+ * `PageBreak.pageIndex` is the zero-based index of the page *created* by the
+ * break, so a side:-1 widget at `pos` makes `pos` the first position on that
+ * new page: [previousFrom, pos), [pos, nextPos).
+ */
+export function derivePageSegments(docSize: number, pageCount: number, breaks: readonly PageBreak[]): PageSegment[] {
+  const malformed = !Number.isInteger(docSize) || docSize < 0 || !Number.isInteger(pageCount) || pageCount < 1 ||
+    breaks.length !== pageCount - 1 || breaks.some((pageBreak, index) =>
+      !Number.isInteger(pageBreak.pos) || pageBreak.pos < 0 || pageBreak.pos > docSize ||
+      pageBreak.pageIndex !== index + 1 || (index > 0 && pageBreak.pos <= breaks[index - 1].pos));
+  if (malformed) {
+    // Safe editor fallback; malformed paginator state stays visible to developers.
+    console.warn("Invalid matter draft pagination breaks; falling back to one runtime segment.", { docSize, pageCount, breaks });
+    return [{ pageNumber: 1, from: 0, to: docSize }];
+  }
+  const segments: PageSegment[] = [];
+  let from = 0;
+  for (const pageBreak of breaks) {
+    segments.push({ pageNumber: segments.length + 1, from, to: pageBreak.pos });
+    from = pageBreak.pos;
+  }
+  segments.push({ pageNumber: segments.length + 1, from, to: docSize });
+  return segments;
+}
+
 export interface PaginationPluginState {
   pageCount: number;
   breaks: PageBreak[];
+  segments: PageSegment[];
   decorations: DecorationSet;
   signature: string;
 }
@@ -23,11 +57,18 @@ export interface PaginationPluginState {
 export interface PaginationStorage {
   pageCount: number;
   breaks: PageBreak[];
+  segments: PageSegment[];
+}
+
+export interface PageContentGeometry {
+  contentLeftMm: number;
+  contentWidthMm: number;
 }
 
 export interface MatterDraftPaginationOptions {
   getProfile: () => PageProfile;
   getZoom: () => number;
+  getPageContentGeometry?: (pageNumber: number) => PageContentGeometry | null;
   onPageCountChange?: (pageCount: number) => void;
 }
 
@@ -87,6 +128,114 @@ function createTableRowSpacer(heightPx: number, pageNumber: number): HTMLElement
   td.style.pointerEvents = "none";
   tr.appendChild(td);
   return tr;
+}
+
+/**
+ * Returns render-only lane decorations for complete, top-level text blocks.
+ * A node participates only when one paginator-owned segment fully contains
+ * its exact ProseMirror range. Spanning and complex nodes deliberately remain
+ * undecorated until a later phase can provide a safe carrier for them.
+ */
+function createPageContentLaneDecorations(
+  view: EditorView,
+  pageCount: number,
+  segments: readonly PageSegment[],
+  getPageContentGeometry: ((pageNumber: number) => PageContentGeometry | null) | undefined,
+): Decoration[] {
+  if (!getPageContentGeometry || !arePageSegmentsConsistent(view.state.doc.content.size, pageCount, segments)) {
+    return [];
+  }
+
+  const decorations: Decoration[] = [];
+  let nodeStart = 0;
+  for (let index = 0; index < view.state.doc.childCount; index++) {
+    const node = view.state.doc.child(index);
+    const nodeEnd = nodeStart + node.nodeSize;
+    if (node.type.name === "paragraph" || node.type.name === "heading") {
+      const segment = segments.find(candidate => candidate.from <= nodeStart && nodeEnd <= candidate.to);
+      const geometry = segment ? getPageContentGeometry(segment.pageNumber) : null;
+      if (
+        geometry &&
+        Number.isFinite(geometry.contentLeftMm) && geometry.contentLeftMm >= 0 &&
+        Number.isFinite(geometry.contentWidthMm) && geometry.contentWidthMm > 0
+      ) {
+        decorations.push(Decoration.node(nodeStart, nodeEnd, {
+          class: "draft-page-content-lane",
+          style: `--draft-page-content-left: ${geometry.contentLeftMm}mm`,
+        }));
+      }
+    }
+    nodeStart = nodeEnd;
+  }
+  return decorations;
+}
+
+/**
+ * Returns render-only inline lanes for one top-level paragraph whose content
+ * crosses multiple paginator-owned segments.  The paragraph itself remains a
+ * single ProseMirror node: only its safe, content-only intersections receive
+ * an inline carrier.  Widgets are not document content, so non-inclusive
+ * boundaries keep the inline page-break spacer at its base writing lane.
+ */
+function createPageContentFragmentLaneDecorations(
+  view: EditorView,
+  pageCount: number,
+  segments: readonly PageSegment[],
+  getPageContentGeometry: ((pageNumber: number) => PageContentGeometry | null) | undefined,
+): Decoration[] {
+  if (!getPageContentGeometry || !arePageSegmentsConsistent(view.state.doc.content.size, pageCount, segments)) {
+    return [];
+  }
+
+  const decorations: Decoration[] = [];
+  let nodeStart = 0;
+  for (let index = 0; index < view.state.doc.childCount; index++) {
+    const node = view.state.doc.child(index);
+    const nodeEnd = nodeStart + node.nodeSize;
+    if (node.type.name === "paragraph") {
+      const contentFrom = nodeStart + 1;
+      const contentTo = nodeEnd - 1;
+      const intersectingSegments = segments.filter(segment =>
+        contentFrom < segment.to && segment.from < contentTo,
+      );
+
+      if (intersectingSegments.length > 1) {
+        for (const segment of intersectingSegments) {
+          const fragmentFrom = Math.max(contentFrom, segment.from);
+          const fragmentTo = Math.min(contentTo, segment.to);
+          const geometry = getPageContentGeometry(segment.pageNumber);
+          if (
+            fragmentFrom < fragmentTo &&
+            geometry &&
+            Number.isFinite(geometry.contentLeftMm) && geometry.contentLeftMm >= 0 &&
+            Number.isFinite(geometry.contentWidthMm) && geometry.contentWidthMm > 0
+          ) {
+            decorations.push(Decoration.inline(fragmentFrom, fragmentTo, {
+              class: "draft-page-content-fragment",
+              style: `--draft-page-content-left: ${geometry.contentLeftMm}mm`,
+            }, {
+              inclusiveStart: false,
+              inclusiveEnd: false,
+              key: `page-content-fragment-${segment.pageNumber}-${fragmentFrom}-${fragmentTo}`,
+            }));
+          }
+        }
+      }
+    }
+    nodeStart = nodeEnd;
+  }
+  return decorations;
+}
+
+function arePageSegmentsConsistent(docSize: number, pageCount: number, segments: readonly PageSegment[]): boolean {
+  return segments.length === pageCount &&
+    segments.length > 0 &&
+    segments.every((segment, index) =>
+      segment.pageNumber === index + 1 &&
+      Number.isInteger(segment.from) && Number.isInteger(segment.to) &&
+      segment.from >= 0 && segment.to >= segment.from && segment.to <= docSize &&
+      (index === 0 ? segment.from === 0 : segment.from === segments[index - 1].to)) &&
+    segments[segments.length - 1].to === docSize;
 }
 
 /**
@@ -204,7 +353,7 @@ function findFirstPositionAtOrBelow(
  *    the current page. For page 1 this is coordsAtPos(1).top. For subsequent pages
  *    it is updated to the natural-layout top of the first block on that page.
  */
-function computePageBreaks(
+export function computePageBreaks(
   view: EditorView,
   profile: PageProfile,
   zoom: number
@@ -308,6 +457,7 @@ function computePageBreaks(
         let nextPageTopY = pageTopY;
         let searchFrom = paragraphFrom;
         let priorInlineDisplacementPx = 0;
+        let inlinePageOrdinal = 1;
         while (true) {
           const overflow = findFirstPositionAtOrBelow(
             view,
@@ -324,7 +474,11 @@ function computePageBreaks(
           // isolation works for page two but drifts upward from page three when
           // margins change.  Keep one continuous physical coordinate model:
           // raw text coordinate + prior widgets + this widget = next sheet.
-          const nextPhysicalPageTopY = firstInlinePageTopY + (pageIndex + 1) * (totalPageHeightPx + SHEET_GAP_PX);
+          // Note: use paragraph-local inlinePageOrdinal instead of global (pageIndex + 1),
+          // because firstInlinePageTopY is already at the paragraph's starting physical page.
+          const nextPhysicalPageTopY =
+            firstInlinePageTopY +
+            inlinePageOrdinal * (totalPageHeightPx + SHEET_GAP_PX);
           const spacerHeightPx = Math.max(
             0,
             nextPhysicalPageTopY - overflow.topY - priorInlineDisplacementPx
@@ -336,6 +490,7 @@ function computePageBreaks(
             isInlineBreak: true,
           });
           priorInlineDisplacementPx += spacerHeightPx;
+          inlinePageOrdinal++;
           pageIndex++;
           nextPageTopY += printableHeightPx;
           searchFrom = overflow.pos + 1;
@@ -469,6 +624,10 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
 
   const getLayoutSignature = () => {
     const profile = options.getProfile();
+    const geometrySignature = [1, 2].map(pageNumber => {
+      const geometry = options.getPageContentGeometry?.(pageNumber);
+      return geometry ? `${geometry.contentLeftMm}:${geometry.contentWidthMm}` : "none";
+    }).join(",");
     return [
       profile.widthMm,
       profile.heightMm,
@@ -478,6 +637,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
       profile.marginLeftMm,
       profile.reservedTopMm ?? 0,
       options.getZoom(),
+      geometrySignature,
     ].join(":");
   };
 
@@ -492,6 +652,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
       return {
         pageCount: 1,
         breaks: [],
+        segments: [{ pageNumber: 1, from: 0, to: 0 }],
       };
     },
 
@@ -504,10 +665,11 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
           key: paginationPluginKey,
 
           state: {
-            init() {
+            init(_config, state) {
               return {
                 pageCount: 1,
                 breaks: [],
+                segments: [{ pageNumber: 1, from: 0, to: state.doc.content.size }],
                 decorations: DecorationSet.empty,
                 signature: "",
               };
@@ -548,6 +710,15 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                 const zoom = extensionOptions.getZoom();
                 lastLayoutSignature = getLayoutSignature();
                 const { pageCount, breaks } = computePageBreaks(view, profile, zoom);
+                const segments = derivePageSegments(view.state.doc.content.size, pageCount, breaks);
+                if (import.meta.env.DEV) {
+                  (globalThis as { __lacPaginationDiagnostic?: unknown }).__lacPaginationDiagnostic = {
+                    docSize: view.state.doc.content.size,
+                    pageCount,
+                    breaks,
+                    segments,
+                  };
+                }
 
                 // Profile changes can alter the editor padding even when the
                 // same document positions still happen to be selected.  Keep
@@ -563,9 +734,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                   currentState?.signature !== signature ||
                   currentState?.pageCount !== pageCount
                 ) {
-                  const decorations = DecorationSet.create(
-                    view.state.doc,
-                    breaks.map(b =>
+                  const spacerDecorations = breaks.map(b =>
                       Decoration.widget(
                         b.pos,
                         b.isTableBreak
@@ -580,18 +749,36 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                           key: `page-break-${b.pageIndex}-${b.pos}`,
                         }
                       )
-                    )
+                    );
+                  const laneDecorations = createPageContentLaneDecorations(
+                    view,
+                    pageCount,
+                    segments,
+                    extensionOptions.getPageContentGeometry,
                   );
+                  const fragmentLaneDecorations = createPageContentFragmentLaneDecorations(
+                    view,
+                    pageCount,
+                    segments,
+                    extensionOptions.getPageContentGeometry,
+                  );
+                  const decorations = DecorationSet.create(view.state.doc, [
+                    ...spacerDecorations,
+                    ...laneDecorations,
+                    ...fragmentLaneDecorations,
+                  ]);
 
                   const newState: PaginationPluginState = {
                     pageCount,
                     breaks,
+                    segments,
                     decorations,
                     signature,
                   };
 
                   storage.pageCount = pageCount;
                   storage.breaks = breaks;
+                  storage.segments = segments;
                   if (extensionOptions.onPageCountChange) {
                     extensionOptions.onPageCountChange(pageCount);
                   }
@@ -651,6 +838,7 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                     view.dispatch(view.state.tr.setMeta(paginationPluginKey, {
                       pageCount: 1,
                       breaks: [],
+                      segments: [{ pageNumber: 1, from: 0, to: view.state.doc.content.size }],
                       decorations: DecorationSet.empty,
                       signature: "",
                     } satisfies PaginationPluginState));

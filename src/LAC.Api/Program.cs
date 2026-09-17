@@ -547,7 +547,7 @@ api.MapPost("/matters/{id:guid}/drafts", async (Guid id, CreateMatterDraftReques
     if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
     if (!Enum.TryParse<MatterDraftType>(request.DraftType, true, out var draftType)) return Validation("draftType", "Choose Letter or Noting.");
     var draft = new MatterDraft { MatterId = id, Title = title, DraftType = draftType };
-    if (draftType == MatterDraftType.Noting) ApplyDraftLayout(draft, MatterDraftLayoutProfiles.NotingSheetV1Provisional);
+    if (draftType == MatterDraftType.Noting) ApplyDraftLayout(draft, MatterDraftLayoutProfiles.DelhiLacNotingLegalMirrorV1);
     db.Add(draft); await db.SaveChangesAsync(ct);
     return Results.Created($"/api/matter-drafts/{draft.Id}", new IdResponse(draft.Id));
 });
@@ -1084,7 +1084,7 @@ static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, MatterDraft
     problem = ""; layout = default;
     if (draftType == MatterDraftType.Noting)
     {
-        layout = MatterDraftLayoutProfiles.NotingSheetV1Provisional;
+        layout = MatterDraftLayoutProfiles.DelhiLacNotingLegalMirrorV1;
         if (request.PageSize != layout.PageSize || request.Orientation != layout.Orientation || request.MarginTopMm != layout.MarginTopMm || request.MarginRightMm != layout.MarginRightMm || request.MarginBottomMm != layout.MarginBottomMm || request.MarginLeftMm != layout.MarginLeftMm) { problem = "Noting Sheet layout is fixed by the office profile."; return false; }
         return true;
     }

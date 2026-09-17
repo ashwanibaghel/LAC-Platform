@@ -16,6 +16,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { EditorToolbar } from "./EditorToolbar";
 import { matterDraftPagination, normalizeDraftPages } from "./pagination";
 import { DELHI_LAC_NOTING_V1, profilePrintSize, resolvePageProfile } from "./pageProfiles";
+import { NotingSheetFrame } from "./NotingSheetFrame";
+import { getNotingPageGeometry } from "./notingLayoutProfile";
 import "./matter-editor.css";
 
 const api = "/api";
@@ -112,16 +114,25 @@ function MatterDraftCanvas({
   onResetZoom: () => void;
 }) {
   const profile = resolvePageProfile(draft);
+  const isNoting = draft.draftType === "Noting";
   const [pageCount, setPageCount] = useState(1);
 
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
+  const pageGeometryRef = useRef<((pageNumber: number) => { contentLeftMm: number; contentWidthMm: number } | null) | null>(null);
+  pageGeometryRef.current = isNoting
+    ? pageNumber => {
+      const geometry = getNotingPageGeometry(pageNumber);
+      return { contentLeftMm: geometry.contentLeftMm, contentWidthMm: geometry.contentWidthMm };
+    }
+    : null;
 
   const pagination = useMemo(() => matterDraftPagination({
     getProfile: () => profileRef.current,
     getZoom: () => zoomRef.current,
+    getPageContentGeometry: pageNumber => pageGeometryRef.current?.(pageNumber) ?? null,
     onPageCountChange: setPageCount,
   }), []);
 
@@ -180,6 +191,7 @@ function MatterDraftCanvas({
     "--draft-bottom": `${profile.marginBottomMm}mm`,
     "--draft-left": `${profile.marginLeftMm}mm`,
     "--draft-zoom": zoom,
+    ...(isNoting ? { "--noting-writing-width": `${getNotingPageGeometry(1).contentWidthMm}mm` } : {}),
   } as CSSProperties), [profile, zoom]);
 
   if (!editor) return null;
@@ -198,14 +210,12 @@ function MatterDraftCanvas({
       />
       {pageSetup}
       <div className="draft-page-wrap">
-        <div className="draft-canvas" style={pageStyle}>
+        <div className={`draft-canvas${isNoting ? " draft-canvas--noting" : ""}`} style={pageStyle}>
           <div className="draft-backdrop-deck" aria-hidden="true">
             {Array.from({ length: pageCount }).map((_, i) => (
-              <div key={i} className="draft-sheet-card">
+              isNoting ? <NotingSheetFrame key={i} pageNumber={i + 1} /> : <div key={i} className="draft-sheet-card">
                 <div className="draft-sheet-badge">
-                  {draft.draftType === "Noting"
-                    ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
-                    : `Page ${i + 1} of ${pageCount}`}
+                  {`Page ${i + 1} of ${pageCount}`}
                 </div>
               </div>
             ))}
