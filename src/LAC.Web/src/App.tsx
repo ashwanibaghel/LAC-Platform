@@ -4308,23 +4308,6 @@ function Documents() {
                       </StatusBadge>
                     </td>
                     <td className="table-action-cell vault-actions">
-                      <a
-                        className="text-action"
-                        href={`${api}/documents/${doc.id}/content`}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`Open ${doc.originalFileName}`}
-                      >
-                        Open
-                      </a>
-                      <a
-                        className="text-action"
-                        href={`${api}/documents/${doc.id}/content?download=true`}
-                        download={doc.originalFileName}
-                        aria-label={`Download ${doc.originalFileName}`}
-                      >
-                        Download
-                      </a>
                       {doc.status === "Archived" ? (
                         <button
                           type="button"
@@ -4338,17 +4321,36 @@ function Documents() {
                           Restore
                         </button>
                       ) : (
-                        <button
-                          type="button"
-                          className="quiet-button text-action-danger"
-                          onClick={() => {
-                            setActionDoc({ doc, action: "archive" });
-                            setActionError(null);
-                          }}
-                          aria-label={`Archive ${doc.originalFileName}`}
-                        >
-                          Archive
-                        </button>
+                        <>
+                          <a
+                            className="text-action"
+                            href={`${api}/documents/${doc.id}/content`}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`Open ${doc.originalFileName}`}
+                          >
+                            Open
+                          </a>
+                          <a
+                            className="text-action"
+                            href={`${api}/documents/${doc.id}/content?download=true`}
+                            download={doc.originalFileName}
+                            aria-label={`Download ${doc.originalFileName}`}
+                          >
+                            Download
+                          </a>
+                          <button
+                            type="button"
+                            className="quiet-button text-action-danger"
+                            onClick={() => {
+                              setActionDoc({ doc, action: "archive" });
+                              setActionError(null);
+                            }}
+                            aria-label={`Archive ${doc.originalFileName}`}
+                          >
+                            Archive
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>

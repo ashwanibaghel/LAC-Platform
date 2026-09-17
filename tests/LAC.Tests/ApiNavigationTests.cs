@@ -1223,6 +1223,144 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Contains(searchRestored!, s => s.Type == "Document" && s.Id == coreDoc.Id);
     }
 
+    [Fact]
+    public async Task Archived_documents_content_and_page_image_inaccessible_until_restored_preserving_storage_and_nm_fallback()
+    {
+        Guid docId;
+        Guid nmDocId;
+        string storagePath;
+        string originalFileName = "Archived_Access_Test.pdf";
+        byte[] pdfBytes = "%PDF-test-bytes-archived-correction"u8.ToArray();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            storagePath = await storage.SaveAsync(new MemoryStream(pdfBytes), "archived_access_test.pdf", CancellationToken.None);
+            var doc = new Document
+            {
+                OriginalFileName = originalFileName,
+                DocumentType = "Award",
+                StoragePath = storagePath,
+                MimeType = "application/pdf",
+                Status = "Active"
+            };
+            db.Add(doc);
+
+            var village = new Village { Name = "Archived Test Village" };
+            db.Add(village);
+
+            var nmDoc = new NmDocument
+            {
+                Document = doc,
+                Village = village,
+                Status = NmReviewStatus.Committed
+            };
+            db.Add(nmDoc);
+
+            await db.SaveChangesAsync();
+            docId = doc.Id;
+            nmDocId = nmDoc.Id;
+        }
+
+        // A. Active document: GET /content -> 200
+        using (var activeRes = await _client.GetAsync($"/api/documents/{docId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, activeRes.StatusCode);
+        }
+
+        // Active document via NM fallback: GET /content -> 200
+        using (var activeNmRes = await _client.GetAsync($"/api/documents/{nmDocId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, activeNmRes.StatusCode);
+        }
+
+        // Archive document
+        using (var archRes = await _client.PostAsync($"/api/documents/{docId}/archive", null))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, archRes.StatusCode);
+        }
+
+        // B. Archived document: GET /content -> 404
+        using (var archContentRes = await _client.GetAsync($"/api/documents/{docId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archContentRes.StatusCode);
+        }
+
+        // C. Archived document: GET /content?download=true -> 404
+        using (var archDownloadRes = await _client.GetAsync($"/api/documents/{docId}/content?download=true"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archDownloadRes.StatusCode);
+        }
+
+        // Archived document: GET /page-image -> 404
+        using (var archPageRes = await _client.GetAsync($"/api/documents/{docId}/page-image?page=1"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archPageRes.StatusCode);
+        }
+
+        // F. NM fallback: Archived source document cannot be streamed through NmDocument ID (404)
+        using (var archNmContentRes = await _client.GetAsync($"/api/documents/{nmDocId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archNmContentRes.StatusCode);
+        }
+        using (var archNmDownloadRes = await _client.GetAsync($"/api/documents/{nmDocId}/content?download=true"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archNmDownloadRes.StatusCode);
+        }
+        using (var archNmPageRes = await _client.GetAsync($"/api/documents/{nmDocId}/page-image?page=1"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.NotFound, archNmPageRes.StatusCode);
+        }
+
+        // G. No physical file deletion during archive remains true
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            using var fileStream = await storage.OpenReadAsync(storagePath, CancellationToken.None);
+            Assert.NotNull(fileStream);
+            using var ms = new MemoryStream();
+            await fileStream.CopyToAsync(ms);
+            Assert.Equal(pdfBytes, ms.ToArray());
+        }
+
+        // D. Restore same document: GET /content -> 200
+        using (var restoreRes = await _client.PostAsync($"/api/documents/{docId}/restore", null))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, restoreRes.StatusCode);
+        }
+
+        using (var restoredContentRes = await _client.GetAsync($"/api/documents/{docId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, restoredContentRes.StatusCode);
+        }
+
+        // E. Restore: GET /content?download=true -> 200 and original filename preserved
+        using (var restoredDlRes = await _client.GetAsync($"/api/documents/{docId}/content?download=true"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, restoredDlRes.StatusCode);
+            var disposition = restoredDlRes.Content.Headers.ContentDisposition;
+            Assert.NotNull(disposition);
+            Assert.Equal("attachment", disposition!.DispositionType);
+            Assert.Equal(originalFileName, disposition.FileName?.Trim('"'));
+        }
+
+        // F (cont). Restored source can be streamed again through NM fallback (200)
+        using (var restoredNmRes = await _client.GetAsync($"/api/documents/{nmDocId}/content"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, restoredNmRes.StatusCode);
+        }
+        using (var restoredNmDlRes = await _client.GetAsync($"/api/documents/{nmDocId}/content?download=true"))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, restoredNmDlRes.StatusCode);
+            var disposition = restoredNmDlRes.Content.Headers.ContentDisposition;
+            Assert.NotNull(disposition);
+            Assert.Equal("attachment", disposition!.DispositionType);
+            Assert.Equal(originalFileName, disposition.FileName?.Trim('"'));
+        }
+    }
+
     private sealed record MatterDocumentDto(Guid DocumentId, string? DocumentRole, string? DisplayName, string OriginalFileName, DateTimeOffset UploadedAt);
     private sealed record CoreDocumentItem(Guid DocumentId, string Role, string OriginalFileName, string? MimeType, DateTimeOffset UploadedAt);
     private sealed record VillageAwardCoreItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, List<VillageCoreDocDto> Documents);

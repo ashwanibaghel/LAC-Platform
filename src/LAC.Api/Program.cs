@@ -379,7 +379,7 @@ api.MapGet("/documents", async (string? q, string? documentType, Guid? villageId
 });
 api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
     // The NM review workspace stores the NM-document identifier, whereas this
     // generic viewer is given a stored-document identifier elsewhere. Resolve
     // that stable NM-to-document relationship so the original source remains
@@ -391,7 +391,7 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDb
             .Select(x => (Guid?)x.DocumentId)
             .SingleOrDefaultAsync(ct);
         if (sourceDocumentId is not null)
-            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId, ct);
+            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
     }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
@@ -610,11 +610,11 @@ api.MapPost("/documents/export", async (ExportDocumentsRequest request, LacDbCon
 });
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
     if (document is null)
     {
         var sourceDocumentId = await db.NmDocuments.AsNoTracking().Where(x => x.Id == id).Select(x => (Guid?)x.DocumentId).SingleOrDefaultAsync(ct);
-        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId, ct);
+        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
     }
     if (document is null) return Results.NotFound();
     try { return Results.File(await renderer.RenderAsync(document.StoragePath, page, rotateClockwise: true, ct), "image/png"); }
