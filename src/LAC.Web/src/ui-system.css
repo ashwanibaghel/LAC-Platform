@@ -90,3 +90,9 @@
 .app-shell .vault-selection-bar .selection-count { color: var(--ui-text); font-weight: 600; }
 @media (max-width: 900px) { .app-shell .sidebar { width: 204px; flex-basis: 204px; } .app-shell .workspace > main { padding: 24px; } }
 @media (max-width: 680px) { .app-shell .workspace > main { padding: 20px 16px 42px; } .app-shell .dashboard-overview { grid-template-columns: 1fr; } .app-shell .overview-primary { border-right: 0; border-bottom: 1px solid var(--ui-border); } .app-shell .document-table-toolbar { display: grid; align-items: start; gap: 5px; } .app-shell .search-page-results > a { grid-template-columns: 1fr; gap: 5px; } }
+.app-shell .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.app-shell .confirm-dialog { background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-radius); box-shadow: 0 16px 36px rgb(18 38 58 / 20%); max-width: 480px; width: 100%; padding: 20px; display: grid; gap: 14px; }
+.app-shell .danger-button { background: var(--ui-danger); border-color: var(--ui-danger); color: #fff; }
+.app-shell .danger-button:hover, .app-shell .danger-button:focus-visible { background: #b91c1c; border-color: #b91c1c; }
+.app-shell .text-action-danger { color: var(--ui-danger); }
+.app-shell .text-action-danger:hover { color: #991b1b; text-decoration: underline; }

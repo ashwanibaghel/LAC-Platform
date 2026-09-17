@@ -834,6 +834,402 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
             Assert.Equal(matterBytes, ms.ToArray());
         }
     }
+
+    [Fact]
+    public async Task Matter_unlink_removes_only_MatterDocument_and_preserves_canonical_document_and_binary_and_other_matter_links()
+    {
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes("UNLINK_TEST_FILE_CONTENT");
+        string storagePath;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            storagePath = await storage.SaveAsync(new MemoryStream(bytes), "unlink-test.pdf", CancellationToken.None);
+        }
+
+        var doc = new Document
+        {
+            OriginalFileName = "unlink-test.pdf",
+            DocumentType = "Matter",
+            StoragePath = storagePath,
+            FileSize = bytes.Length,
+            Sha256Hash = "dummyhash123",
+            Status = "Active"
+        };
+
+        var matter1 = new Matter { Title = "Matter 1 for Unlink", VillageId = villageId, Status = "Open", MatterType = "Court Case" };
+        var matter2 = new Matter { Title = "Matter 2 for Unlink", VillageId = villageId, Status = "Open", MatterType = "Court Case" };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(doc);
+            db.Add(new DocumentVillage { Document = doc, VillageId = villageId });
+            db.Add(matter1);
+            db.Add(matter2);
+            db.Add(new MatterDocument { Matter = matter1, Document = doc, DocumentRole = "Petition" });
+            db.Add(new MatterDocument { Matter = matter2, Document = doc, DocumentRole = "Evidence" });
+            await db.SaveChangesAsync();
+        }
+
+        // Verify initial links
+        var m1DocsBefore = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter1.Id}/documents");
+        Assert.Contains(m1DocsBefore!, d => d.DocumentId == doc.Id);
+        var m2DocsBefore = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter2.Id}/documents");
+        Assert.Contains(m2DocsBefore!, d => d.DocumentId == doc.Id);
+
+        // Execute Unlink on matter1
+        using var unlinkResponse = await _client.DeleteAsync($"/api/matters/{matter1.Id}/documents/{doc.Id}/link");
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, unlinkResponse.StatusCode);
+
+        // Verification invariants:
+        // 1. Disappears from matter1
+        var m1DocsAfter = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter1.Id}/documents");
+        Assert.DoesNotContain(m1DocsAfter!, d => d.DocumentId == doc.Id);
+
+        // 2. Still remains in matter2
+        var m2DocsAfter = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter2.Id}/documents");
+        Assert.Contains(m2DocsAfter!, d => d.DocumentId == doc.Id);
+
+        // 3. Canonical Document row in DB untouched
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var inDb = await db.Documents.SingleOrDefaultAsync(x => x.Id == doc.Id);
+            Assert.NotNull(inDb);
+            Assert.Equal("Active", inDb!.Status);
+            Assert.Equal(storagePath, inDb.StoragePath);
+            Assert.Equal("unlink-test.pdf", inDb.OriginalFileName);
+            Assert.Equal(bytes.Length, inDb.FileSize);
+
+            // DocumentVillage still exists
+            Assert.True(await db.DocumentVillages.AnyAsync(dv => dv.DocumentId == doc.Id && dv.VillageId == villageId));
+
+            // Binary on storage still readable and intact
+            await using var stream = await storage.OpenReadAsync(inDb.StoragePath, CancellationToken.None);
+            Assert.NotNull(stream);
+            using var ms = new MemoryStream();
+            await stream!.CopyToAsync(ms);
+            Assert.Equal(bytes, ms.ToArray());
+        }
+
+        // 4. Repeated unlink returns 404
+        using var repeatResponse = await _client.DeleteAsync($"/api/matters/{matter1.Id}/documents/{doc.Id}/link");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, repeatResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Document_archive_and_restore_cycle_preserves_metadata_and_binary_and_relations()
+    {
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+        var award = new Award { AwardNumber = $"AWARD-ARCH-{Guid.NewGuid():N}" };
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes("ARCHIVE_RESTORE_CYCLE_DATA");
+        string storagePath;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            storagePath = await storage.SaveAsync(new MemoryStream(bytes), "cycle.pdf", CancellationToken.None);
+        }
+
+        var uploadedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var doc = new Document
+        {
+            OriginalFileName = "cycle.pdf",
+            DocumentType = "Award",
+            StoragePath = storagePath,
+            Sha256Hash = "cycle_sha256_hash",
+            FileSize = bytes.Length,
+            UploadedAt = uploadedAt,
+            Status = "Active"
+        };
+        var matter = new Matter { Title = "Cycle Matter", VillageId = villageId, Status = "Open", MatterType = "Court Case" };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(award);
+            db.Add(new AwardVillage { Award = award, VillageId = villageId });
+            db.Add(doc);
+            db.Add(new DocumentVillage { Document = doc, VillageId = villageId });
+            db.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+            db.Add(matter);
+            db.Add(new MatterDocument { Matter = matter, Document = doc, DocumentRole = "Award" });
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Archive
+        using var archiveRes = await _client.PostAsync($"/api/documents/{doc.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, archiveRes.StatusCode);
+
+        // Repeated archive is idempotent
+        using var repeatArchiveRes = await _client.PostAsync($"/api/documents/{doc.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, repeatArchiveRes.StatusCode);
+
+        // Verify state while Archived
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var inDb = await db.Documents.SingleAsync(x => x.Id == doc.Id);
+            Assert.Equal("Archived", inDb.Status);
+            Assert.Equal(RecordStatus.Archived, inDb.RecordStatus);
+            Assert.Equal(storagePath, inDb.StoragePath);
+            Assert.Equal("cycle_sha256_hash", inDb.Sha256Hash);
+            Assert.Equal(bytes.Length, inDb.FileSize);
+            Assert.Equal(uploadedAt, inDb.UploadedAt);
+
+            // Relationships preserved
+            Assert.True(await db.DocumentVillages.AnyAsync(dv => dv.DocumentId == doc.Id));
+            Assert.True(await db.DocumentAwards.AnyAsync(da => da.DocumentId == doc.Id));
+            Assert.True(await db.MatterDocuments.AnyAsync(md => md.DocumentId == doc.Id));
+
+            // Binary physically preserved
+            await using var stream = await storage.OpenReadAsync(inDb.StoragePath, CancellationToken.None);
+            Assert.NotNull(stream);
+        }
+
+        // 2. Restore
+        using var restoreRes = await _client.PostAsync($"/api/documents/{doc.Id}/restore", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, restoreRes.StatusCode);
+
+        // Repeated restore is idempotent
+        using var repeatRestoreRes = await _client.PostAsync($"/api/documents/{doc.Id}/restore", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, repeatRestoreRes.StatusCode);
+
+        // Verify state after Restore
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var inDb = await db.Documents.SingleAsync(x => x.Id == doc.Id);
+            Assert.Equal("Active", inDb.Status);
+            Assert.Equal(RecordStatus.Active, inDb.RecordStatus);
+            Assert.Equal(doc.Id, inDb.Id);
+            Assert.Equal(storagePath, inDb.StoragePath);
+
+            await using var stream = await storage.OpenReadAsync(inDb.StoragePath, CancellationToken.None);
+            Assert.NotNull(stream);
+            using var ms = new MemoryStream();
+            await stream!.CopyToAsync(ms);
+            Assert.Equal(bytes, ms.ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task Archive_returns_409_conflict_when_active_workflow_session_in_progress()
+    {
+        var docExtraction = new Document { OriginalFileName = "extract.pdf", StoragePath = "p1", Status = "Active" };
+        var docNm = new Document { OriginalFileName = "nm.pdf", StoragePath = "p2", Status = "Active" };
+        var docIngestion = new Document { OriginalFileName = "ingest.pdf", StoragePath = "p3", Status = "Active" };
+
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(docExtraction);
+            db.Add(docNm);
+            db.Add(docIngestion);
+
+            // Active extraction job
+            db.Add(new AwardDocumentExtractionJob
+            {
+                Document = docExtraction,
+                Status = AwardDocumentExtractionJobStatus.Extracting
+            });
+
+            // Active NM document
+            db.Add(new NmDocument
+            {
+                Document = docNm,
+                VillageId = villageId,
+                Status = NmReviewStatus.NeedsReview
+            });
+
+            // Active Ingestion Session
+            db.Add(new AwardIngestionSession
+            {
+                SourceDocument = docIngestion,
+                Status = AwardIngestionSessionStatus.NeedsReview
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // Case A: Extraction conflict
+        using var resA = await _client.PostAsync($"/api/documents/{docExtraction.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, resA.StatusCode);
+        var bodyA = await resA.Content.ReadAsStringAsync();
+        Assert.Contains("extraction", bodyA, StringComparison.OrdinalIgnoreCase);
+
+        // Case B: NM review conflict
+        using var resB = await _client.PostAsync($"/api/documents/{docNm.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, resB.StatusCode);
+        var bodyB = await resB.Content.ReadAsStringAsync();
+        Assert.Contains("Naksha Muntazmin", bodyB, StringComparison.OrdinalIgnoreCase);
+
+        // Case C: Ingestion review conflict
+        using var resC = await _client.PostAsync($"/api/documents/{docIngestion.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.Conflict, resC.StatusCode);
+        var bodyC = await resC.Content.ReadAsStringAsync();
+        Assert.Contains("award ingestion", bodyC, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Active_query_exclusions_filter_out_archived_documents_across_operational_surfaces()
+    {
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+        var award = new Award { AwardNumber = $"EXCLUSION-AWARD-{Guid.NewGuid():N}" };
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes("EXCLUSION_TEST_CONTENT");
+        string pathCore, pathMatter;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            pathCore = await storage.SaveAsync(new MemoryStream(bytes), "excl-core.pdf", CancellationToken.None);
+            pathMatter = await storage.SaveAsync(new MemoryStream(bytes), "excl-matter.pdf", CancellationToken.None);
+        }
+
+        var uniquePrefix = $"ExclSearch{Guid.NewGuid():N}".Substring(0, 16);
+        var coreDoc = new Document
+        {
+            OriginalFileName = $"{uniquePrefix}-Core.pdf",
+            DocumentType = "Award",
+            StoragePath = pathCore,
+            Status = "Active"
+        };
+        var matterDoc = new Document
+        {
+            OriginalFileName = $"{uniquePrefix}-Matter.pdf",
+            DocumentType = "Order",
+            StoragePath = pathMatter,
+            Status = "Active"
+        };
+        var matter = new Matter { Title = $"{uniquePrefix}-MatterTitle", VillageId = villageId, Status = "Open", MatterType = "Court Case" };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(award);
+            db.Add(new AwardVillage { Award = award, VillageId = villageId });
+            db.Add(coreDoc);
+            db.Add(new DocumentAward { Award = award, Document = coreDoc, CoreDocumentRole = "Award" });
+            db.Add(new DocumentVillage { Document = coreDoc, VillageId = villageId });
+
+            db.Add(matter);
+            db.Add(new MatterAward { Matter = matter, Award = award, IsPrimary = true });
+            db.Add(matterDoc);
+            db.Add(new MatterDocument { Matter = matter, Document = matterDoc, DocumentRole = "Order" });
+            db.Add(new DocumentVillage { Document = matterDoc, VillageId = villageId });
+
+            await db.SaveChangesAsync();
+        }
+
+        // Initially: all active surfaces include them
+        var awardCoreDocs = await _client.GetFromJsonAsync<List<CoreDocumentItem>>($"/api/awards/{award.Id}/core-documents");
+        Assert.Contains(awardCoreDocs!, d => d.DocumentId == coreDoc.Id);
+
+        var villageCore = await _client.GetFromJsonAsync<List<VillageAwardCoreItem>>($"/api/villages/{villageId}/core-records");
+        var awardInVillage = Assert.Single(villageCore!, a => a.Id == award.Id);
+        Assert.Contains(awardInVillage.Documents, d => d.DocumentId == coreDoc.Id);
+
+        var matterDetail = await _client.GetFromJsonAsync<MatterDetailItem>($"/api/matters/{matter.Id}");
+        Assert.NotNull(matterDetail?.Award?.Documents);
+        Assert.Contains(matterDetail!.Award!.Documents, d => d.DocumentId == coreDoc.Id);
+
+        var matterDocs = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter.Id}/documents");
+        Assert.Contains(matterDocs!, d => d.DocumentId == matterDoc.Id);
+
+        var searchBefore = await _client.GetFromJsonAsync<List<SearchResultItem>>($"/api/search?q={uniquePrefix}");
+        Assert.Contains(searchBefore!, s => s.Type == "Document" && s.Id == coreDoc.Id);
+        Assert.Contains(searchBefore!, s => s.Type == "Document" && s.Id == matterDoc.Id);
+
+        // Archive coreDoc and matterDoc
+        using var arch1 = await _client.PostAsync($"/api/documents/{coreDoc.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, arch1.StatusCode);
+        using var arch2 = await _client.PostAsync($"/api/documents/{matterDoc.Id}/archive", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, arch2.StatusCode);
+
+        // Verification after archive:
+        // 1. Award core query excludes coreDoc
+        var awardCoreAfter = await _client.GetFromJsonAsync<List<CoreDocumentItem>>($"/api/awards/{award.Id}/core-documents");
+        Assert.DoesNotContain(awardCoreAfter!, d => d.DocumentId == coreDoc.Id);
+
+        // 2. Village core query excludes coreDoc
+        var villageCoreAfter = await _client.GetFromJsonAsync<List<VillageAwardCoreItem>>($"/api/villages/{villageId}/core-records");
+        var awardInVillageAfter = Assert.Single(villageCoreAfter!, a => a.Id == award.Id);
+        Assert.DoesNotContain(awardInVillageAfter.Documents, d => d.DocumentId == coreDoc.Id);
+
+        // 3. Matter inherited core docs excludes coreDoc
+        var matterDetailAfter = await _client.GetFromJsonAsync<MatterDetailItem>($"/api/matters/{matter.Id}");
+        Assert.DoesNotContain(matterDetailAfter!.Award!.Documents, d => d.DocumentId == coreDoc.Id);
+
+        // 4. Matter documents query excludes matterDoc
+        var matterDocsAfter = await _client.GetFromJsonAsync<List<MatterDocumentDto>>($"/api/matters/{matter.Id}/documents");
+        Assert.DoesNotContain(matterDocsAfter!, d => d.DocumentId == matterDoc.Id);
+
+        // 5. Eligible documents query excludes matterDoc
+        var eligibleAfter = await _client.GetFromJsonAsync<List<EligibleDocumentItem>>($"/api/matters/{matter.Id}/eligible-documents");
+        Assert.DoesNotContain(eligibleAfter!, d => d.Id == matterDoc.Id);
+        Assert.DoesNotContain(eligibleAfter!, d => d.Id == coreDoc.Id);
+
+        // 6. Search excludes both archived documents
+        var searchAfter = await _client.GetFromJsonAsync<List<SearchResultItem>>($"/api/search?q={uniquePrefix}");
+        Assert.DoesNotContain(searchAfter!, s => s.Type == "Document" && (s.Id == coreDoc.Id || s.Id == matterDoc.Id));
+
+        // 7. Generic ZIP rejects archived documents
+        using var zipGenericRes = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = new[] { coreDoc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, zipGenericRes.StatusCode);
+
+        // 8. Matter ZIP rejects archived documents
+        using var zipMatterRes = await _client.PostAsJsonAsync($"/api/matters/{matter.Id}/export", new { documentIds = new[] { matterDoc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, zipMatterRes.StatusCode);
+
+        // 9. Vault Status filter works:
+        // status=Active does NOT contain them
+        var vaultActive = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>($"/api/documents?q={uniquePrefix}&status=Active");
+        Assert.DoesNotContain(vaultActive!.Items, d => d.Id == coreDoc.Id || d.Id == matterDoc.Id);
+
+        // status=Archived CONTAINS them
+        var vaultArchived = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>($"/api/documents?q={uniquePrefix}&status=Archived");
+        Assert.Contains(vaultArchived!.Items, d => d.Id == coreDoc.Id);
+        Assert.Contains(vaultArchived!.Items, d => d.Id == matterDoc.Id);
+
+        // status=All contains them
+        var vaultAll = await _client.GetFromJsonAsync<PageResponse<DocumentDetailItem>>($"/api/documents?q={uniquePrefix}&status=All");
+        Assert.Contains(vaultAll!.Items, d => d.Id == coreDoc.Id);
+        Assert.Contains(vaultAll!.Items, d => d.Id == matterDoc.Id);
+
+        // Restore coreDoc
+        using var restoreRes = await _client.PostAsync($"/api/documents/{coreDoc.Id}/restore", null);
+        Assert.Equal(System.Net.HttpStatusCode.OK, restoreRes.StatusCode);
+
+        // Now coreDoc appears in Award core query again
+        var awardCoreRestored = await _client.GetFromJsonAsync<List<CoreDocumentItem>>($"/api/awards/{award.Id}/core-documents");
+        Assert.Contains(awardCoreRestored!, d => d.DocumentId == coreDoc.Id);
+
+        // Search finds coreDoc again
+        var searchRestored = await _client.GetFromJsonAsync<List<SearchResultItem>>($"/api/search?q={uniquePrefix}");
+        Assert.Contains(searchRestored!, s => s.Type == "Document" && s.Id == coreDoc.Id);
+    }
+
+    private sealed record MatterDocumentDto(Guid DocumentId, string? DocumentRole, string? DisplayName, string OriginalFileName, DateTimeOffset UploadedAt);
+    private sealed record CoreDocumentItem(Guid DocumentId, string Role, string OriginalFileName, string? MimeType, DateTimeOffset UploadedAt);
+    private sealed record VillageAwardCoreItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, List<VillageCoreDocDto> Documents);
+    private sealed record VillageCoreDocDto(Guid DocumentId, string? CoreDocumentRole, string OriginalFileName, DateTimeOffset UploadedAt);
+    private sealed record MatterDetailItem(Guid Id, Guid VillageId, string VillageName, string Title, string MatterType, string Status, MatterAwardDetailDto? Award);
+    private sealed record MatterAwardDetailDto(Guid AwardId, string AwardNumber, List<VillageCoreDocDto> Documents);
+    private sealed record EligibleDocumentItem(Guid Id, string OriginalFileName, string DocumentType, DateTimeOffset UploadedAt, string Source);
 }
 
 public sealed class ApiFactory : WebApplicationFactory<Program>

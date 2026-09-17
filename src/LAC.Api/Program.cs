@@ -184,7 +184,7 @@ api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, Canc
         pendingTypeRows.Where(c => c.SessionId == s.Id).OrderBy(c => c.CandidateType).Select(c => new PendingCandidateTypeCount(c.CandidateType.ToString(), c.Count)).ToList())).ToList();
 
     var associatedDocuments = await db.Documents.AsNoTracking()
-        .Where(d => d.AwardLinks.Any(link => awardIdList.Contains(link.AwardId)) || d.VillageLinks.Any(link => link.VillageId == id) || d.VillageLRLinks.Any(link => link.VillageLR.VillageId == id) || d.KhatauniRecordLinks.Any(link => link.KhatauniRecord.VillageId == id))
+        .Where(d => d.Status == "Active" && (d.AwardLinks.Any(link => awardIdList.Contains(link.AwardId)) || d.VillageLinks.Any(link => link.VillageId == id) || d.VillageLRLinks.Any(link => link.VillageLR.VillageId == id) || d.KhatauniRecordLinks.Any(link => link.KhatauniRecord.VillageId == id)))
         .Select(d => new { d.OriginalFileName, d.DocumentType }).ToListAsync(ct);
     bool HasDocument(string keyword) => associatedDocuments.Any(d => d.DocumentType.Contains(keyword, StringComparison.OrdinalIgnoreCase) || d.OriginalFileName.Contains(keyword, StringComparison.OrdinalIgnoreCase));
     var sources = new[]
@@ -248,7 +248,7 @@ api.MapGet("/villages/{id:guid}/lrs", async (Guid id, LacDbContext db, Cancellat
 api.MapGet("/villages/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
-    return Results.Ok(await db.DocumentVillages.AsNoTracking().Where(link => link.VillageId == id).OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToListAsync(ct));
+    return Results.Ok(await db.DocumentVillages.AsNoTracking().Where(link => link.VillageId == id && link.Document.Status == "Active").OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToListAsync(ct));
 });
 
 api.MapGet("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
@@ -337,9 +337,17 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
     return notification is null ? NotFound("Notification", id) : Results.Ok(notification);
 });
 
-api.MapGet("/documents", async (string? q, string? documentType, Guid? villageId, int? page, int? pageSize, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/documents", async (string? q, string? documentType, Guid? villageId, string? status, int? page, int? pageSize, LacDbContext db, CancellationToken ct) =>
 {
     var documents = db.Documents.AsNoTracking().AsQueryable();
+    if (!string.IsNullOrWhiteSpace(status))
+    {
+        var statusTerm = status.Trim();
+        if (statusTerm.Equals("Active", StringComparison.OrdinalIgnoreCase))
+            documents = documents.Where(x => x.Status == "Active");
+        else if (statusTerm.Equals("Archived", StringComparison.OrdinalIgnoreCase))
+            documents = documents.Where(x => x.Status == "Archived");
+    }
     if (!string.IsNullOrWhiteSpace(q))
     {
         var term = q.Trim().ToUpperInvariant();
@@ -371,7 +379,7 @@ api.MapGet("/documents", async (string? q, string? documentType, Guid? villageId
 });
 api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
     // The NM review workspace stores the NM-document identifier, whereas this
     // generic viewer is given a stored-document identifier elsewhere. Resolve
     // that stable NM-to-document relationship so the original source remains
@@ -383,7 +391,7 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDb
             .Select(x => (Guid?)x.DocumentId)
             .SingleOrDefaultAsync(ct);
         if (sourceDocumentId is not null)
-            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId, ct);
     }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
@@ -395,11 +403,69 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDb
     }
     return Results.File(stream, mimeType, enableRangeProcessing: true);
 });
+api.MapPost("/documents/{id:guid}/archive", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var document = await db.Documents.SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (document is null) return NotFound("Document", id);
+
+    if (document.Status == "Archived")
+    {
+        return Results.Ok(new { document.Id, status = document.Status });
+    }
+
+    var activeExtraction = await db.AwardDocumentExtractionJobs.AnyAsync(j => j.DocumentId == id &&
+        (j.Status == AwardDocumentExtractionJobStatus.Queued ||
+         j.Status == AwardDocumentExtractionJobStatus.Extracting ||
+         j.Status == AwardDocumentExtractionJobStatus.Analyzing ||
+         j.Status == AwardDocumentExtractionJobStatus.BuildingCandidates), ct);
+    if (activeExtraction)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document in use", detail: "Cannot archive document while background document extraction is in progress.");
+    }
+
+    var activeNmReview = await db.NmDocuments.AnyAsync(nm => nm.DocumentId == id &&
+        (nm.Status == NmReviewStatus.Draft || nm.Status == NmReviewStatus.NeedsReview), ct);
+    var activeNmSemantic = await db.NmSemanticAnalysisSessions.AnyAsync(s => s.NmDocument.DocumentId == id &&
+        s.Status == NmSemanticSessionStatus.Running, ct);
+    if (activeNmReview || activeNmSemantic)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document in use", detail: "Cannot archive document while Naksha Muntazmin (NM) review or analysis is actively in progress.");
+    }
+
+    var activeIngestion = await db.AwardIngestionSessions.AnyAsync(s => s.SourceDocumentId == id &&
+        s.Status != AwardIngestionSessionStatus.Committed &&
+        s.Status != AwardIngestionSessionStatus.Rejected &&
+        s.Status != AwardIngestionSessionStatus.Failed, ct);
+    if (activeIngestion)
+    {
+        return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Document in use", detail: "Cannot archive document while award ingestion review is actively in progress.");
+    }
+
+    document.Status = "Archived";
+    document.RecordStatus = RecordStatus.Archived;
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { document.Id, status = document.Status });
+});
+api.MapPost("/documents/{id:guid}/restore", async (Guid id, LacDbContext db, CancellationToken ct) =>
+{
+    var document = await db.Documents.SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (document is null) return NotFound("Document", id);
+
+    if (document.Status == "Active")
+    {
+        return Results.Ok(new { document.Id, status = document.Status });
+    }
+
+    document.Status = "Active";
+    document.RecordStatus = RecordStatus.Active;
+    await db.SaveChangesAsync(ct);
+    return Results.Ok(new { document.Id, status = document.Status });
+});
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     var awards = await db.Awards.AsNoTracking().Where(a => a.VillageLinks.Any(v => v.VillageId == id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
-        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
+        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Where(d => d.Document.Status == "Active").Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
     return Results.Ok(awards.Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, roles = new[] { "Award", "NM", "StatementA", "PossessionProceeding" }.Select(role => new { role, count = a.documents.Count(d => d.CoreDocumentRole == role), available = a.documents.Any(d => d.CoreDocumentRole == role) }), documents = a.documents }));
 });
 api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequest request, LacDbContext db, CancellationToken ct) =>
@@ -413,7 +479,7 @@ api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequ
 api.MapGet("/awards/{id:guid}/core-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
-    return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null).OrderByDescending(x => x.Document.UploadedAt)
+    return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null && x.Document.Status == "Active").OrderByDescending(x => x.Document.UploadedAt)
         .Select(x => new { x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType, x.Document.UploadedAt }).ToListAsync(ct));
 });
 api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
@@ -442,7 +508,7 @@ api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest r
 });
 api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
-    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
+    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null && d.Document.Status == "Active").Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
     return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
 });
 api.MapGet("/matters/{id:guid}/drafts", async (Guid id, LacDbContext db, CancellationToken ct) =>
@@ -482,13 +548,13 @@ api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest 
 api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
-    return Results.Ok(await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.Document.UploadedAt).Select(x => new { x.DocumentId, x.DocumentRole, x.DisplayName, x.Document.OriginalFileName, x.Document.UploadedAt }).ToListAsync(ct));
+    return Results.Ok(await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id && x.Document.Status == "Active").OrderByDescending(x => x.Document.UploadedAt).Select(x => new { x.DocumentId, x.DocumentRole, x.DisplayName, x.Document.OriginalFileName, x.Document.UploadedAt }).ToListAsync(ct));
 });
 api.MapGet("/matters/{id:guid}/eligible-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
     var linked = db.MatterDocuments.Where(x => x.MatterId == id).Select(x => x.DocumentId);
-    return Results.Ok(await db.Documents.AsNoTracking().Where(d => !linked.Contains(d.Id) && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))))
+    return Results.Ok(await db.Documents.AsNoTracking().Where(d => d.Status == "Active" && !linked.Contains(d.Id) && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))))
         .OrderByDescending(d => d.UploadedAt).Select(d => new { d.Id, d.OriginalFileName, d.DocumentType, d.UploadedAt, source = d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId)) ? "Selected Award" : "Village" }).ToListAsync(ct));
 });
 api.MapPost("/matters/{id:guid}/documents", async (Guid id, string role, string? displayName, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
@@ -506,17 +572,30 @@ api.MapPost("/matters/{id:guid}/documents", async (Guid id, string role, string?
 api.MapPost("/matters/{id:guid}/documents/link", async (Guid id, LinkMatterDocumentRequest request, LacDbContext db, CancellationToken ct) =>
 {
     var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    var allowed = await db.Documents.AsNoTracking().AnyAsync(d => d.Id == request.DocumentId && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))), ct);
-    if (!allowed) return Validation("documentId", "Only a document from this Matter's Village or selected Award may be attached.");
+    var allowed = await db.Documents.AsNoTracking().AnyAsync(d => d.Id == request.DocumentId && d.Status == "Active" && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))), ct);
+    if (!allowed) return Validation("documentId", "Only an active document from this Matter's Village or selected Award may be attached.");
     if (!await db.MatterDocuments.AnyAsync(x => x.MatterId == id && x.DocumentId == request.DocumentId, ct)) db.Add(new MatterDocument { MatterId = id, DocumentId = request.DocumentId, DocumentRole = request.Role?.Trim(), DisplayName = request.DisplayName?.Trim() });
     await db.SaveChangesAsync(ct); return Results.NoContent();
+});
+api.MapDelete("/matters/{matterId:guid}/documents/{documentId:guid}/link", async (Guid matterId, Guid documentId, LacDbContext db, CancellationToken ct) =>
+{
+    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == matterId, ct);
+    if (matter is null) return NotFound("Matter", matterId);
+
+    var link = await db.MatterDocuments.SingleOrDefaultAsync(x => x.MatterId == matterId && x.DocumentId == documentId, ct);
+    if (link is null) return NotFound("MatterDocument", documentId);
+
+    db.MatterDocuments.Remove(link);
+    await db.SaveChangesAsync(ct);
+    return Results.NoContent();
 });
 api.MapPost("/matters/{id:guid}/export", async (Guid id, ExportMatterDocumentsRequest request, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
-    var requested = request?.DocumentIds?.Distinct().ToList() ?? new List<Guid>(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
-    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct);
+    var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id && x.Document.Status == "Active").Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && x.Document.Status == "Active" && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
+    var requested = request?.DocumentIds?.Distinct().ToList() ?? new List<Guid>(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only active documents available to this Matter.");
+    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id) && x.Status == "Active").ToListAsync(ct);
+    if (docs.Count < requested.Count) return Validation("documentIds", "One or more selected documents are not active.");
     return await CreateZipExportResultAsync(docs, $"matter-{id:N}-documents.zip", storage, ct);
 });
 api.MapPost("/documents/export", async (ExportDocumentsRequest request, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
@@ -531,11 +610,11 @@ api.MapPost("/documents/export", async (ExportDocumentsRequest request, LacDbCon
 });
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
     if (document is null)
     {
         var sourceDocumentId = await db.NmDocuments.AsNoTracking().Where(x => x.Id == id).Select(x => (Guid?)x.DocumentId).SingleOrDefaultAsync(ct);
-        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId, ct);
     }
     if (document is null) return Results.NotFound();
     try { return Results.File(await renderer.RenderAsync(document.StoragePath, page, rotateClockwise: true, ct), "image/png"); }
@@ -562,9 +641,10 @@ api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =
             $"/matters/{x.Id}"))
         .ToListAsync(ct);
     var documents = await db.Documents.AsNoTracking()
-        .Where(x => x.OriginalFileName.ToUpper().Contains(term) ||
+        .Where(x => x.Status == "Active" && (
+                    x.OriginalFileName.ToUpper().Contains(term) ||
                     x.DocumentType.ToUpper().Contains(term) ||
-                    (x.Remarks != null && x.Remarks.ToUpper().Contains(term)))
+                    (x.Remarks != null && x.Remarks.ToUpper().Contains(term))))
         .Take(12)
         .Select(x => new SearchResultItem(
             "Document",

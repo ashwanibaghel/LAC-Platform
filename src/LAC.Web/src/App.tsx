@@ -294,6 +294,95 @@ function StatusBadge({
 }) {
   return <span className={`status ${tone || "neutral"}`}>{children}</span>;
 }
+function ConfirmModal({
+  isOpen,
+  title,
+  message,
+  note,
+  error,
+  confirmLabel,
+  confirmTone = "danger",
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  note?: string;
+  error?: string | null;
+  confirmLabel: string;
+  confirmTone?: "danger" | "primary" | "warning";
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      cancelRef.current?.focus();
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape" && !busy) onCancel();
+      };
+      window.addEventListener("keydown", onKeyDown);
+      return () => window.removeEventListener("keydown", onKeyDown);
+    }
+  }, [isOpen, busy, onCancel]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+      <div className="confirm-dialog">
+        <h3 id="confirm-modal-title" style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>
+          {title}
+        </h3>
+        <p style={{ margin: 0, fontSize: "13px", lineHeight: 1.5, color: "var(--ui-text)" }}>
+          {message}
+        </p>
+        {note && (
+          <p
+            className="hint"
+            style={{
+              margin: 0,
+              padding: "8px 10px",
+              background: "var(--ui-surface-subtle)",
+              borderRadius: "var(--ui-radius-sm)",
+              border: "1px solid var(--ui-border)",
+            }}
+          >
+            {note}
+          </p>
+        )}
+        {error && (
+          <p className="form-message form-message-error" role="alert" style={{ margin: 0, padding: "8px 10px", fontSize: "12px" }}>
+            {error}
+          </p>
+        )}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "4px" }}>
+          <button
+            ref={cancelRef}
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`primary-button ${confirmTone === "danger" ? "danger-button" : ""}`}
+            disabled={busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Processing…" : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function EntityLink({ to, children, className = "" }: { to: string; children: ReactNode; className?: string }) {
   return (
     <Link className={`entity-link ${className}`} to={to}>
@@ -950,6 +1039,43 @@ function Matter() {
   const [linkBusy, setLinkBusy] = useState<Record<string, boolean>>({});
   const [pickerMessage, setPickerMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
 
+  const [unlinkingDoc, setUnlinkingDoc] = useState<{ documentId: string; name: string } | null>(null);
+  const [unlinkBusy, setUnlinkBusy] = useState(false);
+  const [unlinkError, setUnlinkError] = useState<string | null>(null);
+
+  const handleUnlink = async () => {
+    if (!unlinkingDoc || unlinkBusy) return;
+    setUnlinkBusy(true);
+    setUnlinkError(null);
+    try {
+      const res = await fetch(`${api}/matters/${id}/documents/${unlinkingDoc.documentId}/link`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        let err = "Could not remove document from matter.";
+        try {
+          const p = await res.json();
+          err = p.detail || p.title || err;
+        } catch {
+          err = (await res.text()) || err;
+        }
+        throw new Error(err);
+      }
+      setUploadMessage({
+        text: `Removed "${unlinkingDoc.name}" from this Matter. The stored file is retained.`,
+        tone: "success",
+      });
+      clearApiCache();
+      setSelected((prev) => prev.filter((dId) => dId !== unlinkingDoc.documentId));
+      setUnlinkingDoc(null);
+      setRefresh((x) => x + 1);
+    } catch (err: any) {
+      setUnlinkError(err.message || "Failed to remove document.");
+    } finally {
+      setUnlinkBusy(false);
+    }
+  };
+
   const matterFileInputRef = useRef<HTMLInputElement>(null);
 
   const data = useApi<any>(`/matters/${id}?r=${refresh}`);
@@ -1472,6 +1598,17 @@ function Matter() {
                         >
                           Download
                         </a>
+                        <button
+                          type="button"
+                          className="quiet-button text-action-danger"
+                          onClick={() => {
+                            setUnlinkingDoc({ documentId: d.documentId, name: d.displayName || d.originalFileName });
+                            setUnlinkError(null);
+                          }}
+                          style={{ padding: "2px 6px", fontSize: "11px", height: "auto", minHeight: "26px" }}
+                        >
+                          Remove from Matter
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1483,6 +1620,24 @@ function Matter() {
       </section>
 
       <MatterDrafts matterId={id} />
+
+      <ConfirmModal
+        isOpen={Boolean(unlinkingDoc)}
+        title="Remove document from Matter"
+        message="This removes the document from this Matter only. The stored file is retained and preserved in the document vault; it is not deleted."
+        note={unlinkingDoc ? `Document: "${unlinkingDoc.name}"` : undefined}
+        error={unlinkError}
+        confirmLabel="Remove from Matter"
+        confirmTone="danger"
+        busy={unlinkBusy}
+        onConfirm={handleUnlink}
+        onCancel={() => {
+          if (!unlinkBusy) {
+            setUnlinkingDoc(null);
+            setUnlinkError(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -2927,6 +3082,43 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
 
   const coreDocs = useApi<any[]>(`/awards/${awardId}/core-documents?r=${refresh}`);
 
+  const [archivingDoc, setArchivingDoc] = useState<{ documentId: string; name: string; role: string } | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+
+  const handleArchiveCoreDoc = async () => {
+    if (!archivingDoc || archiveBusy) return;
+    setArchiveBusy(true);
+    setArchiveError(null);
+    try {
+      const res = await fetch(`${api}/documents/${archivingDoc.documentId}/archive`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        let err = "Could not archive core document.";
+        try {
+          const p = await res.json();
+          err = p.detail || p.title || err;
+        } catch {
+          err = (await res.text()) || err;
+        }
+        throw new Error(err);
+      }
+      setMessage({
+        text: `Archived "${archivingDoc.name}". The document is removed from active Core Records but retained in the vault.`,
+        tone: "success",
+      });
+      clearApiCache();
+      setArchivingDoc(null);
+      setRefresh((x) => x + 1);
+      if (onUpdated) onUpdated();
+    } catch (err: any) {
+      setArchiveError(err.message || "Failed to archive document.");
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
   const [exportBusy, setExportBusy] = useState(false);
   const allCoreDocIds = useMemo(() => (coreDocs.data || []).map((d: any) => d.documentId).filter(Boolean), [coreDocs.data]);
 
@@ -3142,7 +3334,7 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
                     <td className="table-action-cell">
                       <div className="vault-actions">
                         {hasDocs && docs.map((d: any) => (
-                          <span key={d.documentId} style={{ display: "inline-flex", gap: "8px" }}>
+                          <span key={d.documentId} style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
                             <a
                               href={`${api}/documents/${d.documentId}/content`}
                               target="_blank"
@@ -3158,6 +3350,17 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
                             >
                               Download
                             </a>
+                            <button
+                              type="button"
+                              className="quiet-button text-action-danger"
+                              onClick={() => {
+                                setArchivingDoc({ documentId: d.documentId, name: d.originalFileName, role });
+                                setArchiveError(null);
+                              }}
+                              style={{ padding: "2px 6px", fontSize: "11px", height: "auto", minHeight: "26px" }}
+                            >
+                              Archive
+                            </button>
                           </span>
                         ))}
                         <button
@@ -3177,6 +3380,24 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
           </table>
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={Boolean(archivingDoc)}
+        title="Archive core document"
+        message="This document will be hidden from active workflows and removed from active Core Records. The stored file is NOT deleted and can be restored from the Document Vault."
+        note={archivingDoc ? `Role: ${CANONICAL_AWARD_ROLES.find((r) => r.role === archivingDoc.role)?.label || archivingDoc.role} · File: "${archivingDoc.name}"` : undefined}
+        error={archiveError}
+        confirmLabel="Archive Document"
+        confirmTone="danger"
+        busy={archiveBusy}
+        onConfirm={handleArchiveCoreDoc}
+        onCancel={() => {
+          if (!archiveBusy) {
+            setArchivingDoc(null);
+            setArchiveError(null);
+          }
+        }}
+      />
     </section>
   );
 }
@@ -3628,8 +3849,14 @@ function Documents() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [docType, setDocType] = useState("");
   const [villageId, setVillageId] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"Active" | "Archived" | "All">("Active");
   const [page, setPage] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const [actionDoc, setActionDoc] = useState<{ doc: any; action: "archive" | "restore" } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -3655,10 +3882,11 @@ function Documents() {
     setDebouncedQ("");
     setDocType("");
     setVillageId("");
+    setStatusFilter("Active");
     setPage(0);
   };
 
-  const hasFilters = Boolean(term.trim() || docType || villageId);
+  const hasFilters = Boolean(term.trim() || docType || villageId || statusFilter !== "Active");
 
   const villages = useApi<Page<{ id: string; name: string }>>(
     path("/villages", { page: 0, pageSize: 100 }),
@@ -3670,6 +3898,7 @@ function Documents() {
     q: debouncedQ || undefined,
     documentType: docType || undefined,
     villageId: villageId || undefined,
+    status: statusFilter === "All" ? undefined : statusFilter,
     ...(refreshKey ? { r: refreshKey } : {}),
   });
 
@@ -3681,6 +3910,57 @@ function Documents() {
   const [selected, setSelected] = useState<string[]>([]);
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleConfirmAction = async () => {
+    if (!actionDoc || actionBusy) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      const endpoint = actionDoc.action === "archive" ? "archive" : "restore";
+      const res = await fetch(`${api}/documents/${actionDoc.doc.id}/${endpoint}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        let errText = `Failed to ${actionDoc.action} document.`;
+        try {
+          const p = await res.json();
+          errText = p.detail || p.title || (p.errors ? Object.values(p.errors).flat().join(" ") : errText);
+        } catch {
+          errText = (await res.text()) || errText;
+        }
+        throw new Error(errText);
+      }
+      setActionMessage({
+        text: actionDoc.action === "archive"
+          ? `Archived "${actionDoc.doc.originalFileName}". Stored file is retained and can be restored.`
+          : `Restored "${actionDoc.doc.originalFileName}" to active documents.`,
+        tone: "success",
+      });
+      clearApiCache();
+      setSelected((prev) => prev.filter((id) => id !== actionDoc.doc.id));
+      setActionDoc(null);
+      setRefreshKey((k) => k + 1);
+    } catch (err: any) {
+      setActionError(err.message || `Could not ${actionDoc.action} document.`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const getRelationshipContextText = (doc: any) => {
+    if (!doc) return undefined;
+    const parts: string[] = [];
+    if (doc.matters?.length) {
+      parts.push(`${doc.matters.length} Matter${doc.matters.length > 1 ? "s" : ""}`);
+    }
+    if (doc.awards?.length) {
+      parts.push(doc.awards.map((a: any) => `Award ${a.awardNumber}`).join(", "));
+    }
+    if (doc.villages?.length) {
+      parts.push(doc.villages.map((v: any) => v.name).join(", "));
+    }
+    return parts.length ? `Linked to ${parts.join(" and ")}.` : undefined;
+  };
 
   const visibleItems = result.data?.items || [];
   const visibleIds = useMemo(() => visibleItems.map((d: any) => d.id), [visibleItems]);
@@ -3730,6 +4010,11 @@ function Documents() {
       </PageHeader>
 
       <div className="vault-workspace">
+        {actionMessage && (
+          <div className={`form-message-${actionMessage.tone}`} role="status" style={{ marginBottom: "16px" }}>
+            {actionMessage.text}
+          </div>
+        )}
         <div className="vault-toolbar" role="search" aria-label="Document filters">
           <div className="vault-filters">
             <div className="vault-search-box">
@@ -3787,6 +4072,23 @@ function Documents() {
                     {v.name}
                   </option>
                 ))}
+              </select>
+            </label>
+
+            <label className="vault-filter-label">
+              <span className="sr-only">Filter by status</span>
+              <select
+                className="vault-filter-select"
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as "Active" | "Archived" | "All");
+                  setPage(0);
+                }}
+                aria-label="Filter by status"
+              >
+                <option value="Active">Active documents</option>
+                <option value="Archived">Archived documents</option>
+                <option value="All">All documents</option>
               </select>
             </label>
 
@@ -4001,7 +4303,7 @@ function Documents() {
                     </td>
                     <td>{date(doc.uploadedAt?.slice(0, 10))}</td>
                     <td>
-                      <StatusBadge tone={doc.status === "Active" ? "success" : undefined}>
+                      <StatusBadge tone={doc.status === "Active" ? "success" : doc.status === "Archived" ? "warning" : undefined}>
                         {doc.status}
                       </StatusBadge>
                     </td>
@@ -4023,6 +4325,31 @@ function Documents() {
                       >
                         Download
                       </a>
+                      {doc.status === "Archived" ? (
+                        <button
+                          type="button"
+                          className="quiet-button"
+                          onClick={() => {
+                            setActionDoc({ doc, action: "restore" });
+                            setActionError(null);
+                          }}
+                          aria-label={`Restore ${doc.originalFileName}`}
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="quiet-button text-action-danger"
+                          onClick={() => {
+                            setActionDoc({ doc, action: "archive" });
+                            setActionError(null);
+                          }}
+                          aria-label={`Archive ${doc.originalFileName}`}
+                        >
+                          Archive
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -4057,6 +4384,40 @@ function Documents() {
           </section>
         )}
       </div>
+
+      {actionDoc && (
+        <ConfirmModal
+          isOpen={true}
+          title={actionDoc.action === "archive" ? "Archive Document" : "Restore Document"}
+          confirmLabel={actionDoc.action === "archive" ? "Archive Document" : "Restore Document"}
+          confirmTone={actionDoc.action === "archive" ? "danger" : "primary"}
+          busy={actionBusy}
+          error={actionError}
+          onConfirm={handleConfirmAction}
+          onCancel={() => {
+            if (!actionBusy) {
+              setActionDoc(null);
+              setActionError(null);
+            }
+          }}
+          message={
+            actionDoc.action === "archive"
+              ? `Are you sure you want to archive "${actionDoc.doc.originalFileName}"? No physical deletion: stored file is retained and preserved in the document vault, and can be restored at any time.`
+              : `Are you sure you want to restore "${actionDoc.doc.originalFileName}" to active status?`
+          }
+          note={
+            getRelationshipContextText(actionDoc.doc)
+              ? `${getRelationshipContextText(actionDoc.doc)} ${
+                  actionDoc.action === "archive"
+                    ? "Archiving will hide it from active lists and exports."
+                    : "Restoring will make it visible in active lists and exports."
+                }`
+              : actionDoc.action === "archive"
+              ? "Archiving will hide it from active lists and exports."
+              : "Restoring will make it visible in active lists and exports."
+          }
+        />
+      )}
     </>
   );
 }

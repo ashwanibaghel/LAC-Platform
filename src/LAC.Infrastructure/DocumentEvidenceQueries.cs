@@ -9,7 +9,7 @@ public static class DocumentEvidenceQueries
 {
     public static async Task<object> AwardDocumentsAsync(LacDbContext db,Guid awardId,CancellationToken ct)
     {
-        return await db.DocumentAwards.AsNoTracking().Where(x=>x.AwardId==awardId).OrderByDescending(x=>x.Document.UploadedAt).Select(x=>new {
+        return await db.DocumentAwards.AsNoTracking().Where(x=>x.AwardId==awardId && x.Document.Status=="Active").OrderByDescending(x=>x.Document.UploadedAt).Select(x=>new {
             x.Document.Id,x.Document.OriginalFileName,x.Document.DocumentType,x.Document.Sha256Hash,x.Document.FileSize,
             SourceUrl="/api/documents/"+x.DocumentId+"/content",
             Job=db.AwardDocumentExtractionJobs.Where(j=>j.DocumentId==x.DocumentId && j.TargetAwardId==awardId).OrderByDescending(j=>j.CreatedAt).Select(j=>new {j.Id,j.Status,j.ProcessedPages,j.TotalPages,j.StartedAt,j.CurrentStage,j.IngestionSessionId,j.ErrorMessage,
