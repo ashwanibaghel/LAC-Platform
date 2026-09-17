@@ -692,6 +692,13 @@
   left: var(--draft-page-content-left);
 }
 
+/* Render-only N1C carrier for page-segment fragments inside one paragraph.
+   The inline page-break widget remains outside this non-inclusive wrapper. */
+.draft-canvas--noting .draft-page-content-fragment {
+  position: relative;
+  left: var(--draft-page-content-left);
+}
+
 /* Page break spacers and margin elimination */
 :has(+ .draft-page-break-spacer) {
   margin-bottom: 0 !important;

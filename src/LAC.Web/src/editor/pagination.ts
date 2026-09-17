@@ -170,6 +170,63 @@ function createPageContentLaneDecorations(
   return decorations;
 }
 
+/**
+ * Returns render-only inline lanes for one top-level paragraph whose content
+ * crosses multiple paginator-owned segments.  The paragraph itself remains a
+ * single ProseMirror node: only its safe, content-only intersections receive
+ * an inline carrier.  Widgets are not document content, so non-inclusive
+ * boundaries keep the inline page-break spacer at its base writing lane.
+ */
+function createPageContentFragmentLaneDecorations(
+  view: EditorView,
+  pageCount: number,
+  segments: readonly PageSegment[],
+  getPageContentGeometry: ((pageNumber: number) => PageContentGeometry | null) | undefined,
+): Decoration[] {
+  if (!getPageContentGeometry || !arePageSegmentsConsistent(view.state.doc.content.size, pageCount, segments)) {
+    return [];
+  }
+
+  const decorations: Decoration[] = [];
+  let nodeStart = 0;
+  for (let index = 0; index < view.state.doc.childCount; index++) {
+    const node = view.state.doc.child(index);
+    const nodeEnd = nodeStart + node.nodeSize;
+    if (node.type.name === "paragraph") {
+      const contentFrom = nodeStart + 1;
+      const contentTo = nodeEnd - 1;
+      const intersectingSegments = segments.filter(segment =>
+        contentFrom < segment.to && segment.from < contentTo,
+      );
+
+      if (intersectingSegments.length > 1) {
+        for (const segment of intersectingSegments) {
+          const fragmentFrom = Math.max(contentFrom, segment.from);
+          const fragmentTo = Math.min(contentTo, segment.to);
+          const geometry = getPageContentGeometry(segment.pageNumber);
+          if (
+            fragmentFrom < fragmentTo &&
+            geometry &&
+            Number.isFinite(geometry.contentLeftMm) && geometry.contentLeftMm >= 0 &&
+            Number.isFinite(geometry.contentWidthMm) && geometry.contentWidthMm > 0
+          ) {
+            decorations.push(Decoration.inline(fragmentFrom, fragmentTo, {
+              class: "draft-page-content-fragment",
+              style: `--draft-page-content-left: ${geometry.contentLeftMm}mm`,
+            }, {
+              inclusiveStart: false,
+              inclusiveEnd: false,
+              key: `page-content-fragment-${segment.pageNumber}-${fragmentFrom}-${fragmentTo}`,
+            }));
+          }
+        }
+      }
+    }
+    nodeStart = nodeEnd;
+  }
+  return decorations;
+}
+
 function arePageSegmentsConsistent(docSize: number, pageCount: number, segments: readonly PageSegment[]): boolean {
   return segments.length === pageCount &&
     segments.length > 0 &&
@@ -296,7 +353,7 @@ function findFirstPositionAtOrBelow(
  *    the current page. For page 1 this is coordsAtPos(1).top. For subsequent pages
  *    it is updated to the natural-layout top of the first block on that page.
  */
-function computePageBreaks(
+export function computePageBreaks(
   view: EditorView,
   profile: PageProfile,
   zoom: number
@@ -400,6 +457,7 @@ function computePageBreaks(
         let nextPageTopY = pageTopY;
         let searchFrom = paragraphFrom;
         let priorInlineDisplacementPx = 0;
+        let inlinePageOrdinal = 1;
         while (true) {
           const overflow = findFirstPositionAtOrBelow(
             view,
@@ -416,7 +474,11 @@ function computePageBreaks(
           // isolation works for page two but drifts upward from page three when
           // margins change.  Keep one continuous physical coordinate model:
           // raw text coordinate + prior widgets + this widget = next sheet.
-          const nextPhysicalPageTopY = firstInlinePageTopY + (pageIndex + 1) * (totalPageHeightPx + SHEET_GAP_PX);
+          // Note: use paragraph-local inlinePageOrdinal instead of global (pageIndex + 1),
+          // because firstInlinePageTopY is already at the paragraph's starting physical page.
+          const nextPhysicalPageTopY =
+            firstInlinePageTopY +
+            inlinePageOrdinal * (totalPageHeightPx + SHEET_GAP_PX);
           const spacerHeightPx = Math.max(
             0,
             nextPhysicalPageTopY - overflow.topY - priorInlineDisplacementPx
@@ -428,6 +490,7 @@ function computePageBreaks(
             isInlineBreak: true,
           });
           priorInlineDisplacementPx += spacerHeightPx;
+          inlinePageOrdinal++;
           pageIndex++;
           nextPageTopY += printableHeightPx;
           searchFrom = overflow.pos + 1;
@@ -648,6 +711,14 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                 lastLayoutSignature = getLayoutSignature();
                 const { pageCount, breaks } = computePageBreaks(view, profile, zoom);
                 const segments = derivePageSegments(view.state.doc.content.size, pageCount, breaks);
+                if (import.meta.env.DEV) {
+                  (globalThis as { __lacPaginationDiagnostic?: unknown }).__lacPaginationDiagnostic = {
+                    docSize: view.state.doc.content.size,
+                    pageCount,
+                    breaks,
+                    segments,
+                  };
+                }
 
                 // Profile changes can alter the editor padding even when the
                 // same document positions still happen to be selected.  Keep
@@ -685,9 +756,16 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
                     segments,
                     extensionOptions.getPageContentGeometry,
                   );
+                  const fragmentLaneDecorations = createPageContentFragmentLaneDecorations(
+                    view,
+                    pageCount,
+                    segments,
+                    extensionOptions.getPageContentGeometry,
+                  );
                   const decorations = DecorationSet.create(view.state.doc, [
                     ...spacerDecorations,
                     ...laneDecorations,
+                    ...fragmentLaneDecorations,
                   ]);
 
                   const newState: PaginationPluginState = {
