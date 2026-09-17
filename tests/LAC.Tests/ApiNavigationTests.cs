@@ -1409,6 +1409,80 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         Assert.Empty(newlyCreated);
     }
 
+    [Fact]
+    public async Task Core_document_upload_preserves_original_persistence_exception_when_cleanup_fails()
+    {
+        var inMemoryDbName = $"failing-test-{Guid.NewGuid():N}";
+        var interceptor = new FailingDocumentSaveInterceptor();
+        Exception? capturedException = null;
+
+        using var failingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<LacDbContext>>();
+                services.RemoveAll<LacDbContext>();
+                services.AddDbContext<LacDbContext>(options =>
+                {
+                    options.UseInMemoryDatabase(inMemoryDbName)
+                           .AddInterceptors(interceptor);
+                });
+
+                var existingStorage = services.Single(d => d.ServiceType == typeof(IDocumentStorage));
+                services.Remove(existingStorage);
+                services.AddScoped<IDocumentStorage>(sp =>
+                {
+                    var inner = ActivatorUtilities.CreateInstance<LocalDocumentStorage>(sp);
+                    return new FailingDeleteStorage(inner);
+                });
+
+                services.AddSingleton<Microsoft.AspNetCore.Diagnostics.IExceptionHandler>(new TestExceptionHandler(ex => capturedException = ex));
+            });
+        });
+
+        Guid awardId;
+        using (var scope = failingFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = new Village { Name = "Fail Village 2" };
+            var award = new Award { AwardNumber = "FAIL-CLEANUP-MASK-TEST" };
+            db.AddRange(village, award, new AwardVillage { Award = award, Village = village });
+            await db.SaveChangesAsync();
+            awardId = award.Id;
+        }
+
+        interceptor.ShouldFail = true;
+
+        var client = failingFactory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new StreamContent(new MemoryStream("%PDF-fail-test-mask"u8.ToArray())), "file", "cleanup-fail.pdf");
+
+        var response = await client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM", content);
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+
+        Assert.NotNull(capturedException);
+        Assert.Equal("Simulated DB failure during document save", capturedException.Message);
+        Assert.DoesNotContain("Storage cleanup failed", capturedException.Message);
+    }
+
+    private sealed class FailingDeleteStorage(IDocumentStorage inner) : IDocumentStorage
+    {
+        public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) => inner.SaveAsync(content, fileName, ct);
+        public Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct) => inner.SaveAndHashAsync(content, fileName, ct);
+        public Task DeleteAsync(string storagePath, CancellationToken ct) => throw new IOException("Storage cleanup failed: disk error during delete");
+        public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken ct) => inner.OpenReadAsync(storagePath, ct);
+        public StorageHealth GetHealth() => inner.GetHealth();
+    }
+
+    private sealed class TestExceptionHandler(Action<Exception> onException) : Microsoft.AspNetCore.Diagnostics.IExceptionHandler
+    {
+        public ValueTask<bool> TryHandleAsync(Microsoft.AspNetCore.Http.HttpContext httpContext, Exception exception, CancellationToken cancellationToken)
+        {
+            onException(exception);
+            return ValueTask.FromResult(false);
+        }
+    }
+
     private sealed class FailingDocumentSaveInterceptor : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
     {
         public bool ShouldFail { get; set; }

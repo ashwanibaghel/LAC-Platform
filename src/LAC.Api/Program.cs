@@ -511,7 +511,15 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     catch
     {
         db.ChangeTracker.Clear();
-        await storage.DeleteAsync(stored.StoragePath, CancellationToken.None);
+        try
+        {
+            await storage.DeleteAsync(stored.StoragePath, CancellationToken.None);
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+            // Do not mask the original database failure.
+        }
         throw;
     }
 }).DisableAntiforgery();
