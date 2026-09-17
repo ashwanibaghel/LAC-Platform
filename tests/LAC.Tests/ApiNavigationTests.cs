@@ -1361,6 +1361,71 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         }
     }
 
+    [Fact]
+    public async Task Core_document_upload_cleans_up_storage_binary_when_db_save_fails()
+    {
+        var inMemoryDbName = $"failing-test-{Guid.NewGuid():N}";
+        var interceptor = new FailingDocumentSaveInterceptor();
+
+        using var failingFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<LacDbContext>>();
+                services.RemoveAll<LacDbContext>();
+                services.AddDbContext<LacDbContext>(options =>
+                {
+                    options.UseInMemoryDatabase(inMemoryDbName)
+                           .AddInterceptors(interceptor);
+                });
+            });
+        });
+
+        var paths = failingFactory.Services.GetRequiredService<LocalStoragePaths>();
+        var filesBefore = Directory.GetFiles(paths.DocumentRoot).ToHashSet();
+
+        Guid awardId;
+        using (var scope = failingFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = new Village { Name = "Fail Village" };
+            var award = new Award { AwardNumber = "FAIL-CLEANUP-TEST" };
+            db.AddRange(village, award, new AwardVillage { Award = award, Village = village });
+            await db.SaveChangesAsync();
+            awardId = award.Id;
+        }
+
+        interceptor.ShouldFail = true;
+
+        var client = failingFactory.CreateClient();
+        using var content = new MultipartFormDataContent();
+        content.Add(new StreamContent(new MemoryStream("%PDF-fail-test"u8.ToArray())), "file", "should-be-cleaned.pdf");
+
+        var response = await client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM", content);
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+
+        var filesAfter = Directory.GetFiles(paths.DocumentRoot);
+        var newlyCreated = filesAfter.Where(f => !filesBefore.Contains(f)).ToList();
+        Assert.Empty(newlyCreated);
+    }
+
+    private sealed class FailingDocumentSaveInterceptor : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+    {
+        public bool ShouldFail { get; set; }
+
+        public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+            Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+            Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (ShouldFail && eventData.Context?.ChangeTracker.Entries<Document>().Any() == true)
+            {
+                throw new InvalidOperationException("Simulated DB failure during document save");
+            }
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
+        }
+    }
+
     private sealed record MatterDocumentDto(Guid DocumentId, string? DocumentRole, string? DisplayName, string OriginalFileName, DateTimeOffset UploadedAt);
     private sealed record CoreDocumentItem(Guid DocumentId, string Role, string OriginalFileName, string? MimeType, DateTimeOffset UploadedAt);
     private sealed record VillageAwardCoreItem(Guid Id, string AwardNumber, DateOnly? AwardDate, string? AwardType, List<VillageCoreDocDto> Documents);

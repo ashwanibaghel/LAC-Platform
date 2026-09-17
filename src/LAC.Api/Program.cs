@@ -58,6 +58,7 @@ builder.Services.AddHostedService<AwardPdfExtractionWorker>();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Content-Disposition")));
 
 var app = builder.Build();
+app.Services.GetRequiredService<LocalStoragePaths>();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 if (app.Environment.IsDevelopment()) app.UseDeveloperExceptionPage(); else app.UseExceptionHandler();
 app.UseSwagger();
@@ -72,7 +73,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
     if (db.Database.IsRelational()) await db.Database.MigrateAsync();
     else await db.Database.EnsureCreatedAsync();
-    await SeedData.SeedAsync(db, CancellationToken.None);
+    await SeedData.EnsureReferenceDataAsync(db, CancellationToken.None);
+    var seedDemo = app.Environment.IsDevelopment()
+        || app.Environment.IsEnvironment("Testing")
+        || app.Configuration.GetValue<bool>("Bootstrap:SeedDemoData");
+    if (seedDemo)
+    {
+        await SeedData.SeedDemoDataAsync(db, CancellationToken.None);
+    }
 }
 
 var api = app.MapGroup("/api");
@@ -492,11 +500,20 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
     if (villageIds.Count == 0) return NotFound("Award", id);
     await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
-    var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
-    db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role });
-    foreach (var villageId in villageIds) db.Add(new DocumentVillage { VillageId = villageId, Document = document });
-    await db.SaveChangesAsync(ct);
-    return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
+    try
+    {
+        var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
+        db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role });
+        foreach (var villageId in villageIds) db.Add(new DocumentVillage { VillageId = villageId, Document = document });
+        await db.SaveChangesAsync(ct);
+        return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
+    }
+    catch
+    {
+        db.ChangeTracker.Clear();
+        await storage.DeleteAsync(stored.StoragePath, CancellationToken.None);
+        throw;
+    }
 }).DisableAntiforgery();
 api.MapGet("/villages/{id:guid}/matters", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Matters.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault() }).ToListAsync(ct)));
 api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest request, LacDbContext db, CancellationToken ct) =>
