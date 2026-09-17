@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
 import {
   BrowserRouter,
@@ -339,12 +339,50 @@ function PageHeader({
     </div>
   );
 }
+async function triggerZipDownload(res: Response, fallbackName: string) {
+  const cd = res.headers.get("Content-Disposition");
+  let filename = fallbackName;
+  if (cd) {
+    const match = cd.match(/filename\*?=['"]?(?:UTF-8'')?([^;"']+)['"]?/i);
+    if (match && match[1]) filename = decodeURIComponent(match[1]);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function exportDocumentsZip(documentIds: string[], fallbackName = "lac-documents.zip") {
+  if (!documentIds.length) return;
+  const res = await fetch(`${api}/documents/export`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ documentIds }),
+  });
+  if (!res.ok) {
+    let err = "Export failed.";
+    try {
+      const p = await res.json();
+      err = p.detail || p.title || (p.errors ? Object.values(p.errors).flat().join(" ") : err);
+    } catch {
+      err = (await res.text()) || err;
+    }
+    throw new Error(err);
+  }
+  await triggerZipDownload(res, fallbackName);
+}
+
 function DataTable({
   headers,
   children,
   actionColumn,
 }: {
-  headers: string[];
+  headers: (string | ReactNode)[];
   children: ReactNode;
   actionColumn?: number;
 }) {
@@ -354,7 +392,7 @@ function DataTable({
         <thead>
           <tr>
             {headers.map((header, index) => (
-              <th key={`${header}-${index}`} scope="col" className={index === actionColumn ? "table-action-cell" : undefined}>
+              <th key={index} scope="col" className={index === actionColumn ? "table-action-cell" : undefined}>
                 {header}
               </th>
             ))}
@@ -1000,23 +1038,34 @@ function Matter() {
     }
   };
 
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const exportZip = async () => {
-    if (!selected.length) return;
+    if (!selected.length || exportBusy) return;
+    setExportBusy(true);
+    setExportError(null);
     try {
       const r = await fetch(`${api}/matters/${id}/export`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentIds: selected }),
       });
-      if (!r.ok) return;
-      const u = URL.createObjectURL(await r.blob());
-      const a = document.createElement("a");
-      a.href = u;
-      a.download = "matter-documents.zip";
-      a.click();
-      URL.revokeObjectURL(u);
-    } catch {
-      /* Export download failed */
+      if (!r.ok) {
+        let errText = "Export failed.";
+        try {
+          const problem = await r.json();
+          errText = problem.detail || problem.title || (problem.errors ? Object.values(problem.errors).flat().join(" ") : errText);
+        } catch {
+          errText = (await r.text()) || errText;
+        }
+        throw new Error(errText);
+      }
+      await triggerZipDownload(r, `matter-${id}-documents.zip`);
+    } catch (err: any) {
+      setExportError(err.message || "Failed to export documents.");
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -1187,10 +1236,16 @@ function Matter() {
               <button
                 type="button"
                 className="secondary-button"
+                disabled={exportBusy}
                 onClick={() => void exportZip()}
               >
-                Export Selected ({selected.length})
+                {exportBusy ? "Preparing ZIP…" : `Export Selected (${selected.length})`}
               </button>
+            )}
+            {exportError && (
+              <span className="form-message-error" role="alert" style={{ margin: 0, padding: "2px 8px", fontSize: "12px", alignSelf: "center" }}>
+                {exportError}
+              </span>
             )}
           </div>
         </div>
@@ -2161,7 +2216,47 @@ function VillageLrs({ id }: { id: string }) {
 }
 function VillageDocuments({ id }: { id: string }) {
   const [page, setPage] = useState(0);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const result = useApi<Page<any>>(path("/documents", { villageId: id, page, pageSize: 25 }));
+  const visibleItems = result.data?.items || [];
+  const visibleIds = useMemo(() => visibleItems.map((d: any) => d.id), [visibleItems]);
+  const isAllVisibleSelected = visibleIds.length > 0 && visibleIds.every((docId: string) => selected.includes(docId));
+  const isSomeVisibleSelected = visibleIds.some((docId: string) => selected.includes(docId)) && !isAllVisibleSelected;
+
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = isSomeVisibleSelected;
+    }
+  }, [isSomeVisibleSelected]);
+
+  const toggleSelectAllVisible = () => {
+    if (isAllVisibleSelected) {
+      setSelected((prev) => prev.filter((docId) => !visibleIds.includes(docId)));
+    } else {
+      setSelected((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const toggleSelect = (docId: string) => {
+    setSelected((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]));
+  };
+
+  const handleDownloadZip = async () => {
+    if (!selected.length || exportBusy) return;
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      await exportDocumentsZip(selected, `village-${id}-documents.zip`);
+    } catch (err: any) {
+      setExportError(err.message || "Failed to download selected documents.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   return (
     <section className="section village-documents-section">
@@ -2186,8 +2281,47 @@ function VillageDocuments({ id }: { id: string }) {
         />
       ) : (
         <>
+          {(selected.length > 0 || exportBusy || exportError) && (
+            <div className="vault-selection-bar">
+              <span className="selection-count">
+                <strong>{selected.length}</strong> selected
+              </span>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={exportBusy || selected.length === 0}
+                onClick={handleDownloadZip}
+              >
+                {exportBusy ? "Preparing ZIP…" : "Download selected"}
+              </button>
+              {selected.length > 0 && (
+                <button
+                  type="button"
+                  className="quiet-button"
+                  disabled={exportBusy}
+                  onClick={() => setSelected([])}
+                >
+                  Clear selection
+                </button>
+              )}
+              {exportError && (
+                <span className="form-message-error" role="alert" style={{ margin: 0, padding: "2px 8px", fontSize: "12px" }}>
+                  {exportError}
+                </span>
+              )}
+            </div>
+          )}
+
           <DataTable
             headers={[
+              <input
+                key="select-all"
+                type="checkbox"
+                ref={headerCheckboxRef}
+                checked={isAllVisibleSelected}
+                onChange={toggleSelectAllVisible}
+                aria-label="Select all village documents on current page"
+              />,
               "File name",
               "Type",
               "Award",
@@ -2195,7 +2329,7 @@ function VillageDocuments({ id }: { id: string }) {
               "Uploaded",
               "Actions",
             ]}
-            actionColumn={5}
+            actionColumn={6}
           >
             {result.data.items.map((doc: any) => {
               const primaryAward = doc.awards?.[0];
@@ -2203,6 +2337,14 @@ function VillageDocuments({ id }: { id: string }) {
 
               return (
                 <tr key={doc.id}>
+                  <td style={{ width: "36px" }}>
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(doc.id)}
+                      onChange={() => toggleSelect(doc.id)}
+                      aria-label={`Select ${doc.originalFileName}`}
+                    />
+                  </td>
                   <td>
                     <strong className="document-name" title={doc.originalFileName}>
                       {doc.originalFileName}
@@ -2785,6 +2927,22 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
 
   const coreDocs = useApi<any[]>(`/awards/${awardId}/core-documents?r=${refresh}`);
 
+  const [exportBusy, setExportBusy] = useState(false);
+  const allCoreDocIds = useMemo(() => (coreDocs.data || []).map((d: any) => d.documentId).filter(Boolean), [coreDocs.data]);
+
+  const handleDownloadCoreRecords = async () => {
+    if (!allCoreDocIds.length || exportBusy) return;
+    setExportBusy(true);
+    setMessage(null);
+    try {
+      await exportDocumentsZip(allCoreDocIds, `award-${awardId}-core-records.zip`);
+    } catch (err: any) {
+      setMessage({ text: err.message || "Failed to download core records.", tone: "error" });
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const handleRoleSelect = (role: string) => {
     setUploadRole(role);
     setShowForm(true);
@@ -2860,13 +3018,23 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
           <h2>Core Records</h2>
           <span>The 4 canonical records for this Award. Reusable across all linked Matters.</span>
         </div>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={() => { setShowForm(!showForm); setMessage(null); }}
-        >
-          {showForm ? "Close Upload" : "+ Upload Core Document"}
-        </button>
+        <div style={{ display: "inline-flex", flexWrap: "wrap", gap: "8px" }}>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={exportBusy || allCoreDocIds.length === 0}
+            onClick={handleDownloadCoreRecords}
+          >
+            {exportBusy ? "Preparing ZIP…" : "Download core records"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => { setShowForm(!showForm); setMessage(null); }}
+          >
+            {showForm ? "Close Upload" : "+ Upload Core Document"}
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -3510,6 +3678,47 @@ function Documents() {
   const pageSize = result.data?.pageSize ?? 25;
   const lastPage = Math.max(0, Math.ceil(totalCount / pageSize) - 1);
 
+  const [selected, setSelected] = useState<string[]>([]);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const visibleItems = result.data?.items || [];
+  const visibleIds = useMemo(() => visibleItems.map((d: any) => d.id), [visibleItems]);
+  const isAllVisibleSelected = visibleIds.length > 0 && visibleIds.every((docId: string) => selected.includes(docId));
+  const isSomeVisibleSelected = visibleIds.some((docId: string) => selected.includes(docId)) && !isAllVisibleSelected;
+
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = isSomeVisibleSelected;
+    }
+  }, [isSomeVisibleSelected]);
+
+  const toggleSelectAllVisible = () => {
+    if (isAllVisibleSelected) {
+      setSelected((prev) => prev.filter((docId) => !visibleIds.includes(docId)));
+    } else {
+      setSelected((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const toggleSelect = (docId: string) => {
+    setSelected((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]));
+  };
+
+  const handleDownloadZip = async () => {
+    if (!selected.length || exportBusy) return;
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      await exportDocumentsZip(selected, "lac-documents.zip");
+    } catch (err: any) {
+      setExportError(err.message || "Failed to download selected documents.");
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   return (
     <>
       <Breadcrumbs items={[{ label: "Documents" }]} />
@@ -3647,8 +3856,46 @@ function Documents() {
           )
         ) : (
           <section className="document-vault" aria-label="Available documents">
+            {(selected.length > 0 || exportBusy || exportError) && (
+              <div className="vault-selection-bar">
+                <span className="selection-count">
+                  <strong>{selected.length}</strong> selected
+                </span>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={exportBusy || selected.length === 0}
+                  onClick={handleDownloadZip}
+                >
+                  {exportBusy ? "Preparing ZIP…" : "Download selected"}
+                </button>
+                {selected.length > 0 && (
+                  <button
+                    type="button"
+                    className="quiet-button"
+                    disabled={exportBusy}
+                    onClick={() => setSelected([])}
+                  >
+                    Clear selection
+                  </button>
+                )}
+                {exportError && (
+                  <span className="form-message-error" role="alert" style={{ margin: 0, padding: "2px 8px", fontSize: "12px" }}>
+                    {exportError}
+                  </span>
+                )}
+              </div>
+            )}
             <DataTable
               headers={[
+                <input
+                  key="select-all"
+                  type="checkbox"
+                  ref={headerCheckboxRef}
+                  checked={isAllVisibleSelected}
+                  onChange={toggleSelectAllVisible}
+                  aria-label="Select all documents on current page"
+                />,
                 "File name",
                 "Type",
                 "Village",
@@ -3658,7 +3905,7 @@ function Documents() {
                 "Status",
                 "Actions",
               ]}
-              actionColumn={7}
+              actionColumn={8}
             >
               {result.data.items.map((doc: any) => {
                 const primaryVillage = doc.villages?.[0];
@@ -3667,6 +3914,14 @@ function Documents() {
 
                 return (
                   <tr key={doc.id}>
+                    <td style={{ width: "36px" }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(doc.id)}
+                        onChange={() => toggleSelect(doc.id)}
+                        aria-label={`Select ${doc.originalFileName}`}
+                      />
+                    </td>
                     <td>
                       <strong className="document-name" title={doc.originalFileName}>
                         {doc.originalFileName}

@@ -55,7 +55,7 @@ builder.Services.AddSingleton<AwardExtractionRuleEngine>();
 builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
-builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod()));
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("Content-Disposition")));
 
 var app = builder.Build();
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
@@ -515,10 +515,19 @@ api.MapPost("/matters/{id:guid}/export", async (Guid id, ExportMatterDocumentsRe
 {
     var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
     var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
-    var requested = request.DocumentIds.Distinct().ToList(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
-    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct); var tempPath = Path.Combine(Path.GetTempPath(), $"lac-matter-{Guid.NewGuid():N}.zip"); var zipStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 131072, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
-    try { using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true)) { var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (var document in docs) { var name = Path.GetFileName(document.OriginalFileName); var candidate = name; var n = 2; while (!names.Add(candidate)) candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}"; var entry = zip.CreateEntry(candidate, CompressionLevel.Fastest); await using var input = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new InvalidOperationException("A selected document is unavailable."); await using var output = entry.Open(); await input.CopyToAsync(output, ct); } } zipStream.Position = 0; return Results.File(zipStream, "application/zip", $"matter-{id:N}-documents.zip"); }
-    catch { await zipStream.DisposeAsync(); throw; }
+    var requested = request?.DocumentIds?.Distinct().ToList() ?? new List<Guid>(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
+    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct);
+    return await CreateZipExportResultAsync(docs, $"matter-{id:N}-documents.zip", storage, ct);
+});
+api.MapPost("/documents/export", async (ExportDocumentsRequest request, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+{
+    var requested = request?.DocumentIds?.Distinct().ToList() ?? new List<Guid>();
+    if (requested.Count == 0) return Validation("documentIds", "At least one document must be selected for export.");
+    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct);
+    if (docs.Count < requested.Count) return Validation("documentIds", "One or more selected documents do not exist.");
+    if (docs.Any(x => x.Status != "Active")) return Validation("documentIds", "One or more selected documents are not active.");
+    var zipName = $"lac-documents-{DateTime.Now:yyyyMMdd-HHmm}.zip";
+    return await CreateZipExportResultAsync(docs, zipName, storage, ct);
 });
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
@@ -1055,6 +1064,72 @@ static bool TryValidateDraftAttributes(JsonElement attributes, string nodeType, 
     }
     return true;
 }
+static async Task<IResult> CreateZipExportResultAsync(IReadOnlyList<Document> docs, string zipFileName, IDocumentStorage storage, CancellationToken ct)
+{
+    var tempPath = Path.Combine(Path.GetTempPath(), $"lac-export-{Guid.NewGuid():N}.zip");
+    var zipStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 131072, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+    try
+    {
+        var openedStreams = new List<(string ArchiveName, Stream Stream)>();
+        try
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var document in docs)
+            {
+                var rawName = document.OriginalFileName?.Replace('\\', '/');
+                var name = string.IsNullOrWhiteSpace(rawName) ? "" : Path.GetFileName(rawName);
+                if (string.IsNullOrWhiteSpace(name)) name = $"document-{document.Id:N}.bin";
+                var candidate = name;
+                var n = 2;
+                while (!names.Add(candidate))
+                {
+                    candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}";
+                }
+
+                var stream = await storage.OpenReadAsync(document.StoragePath, ct);
+                if (stream is null)
+                {
+                    foreach (var (_, s) in openedStreams)
+                    {
+                        await s.DisposeAsync();
+                    }
+                    await zipStream.DisposeAsync();
+                    return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Document unavailable", detail: $"A selected document binary is unavailable in storage: {document.OriginalFileName}");
+                }
+                openedStreams.Add((candidate, stream));
+            }
+
+            using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true))
+            {
+                foreach (var (entryName, inputStream) in openedStreams)
+                {
+                    var entry = zip.CreateEntry(entryName, CompressionLevel.Fastest);
+                    await using (inputStream)
+                    await using (var output = entry.Open())
+                    {
+                        await inputStream.CopyToAsync(output, ct);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            foreach (var (_, s) in openedStreams)
+            {
+                try { await s.DisposeAsync(); } catch { }
+            }
+            throw;
+        }
+
+        zipStream.Position = 0;
+        return Results.File(zipStream, "application/zip", zipFileName);
+    }
+    catch
+    {
+        await zipStream.DisposeAsync();
+        throw;
+    }
+}
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
@@ -1164,6 +1239,7 @@ public sealed record CreateMatterDraftRequest(string Title, string DraftType);
 public sealed record UpdateMatterDraftRequest(string Title, string ContentJson, string PageSize, string Orientation, decimal MarginTopMm, decimal MarginRightMm, decimal MarginBottomMm, decimal MarginLeftMm, int ExpectedRevision);
 public sealed record LinkMatterDocumentRequest(Guid DocumentId, string? Role, string? DisplayName);
 public sealed record ExportMatterDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
+public sealed record ExportDocumentsRequest(IReadOnlyList<Guid> DocumentIds);
 public sealed record KhatauniListItem(Guid Id, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, string VerificationStatus, int KhataCount, int RecordedKhasraCount) { public static readonly System.Linq.Expressions.Expression<Func<KhatauniRecord, KhatauniListItem>> Selector = x => new(x.Id, x.ReferenceNumber, x.RecordYearText, x.AsOfDate, x.VerificationStatus.ToString(), x.Khatas.Count, x.Khatas.SelectMany(k => k.KhasraLinks).Count()); }
 public sealed record KhataSummary(Guid Id, string KhataNumber, int KhasraCount, int OwnerCount, string ShareValidation, bool IsVerified);
 public sealed record KhatauniDetail(Guid Id, Guid VillageId, string VillageName, string? ReferenceNumber, string? RecordYearText, DateOnly? AsOfDate, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, string? Remarks, string VerificationStatus, int Version, Guid? SourceDocumentId, string? SourceDocumentName, int TotalKhatas, int TotalLinkedKhasras, int TotalRecordedParties, IReadOnlyList<KhataSummary> Khatas);

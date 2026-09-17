@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.IO.Compression;
 using Xunit;
 
 namespace LAC.Tests;
@@ -616,6 +617,222 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         // 5. Verify it is no longer in eligible documents
         var eligibleAfter = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/eligible-documents");
         Assert.DoesNotContain(eligibleAfter.EnumerateArray(), x => x.GetProperty("id").GetGuid() == villageDocId);
+    }
+
+    [Fact]
+    public async Task Generic_document_export_validates_empty_nonexistent_and_inactive_documents()
+    {
+        // 1. Empty documentIds
+        using var emptyResponse = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = Array.Empty<Guid>() });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, emptyResponse.StatusCode);
+
+        // 2. Nonexistent ID
+        using var nonExistentResponse = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = new[] { Guid.NewGuid() } });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, nonExistentResponse.StatusCode);
+
+        // 3. Inactive/Archived document
+        var archivedDoc = new Document { DocumentType = "Other", OriginalFileName = "archived.pdf", StoragePath = "archived.pdf", Status = "Archived" };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(archivedDoc);
+            await db.SaveChangesAsync();
+        }
+
+        using var archivedResponse = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = new[] { archivedDoc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, archivedResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Generic_document_export_streams_zip_with_byte_matching_and_deduplicated_names_and_ids()
+    {
+        var doc1Bytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 sample pdf content 1");
+        var doc2Bytes = System.Text.Encoding.UTF8.GetBytes("%PDF-1.4 sample pdf content 2 - duplicate name");
+        var doc3Bytes = System.Text.Encoding.UTF8.GetBytes("DOCX dummy zip binary content 3");
+        var doc4Bytes = System.Text.Encoding.UTF8.GetBytes("PNG dummy image data 4");
+
+        string path1, path2, path3, path4;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            path1 = await storage.SaveAsync(new MemoryStream(doc1Bytes), "report.pdf", CancellationToken.None);
+            path2 = await storage.SaveAsync(new MemoryStream(doc2Bytes), "report.pdf", CancellationToken.None);
+            path3 = await storage.SaveAsync(new MemoryStream(doc3Bytes), "order.docx", CancellationToken.None);
+            path4 = await storage.SaveAsync(new MemoryStream(doc4Bytes), "survey.png", CancellationToken.None);
+        }
+
+        var doc1 = new Document { DocumentType = "Award", OriginalFileName = "report.pdf", StoragePath = path1, Status = "Active" };
+        var doc2 = new Document { DocumentType = "NM", OriginalFileName = "report.pdf", StoragePath = path2, Status = "Active" };
+        var doc3 = new Document { DocumentType = "Court Order", OriginalFileName = "order.docx", StoragePath = path3, Status = "Active" };
+        var doc4 = new Document { DocumentType = "Demarcation", OriginalFileName = "survey.png", StoragePath = path4, Status = "Active" };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.AddRange(doc1, doc2, doc3, doc4);
+            await db.SaveChangesAsync();
+        }
+
+        // Request with duplicate doc1 ID to verify deduplication
+        var requestedIds = new[] { doc1.Id, doc2.Id, doc3.Id, doc4.Id, doc1.Id };
+        using var response = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = requestedIds });
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/zip", response.Content.Headers.ContentType?.MediaType);
+
+        var disposition = response.Content.Headers.ContentDisposition?.FileName;
+        Assert.NotNull(disposition);
+        Assert.StartsWith("lac-documents-", disposition);
+        Assert.EndsWith(".zip", disposition);
+
+        var zipBytes = await response.Content.ReadAsByteArrayAsync();
+        using var zipStream = new MemoryStream(zipBytes);
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+
+        // 4 unique entries expected (doc1 deduplicated)
+        Assert.Equal(4, archive.Entries.Count);
+
+        var entryNames = archive.Entries.Select(e => e.FullName).ToList();
+        Assert.Contains("report.pdf", entryNames);
+        Assert.Contains("report (2).pdf", entryNames);
+        Assert.Contains("order.docx", entryNames);
+        Assert.Contains("survey.png", entryNames);
+
+        // Verify byte contents
+        var entry1 = archive.GetEntry("report.pdf")!;
+        using (var s = entry1.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(doc1Bytes, ms.ToArray());
+        }
+
+        var entry2 = archive.GetEntry("report (2).pdf")!;
+        using (var s = entry2.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(doc2Bytes, ms.ToArray());
+        }
+
+        var entry3 = archive.GetEntry("order.docx")!;
+        using (var s = entry3.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(doc3Bytes, ms.ToArray());
+        }
+
+        var entry4 = archive.GetEntry("survey.png")!;
+        using (var s = entry4.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(doc4Bytes, ms.ToArray());
+        }
+
+        // Verify no absolute paths or storage GUIDs in entry names
+        foreach (var entry in archive.Entries)
+        {
+            Assert.DoesNotContain("/", entry.FullName);
+            Assert.DoesNotContain("\\", entry.FullName);
+            Assert.DoesNotContain(":", entry.FullName);
+        }
+    }
+
+    [Fact]
+    public async Task Generic_document_export_cleans_up_and_returns_controlled_error_when_storage_file_missing()
+    {
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "missing.pdf", StoragePath = $"nonexistent-{Guid.NewGuid():N}.pdf", Status = "Active" };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(doc);
+            await db.SaveChangesAsync();
+        }
+
+        using var response = await _client.PostAsJsonAsync("/api/documents/export", new { documentIds = new[] { doc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.InternalServerError, response.StatusCode);
+
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains("unavailable", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Matter_export_preserves_scope_authorization_and_exports_inherited_plus_matter_documents()
+    {
+        var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
+        var villageId = Assert.Single(village!.Items).Id;
+        var award = new Award { AwardNumber = $"MATTER-EXPORT-{Guid.NewGuid():N}" };
+
+        var coreBytes = System.Text.Encoding.UTF8.GetBytes("CORE_AWARD_DOC_DATA");
+        var matterBytes = System.Text.Encoding.UTF8.GetBytes("MATTER_SPECIFIC_DOC_DATA");
+        var unrelatedBytes = System.Text.Encoding.UTF8.GetBytes("UNRELATED_DOC_DATA");
+
+        string corePath, matterPath, unrelatedPath;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            corePath = await storage.SaveAsync(new MemoryStream(coreBytes), "core-award.pdf", CancellationToken.None);
+            matterPath = await storage.SaveAsync(new MemoryStream(matterBytes), "matter-app.pdf", CancellationToken.None);
+            unrelatedPath = await storage.SaveAsync(new MemoryStream(unrelatedBytes), "unrelated.pdf", CancellationToken.None);
+        }
+
+        var coreDoc = new Document { DocumentType = "Award", OriginalFileName = "core-award.pdf", StoragePath = corePath, Status = "Active" };
+        var matterDoc = new Document { DocumentType = "Application", OriginalFileName = "matter-app.pdf", StoragePath = matterPath, Status = "Active" };
+        var unrelatedDoc = new Document { DocumentType = "Other", OriginalFileName = "unrelated.pdf", StoragePath = unrelatedPath, Status = "Active" };
+
+        var matter = new Matter { Title = "Export Test Matter", MatterType = "Court Case", Status = "Open", VillageId = villageId };
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Add(award);
+            db.Add(new AwardVillage { Award = award, VillageId = villageId });
+            db.Add(coreDoc);
+            db.Add(new DocumentAward { Award = award, Document = coreDoc, CoreDocumentRole = "Award" });
+
+            db.Add(matter);
+            db.Add(new MatterAward { Matter = matter, Award = award, IsPrimary = true });
+            db.Add(matterDoc);
+            db.Add(new MatterDocument { Matter = matter, Document = matterDoc, DocumentRole = "Application" });
+
+            db.Add(unrelatedDoc);
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Unrelated document must be rejected by matter export validation
+        using var badResponse = await _client.PostAsJsonAsync($"/api/matters/{matter.Id}/export", new { documentIds = new[] { coreDoc.Id, unrelatedDoc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, badResponse.StatusCode);
+
+        // 2. Exporting inherited core doc + matter doc together works
+        using var goodResponse = await _client.PostAsJsonAsync($"/api/matters/{matter.Id}/export", new { documentIds = new[] { coreDoc.Id, matterDoc.Id } });
+        Assert.Equal(System.Net.HttpStatusCode.OK, goodResponse.StatusCode);
+        Assert.Equal("application/zip", goodResponse.Content.Headers.ContentType?.MediaType);
+
+        var zipBytes = await goodResponse.Content.ReadAsByteArrayAsync();
+        using var zipStream = new MemoryStream(zipBytes);
+        using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
+        Assert.Equal(2, archive.Entries.Count);
+
+        var names = archive.Entries.Select(e => e.FullName).ToList();
+        Assert.Contains("core-award.pdf", names);
+        Assert.Contains("matter-app.pdf", names);
+
+        var coreEntry = archive.GetEntry("core-award.pdf")!;
+        using (var s = coreEntry.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(coreBytes, ms.ToArray());
+        }
+
+        var matterEntry = archive.GetEntry("matter-app.pdf")!;
+        using (var s = matterEntry.Open())
+        using (var ms = new MemoryStream())
+        {
+            await s.CopyToAsync(ms);
+            Assert.Equal(matterBytes, ms.ToArray());
+        }
     }
 }
 

@@ -86,5 +86,7 @@
 .app-shell .upload-btn-group { display: flex; align-items: center; gap: 8px; }
 .app-shell .matter-existing-picker { margin: 14px 0; padding: 16px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-surface-subtle); }
 .app-shell .award-core-records-section .table-wrap table, .app-shell .matter-inherited-core .table-wrap table, .app-shell .matter-documents-section .table-wrap table, .app-shell .village-documents-section .table-wrap table { min-width: 680px; }
+.app-shell .vault-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-surface); font-size: 13px; }
+.app-shell .vault-selection-bar .selection-count { color: var(--ui-text); font-weight: 600; }
 @media (max-width: 900px) { .app-shell .sidebar { width: 204px; flex-basis: 204px; } .app-shell .workspace > main { padding: 24px; } }
 @media (max-width: 680px) { .app-shell .workspace > main { padding: 20px 16px 42px; } .app-shell .dashboard-overview { grid-template-columns: 1fr; } .app-shell .overview-primary { border-right: 0; border-bottom: 1px solid var(--ui-border); } .app-shell .document-table-toolbar { display: grid; align-items: start; gap: 5px; } .app-shell .search-page-results > a { grid-template-columns: 1fr; gap: 5px; } }
