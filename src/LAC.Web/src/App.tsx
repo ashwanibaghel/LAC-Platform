@@ -570,6 +570,14 @@ function GlobalSearch() {
   const searchActive = open && query.length >= 2;
   const waitingForQuery = query.length >= 2 && delayed !== query;
   const hasSuggestions = searchActive && items.length > 0;
+  const hasDocInActiveResults = items.some((item: any) => item.type === "Document");
+  const shouldCheckArchived = searchActive && !hasDocInActiveResults && !results.loading;
+  const archivedDocCheck = useApi<Page<any>>(
+    shouldCheckArchived
+      ? path("/documents", { q: delayed, status: "Archived", page: 0, pageSize: 1 })
+      : undefined,
+  );
+  const archivedMatchCount = archivedDocCheck.data?.totalCount ?? 0;
   const hasFeedback = searchActive && !items.length;
   const activeSuggestion = activeIndex >= 0 && activeIndex < items.length ? activeIndex : -1;
   const choose = (target: string) => {
@@ -611,19 +619,19 @@ function GlobalSearch() {
           value={term}
           onChange={(event) => { setTerm(event.target.value); setOpen(true); setActiveIndex(-1); }}
           onFocus={() => setOpen(true)}
-          onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
           onKeyDown={onKeyDown}
           placeholder="Search village, khasra, award, matter, or document"
           role="combobox"
           aria-autocomplete="list"
-          aria-expanded={hasSuggestions}
-          aria-controls={hasSuggestions ? listboxId : undefined}
+          aria-expanded={hasSuggestions || archivedMatchCount > 0}
+          aria-controls={hasSuggestions || archivedMatchCount > 0 ? listboxId : undefined}
           aria-activedescendant={hasSuggestions && activeSuggestion >= 0 ? `${listboxId}-option-${activeSuggestion}` : undefined}
         />
       </label>
-      {hasSuggestions && (
+      {(hasSuggestions || (hasFeedback && archivedMatchCount > 0)) && (
         <div className="search-results" id={listboxId} role="listbox" aria-label="Search suggestions">
           {items.map((result, index) => (
             <button
@@ -643,9 +651,46 @@ function GlobalSearch() {
               </span>
             </button>
           ))}
+          {archivedMatchCount > 0 && (
+            <div
+              className="search-archived-hint"
+              style={{
+                borderTop: items.length > 0 ? "1px solid var(--ui-border)" : "none",
+                padding: "8px 12px",
+                fontSize: "12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "8px",
+                background: "var(--ui-surface-subtle)",
+              }}
+            >
+              <span style={{ color: "var(--ui-text-muted)" }}>Archived document found</span>
+              <button
+                type="button"
+                className="text-action"
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                }}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  setOpen(false);
+                  setTerm("");
+                  navigate(`/documents?q=${encodeURIComponent(delayed)}&status=Archived`);
+                }}
+              >
+                View archived documents
+              </button>
+            </div>
+          )}
         </div>
       )}
-      {hasFeedback && (
+      {hasFeedback && archivedMatchCount === 0 && (
         <div className="search-results search-feedback" role={results.error ? "alert" : "status"}>
           {waitingForQuery || results.loading ? "Searching…" : results.error || "No matching records. Try a village, khasra, award, matter, or document."}
         </div>
@@ -1034,6 +1079,7 @@ function Matter() {
   const [uploadMessage, setUploadMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
 
   const [picker, setPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState("");
   const [linkRoles, setLinkRoles] = useState<Record<string, string>>({});
   const [linkDisplayNames, setLinkDisplayNames] = useState<Record<string, string>>({});
   const [linkBusy, setLinkBusy] = useState<Record<string, boolean>>({});
@@ -1081,6 +1127,16 @@ function Matter() {
   const data = useApi<any>(`/matters/${id}?r=${refresh}`);
   const docs = useApi<any[]>(`/matters/${id}/documents?r=${refresh}`);
   const eligible = useApi<any[]>(picker ? `/matters/${id}/eligible-documents?r=${refresh}` : undefined);
+  const filteredEligible = useMemo(() => {
+    const raw = eligible.data || [];
+    const q = pickerSearch.trim().toLowerCase();
+    if (!q) return raw;
+    return raw.filter((doc: any) =>
+      (doc.originalFileName && doc.originalFileName.toLowerCase().includes(q)) ||
+      (doc.documentType && doc.documentType.toLowerCase().includes(q)) ||
+      (doc.source && doc.source.toLowerCase().includes(q))
+    );
+  }, [eligible.data, pickerSearch]);
 
   const toggle = (docId: string) =>
     setSelected((x) => (x.includes(docId) ? x.filter((v) => v !== docId) : [...x, docId]));
@@ -1354,9 +1410,9 @@ function Matter() {
             <button
               type="button"
               className="secondary-button"
-              onClick={() => { setPicker(!picker); setPickerMessage(null); }}
+              onClick={() => { setPicker(!picker); setPickerSearch(""); setPickerMessage(null); }}
             >
-              {picker ? "Close Existing" : "+ Add Existing Document"}
+              {picker ? "Close Picker" : "+ Add Existing Document"}
             </button>
             {selected.length > 0 && (
               <button
@@ -1447,7 +1503,7 @@ function Matter() {
               <button
                 type="button"
                 className="quiet-button"
-                onClick={() => setPicker(false)}
+                onClick={() => { setPicker(false); setPickerSearch(""); }}
               >
                 Close
               </button>
@@ -1466,69 +1522,96 @@ function Matter() {
             ) : !eligible.data?.length ? (
               <p className="hint">No eligible documents are available to attach from this village or award.</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>File Name</th>
-                      <th>Type</th>
-                      <th>Source</th>
-                      <th>Uploaded</th>
-                      <th>Attach As Role</th>
-                      <th>Display Name (Optional)</th>
-                      <th className="table-action-cell" style={{ textAlign: "right" }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {eligible.data.map((doc: any) => {
-                      const isBusy = linkBusy[doc.id];
-                      const assignedRole = linkRoles[doc.id] || "Other";
-                      const customName = linkDisplayNames[doc.id] || "";
+              <>
+                <div style={{ margin: "10px 0 12px", display: "flex", gap: "8px", alignItems: "center" }}>
+                  <input
+                    type="search"
+                    placeholder="Search existing documents…"
+                    value={pickerSearch}
+                    onChange={(e) => setPickerSearch(e.target.value)}
+                    aria-label="Search existing documents"
+                    style={{ maxWidth: "320px", height: "34px", padding: "0 10px" }}
+                  />
+                  {pickerSearch && (
+                    <button
+                      type="button"
+                      className="quiet-button"
+                      onClick={() => setPickerSearch("")}
+                      style={{ fontSize: "12px" }}
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
 
-                      return (
-                        <tr key={doc.id}>
-                          <td><strong className="document-name">{doc.originalFileName}</strong></td>
-                          <td><span className="vault-type-badge">{doc.documentType}</span></td>
-                          <td><StatusBadge tone="neutral">{doc.source}</StatusBadge></td>
-                          <td>{date(doc.uploadedAt?.slice(0, 10)) || "—"}</td>
-                          <td>
-                            <select
-                              value={assignedRole}
-                              onChange={(e) => setLinkRoles((x) => ({ ...x, [doc.id]: e.target.value }))}
-                              disabled={isBusy}
-                              style={{ minHeight: "30px", fontSize: "12px" }}
-                            >
-                              {MATTER_ROLES.map((r) => (
-                                <option key={r} value={r}>{r}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td>
-                            <input
-                              placeholder="Custom name (optional)"
-                              value={customName}
-                              onChange={(e) => setLinkDisplayNames((x) => ({ ...x, [doc.id]: e.target.value }))}
-                              disabled={isBusy}
-                              style={{ minHeight: "30px", fontSize: "12px" }}
-                            />
-                          </td>
-                          <td className="table-action-cell">
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={isBusy}
-                              onClick={() => void handleLinkExisting(doc.id, assignedRole, customName)}
-                              style={{ minHeight: "30px", fontSize: "12px" }}
-                            >
-                              {isBusy ? "Attaching…" : "Attach"}
-                            </button>
-                          </td>
+                {filteredEligible.length === 0 ? (
+                  <p className="hint">No eligible documents match this search.</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>File Name</th>
+                          <th>Type</th>
+                          <th>Source</th>
+                          <th>Uploaded</th>
+                          <th>Attach As Role</th>
+                          <th>Display Name (Optional)</th>
+                          <th className="table-action-cell" style={{ textAlign: "right" }}>Action</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                      </thead>
+                      <tbody>
+                        {filteredEligible.map((doc: any) => {
+                          const isBusy = linkBusy[doc.id];
+                          const assignedRole = linkRoles[doc.id] || "Other";
+                          const customName = linkDisplayNames[doc.id] || "";
+
+                          return (
+                            <tr key={doc.id}>
+                              <td><strong className="document-name">{doc.originalFileName}</strong></td>
+                              <td><span className="vault-type-badge">{doc.documentType}</span></td>
+                              <td><StatusBadge tone="neutral">{doc.source}</StatusBadge></td>
+                              <td>{date(doc.uploadedAt?.slice(0, 10)) || "—"}</td>
+                              <td>
+                                <select
+                                  value={assignedRole}
+                                  onChange={(e) => setLinkRoles((x) => ({ ...x, [doc.id]: e.target.value }))}
+                                  disabled={isBusy}
+                                  style={{ minHeight: "30px", fontSize: "12px" }}
+                                >
+                                  {MATTER_ROLES.map((r) => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <input
+                                  placeholder="Custom name (optional)"
+                                  value={customName}
+                                  onChange={(e) => setLinkDisplayNames((x) => ({ ...x, [doc.id]: e.target.value }))}
+                                  disabled={isBusy}
+                                  style={{ minHeight: "30px", fontSize: "12px" }}
+                                />
+                              </td>
+                              <td className="table-action-cell">
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  disabled={isBusy}
+                                  onClick={() => void handleLinkExisting(doc.id, assignedRole, customName)}
+                                  style={{ minHeight: "30px", fontSize: "12px" }}
+                                >
+                                  {isBusy ? "Attaching…" : "Attach"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </aside>
         )}
@@ -3141,6 +3224,15 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
     setMessage(null);
   };
 
+  const handleMissingClick = (role: string) => {
+    setUploadRole(role);
+    setShowForm(true);
+    setMessage(null);
+    window.setTimeout(() => {
+      fileInputRef.current?.focus();
+    }, 50);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const chosen = e.target.files?.[0] || null;
     setMessage(null);
@@ -3303,9 +3395,21 @@ function AwardCoreRecordsSection({ awardId, onUpdated }: { awardId: string; onUp
                   <tr key={role}>
                     <td><strong>{label}</strong></td>
                     <td>
-                      <StatusBadge tone={hasDocs ? "success" : "warning"}>
-                        {hasDocs ? (docs.length > 1 ? `${docs.length} files` : "Available") : "Missing"}
-                      </StatusBadge>
+                      {hasDocs ? (
+                        <StatusBadge tone="success">
+                          {docs.length > 1 ? `${docs.length} files` : "Available"}
+                        </StatusBadge>
+                      ) : (
+                        <button
+                          type="button"
+                          className="status warning missing-role-action"
+                          onClick={() => handleMissingClick(role)}
+                          title={`Upload missing ${label}`}
+                          aria-label={`Upload missing ${label}`}
+                        >
+                          Missing
+                        </button>
+                      )}
                     </td>
                     <td>
                       {hasDocs ? (
@@ -3845,11 +3949,16 @@ const KNOWN_DOCUMENT_TYPES = [
 ];
 
 function Documents() {
-  const [term, setTerm] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
+  const [params] = useSearchParams();
+  const qParam = params.get("q") || "";
+  const statusParam = params.get("status");
+  const validStatus = statusParam === "Archived" || statusParam === "All" || statusParam === "Active" ? statusParam : "Active";
+
+  const [term, setTerm] = useState(qParam);
+  const [debouncedQ, setDebouncedQ] = useState(qParam);
   const [docType, setDocType] = useState("");
   const [villageId, setVillageId] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"Active" | "Archived" | "All">("Active");
+  const [statusFilter, setStatusFilter] = useState<"Active" | "Archived" | "All">(validStatus);
   const [page, setPage] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -3857,6 +3966,20 @@ function Documents() {
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+
+  useEffect(() => {
+    const qFromUrl = params.get("q");
+    const statusFromUrl = params.get("status");
+    if (qFromUrl !== null || statusFromUrl !== null) {
+      const newQ = qFromUrl || "";
+      setTerm(newQ);
+      setDebouncedQ(newQ.trim());
+      if (statusFromUrl === "Archived" || statusFromUrl === "All" || statusFromUrl === "Active") {
+        setStatusFilter(statusFromUrl);
+      }
+      setPage(0);
+    }
+  }, [params]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -3905,6 +4028,14 @@ function Documents() {
   const result = useApi<Page<any>>(documentsUrl);
   const totalCount = result.data?.totalCount ?? 0;
   const pageSize = result.data?.pageSize ?? 25;
+
+  const checkArchivedVault = Boolean(debouncedQ && statusFilter === "Active" && totalCount === 0 && !result.loading);
+  const archivedVaultCheck = useApi<Page<any>>(
+    checkArchivedVault
+      ? path("/documents", { q: debouncedQ, status: "Archived", page: 0, pageSize: 1 })
+      : undefined
+  );
+  const archivedVaultCount = archivedVaultCheck.data?.totalCount ?? 0;
   const lastPage = Math.max(0, Math.ceil(totalCount / pageSize) - 1);
 
   const [selected, setSelected] = useState<string[]>([]);
@@ -4140,6 +4271,41 @@ function Documents() {
                 title="No documents match these filters"
                 detail="Try adjusting your search terms or clearing the selected village and document type filters."
               />
+              {archivedVaultCount > 0 && (
+                <div
+                  className="archived-hint-box"
+                  style={{
+                    margin: "14px auto",
+                    maxWidth: "520px",
+                    padding: "10px 14px",
+                    background: "var(--ui-surface-subtle)",
+                    border: "1px solid var(--ui-border)",
+                    borderRadius: "var(--ui-radius-sm)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <span>
+                    {archivedVaultCount === 1
+                      ? "1 archived document matches this search."
+                      : `${archivedVaultCount} archived documents match this search.`}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    style={{ padding: "4px 10px", fontSize: "12px" }}
+                    onClick={() => {
+                      setStatusFilter("Archived");
+                      setPage(0);
+                    }}
+                  >
+                    View archived
+                  </button>
+                </div>
+              )}
               <div style={{ textAlign: "center", marginTop: "12px" }}>
                 <button
                   type="button"
