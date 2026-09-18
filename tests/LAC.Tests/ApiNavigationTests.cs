@@ -1,12 +1,19 @@
 using System.Net.Http.Json;
+using System.Security.Claims;
+using Claim = System.Security.Claims.Claim;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using LAC.Domain;
 using LAC.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace LAC.Tests;
@@ -258,11 +265,53 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.ConfigureAppConfiguration((_, config) =>
+        {
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["BootstrapAdmin:Username"] = "testadmin",
+                ["BootstrapAdmin:Password"] = "TestAdminPass!789",
+                ["BootstrapAdmin:DisplayName"] = "Test Administrator"
+            });
+        });
         builder.ConfigureServices(services =>
         {
             services.RemoveAll<DbContextOptions<LacDbContext>>();
             services.RemoveAll<LacDbContext>();
             services.AddDbContext<LacDbContext>(options => options.UseInMemoryDatabase(_databaseName));
+
+            services.AddAuthentication(options =>
+            {
+                options.DefaultAuthenticateScheme = "Test";
+                options.DefaultChallengeScheme = "Test";
+            }).AddScheme<AuthenticationSchemeOptions, TestAuthHandler>("Test", _ => { });
         });
+    }
+}
+
+public sealed class TestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+    : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+{
+    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, SeedData.BootstrapAdminId.ToString()),
+            new(ClaimTypes.Name, "admin"),
+            new("username", "admin"),
+            new("display_name", "System Administrator"),
+            new(ClaimTypes.Role, "SYSTEM_ADMIN"),
+            new("designation_code", "ADM"),
+            new("workstream_code", "LAND_ACQUISITION"),
+            new("workstream_code", "LAND_RECORDS")
+        };
+        foreach (var perm in PermissionCodes.All)
+        {
+            claims.Add(new Claim("permission", perm.Code));
+        }
+        var identity = new ClaimsIdentity(claims, "Test");
+        var principal = new ClaimsPrincipal(identity);
+        var ticket = new AuthenticationTicket(principal, "Test");
+        return Task.FromResult(AuthenticateResult.Success(ticket));
     }
 }

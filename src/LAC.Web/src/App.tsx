@@ -14,6 +14,11 @@ import {
 } from "react-router-dom";
 import { ExportMenu } from "./components/ExportMenu";
 import { MatterDraftEditorPage, MatterDrafts } from "./editor/MatterDraftEditor";
+import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { LoginPage } from "./auth/LoginPage";
+import { UsersAdmin } from "./admin/UsersAdmin";
+import { AccessAdmin } from "./admin/AccessAdmin";
+import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
 import "./index.css";
 import "./sidebar.css";
 import "./verification.css";
@@ -109,7 +114,7 @@ function useApi<T>(path?: string): State<T> {
     const cached = readCachedResponse<T>(path);
     if (cached !== undefined) setState({ loading: false, data: cached });
     else setState({ loading: true });
-    fetch(api + path, { signal: controller.signal })
+    fetch(api + path, { signal: controller.signal, credentials: "include" })
       .then(async (response) => {
         if (!response.ok)
           throw new Error(
@@ -143,6 +148,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    credentials: "include",
   });
   if (!response.ok)
     throw new Error(
@@ -159,6 +165,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    credentials: "include",
   });
   if (!response.ok)
     throw new Error(
@@ -173,7 +180,7 @@ async function put<T>(path: string, body: unknown): Promise<T> {
 async function upload<T>(path: string, file: File): Promise<T> {
   const form = new FormData();
   form.append("file", file);
-  const response = await fetch(api + path, { method: "POST", body: form });
+  const response = await fetch(api + path, { method: "POST", body: form, credentials: "include" });
   if (!response.ok)
     throw new Error(
       (await response.json().catch(() => null))?.detail ||
@@ -186,7 +193,7 @@ async function upload<T>(path: string, file: File): Promise<T> {
 async function uploadAwardPdf<T>(targetAwardId: string | undefined, selectedVillageId: string | undefined, file: File): Promise<T> {
   const form = new FormData(); form.append("file", file);
   const query = new URLSearchParams(); if (targetAwardId) query.set("targetAwardId", targetAwardId); if (selectedVillageId) query.set("selectedVillageId", selectedVillageId);
-  const response = await fetch(`${api}/award-pdf-extractions${query.size ? `?${query}` : ""}`, { method: "POST", body: form });
+  const response = await fetch(`${api}/award-pdf-extractions${query.size ? `?${query}` : ""}`, { method: "POST", body: form, credentials: "include" });
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "Could not queue the Award PDF.");
   clearApiCache(); return response.json() as Promise<T>;
 }
@@ -421,15 +428,26 @@ function GlobalSearch() {
 function Shell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const { user, logout, hasPermission } = useAuth();
   if (location.pathname.startsWith("/matter-drafts/")) {
     return <main className="studio-root" id="main-content" tabIndex={-1}>{children}</main>;
   }
 
-  const links = [
+  const links: [string, string, string][] = [
     ["Home", "/", "⌂"],
     ["Awards", "/awards", "⌑"],
     ["Search", "/search", "⌕"],
   ];
+  if (hasPermission("Users.Manage")) {
+    links.push(["Users", "/admin/users", "👥"]);
+  }
+  if (hasPermission("Access.Manage")) {
+    links.push(["Access & Roles", "/admin/access", "🛡"]);
+  }
+  if (hasPermission("Audit.View")) {
+    links.push(["Audit Trail", "/admin/audit-logs", "📜"]);
+  }
+
   return (
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
@@ -468,7 +486,15 @@ function Shell({ children }: { children: ReactNode }) {
             LAC Platform<small>Land Acquisition Cell</small>
           </div>
           <GlobalSearch />
-          <div className="environment-badge">Development</div>
+          <div className="topbar-user-badge">
+            <div className="user-identity">
+              <span className="user-name">{user?.displayName || user?.username}</span>
+              {user?.designation && <span className="user-designation">{user.designation.name}</span>}
+            </div>
+            <button className="quiet-button logout-button" onClick={() => void logout()} title="Sign out">
+              Sign Out
+            </button>
+          </div>
         </header>
         <main>{children}</main>
       </div>
@@ -3028,44 +3054,65 @@ function Party() {
     </>
   );
 }
+function AuthenticatedApp() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="login-loading-screen">
+        <p>Verifying secure session...</p>
+      </div>
+    );
+  }
+  if (!user) {
+    return <LoginPage />;
+  }
+  return (
+    <Shell>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/districts/:id" element={<District />} />
+        <Route path="/subdivisions/:id" element={<Subdivision />} />
+        <Route path="/villages" element={<Villages />} />
+        <Route path="/villages/:id" element={<Village />} />
+        <Route path="/matters/:id" element={<Matter />} />
+        <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
+        <Route
+          path="/villages/:villageId/lr/:lrId"
+          element={<LrRegister />}
+        />
+        <Route path="/khasras/:id" element={<Khasra />} />
+        <Route path="/khatauni/:id" element={<Khatauni />} />
+        <Route path="/khatas/:id" element={<Khata />} />
+        <Route path="/parties/:id" element={<Party />} />
+        <Route path="/awards" element={<Awards />} />
+        <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
+        <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
+        <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
+        <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
+        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
+        <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
+        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
+        <Route path="/awards/:id" element={<Award />} />
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/notifications/:id" element={<Notification />} />
+        <Route path="/documents" element={<Documents />} />
+        <Route path="/search" element={<SearchPage />} />
+        <Route path="/imports/lr" element={<LrWorkspace />} />
+        <Route path="/imports/lr/review" element={<LrReview />} />
+        <Route path="/admin/users" element={<UsersAdmin />} />
+        <Route path="/admin/access" element={<AccessAdmin />} />
+        <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
+        <Route path="*" element={<SearchPage />} />
+      </Routes>
+    </Shell>
+  );
+}
 function App() {
   return (
     <BrowserRouter>
-      <Shell>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/districts/:id" element={<District />} />
-          <Route path="/subdivisions/:id" element={<Subdivision />} />
-          <Route path="/villages" element={<Villages />} />
-          <Route path="/villages/:id" element={<Village />} />
-          <Route path="/matters/:id" element={<Matter />} />
-          <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
-          <Route
-            path="/villages/:villageId/lr/:lrId"
-            element={<LrRegister />}
-          />
-          <Route path="/khasras/:id" element={<Khasra />} />
-          <Route path="/khatauni/:id" element={<Khatauni />} />
-          <Route path="/khatas/:id" element={<Khata />} />
-          <Route path="/parties/:id" element={<Party />} />
-          <Route path="/awards" element={<Awards />} />
-          <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
-          <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
-          <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
-          <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
-          <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
-          <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
-          <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
-          <Route path="/awards/:id" element={<Award />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/notifications/:id" element={<Notification />} />
-          <Route path="/documents" element={<Documents />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/imports/lr" element={<LrWorkspace />} />
-          <Route path="/imports/lr/review" element={<LrReview />} />
-          <Route path="*" element={<SearchPage />} />
-        </Routes>
-      </Shell>
+      <AuthProvider>
+        <AuthenticatedApp />
+      </AuthProvider>
     </BrowserRouter>
   );
 }
