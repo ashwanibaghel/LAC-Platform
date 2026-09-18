@@ -52,6 +52,7 @@ builder.Services.AddSingleton<StrictKhasraParser>();
 builder.Services.AddSingleton<StrictDateParser>();
 builder.Services.AddSingleton<StrictAreaParser>();
 builder.Services.AddSingleton<AwardExtractionRuleEngine>();
+builder.Services.AddSingleton<MatterDraftDocxExporter>();
 builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -569,6 +570,26 @@ api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest 
     try { await db.SaveChangesAsync(ct); }
     catch (DbUpdateConcurrencyException) { return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving."); }
     return Results.Ok(new { draft.Id, draft.Revision, draft.UpdatedAt });
+});
+api.MapGet("/matter-drafts/{id:guid}/docx", async (Guid id, LacDbContext db, MatterDraftDocxExporter exporter, CancellationToken ct) =>
+{
+    var draft = await db.MatterDrafts.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    if (draft is null) return NotFound("Matter draft", id);
+    var layout = MatterDraftLayoutProfiles.For(draft);
+    byte[] bytes;
+    try
+    {
+        bytes = exporter.Export(draft, layout);
+    }
+    catch (DocxExportException)
+    {
+        return Results.Problem(
+            detail: "Draft content could not be exported.",
+            statusCode: 500,
+            title: "Export Failed");
+    }
+    var fileName = MatterDraftDocxExporter.SanitizeFileName(draft.Title);
+    return Results.File(bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
 });
 api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {

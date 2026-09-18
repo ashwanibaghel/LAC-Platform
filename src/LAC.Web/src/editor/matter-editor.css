@@ -215,6 +215,18 @@
   color: #0f172a;
   border-color: #94a3b8;
 }
+.draft-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+}
+.draft-action-btn:disabled:hover {
+  background: #f8fafc;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+}
 
 .draft-save {
   display: inline-flex;

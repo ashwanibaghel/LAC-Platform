@@ -260,6 +260,16 @@ function CompressIcon() {
   );
 }
 
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
 export function MatterDraftEditorPage() {
   const { id = "" } = useParams();
   const [draft, setDraft] = useState<Draft>();
@@ -361,6 +371,17 @@ export function MatterDraftEditorPage() {
     window.print();
   };
 
+  const exportDocx = () => {
+    if (!draft || dirty || saving) return;
+    const downloadUrl = `${api}/matter-drafts/${draft.id}/docx`;
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = "";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const backToMatter = (event: MouseEvent<HTMLAnchorElement>) => {
     if (dirty && !window.confirm("You have unsaved changes. Leave this draft?")) {
       event.preventDefault();
@@ -448,6 +469,16 @@ export function MatterDraftEditorPage() {
           </div>
         </div>
         <div className="draft-header-actions">
+          <button
+            type="button"
+            className="draft-action-btn draft-export-btn"
+            onClick={exportDocx}
+            disabled={dirty || saving}
+            title={dirty || saving ? "Save changes before exporting." : "Export as Word document (.docx)"}
+          >
+            <DownloadIcon />
+            <span>Export DOCX</span>
+          </button>
           <button
             type="button"
             className="draft-action-btn"

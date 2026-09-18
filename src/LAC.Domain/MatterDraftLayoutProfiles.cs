@@ -1,4 +1,4 @@
-using LAC.Domain;
+namespace LAC.Domain;
 
 public readonly record struct MatterDraftLayout(string PageSize, string Orientation, decimal MarginTopMm, decimal MarginRightMm, decimal MarginBottomMm, decimal MarginLeftMm);
 
@@ -12,4 +12,3 @@ public static class MatterDraftLayoutProfiles
         ? DelhiLacNotingLegalMirrorV1
         : new MatterDraftLayout(draft.PageSize, draft.Orientation, draft.MarginTopMm, draft.MarginRightMm, draft.MarginBottomMm, draft.MarginLeftMm);
 }
-
