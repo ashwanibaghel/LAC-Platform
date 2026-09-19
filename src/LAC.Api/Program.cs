@@ -59,6 +59,8 @@ builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
 builder.Services.AddScoped<IDakAuthorizationService, DakAuthorizationService>();
 builder.Services.AddScoped<DakWorkflowService>();
+builder.Services.AddScoped<IOutwardAuthorizationService, OutwardAuthorizationService>();
+builder.Services.AddScoped<OutwardWorkflowService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -113,6 +115,7 @@ using (var scope = app.Services.CreateScope())
 var api = app.MapGroup("/api");
 api.MapRbacEndpoints();
 api.MapDakEndpoints();
+api.MapOutwardEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";

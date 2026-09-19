@@ -29,6 +29,11 @@ public static class PermissionCodes
     public const string DakMove = "Dak.Move";
     public const string DakDispose = "Dak.Dispose";
     public const string DakCancel = "Dak.Cancel";
+    public const string OutwardView = "Outward.View";
+    public const string OutwardCreate = "Outward.Create";
+    public const string OutwardEdit = "Outward.Edit";
+    public const string OutwardDispatch = "Outward.Dispatch";
+    public const string OutwardCancel = "Outward.Cancel";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -59,6 +64,11 @@ public static class PermissionCodes
         new(DakMove, "Move Dak", "Mark, forward, or return Dak across desks and officers", "Dak"),
         new(DakDispose, "Dispose Dak", "Mark Dak as completed or disposed and close active custody", "Dak"),
         new(DakCancel, "Cancel Dak", "Void errant Dak registration with mandatory audit justification", "Dak"),
+        new(OutwardView, "View Outward", "View outward correspondence, dispatch status, and documents", "Outward"),
+        new(OutwardCreate, "Create Outward", "Register new outward correspondence in the official register", "Outward"),
+        new(OutwardEdit, "Edit Outward", "Edit metadata, enclosures, and cross-references of registered outward correspondence", "Outward"),
+        new(OutwardDispatch, "Dispatch Outward", "Record official dispatch of outward correspondence with mode and date", "Outward"),
+        new(OutwardCancel, "Cancel Outward", "Void registered outward correspondence with mandatory justification", "Outward"),
     ];
 }
 

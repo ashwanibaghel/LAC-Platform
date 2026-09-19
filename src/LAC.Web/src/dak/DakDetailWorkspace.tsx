@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import type { DakDetail, DakCategory } from "./types";
 import { DakTimeline } from "./DakTimeline";
@@ -8,6 +8,7 @@ import "./dak.css";
 
 export const DakDetailWorkspace: React.FC = () => {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const { hasPermission } = useAuth();
 
   const [dak, setDak] = useState<DakDetail | null>(null);
@@ -48,6 +49,11 @@ export const DakDetailWorkspace: React.FC = () => {
   const [linkEntityId, setLinkEntityId] = useState("");
   const [linking, setLinking] = useState(false);
 
+  // Outward replies
+  const [outwardReplies, setOutwardReplies] = useState<
+    { id: string; outwardNumber: string; outwardDate: string; subject: string; status: string; recipientName: string }[]
+  >([]);
+
   const loadDak = useCallback(async () => {
     if (!id) return;
     try {
@@ -75,6 +81,14 @@ export const DakDetailWorkspace: React.FC = () => {
       setEditDueDate(data.dueDate || "");
       setEditCategoryId(data.categoryId || "");
       setEditWorkstreamId(data.workstreamId || "");
+
+      // Load outward replies
+      fetch(`/api/outward?dakId=${id}`, { credentials: "include" })
+        .then((r) => (r.ok ? (r.json() as Promise<{ items: { id: string; outwardNumber: string; outwardDate: string; subject: string; status: string; recipientName: string }[] }>) : null))
+        .then((d) => {
+          if (d?.items) setOutwardReplies(d.items);
+        })
+        .catch(() => {});
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to load Dak.");
     } finally {
@@ -615,6 +629,76 @@ export const DakDetailWorkspace: React.FC = () => {
                 ))
               )}
             </div>
+          </div>
+
+          {/* Outward Dispatches / Replies */}
+          <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid #e2e8f0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", color: "#1e3a58" }}>
+                  Outward Replies & Dispatches ({outwardReplies.length})
+                </h3>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>
+                  Official outward letters issued in response to or referencing this Dak.
+                </span>
+              </div>
+              {hasPermission("Outward.Create") && (
+                <button
+                  className="primary-button"
+                  style={{ fontSize: "12px", padding: "4px 10px" }}
+                  onClick={() => navigate(`/outward/new?dakId=${dak.id}`)}
+                >
+                  + Draft Outward Reply
+                </button>
+              )}
+            </div>
+
+            {outwardReplies.length === 0 ? (
+              <p className="subtext">No outward replies have been issued for this Dak yet.</p>
+            ) : (
+              <div className="table-responsive">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Outward No.</th>
+                      <th>Subject</th>
+                      <th>Recipient</th>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th style={{ textAlign: "right" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outwardReplies.map((r) => (
+                      <tr key={r.id}>
+                        <td>
+                          <Link to={`/outward/${r.id}`} style={{ fontWeight: 600, color: "#1e609e" }}>
+                            {r.outwardNumber}
+                          </Link>
+                        </td>
+                        <td>{r.subject}</td>
+                        <td>{r.recipientName}</td>
+                        <td>{r.outwardDate}</td>
+                        <td>
+                          <span className={`outward-pill outward-pill-${r.status.toLowerCase()}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button
+                            className="secondary-button"
+                            style={{ fontSize: "11px", padding: "2px 8px" }}
+                            onClick={() => navigate(`/outward/${r.id}`)}
+                          >
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
