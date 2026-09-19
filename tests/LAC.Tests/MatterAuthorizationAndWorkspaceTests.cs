@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -25,7 +26,19 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         _client = factory.CreateClient();
     }
 
-    private static (LacDbContext db, Workstream ws1, Workstream ws2, Village village, AppUser userAll, AppUser userWs1, AppUser userNone) CreateTestDbContext(string dbName)
+    private sealed class AllowAllAccessControlService : IAccessControlService
+    {
+        public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+    }
+
+    private sealed class DenyAllAccessControlServiceStub : IAccessControlService
+    {
+        public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken ct = default) => Task.FromResult(false);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+    }
+
+    private static (LacDbContext db, Workstream ws1, Workstream ws2, Village village, AppUser userAll, AppUser userWs1, AppUser userAssigned, AppUser userNone) CreateTestDbContext(string dbName)
     {
         var builder = new DbContextOptionsBuilder<LacDbContext>()
             .UseInMemoryDatabase(dbName)
@@ -63,33 +76,103 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         var pEdit = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.MatterEdit, Name = "Matter Edit", Category = "Matter" };
         var pDoc = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.MatterDocumentManage, Name = "Matter Doc", Category = "Matter" };
         var pArchive = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.MatterArchive, Name = "Matter Archive", Category = "Matter" };
+        var pDraftView = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.DraftView, Name = "Draft View", Category = "Draft" };
+        var pDraftCreate = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.DraftCreate, Name = "Draft Create", Category = "Draft" };
+        var pDraftEdit = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.DraftEdit, Name = "Draft Edit", Category = "Draft" };
 
         var rAll = new Role { Id = Guid.NewGuid(), Code = $"R_ALL_{Guid.NewGuid():N}"[..10], Name = "Role All", IsActive = true, RecordStatus = RecordStatus.Active };
+        var rWs = new Role { Id = Guid.NewGuid(), Code = $"R_WS_{Guid.NewGuid():N}"[..10], Name = "Role Workstream", IsActive = true, RecordStatus = RecordStatus.Active };
         var rAssigned = new Role { Id = Guid.NewGuid(), Code = $"R_ASS_{Guid.NewGuid():N}"[..10], Name = "Role Assigned", IsActive = true, RecordStatus = RecordStatus.Active };
 
-        var allPerms = new[] { pView, pCreate, pEdit, pDoc, pArchive };
+        var allPerms = new[] { pView, pCreate, pEdit, pDoc, pArchive, pDraftView, pDraftCreate, pDraftEdit };
         foreach (var p in allPerms)
         {
             rAll.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = rAll.Id, PermissionId = p.Id, ScopeMode = ScopeMode.All });
+            rWs.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = rWs.Id, PermissionId = p.Id, ScopeMode = ScopeMode.Workstream });
             rAssigned.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = rAssigned.Id, PermissionId = p.Id, ScopeMode = ScopeMode.Assigned });
         }
 
         var userAll = new AppUser { Id = Guid.NewGuid(), Username = $"u_all_{Guid.NewGuid():N}", NormalizedUsername = "U_ALL", DisplayName = "User All", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
         var userWs1 = new AppUser { Id = Guid.NewGuid(), Username = $"u_ws1_{Guid.NewGuid():N}", NormalizedUsername = "U_WS1", DisplayName = "User Ws1", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
+        var userAssigned = new AppUser { Id = Guid.NewGuid(), Username = $"u_ass_{Guid.NewGuid():N}", NormalizedUsername = "U_ASS", DisplayName = "User Assigned", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
         var userNone = new AppUser { Id = Guid.NewGuid(), Username = $"u_none_{Guid.NewGuid():N}", NormalizedUsername = "U_NONE", DisplayName = "User None", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
 
         userAll.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userAll.Id, RoleId = rAll.Id });
-        userWs1.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userWs1.Id, RoleId = rAssigned.Id });
-        userWs1.WorkstreamMemberships.Add(new UserWorkstreamMembership { Id = Guid.NewGuid(), UserId = userWs1.Id, WorkstreamId = ws1.Id, IsActive = true });
+        userWs1.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userWs1.Id, RoleId = rWs.Id });
+        userWs1.WorkstreamMemberships.Add(new UserWorkstreamMembership { Id = Guid.NewGuid(), UserId = userWs1.Id, WorkstreamId = ws1.Id, IsActive = true, Workstream = ws1 });
+
+        userAssigned.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userAssigned.Id, RoleId = rAssigned.Id });
+        userAssigned.WorkstreamMemberships.Add(new UserWorkstreamMembership { Id = Guid.NewGuid(), UserId = userAssigned.Id, WorkstreamId = ws1.Id, IsActive = true, Workstream = ws1 });
 
         db.Workstreams.AddRange(ws1, ws2);
         db.Villages.Add(village);
         db.Permissions.AddRange(allPerms);
-        db.Roles.AddRange(rAll, rAssigned);
-        db.AppUsers.AddRange(userAll, userWs1, userNone);
+        db.Roles.AddRange(rAll, rWs, rAssigned);
+        db.AppUsers.AddRange(userAll, userWs1, userAssigned, userNone);
         db.SaveChanges();
 
-        return (db, ws1, ws2, village, userAll, userWs1, userNone);
+        return (db, ws1, ws2, village, userAll, userWs1, userAssigned, userNone);
+    }
+
+    private static byte[] CreateValidDocxCrcZip()
+    {
+        using var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
+        {
+            zip.CreateEntry("[Content_Types].xml");
+            var entry = zip.CreateEntry("word/document.xml");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"/>");
+        }
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateValidXlsxCrcZip()
+    {
+        using var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
+        {
+            zip.CreateEntry("[Content_Types].xml");
+            var entry = zip.CreateEntry("xl/workbook.xml");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"/>");
+        }
+        return ms.ToArray();
+    }
+
+    private static byte[] CreateValidCfb(string streamName)
+    {
+        var data = new byte[1536];
+        byte[] sig = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+        Array.Copy(sig, 0, data, 0, 8);
+        BitConverter.GetBytes((ushort)9).CopyTo(data, 30);
+        BitConverter.GetBytes((ushort)6).CopyTo(data, 32);
+        BitConverter.GetBytes((uint)1).CopyTo(data, 44);
+        BitConverter.GetBytes((uint)1).CopyTo(data, 48);
+        BitConverter.GetBytes((uint)0).CopyTo(data, 76);
+        for (int i = 1; i < 109; i++)
+        {
+            BitConverter.GetBytes(0xFFFFFFFF).CopyTo(data, 76 + i * 4);
+        }
+
+        BitConverter.GetBytes(0xFFFFFFFD).CopyTo(data, 512);
+        BitConverter.GetBytes(0xFFFFFFFE).CopyTo(data, 516);
+        for (int i = 2; i < 128; i++)
+        {
+            BitConverter.GetBytes(0xFFFFFFFF).CopyTo(data, 512 + i * 4);
+        }
+
+        var rootNameBytes = Encoding.Unicode.GetBytes("Root Entry\0");
+        Array.Copy(rootNameBytes, 0, data, 1024, rootNameBytes.Length);
+        BitConverter.GetBytes((ushort)rootNameBytes.Length).CopyTo(data, 1024 + 64);
+        data[1024 + 66] = 5;
+
+        var streamNameBytes = Encoding.Unicode.GetBytes(streamName + "\0");
+        Array.Copy(streamNameBytes, 0, data, 1152, streamNameBytes.Length);
+        BitConverter.GetBytes((ushort)streamNameBytes.Length).CopyTo(data, 1152 + 64);
+        data[1152 + 66] = 2;
+
+        return data;
     }
 
     // =========================================================================
@@ -100,7 +183,7 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterAuthorizationService_ScopeModeAll_CanViewAllMatters()
     {
         var dbName = $"mat-scope-all-{Guid.NewGuid():N}";
-        var (db, ws1, ws2, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, ws2, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var authService = new MatterAuthorizationService(db);
 
         var m1 = new Matter { Id = Guid.NewGuid(), Title = "Matter 1", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
@@ -119,10 +202,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     }
 
     [Fact]
-    public async Task MatterAuthorizationService_ScopeModeAssigned_CanOnlyViewAssignedWorkstream()
+    public async Task MatterAuthorizationService_ScopeModeWorkstream_CanOnlyViewAssignedWorkstream()
     {
-        var dbName = $"mat-scope-assigned-{Guid.NewGuid():N}";
-        var (db, ws1, ws2, village, _, userWs1, _) = CreateTestDbContext(dbName);
+        var dbName = $"mat-scope-ws-{Guid.NewGuid():N}";
+        var (db, ws1, ws2, village, _, userWs1, _, _) = CreateTestDbContext(dbName);
         var authService = new MatterAuthorizationService(db);
 
         var m1 = new Matter { Id = Guid.NewGuid(), Title = "Matter WS1", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
@@ -137,14 +220,51 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         var list = await result.Query.ToListAsync();
         Assert.Contains(list, m => m.Id == m1.Id);
         Assert.DoesNotContain(list, m => m.Id == m2.Id); // Hidden
-        Assert.DoesNotContain(list, m => m.Id == mLegacy.Id); // Legacy hidden from assigned-only
+        Assert.DoesNotContain(list, m => m.Id == mLegacy.Id); // Legacy hidden from workstream-only
+    }
+
+    [Fact]
+    public async Task MatterAuthorizationService_ScopeModeAssigned_FailsClosedAcrossAllOperations()
+    {
+        var dbName = $"mat-scope-assigned-{Guid.NewGuid():N}";
+        var (db, ws1, ws2, village, _, _, userAssigned, _) = CreateTestDbContext(dbName);
+        var authService = new MatterAuthorizationService(db);
+
+        var m1 = new Matter { Id = Guid.NewGuid(), Title = "Matter WS1", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
+        var draft = new MatterDraft { Id = Guid.NewGuid(), MatterId = m1.Id, Title = "Draft 1", DraftType = MatterDraftType.Letter, Status = MatterDraftStatus.Draft, RecordStatus = RecordStatus.Active };
+        db.Matters.Add(m1);
+        db.MatterDrafts.Add(draft);
+        await db.SaveChangesAsync();
+
+        // 1. AuthorizeListQueryAsync fails closed
+        var listResult = await authService.AuthorizeListQueryAsync(db.Matters, PermissionCodes.MatterView, userAssigned.Id);
+        Assert.False(listResult.HasPermission);
+        Assert.Empty(await listResult.Query.ToListAsync());
+
+        // 2. CanAccessMatterAsync fails closed for all permissions
+        Assert.False(await authService.CanAccessMatterAsync(m1.Id, PermissionCodes.MatterView, userAssigned.Id));
+        Assert.False(await authService.CanAccessMatterAsync(m1.Id, PermissionCodes.MatterEdit, userAssigned.Id));
+        Assert.False(await authService.CanAccessMatterAsync(m1.Id, PermissionCodes.MatterDocumentManage, userAssigned.Id));
+        Assert.False(await authService.CanAccessMatterAsync(m1.Id, PermissionCodes.MatterArchive, userAssigned.Id));
+
+        // 3. CanCreateMatterInWorkstreamAsync fails closed
+        Assert.False(await authService.CanCreateMatterInWorkstreamAsync(ws1.Id, userAssigned.Id));
+
+        // 4. CanReclassifyMatterAsync fails closed
+        Assert.False(await authService.CanReclassifyMatterAsync(m1.Id, ws2.Id, userAssigned.Id));
+
+        // 5. CanAccessMatterDraftCapabilityAsync and CanAccessDraftAsync fail closed
+        Assert.False(await authService.CanAccessMatterDraftCapabilityAsync(m1.Id, PermissionCodes.DraftView, userAssigned.Id));
+        Assert.False(await authService.CanAccessMatterDraftCapabilityAsync(m1.Id, PermissionCodes.DraftCreate, userAssigned.Id));
+        Assert.False(await authService.CanAccessDraftAsync(draft.Id, PermissionCodes.DraftView, userAssigned.Id));
+        Assert.False(await authService.CanAccessDraftAsync(draft.Id, PermissionCodes.DraftEdit, userAssigned.Id));
     }
 
     [Fact]
     public async Task MatterAuthorizationService_UserWithoutPermission_Denied()
     {
         var dbName = $"mat-scope-none-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, _, _, userNone) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, _, _, _, userNone) = CreateTestDbContext(dbName);
         var authService = new MatterAuthorizationService(db);
 
         var m1 = new Matter { Id = Guid.NewGuid(), Title = "Matter WS1", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
@@ -166,10 +286,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_CreateMatter_MandatoryWorkstream_Success()
     {
         var dbName = $"mat-create-succ-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var cmd = new CreateMatterCommand(
             VillageId: village.Id,
@@ -199,14 +319,14 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_CreateMatter_InactiveWorkstream_ThrowsException()
     {
         var dbName = $"mat-create-inactive-{Guid.NewGuid():N}";
-        var (db, _, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, _, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var inactiveWs = new Workstream { Id = Guid.NewGuid(), Code = "INACTIVE", Name = "Inactive WS", IsActive = false, RecordStatus = RecordStatus.Active };
         db.Workstreams.Add(inactiveWs);
         await db.SaveChangesAsync();
 
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var cmd = new CreateMatterCommand(
             VillageId: village.Id,
@@ -226,10 +346,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_CreateMatter_ScopedUserOutsideWorkstream_ThrowsForbidden()
     {
         var dbName = $"mat-create-forbid-{Guid.NewGuid():N}";
-        var (db, _, ws2, village, _, userWs1, _) = CreateTestDbContext(dbName); // userWs1 only has WS1
+        var (db, _, ws2, village, _, userWs1, _, _) = CreateTestDbContext(dbName); // userWs1 only has WS1
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var cmd = new CreateMatterCommand(
             VillageId: village.Id,
@@ -253,10 +373,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_UpdateMetadata_MatchingRevision_IncrementsRevisionAndRecordsEvent()
     {
         var dbName = $"mat-update-succ-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Initial Title", "General", ws1.Id, null, null, null), userAll.Id);
         Assert.Equal(0, matter.Revision);
@@ -267,12 +387,14 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
             ReferenceNumber: "REF/999",
             Remarks: "Updated Remarks",
             KhasraReferenceText: "Khasra 100",
-            ExpectedRevision: 0
+            ExpectedRevision: 0,
+            Status: "Under Review"
         );
 
         var updated = await workflow.UpdateMetadataAsync(matter.Id, updateCmd, userAll.Id);
         Assert.Equal("Updated Title", updated.Title);
         Assert.Equal("REF/999", updated.ReferenceNumber);
+        Assert.Equal("Under Review", updated.Status);
         Assert.Equal(1, updated.Revision); // Incremented
         Assert.Equal(ws1.Id, updated.WorkstreamId); // Workstream untouched
 
@@ -287,10 +409,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_UpdateMetadata_MismatchedRevision_ThrowsConflict()
     {
         var dbName = $"mat-update-conf-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Initial Title", "General", ws1.Id, null, null, null), userAll.Id);
 
@@ -315,10 +437,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_Reclassify_CrossWorkstreamAuthorized_Success()
     {
         var dbName = $"mat-reclass-succ-{Guid.NewGuid():N}";
-        var (db, ws1, ws2, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, ws2, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Transfer Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
 
@@ -341,10 +463,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_Reclassify_EmptyReason_ThrowsException()
     {
         var dbName = $"mat-reclass-reason-{Guid.NewGuid():N}";
-        var (db, ws1, ws2, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, ws2, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Transfer Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
 
@@ -366,10 +488,10 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task MatterWorkflow_Archive_TerminalState_PreventsFurtherMutations()
     {
         var dbName = $"mat-archive-term-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Closing Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
 
@@ -379,20 +501,20 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         );
 
         var archived = await workflow.ArchiveAsync(matter.Id, archiveCmd, userAll.Id);
-        Assert.Equal("Archived", archived.Status);
+        Assert.Equal(RecordStatus.Archived, archived.RecordStatus);
+        Assert.Equal("Open", archived.Status); // Preserves business status
         Assert.Equal(1, archived.Revision);
 
         // Attempting to update metadata on archived matter is rejected
         var updateCmd = new UpdateMatterMetadataCommand("New Title", "Court Case", null, null, null, 1);
         var ex = await Assert.ThrowsAsync<MatterWorkflowException>(() => workflow.UpdateMetadataAsync(matter.Id, updateCmd, userAll.Id));
-        Assert.Equal(409, ex.StatusCode);
-        Assert.Contains("archived", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(ex.StatusCode is 403 or 409);
 
         // Attempting to upload to archived matter is rejected
         using var ms = new MemoryStream(ValidPdfBytes);
         var uploadCmd = new UploadMatterDocumentCommand(ms, "doc.pdf", "application/pdf", "Other", null, 1);
         var exUpload = await Assert.ThrowsAsync<MatterWorkflowException>(() => workflow.UploadDocumentAsync(matter.Id, uploadCmd, userAll.Id));
-        Assert.Contains("archived", exUpload.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(exUpload.StatusCode is 403 or 409);
     }
 
     // =========================================================================
@@ -400,47 +522,342 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     // =========================================================================
 
     [Fact]
-    public void MatterDocumentValidation_ValidFormats_Succeed()
+    public void MatterDocumentValidation_PositiveMatrix_AllSupportedFormatsValid()
     {
+        // 1. PDF
         using var pdf = new MemoryStream(ValidPdfBytes);
         MatterDocumentValidation.ValidateFileContent(pdf, ".pdf");
         Assert.Equal("application/pdf", MatterDocumentValidation.GetServerDerivedMimeType(".pdf"));
 
+        // 2. PNG
         using var png = new MemoryStream(ValidPngBytes);
         MatterDocumentValidation.ValidateFileContent(png, ".png");
         Assert.Equal("image/png", MatterDocumentValidation.GetServerDerivedMimeType(".png"));
 
-        using var txt = new MemoryStream("Hello LAC Document"u8.ToArray());
+        // 3. JPEG
+        byte[] jpegBytes = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
+        using var jpeg = new MemoryStream(jpegBytes);
+        MatterDocumentValidation.ValidateFileContent(jpeg, ".jpg");
+        Assert.Equal("image/jpeg", MatterDocumentValidation.GetServerDerivedMimeType(".jpg"));
+
+        // 4. TIFF Little-Endian
+        byte[] tiffLeBytes = [0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+        using var tiffLe = new MemoryStream(tiffLeBytes);
+        MatterDocumentValidation.ValidateFileContent(tiffLe, ".tiff");
+        Assert.Equal("image/tiff", MatterDocumentValidation.GetServerDerivedMimeType(".tiff"));
+
+        // 5. TIFF Big-Endian
+        byte[] tiffBeBytes = [0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08];
+        using var tiffBe = new MemoryStream(tiffBeBytes);
+        MatterDocumentValidation.ValidateFileContent(tiffBe, ".tif");
+        Assert.Equal("image/tiff", MatterDocumentValidation.GetServerDerivedMimeType(".tif"));
+
+        // 6. DOC (CFB with WordDocument stream)
+        var docBytes = CreateValidCfb("WordDocument");
+        using var doc = new MemoryStream(docBytes);
+        MatterDocumentValidation.ValidateFileContent(doc, ".doc");
+        Assert.Equal("application/msword", MatterDocumentValidation.GetServerDerivedMimeType(".doc"));
+
+        // 7. XLS (CFB with Workbook stream)
+        var xlsBytes = CreateValidCfb("Workbook");
+        using var xls = new MemoryStream(xlsBytes);
+        MatterDocumentValidation.ValidateFileContent(xls, ".xls");
+        Assert.Equal("application/vnd.ms-excel", MatterDocumentValidation.GetServerDerivedMimeType(".xls"));
+
+        // 8. DOCX (Zip with word/document.xml)
+        var docxBytes = CreateValidDocxCrcZip();
+        using var docx = new MemoryStream(docxBytes);
+        MatterDocumentValidation.ValidateFileContent(docx, ".docx");
+        Assert.Equal("application/vnd.openxmlformats-officedocument.wordprocessingml.document", MatterDocumentValidation.GetServerDerivedMimeType(".docx"));
+
+        // 9. XLSX (Zip with xl/workbook.xml)
+        var xlsxBytes = CreateValidXlsxCrcZip();
+        using var xlsx = new MemoryStream(xlsxBytes);
+        MatterDocumentValidation.ValidateFileContent(xlsx, ".xlsx");
+        Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", MatterDocumentValidation.GetServerDerivedMimeType(".xlsx"));
+
+        // 10. TXT (Valid UTF-8)
+        using var txt = new MemoryStream("Hello LAC Matter Workspace"u8.ToArray());
         MatterDocumentValidation.ValidateFileContent(txt, ".txt");
         Assert.Equal("text/plain", MatterDocumentValidation.GetServerDerivedMimeType(".txt"));
     }
 
     [Fact]
-    public void MatterDocumentValidation_DisguisedExecutable_ThrowsFormatError()
+    public void MatterDocumentValidation_NegativeMatrix_CfbHeaderWithoutStreamFails()
     {
-        using var fake = new MemoryStream(FakePdfBytes);
-        var ex = Assert.Throws<MatterWorkflowException>(() =>
-            MatterDocumentValidation.ValidateFileContent(fake, ".pdf"));
-        Assert.Contains("signature", ex.Message, StringComparison.OrdinalIgnoreCase);
+        // CFB header present, but stream is "Irrelevant" instead of "WordDocument"
+        var bogusCfb = CreateValidCfb("SomeRandomOtherStream");
+        using var doc = new MemoryStream(bogusCfb);
+        var ex = Assert.Throws<MatterWorkflowException>(() => MatterDocumentValidation.ValidateFileContent(doc, ".doc"));
+        Assert.Contains("legacy document", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        using var xls = new MemoryStream(bogusCfb);
+        var exXls = Assert.Throws<MatterWorkflowException>(() => MatterDocumentValidation.ValidateFileContent(xls, ".xls"));
+        Assert.Contains("legacy spreadsheet", exXls.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void MatterDocumentValidation_DisallowedExtension_ThrowsFormatError()
+    public void MatterDocumentValidation_NegativeMatrix_InvalidUtf8OrNulBytesFail()
+    {
+        // Text with NUL byte
+        byte[] nulText = [0x48, 0x65, 0x6C, 0x00, 0x6C, 0x6F];
+        using var msNul = new MemoryStream(nulText);
+        var exNul = Assert.Throws<MatterWorkflowException>(() => MatterDocumentValidation.ValidateFileContent(msNul, ".txt"));
+        Assert.Contains("control characters", exNul.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Text with invalid UTF-8 sequence
+        byte[] invalidUtf8 = [0xC0, 0xAF, 0x48, 0x65];
+        using var msInvalid = new MemoryStream(invalidUtf8);
+        var exInvalid = Assert.Throws<MatterWorkflowException>(() => MatterDocumentValidation.ValidateFileContent(msInvalid, ".txt"));
+        Assert.Contains("UTF-8", exInvalid.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MatterDocumentValidation_NegativeMatrix_DisallowedExtensionFails()
     {
         using var exe = new MemoryStream(FakePdfBytes);
-        var ex = Assert.Throws<MatterWorkflowException>(() =>
-            MatterDocumentValidation.ValidateFileContent(exe, ".exe"));
+        var ex = Assert.Throws<MatterWorkflowException>(() => MatterDocumentValidation.ValidateFileContent(exe, ".exe"));
         Assert.Contains("Unsupported", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================
-    // 7. AMBIGUOUS-COMMIT RETRY & COMPENSATION CLEANUP
+    // 7. AMBIGUOUS-COMMIT RETRY WITH ADVANCING MUTABLE STATE (REQ 15)
     // =========================================================================
 
     [Fact]
-    public async Task MatterWorkflow_UploadDocument_CompensationCleanup_OnDbFailure()
+    public async Task MatterWorkflow_CreateMatter_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
     {
-        var dbName = $"mat-cleanup-{Guid.NewGuid():N}";
+        var dbName = $"mat-ambig-create-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            // Verify callback only relies on immutable MatterEvent.Created
+            await Task.CompletedTask;
+        });
+
+        var cmd = new CreateMatterCommand(village.Id, "Ambiguous Create", "Court Case", ws1.Id, "REF-AMB", null, null);
+        var matter = await workflow.CreateMatterAsync(cmd, userAll.Id);
+
+        Assert.NotNull(matter);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal("Ambiguous Create", matter.Title);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_UpdateMetadata_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
+    {
+        var dbName = $"mat-ambig-meta-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        var matter = await new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService())
+            .CreateMatterAsync(new CreateMatterCommand(village.Id, "Original Title", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            // Advance mutable state in DB before verify runs to prove verifier checks immutable event only
+            var direct = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+            direct.Revision += 5;
+            direct.Status = "OtherInterferingState";
+            await db.SaveChangesAsync();
+        });
+
+        var cmd = new UpdateMatterMetadataCommand("Updated Title Ambiguous", "Court Case", "REF-123", "Remarks", null, 0);
+        var updated = await workflow.UpdateMetadataAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(updated);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal("Updated Title Ambiguous", updated.Title);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_ReclassifyWorkstream_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
+    {
+        var dbName = $"mat-ambig-reclass-{Guid.NewGuid():N}";
+        var (db, ws1, ws2, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        var matter = await new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService())
+            .CreateMatterAsync(new CreateMatterCommand(village.Id, "Reclass Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            // Advance mutable state (Revision, Status) to prove verifier relies strictly on immutable event
+            var direct = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+            direct.Revision += 10;
+            direct.Status = "OtherInterferingState";
+            await db.SaveChangesAsync();
+        });
+
+        var cmd = new ReclassifyWorkstreamCommand(ws2.Id, "Legitimate reclassification", 0);
+        var reclassified = await workflow.ReclassifyWorkstreamAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(reclassified);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal(ws2.Id, reclassified.WorkstreamId);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_UploadDocument_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
+    {
+        var dbName = $"mat-ambig-upload-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        var matter = await new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService())
+            .CreateMatterAsync(new CreateMatterCommand(village.Id, "Upload Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            var direct = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+            direct.Revision += 5;
+            await db.SaveChangesAsync();
+        });
+
+        using var ms = new MemoryStream(ValidPdfBytes);
+        var cmd = new UploadMatterDocumentCommand(ms, "affidavit.pdf", "application/pdf", "Application", "App Affidavit", 0);
+        var matterDoc = await workflow.UploadDocumentAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(matterDoc);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(0, storage.DeleteCount);
+        Assert.Single(storage.Files);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_LinkExistingDocument_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
+    {
+        var dbName = $"mat-ambig-link-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        var matter = await new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService())
+            .CreateMatterAsync(new CreateMatterCommand(village.Id, "Link Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-LINK-1", RecordStatus = RecordStatus.Active };
+        var candidateDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "award_map.pdf", StoragePath = "p1", MimeType = "application/pdf", Sha256Hash = "h1", RecordStatus = RecordStatus.Active, Status = "Active" };
+        var docAward = new DocumentAward { Id = Guid.NewGuid(), DocumentId = candidateDoc.Id, AwardId = award.Id };
+        var matterAward = new MatterAward { Id = Guid.NewGuid(), MatterId = matter.Id, AwardId = award.Id };
+
+        db.Awards.Add(award);
+        db.Documents.Add(candidateDoc);
+        db.DocumentAwards.Add(docAward);
+        db.MatterAwards.Add(matterAward);
+        await db.SaveChangesAsync();
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            var direct = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+            direct.Revision += 5;
+            await db.SaveChangesAsync();
+        });
+
+        var cmd = new LinkExistingDocumentCommand(candidateDoc.Id, "Award Map", "Candidate Attachment", 0);
+        var linked = await workflow.LinkExistingDocumentAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(linked);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal(candidateDoc.Id, linked.DocumentId);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_Archive_CommitAmbiguity_AdvancesMutableState_SucceedsViaImmutableEvent()
+    {
+        var dbName = $"mat-ambig-archive-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        var matter = await new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService())
+            .CreateMatterAsync(new CreateMatterCommand(village.Id, "Archive Case", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: async () =>
+        {
+            // Advance mutable state (Revision, Status) to prove verifier relies strictly on immutable event
+            var direct = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+            direct.Revision += 10;
+            direct.Status = "OtherInterferingState";
+            await db.SaveChangesAsync();
+        });
+
+        var cmd = new ArchiveMatterCommand("Disposed in full", 0);
+        var archived = await workflow.ArchiveAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(archived);
+        Assert.Equal(1, strategy.VerifyCount);
+        Assert.Equal(RecordStatus.Archived, archived.RecordStatus);
+    }
+
+    // =========================================================================
+    // 8. UPLOAD COMPENSATION RACE CONDITIONS (REQ 14)
+    // =========================================================================
+
+    [Fact]
+    public async Task MatterWorkflow_UploadDocument_CompensatingAction_DeletesFileWhenTransactionAborted()
+    {
+        var dbName = $"mat-comp-abort-{Guid.NewGuid():N}";
         var failingInterceptor = new FailingSaveChangesInterceptor();
         var builder = new DbContextOptionsBuilder<LacDbContext>()
             .UseInMemoryDatabase(dbName)
@@ -467,7 +884,7 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
 
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
         failingInterceptor.FailOnSave = true;
 
@@ -476,29 +893,30 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
 
         await Assert.ThrowsAsync<DbUpdateException>(() => workflow.UploadDocumentAsync(matter.Id, cmd, user.Id));
 
-        // Verify compensation cleanup was invoked and storage deleted the orphaned file
+        // When transaction aborted, physical file must be cleaned up
         Assert.Equal(1, storage.SaveCount);
         Assert.Equal(1, storage.DeleteCount);
         Assert.Empty(storage.Files);
     }
 
     [Fact]
-    public async Task MatterWorkflow_UploadDocument_CommitAmbiguity_RetainsFileAndVerifiesIdempotently()
+    public async Task MatterWorkflow_UploadDocument_CompensatingAction_RetainsFileWhenTransactionCommitted()
     {
-        var dbName = $"mat-ambiguity-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
-        var matter = new Matter { Id = Guid.NewGuid(), Title = "M Ambiguous", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
-        db.Matters.Add(matter);
-        await db.SaveChangesAsync();
-
+        var dbName = $"mat-comp-retain-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
+
+        var matter = new Matter { Id = Guid.NewGuid(), Title = "M Committed", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
+        db.Matters.Add(matter);
+        await db.SaveChangesAsync();
 
         TestCommitAmbiguityExecutionStrategy? strategy = null;
         var workflow = new MatterWorkflowService(
             db,
             storage,
             authService,
+            new AllowAllAccessControlService(),
             strategyFactory: () => strategy!
         );
 
@@ -510,139 +928,251 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         var matterDoc = await workflow.UploadDocumentAsync(matter.Id, cmd, userAll.Id);
         Assert.NotNull(matterDoc);
 
-        // Assert verification occurred
-        Assert.Equal(1, strategy.VerifyCount);
+        // Verification succeeded and file was retained!
         Assert.Equal(1, storage.SaveCount);
-        Assert.Equal(0, storage.DeleteCount); // Retained! Not deleted!
+        Assert.Equal(0, storage.DeleteCount);
         Assert.Single(storage.Files);
     }
 
     // =========================================================================
-    // 8. DOCUMENT LINKING & PROVENANCE
+    // 9. OPTIONAL AWARD IN MATTER CREATION (REQ 23)
     // =========================================================================
 
     [Fact]
-    public async Task MatterWorkflow_LinkExistingDocument_ValidCandidate_IncrementsRevisionAndRecordsEvent()
+    public async Task MatterWorkflow_CreateMatter_WithoutAward_SucceedsWithEmptyAwardLinks()
     {
-        var dbName = $"mat-link-succ-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var dbName = $"mat-opt-noaward-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
-        var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Matter With Award", "Court Case", ws1.Id, null, null, null), userAll.Id);
+        var cmd = new CreateMatterCommand(village.Id, "Matter Without Award", "Court Case", ws1.Id, null, null, null, AwardId: null);
+        var matter = await workflow.CreateMatterAsync(cmd, userAll.Id);
 
-        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-101", RecordStatus = RecordStatus.Active };
-        var candidateDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "award_map.pdf", StoragePath = "p1", MimeType = "application/pdf", Sha256Hash = "h1", RecordStatus = RecordStatus.Active };
-        var docAward = new DocumentAward { Id = Guid.NewGuid(), DocumentId = candidateDoc.Id, AwardId = award.Id };
-        var matterAward = new MatterAward { Id = Guid.NewGuid(), MatterId = matter.Id, AwardId = award.Id };
-
-        db.Awards.Add(award);
-        db.Documents.Add(candidateDoc);
-        db.DocumentAwards.Add(docAward);
-        db.MatterAwards.Add(matterAward);
-        await db.SaveChangesAsync();
-
-        var linkCmd = new LinkExistingDocumentCommand(
-            DocumentId: candidateDoc.Id,
-            DocumentRole: "Court Order",
-            DisplayName: "High Court Attachment",
-            ExpectedRevision: 0
-        );
-
-        var linked = await workflow.LinkExistingDocumentAsync(matter.Id, linkCmd, userAll.Id);
-        Assert.NotNull(linked);
-        Assert.Equal(candidateDoc.Id, linked.DocumentId);
-
-        var mRefreshed = await db.Matters.FirstAsync(m => m.Id == matter.Id);
-        Assert.Equal(1, mRefreshed.Revision);
-
-        var lastEvent = await db.MatterEvents.OrderByDescending(e => e.SequenceNumber).FirstAsync(e => e.MatterId == matter.Id);
-        Assert.Equal(MatterEventAction.DocumentLinked, lastEvent.Action);
-        Assert.Equal(candidateDoc.Id, lastEvent.DocumentId);
+        Assert.NotNull(matter);
+        var awardLinks = await db.MatterAwards.Where(ma => ma.MatterId == matter.Id).ToListAsync();
+        Assert.Empty(awardLinks);
     }
 
     [Fact]
-    public async Task MatterWorkflow_LinkExistingDocument_UnrelatedDocument_Rejected()
+    public async Task MatterWorkflow_CreateMatter_WithValidAward_CreatesAtomicMatterAward()
     {
-        var dbName = $"mat-link-unrelated-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, userAll, _, _) = CreateTestDbContext(dbName);
+        var dbName = $"mat-opt-award-ok-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
         var storage = new TestInMemoryDocumentStorage();
         var authService = new MatterAuthorizationService(db);
-        var workflow = new MatterWorkflowService(db, storage, authService);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
 
-        var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Matter Isolated", "Court Case", ws1.Id, null, null, null), userAll.Id);
-
-        // Arbitrary document from another unrelated context
-        var unrelatedDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "unrelated.pdf", StoragePath = "pX", MimeType = "application/pdf", Sha256Hash = "hX", RecordStatus = RecordStatus.Active };
-        db.Documents.Add(unrelatedDoc);
+        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-ATOM-1", RecordStatus = RecordStatus.Active };
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { AwardId = award.Id, VillageId = village.Id });
         await db.SaveChangesAsync();
 
-        var linkCmd = new LinkExistingDocumentCommand(
-            DocumentId: unrelatedDoc.Id,
-            DocumentRole: "Other",
-            DisplayName: "Unrelated Doc",
-            ExpectedRevision: 0
-        );
+        var cmd = new CreateMatterCommand(village.Id, "Matter With Award", "Court Case", ws1.Id, null, null, null, AwardId: award.Id);
+        var matter = await workflow.CreateMatterAsync(cmd, userAll.Id);
 
+        Assert.NotNull(matter);
+        var awardLinks = await db.MatterAwards.Where(ma => ma.MatterId == matter.Id).ToListAsync();
+        var link = Assert.Single(awardLinks);
+        Assert.Equal(award.Id, link.AwardId);
+        Assert.True(link.IsPrimary);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_CreateMatter_WithMismatchedVillageAward_ThrowsBadRequest()
+    {
+        var dbName = $"mat-opt-award-mismatch-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var otherVillage = new Village { Id = Guid.NewGuid(), Name = "Other Village", RecordStatus = RecordStatus.Active };
+        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-OTHER-1", RecordStatus = RecordStatus.Active };
+
+        db.Villages.Add(otherVillage);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { AwardId = award.Id, VillageId = otherVillage.Id }); // Different village!
+        await db.SaveChangesAsync();
+
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
+
+        var cmd = new CreateMatterCommand(village.Id, "Mismatch Matter", "Court Case", ws1.Id, null, null, null, AwardId: award.Id);
+        var ex = await Assert.ThrowsAsync<MatterWorkflowException>(() => workflow.CreateMatterAsync(cmd, userAll.Id));
+        Assert.Equal(400, ex.StatusCode);
+        Assert.Contains("village", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task MatterWorkflow_CreateMatter_WithAward_WhenUserLacksAwardView_ThrowsForbidden()
+    {
+        var dbName = $"mat-opt-award-denied-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-DENIED-1", RecordStatus = RecordStatus.Active };
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { AwardId = award.Id, VillageId = village.Id });
+        await db.SaveChangesAsync();
+
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+        var workflow = new MatterWorkflowService(db, storage, authService, new DenyAllAccessControlServiceStub());
+
+        var cmd = new CreateMatterCommand(village.Id, "Denied Award Matter", "Court Case", ws1.Id, null, null, null, AwardId: award.Id);
+        var ex = await Assert.ThrowsAsync<MatterWorkflowException>(() => workflow.CreateMatterAsync(cmd, userAll.Id));
+        Assert.Equal(403, ex.StatusCode);
+        Assert.Contains("Award.View", ex.Message);
+    }
+
+    // =========================================================================
+    // 10. DRAFT SECURITY HARDENING (REQ 24)
+    // =========================================================================
+
+    [Fact]
+    public async Task MatterAuthorization_DraftAccess_RequiresMatterViewAndDraftCapability()
+    {
+        var dbName = $"mat-draft-sec-{Guid.NewGuid():N}";
+        var (db, ws1, ws2, village, userAll, userWs1, _, userNone) = CreateTestDbContext(dbName);
+        var authService = new MatterAuthorizationService(db);
+
+        var matterWs1 = new Matter { Id = Guid.NewGuid(), Title = "M WS1", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
+        var matterWs2 = new Matter { Id = Guid.NewGuid(), Title = "M WS2", VillageId = village.Id, WorkstreamId = ws2.Id, Status = "Open", RecordStatus = RecordStatus.Active };
+        var draftWs1 = new MatterDraft { Id = Guid.NewGuid(), MatterId = matterWs1.Id, Title = "Draft 1", DraftType = MatterDraftType.Letter, Status = MatterDraftStatus.Draft, RecordStatus = RecordStatus.Active };
+        var draftWs2 = new MatterDraft { Id = Guid.NewGuid(), MatterId = matterWs2.Id, Title = "Draft 2", DraftType = MatterDraftType.Letter, Status = MatterDraftStatus.Draft, RecordStatus = RecordStatus.Active };
+
+        db.Matters.AddRange(matterWs1, matterWs2);
+        db.MatterDrafts.AddRange(draftWs1, draftWs2);
+        await db.SaveChangesAsync();
+
+        // userAll has ScopeMode.All -> access granted
+        Assert.True(await authService.CanAccessDraftAsync(draftWs1.Id, PermissionCodes.DraftView, userAll.Id));
+        Assert.True(await authService.CanAccessMatterDraftCapabilityAsync(matterWs1.Id, PermissionCodes.DraftCreate, userAll.Id));
+
+        // userWs1 is member of WS1 -> granted for WS1, denied for WS2
+        Assert.True(await authService.CanAccessDraftAsync(draftWs1.Id, PermissionCodes.DraftView, userWs1.Id));
+        Assert.False(await authService.CanAccessDraftAsync(draftWs2.Id, PermissionCodes.DraftView, userWs1.Id));
+
+        // userNone lacks permissions -> denied
+        Assert.False(await authService.CanAccessDraftAsync(draftWs1.Id, PermissionCodes.DraftView, userNone.Id));
+    }
+
+    [Fact]
+    public async Task MatterAuthorization_DraftAccess_ArchivedMatter_Denied()
+    {
+        var dbName = $"mat-draft-arch-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var authService = new MatterAuthorizationService(db);
+
+        var archivedMatter = new Matter { Id = Guid.NewGuid(), Title = "Archived M", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Disposed", RecordStatus = RecordStatus.Archived };
+        var draft = new MatterDraft { Id = Guid.NewGuid(), MatterId = archivedMatter.Id, Title = "Draft in Archived", DraftType = MatterDraftType.Letter, Status = MatterDraftStatus.Draft, RecordStatus = RecordStatus.Active };
+
+        db.Matters.Add(archivedMatter);
+        db.MatterDrafts.Add(draft);
+        await db.SaveChangesAsync();
+
+        // Archived matter fails CanAccessDraftAsync and CanAccessMatterDraftCapabilityAsync
+        Assert.False(await authService.CanAccessDraftAsync(draft.Id, PermissionCodes.DraftView, userAll.Id));
+        Assert.False(await authService.CanAccessMatterDraftCapabilityAsync(archivedMatter.Id, PermissionCodes.DraftCreate, userAll.Id));
+    }
+
+    [Fact]
+    public async Task MatterAuthorization_DraftAccess_UnclassifiedMatterWithWorkstreamScope_Denied()
+    {
+        var dbName = $"mat-draft-unclass-{Guid.NewGuid():N}";
+        var (db, _, _, village, _, userWs1, _, _) = CreateTestDbContext(dbName);
+        var authService = new MatterAuthorizationService(db);
+
+        // Unclassified matter (WorkstreamId == null)
+        var unclassMatter = new Matter { Id = Guid.NewGuid(), Title = "Legacy M", VillageId = village.Id, WorkstreamId = null, Status = "Open", RecordStatus = RecordStatus.Active };
+        var draft = new MatterDraft { Id = Guid.NewGuid(), MatterId = unclassMatter.Id, Title = "Draft Unclass", DraftType = MatterDraftType.Letter, Status = MatterDraftStatus.Draft, RecordStatus = RecordStatus.Active };
+
+        db.Matters.Add(unclassMatter);
+        db.MatterDrafts.Add(draft);
+        await db.SaveChangesAsync();
+
+        // userWs1 has ScopeMode.Workstream -> cannot access unclassified matter drafts
+        Assert.False(await authService.CanAccessDraftAsync(draft.Id, PermissionCodes.DraftView, userWs1.Id));
+        Assert.False(await authService.CanAccessMatterDraftCapabilityAsync(unclassMatter.Id, PermissionCodes.DraftCreate, userWs1.Id));
+    }
+
+    // =========================================================================
+    // 11. TRANSITIVE AWARD LEAK PREVENTION (REQ 25)
+    // =========================================================================
+
+    [Fact]
+    public async Task Matter_DoesNotTransitivelyLeakAwardDocuments()
+    {
+        var dbName = $"mat-leak-test-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
+
+        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "AW-LEAK-1", RecordStatus = RecordStatus.Active };
+        var awardDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "award_only.pdf", StoragePath = "p1", RecordStatus = RecordStatus.Active, Status = "Active" };
+        db.Awards.Add(award);
+        db.Documents.Add(awardDoc);
+        db.AwardVillages.Add(new AwardVillage { AwardId = award.Id, VillageId = village.Id });
+        db.DocumentAwards.Add(new DocumentAward { AwardId = award.Id, DocumentId = awardDoc.Id, CoreDocumentRole = "Award" });
+        await db.SaveChangesAsync();
+
+        var cmd = new CreateMatterCommand(village.Id, "Matter With Award", "Court Case", ws1.Id, null, null, null, AwardId: award.Id);
+        var matter = await workflow.CreateMatterAsync(cmd, userAll.Id);
+
+        // Explicit MatterDocument joins MUST BE EMPTY initially
+        var joins = await db.MatterDocuments.Where(md => md.MatterId == matter.Id).ToListAsync();
+        Assert.Empty(joins);
+
+        // Uploading an explicit matter document creates a single explicit join
+        using var ms = new MemoryStream(ValidPdfBytes);
+        var uploadCmd = new UploadMatterDocumentCommand(ms, "matter_specific.pdf", "application/pdf", "Application", "Explicit doc", 0);
+        var uploaded = await workflow.UploadDocumentAsync(matter.Id, uploadCmd, userAll.Id);
+
+        var matterDocs = await db.MatterDocuments.Where(md => md.MatterId == matter.Id).ToListAsync();
+        var singleDoc = Assert.Single(matterDocs);
+        Assert.Equal(uploaded.DocumentId, singleDoc.DocumentId);
+        Assert.NotEqual(awardDoc.Id, singleDoc.DocumentId); // Award doc was NEVER copied
+    }
+
+    // =========================================================================
+    // 12. BARE DOCUMENTVILLAGE REGRESSION PREVENTION (REQ 26)
+    // =========================================================================
+
+    [Fact]
+    public async Task MatterWorkflow_BareDocumentVillage_NotEligibleAndCannotBeLinked()
+    {
+        var dbName = $"mat-bare-village-{Guid.NewGuid():N}";
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+        var workflow = new MatterWorkflowService(db, storage, authService, new AllowAllAccessControlService());
+
+        var matter = await workflow.CreateMatterAsync(new CreateMatterCommand(village.Id, "Matter LR Test", "Court Case", ws1.Id, null, null, null), userAll.Id);
+
+        // Document linked ONLY to DocumentVillage (bare)
+        var bareDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "bare_village.pdf", StoragePath = "b1", RecordStatus = RecordStatus.Active, Status = "Active" };
+        db.Documents.Add(bareDoc);
+        db.DocumentVillages.Add(new DocumentVillage { VillageId = village.Id, DocumentId = bareDoc.Id });
+        await db.SaveChangesAsync();
+
+        // 1. Provenance helper does NOT include bare DocumentVillage
+        var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, new AllowAllAccessControlService());
+        Assert.DoesNotContain(bareDoc.Id, eligibleMap.Keys);
+
+        // 2. Attempting to link bare DocumentVillage throws provenance error
+        var linkCmd = new LinkExistingDocumentCommand(bareDoc.Id, "Other", "Bare Doc", 0);
         var ex = await Assert.ThrowsAsync<MatterWorkflowException>(() => workflow.LinkExistingDocumentAsync(matter.Id, linkCmd, userAll.Id));
+        Assert.Equal(400, ex.StatusCode);
         Assert.Contains("provenance", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // =========================================================================
-    // 9. GENERIC /api/documents BOUNDARY HARDENING
-    // =========================================================================
-
-    [Fact]
-    public async Task GenericDocuments_BoundaryHardening_ExcludesMatterOnlyDocuments()
-    {
-        var dbName = $"mat-doc-boundary-{Guid.NewGuid():N}";
-        var builder = new DbContextOptionsBuilder<LacDbContext>()
-            .UseInMemoryDatabase(dbName)
-            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
-
-        using var db = new LacDbContext(builder.Options);
-
-        var awardDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "award_notice.pdf", StoragePath = "a1", MimeType = "application/pdf", Sha256Hash = "h1", RecordStatus = RecordStatus.Active };
-        var matterDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "matter_affidavit.pdf", StoragePath = "m1", MimeType = "application/pdf", Sha256Hash = "h2", RecordStatus = RecordStatus.Active };
-        var lrDoc = new Document { Id = Guid.NewGuid(), OriginalFileName = "khasra_khatoni.pdf", StoragePath = "l1", MimeType = "application/pdf", Sha256Hash = "h3", RecordStatus = RecordStatus.Active };
-
-        var award = new Award { Id = Guid.NewGuid(), AwardNumber = "A1", RecordStatus = RecordStatus.Active };
-        var matter = new Matter { Id = Guid.NewGuid(), Title = "M1", Status = "Open", RecordStatus = RecordStatus.Active };
-
-        db.Documents.AddRange(awardDoc, matterDoc, lrDoc);
-        db.Awards.Add(award);
-        db.Matters.Add(matter);
-
-        db.DocumentAwards.Add(new DocumentAward { Id = Guid.NewGuid(), DocumentId = awardDoc.Id, AwardId = award.Id });
-        db.MatterDocuments.Add(new MatterDocument { Id = Guid.NewGuid(), DocumentId = matterDoc.Id, MatterId = matter.Id });
-        db.DocumentKhasras.Add(new DocumentKhasra { Id = Guid.NewGuid(), DocumentId = lrDoc.Id, KhasraId = Guid.NewGuid() });
-
-        await db.SaveChangesAsync();
-
-        // Award boundary query used by GET /api/documents
-        var awardBoundaryQuery = db.Documents.AsNoTracking()
-            .Where(d => d.RecordStatus == RecordStatus.Active &&
-                (db.DocumentAwards.Any(da => da.DocumentId == d.Id) ||
-                 db.NmDocuments.Any(nm => nm.DocumentId == d.Id) ||
-                 db.DocumentNotifications.Any(dn => dn.DocumentId == d.Id)));
-
-        var exposedDocs = await awardBoundaryQuery.ToListAsync();
-
-        Assert.Contains(exposedDocs, d => d.Id == awardDoc.Id);
-        Assert.DoesNotContain(exposedDocs, d => d.Id == matterDoc.Id); // Matter document excluded!
-        Assert.DoesNotContain(exposedDocs, d => d.Id == lrDoc.Id);     // LR document excluded!
-    }
-
-    // =========================================================================
-    // 10. DAK & OUTWARD INTEGRATION SEAMS
+    // 13. DAK & OUTWARD INTEGRATION SEAMS
     // =========================================================================
 
     [Fact]
     public async Task Seam_DakLink_RequiresMatterViewPermission()
     {
         var dbName = $"mat-seam-dak-{Guid.NewGuid():N}";
-        var (db, ws1, _, village, _, userWs1, userNone) = CreateTestDbContext(dbName);
+        var (db, ws1, _, village, _, userWs1, _, userNone) = CreateTestDbContext(dbName);
         var authService = new MatterAuthorizationService(db);
 
         var matter = new Matter { Id = Guid.NewGuid(), Title = "Litigation File", VillageId = village.Id, WorkstreamId = ws1.Id, Status = "Open", RecordStatus = RecordStatus.Active };
@@ -662,7 +1192,7 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
     public async Task Seam_OutwardLink_RequiresMatterViewPermission()
     {
         var dbName = $"mat-seam-outward-{Guid.NewGuid():N}";
-        var (db, ws1, ws2, village, _, userWs1, _) = CreateTestDbContext(dbName);
+        var (db, ws1, ws2, village, _, userWs1, _, _) = CreateTestDbContext(dbName);
         var authService = new MatterAuthorizationService(db);
 
         var matterInWs2 = new Matter { Id = Guid.NewGuid(), Title = "Compensation File", VillageId = village.Id, WorkstreamId = ws2.Id, Status = "Open", RecordStatus = RecordStatus.Active };

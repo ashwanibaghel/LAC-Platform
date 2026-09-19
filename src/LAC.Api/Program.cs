@@ -314,7 +314,7 @@ api.MapGet("/villages/{id:guid}/documents", async (Guid id, LacDbContext db, Can
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     return Results.Ok(await db.DocumentVillages.AsNoTracking()
-        .Where(link => link.VillageId == id && (link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)))
+        .Where(link => link.VillageId == id && link.Document.RecordStatus == RecordStatus.Active && link.Document.Status == "Active" && (link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)))
         .OrderByDescending(link => link.Document.UploadedAt)
         .Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToListAsync(ct));
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
@@ -408,7 +408,7 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
 api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) =>
 {
     var query = db.Documents.AsNoTracking()
-        .Where(x => x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .Where(x => x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
         .OrderByDescending(x => x.UploadedAt)
         .Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status));
     return Results.Ok(await ToPageAsync(query, page, pageSize, ct));
@@ -416,7 +416,7 @@ api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, Cancell
 api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking()
-        .Where(x => x.Id == id && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .Where(x => x.Id == id && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
         .SingleOrDefaultAsync(ct);
     // The NM review workspace stores the NM-document identifier, whereas this
     // generic viewer is given a stored-document identifier elsewhere. Resolve
@@ -430,7 +430,7 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
             .SingleOrDefaultAsync(ct);
         if (sourceDocumentId is not null)
             document = await db.Documents.AsNoTracking()
-                .Where(x => x.Id == sourceDocumentId.Value && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+                .Where(x => x.Id == sourceDocumentId.Value && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
                 .SingleOrDefaultAsync(ct);
     }
     if (document is null) return Results.NotFound();
@@ -488,7 +488,7 @@ api.MapGet("/villages/{id:guid}/matters", async (
     var baseQuery = db.Matters.AsNoTracking().Where(x => x.VillageId == id && x.RecordStatus == RecordStatus.Active);
     var auth = await matterAuth.AuthorizeListQueryAsync(baseQuery, PermissionCodes.MatterView, userId, false, ct);
     if (!auth.HasPermission)
-        return Results.Ok(Array.Empty<object>());
+        return Results.Forbid();
 
     var query = auth.Query;
 
@@ -537,20 +537,13 @@ api.MapPost("/villages/{id:guid}/matters", async (
         WorkstreamId: request.WorkstreamId.Value,
         ReferenceNumber: request.ReferenceNumber,
         Remarks: request.Remarks,
-        KhasraReferenceText: request.KhasraReferenceText
+        KhasraReferenceText: request.KhasraReferenceText,
+        AwardId: request.AwardId
     );
 
     try
     {
         var matter = await workflow.CreateMatterAsync(cmd, userId, ct);
-        if (request.AwardId is not null)
-        {
-            if (await db.AwardVillages.AnyAsync(x => x.AwardId == request.AwardId && x.VillageId == id, ct))
-            {
-                db.MatterAwards.Add(new MatterAward { MatterId = matter.Id, AwardId = request.AwardId.Value, IsPrimary = true });
-                await db.SaveChangesAsync(ct);
-            }
-        }
         return Results.Created($"/api/matters/{matter.Id}", new IdResponse(matter.Id));
     }
     catch (MatterWorkflowException ex)
@@ -561,14 +554,14 @@ api.MapPost("/villages/{id:guid}/matters", async (
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking()
-        .Where(x => x.Id == id && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .Where(x => x.Id == id && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
         .SingleOrDefaultAsync(ct);
     if (document is null)
     {
         var sourceDocumentId = await db.NmDocuments.AsNoTracking().Where(x => x.Id == id).Select(x => (Guid?)x.DocumentId).SingleOrDefaultAsync(ct);
         if (sourceDocumentId is not null)
             document = await db.Documents.AsNoTracking()
-                .Where(x => x.Id == sourceDocumentId.Value && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+                .Where(x => x.Id == sourceDocumentId.Value && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
                 .SingleOrDefaultAsync(ct);
     }
     if (document is null) return Results.NotFound();

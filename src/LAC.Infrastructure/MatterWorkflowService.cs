@@ -16,7 +16,8 @@ public sealed record CreateMatterCommand(
     Guid WorkstreamId,
     string? ReferenceNumber = null,
     string? Remarks = null,
-    string? KhasraReferenceText = null
+    string? KhasraReferenceText = null,
+    Guid? AwardId = null
 );
 
 public sealed record UpdateMatterMetadataCommand(
@@ -25,7 +26,8 @@ public sealed record UpdateMatterMetadataCommand(
     string? ReferenceNumber,
     string? Remarks,
     string? KhasraReferenceText,
-    int ExpectedRevision
+    int ExpectedRevision,
+    string? Status = null
 );
 
 public sealed record ReclassifyWorkstreamCommand(
@@ -59,17 +61,32 @@ public sealed class MatterWorkflowService(
     LacDbContext db,
     IDocumentStorage storage,
     IMatterAuthorizationService matterAuth,
-    IAccessControlService? accessControl = null,
+    IAccessControlService accessControl,
     Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
 {
+    private sealed class DenyAllAccessControlService : IAccessControlService
+    {
+        public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+    }
+
+    public MatterWorkflowService(
+        LacDbContext db,
+        IDocumentStorage storage,
+        IMatterAuthorizationService matterAuth)
+        : this(db, storage, matterAuth, new DenyAllAccessControlService(), null)
+    {
+    }
+
     public MatterWorkflowService(
         LacDbContext db,
         IDocumentStorage storage,
         IMatterAuthorizationService matterAuth,
         Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory)
-        : this(db, storage, matterAuth, null, strategyFactory)
+        : this(db, storage, matterAuth, new DenyAllAccessControlService(), strategyFactory)
     {
     }
+
     private async Task<TResult> ExecuteWorkflowTransactionAsync<TResult>(
         Func<CancellationToken, Task<TResult>> operation,
         Func<CancellationToken, Task<bool>> verifySucceeded,
@@ -110,83 +127,8 @@ public sealed class MatterWorkflowService(
 
     private async Task VerifyDocumentLinkingProvenanceAsync(Matter matter, Guid documentId, CancellationToken ct)
     {
-        var doc = await db.Documents.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct);
-        if (doc is null)
-            throw new MatterWorkflowException("Target document not found or inactive.", 404);
-
-        var canAward = accessControl == null || await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
-        var canLr = accessControl == null || await accessControl.CanAsync(PermissionCodes.LrView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.LandRecords), ct);
-
-        var proven = false;
-
-        if (canAward)
-        {
-            // Award linked to this Matter
-            var linkedAwardIds = await db.MatterAwards.AsNoTracking()
-                .Where(ma => ma.MatterId == matter.Id)
-                .Select(ma => ma.AwardId)
-                .ToListAsync(ct);
-
-            if (linkedAwardIds.Count > 0)
-            {
-                var isAwardDoc = await db.DocumentAwards.AsNoTracking()
-                    .AnyAsync(da => linkedAwardIds.Contains(da.AwardId) && da.DocumentId == documentId, ct);
-                if (isAwardDoc) proven = true;
-
-                if (!proven)
-                {
-                    var isNmDoc = await db.NmDocuments.AsNoTracking()
-                        .AnyAsync(nm => nm.AwardId.HasValue && linkedAwardIds.Contains(nm.AwardId.Value) && nm.DocumentId == documentId, ct);
-                    if (isNmDoc) proven = true;
-                }
-
-                if (!proven)
-                {
-                    var isNotifDoc = await db.AwardNotifications.AsNoTracking()
-                        .Where(an => linkedAwardIds.Contains(an.AwardId))
-                        .Join(db.DocumentNotifications.AsNoTracking(),
-                            an => an.NotificationId,
-                            dn => dn.NotificationId,
-                            (an, dn) => dn.DocumentId)
-                        .AnyAsync(did => did == documentId, ct);
-                    if (isNotifDoc) proven = true;
-                }
-            }
-        }
-
-        if (!proven && canLr)
-        {
-            var isVillageDoc = await db.DocumentVillages.AsNoTracking()
-                .AnyAsync(dv => dv.VillageId == matter.VillageId && dv.DocumentId == documentId, ct);
-            if (isVillageDoc) proven = true;
-
-            if (!proven)
-            {
-                var isVillageLrDoc = await db.VillageLRs.AsNoTracking()
-                    .Where(vlr => vlr.VillageId == matter.VillageId && vlr.RecordStatus == RecordStatus.Active)
-                    .Join(db.DocumentVillageLRs.AsNoTracking(),
-                        vlr => vlr.Id,
-                        dvlr => dvlr.VillageLRId,
-                        (vlr, dvlr) => dvlr.DocumentId)
-                    .AnyAsync(did => did == documentId, ct);
-                if (isVillageLrDoc) proven = true;
-            }
-
-            if (!proven)
-            {
-                var isKhatauniDoc = await db.KhatauniRecords.AsNoTracking()
-                    .Where(kr => kr.VillageId == matter.VillageId && kr.RecordStatus == RecordStatus.Active)
-                    .Join(db.DocumentKhatauniRecords.AsNoTracking(),
-                        kr => kr.Id,
-                        dkr => dkr.KhatauniRecordId,
-                        (kr, dkr) => dkr.DocumentId)
-                    .AnyAsync(did => did == documentId, ct);
-                if (isKhatauniDoc) proven = true;
-            }
-        }
-
-        if (!proven)
+        var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
+        if (!eligibleMap.ContainsKey(documentId))
         {
             throw new MatterWorkflowException("Document provenance not verified or permission denied for linking.", 400);
         }
@@ -216,12 +158,26 @@ public sealed class MatterWorkflowService(
         if (!canCreate)
             throw new MatterWorkflowException("You do not have permission to create a Matter in this workstream.", 403);
 
+        if (cmd.AwardId.HasValue)
+        {
+            var awardBelongsToVillage = await db.AwardVillages.AsNoTracking()
+                .AnyAsync(av => av.AwardId == cmd.AwardId.Value && av.VillageId == cmd.VillageId, ct);
+            if (!awardBelongsToVillage)
+                throw new MatterWorkflowException("Award does not belong to the selected village.", 400);
+
+            var canViewAward = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
+            if (!canViewAward)
+                throw new MatterWorkflowException("Caller lacks Award.View permission to associate this award.", 403);
+        }
+
         var actionUser = await db.AppUsers.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == currentUserId, ct)
             ?? throw new MatterWorkflowException("Current user not found.", 401);
 
         var matterId = Guid.NewGuid();
         var eventId = Guid.NewGuid();
+        var matterAwardId = cmd.AwardId.HasValue ? Guid.NewGuid() : Guid.Empty;
+        var now = DateTimeOffset.UtcNow;
 
         return await ExecuteWorkflowTransactionAsync(
             async opCt =>
@@ -241,9 +197,24 @@ public sealed class MatterWorkflowService(
                     Remarks = cmd.Remarks?.Trim(),
                     KhasraReferenceText = cmd.KhasraReferenceText?.Trim(),
                     CreatedBy = actionUser.DisplayName,
-                    UpdatedBy = actionUser.DisplayName
+                    UpdatedBy = actionUser.DisplayName,
+                    RecordStatus = RecordStatus.Active,
+                    CreatedAt = now,
+                    UpdatedAt = now
                 };
                 db.Matters.Add(matter);
+
+                if (cmd.AwardId.HasValue)
+                {
+                    var matterAward = new MatterAward
+                    {
+                        Id = matterAwardId,
+                        MatterId = matterId,
+                        AwardId = cmd.AwardId.Value,
+                        IsPrimary = true
+                    };
+                    db.MatterAwards.Add(matterAward);
+                }
 
                 var createdEvent = new MatterEvent
                 {
@@ -253,7 +224,7 @@ public sealed class MatterWorkflowService(
                     Action = MatterEventAction.Created,
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                    ActionAt = DateTimeOffset.UtcNow
+                    ActionAt = now
                 };
                 db.MatterEvents.Add(createdEvent);
 
@@ -268,7 +239,16 @@ public sealed class MatterWorkflowService(
 
                 var eventExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.SequenceNumber == 1 && e.Action == MatterEventAction.Created, verifyCt);
-                return eventExists;
+                if (!eventExists) return false;
+
+                if (cmd.AwardId.HasValue)
+                {
+                    var maExists = await db.MatterAwards.AsNoTracking()
+                        .AnyAsync(ma => ma.Id == matterAwardId && ma.MatterId == matterId && ma.AwardId == cmd.AwardId.Value, verifyCt);
+                    if (!maExists) return false;
+                }
+
+                return true;
             },
             ct);
     }
@@ -299,7 +279,7 @@ public sealed class MatterWorkflowService(
                 db.ChangeTracker.Clear();
 
                 var matter = await LockMatterAsync(matterId, opCt);
-                if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+                if (matter.RecordStatus == RecordStatus.Archived)
                     throw new MatterWorkflowException("Cannot update an archived matter.", 409);
 
                 if (matter.Revision != cmd.ExpectedRevision)
@@ -315,6 +295,10 @@ public sealed class MatterWorkflowService(
                 matter.ReferenceNumber = cmd.ReferenceNumber?.Trim();
                 matter.Remarks = cmd.Remarks?.Trim();
                 matter.KhasraReferenceText = cmd.KhasraReferenceText?.Trim();
+                if (!string.IsNullOrWhiteSpace(cmd.Status))
+                {
+                    matter.Status = cmd.Status.Trim();
+                }
                 matter.Revision++;
                 matter.UpdatedBy = actionUser.DisplayName;
                 matter.UpdatedAt = DateTimeOffset.UtcNow;
@@ -337,9 +321,6 @@ public sealed class MatterWorkflowService(
             async verifyCt =>
             {
                 db.ChangeTracker.Clear();
-                var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId, verifyCt);
-                if (matter is null || matter.Revision != cmd.ExpectedRevision + 1) return false;
-
                 var evExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.MetadataUpdated, verifyCt);
                 return evExists;
@@ -376,7 +357,7 @@ public sealed class MatterWorkflowService(
                 db.ChangeTracker.Clear();
 
                 var matter = await LockMatterAsync(matterId, opCt);
-                if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+                if (matter.RecordStatus == RecordStatus.Archived)
                     throw new MatterWorkflowException("Cannot reclassify an archived matter.", 409);
 
                 if (matter.Revision != cmd.ExpectedRevision)
@@ -414,10 +395,6 @@ public sealed class MatterWorkflowService(
             async verifyCt =>
             {
                 db.ChangeTracker.Clear();
-                var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId, verifyCt);
-                if (matter is null || matter.Revision != cmd.ExpectedRevision + 1 || matter.WorkstreamId != cmd.TargetWorkstreamId)
-                    return false;
-
                 var evExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.WorkstreamReclassified && e.TargetWorkstreamId == cmd.TargetWorkstreamId, verifyCt);
                 return evExists;
@@ -461,7 +438,7 @@ public sealed class MatterWorkflowService(
                     db.ChangeTracker.Clear();
 
                     var matter = await LockMatterAsync(matterId, opCt);
-                    if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+                    if (matter.RecordStatus == RecordStatus.Archived)
                         throw new MatterWorkflowException("Cannot add documents to an archived matter.", 409);
 
                     if (matter.Revision != cmd.ExpectedRevision)
@@ -526,15 +503,6 @@ public sealed class MatterWorkflowService(
                 async verifyCt =>
                 {
                     db.ChangeTracker.Clear();
-                    var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId, verifyCt);
-                    if (matter is null || matter.Revision != cmd.ExpectedRevision + 1) return false;
-
-                    var docExists = await db.Documents.AsNoTracking().AnyAsync(d => d.Id == documentId, verifyCt);
-                    if (!docExists) return false;
-
-                    var mdExists = await db.MatterDocuments.AsNoTracking().AnyAsync(md => md.Id == matterDocId, verifyCt);
-                    if (!mdExists) return false;
-
                     var evExists = await db.MatterEvents.AsNoTracking()
                         .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentUploaded && e.DocumentId == documentId && e.MatterDocumentId == matterDocId, verifyCt);
                     return evExists;
@@ -545,7 +513,21 @@ public sealed class MatterWorkflowService(
         {
             if (savedStoragePath is not null)
             {
-                try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { /* best effort */ }
+                var committed = false;
+                try
+                {
+                    committed = await db.MatterEvents.AsNoTracking()
+                        .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentUploaded);
+                }
+                catch
+                {
+                    committed = true;
+                }
+
+                if (!committed)
+                {
+                    try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { /* best effort */ }
+                }
             }
             throw;
         }
@@ -573,7 +555,7 @@ public sealed class MatterWorkflowService(
                 db.ChangeTracker.Clear();
 
                 var matter = await LockMatterAsync(matterId, opCt);
-                if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+                if (matter.RecordStatus == RecordStatus.Archived)
                     throw new MatterWorkflowException("Cannot link documents to an archived matter.", 409);
 
                 if (matter.Revision != cmd.ExpectedRevision)
@@ -629,12 +611,6 @@ public sealed class MatterWorkflowService(
             async verifyCt =>
             {
                 db.ChangeTracker.Clear();
-                var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId, verifyCt);
-                if (matter is null || matter.Revision != cmd.ExpectedRevision + 1) return false;
-
-                var mdExists = await db.MatterDocuments.AsNoTracking().AnyAsync(md => md.Id == matterDocId, verifyCt);
-                if (!mdExists) return false;
-
                 var evExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentLinked && e.DocumentId == cmd.DocumentId && e.MatterDocumentId == matterDocId, verifyCt);
                 return evExists;
@@ -666,7 +642,7 @@ public sealed class MatterWorkflowService(
                 db.ChangeTracker.Clear();
 
                 var matter = await LockMatterAsync(matterId, opCt);
-                if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+                if (matter.RecordStatus == RecordStatus.Archived)
                     throw new MatterWorkflowException("Matter is already archived.", 409);
 
                 if (matter.Revision != cmd.ExpectedRevision)
@@ -677,7 +653,6 @@ public sealed class MatterWorkflowService(
                     .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
                 var seq = maxSeq + 1;
 
-                matter.Status = "Archived";
                 matter.RecordStatus = RecordStatus.Archived;
                 if (!string.IsNullOrWhiteSpace(cmd.Reason))
                 {
@@ -707,10 +682,6 @@ public sealed class MatterWorkflowService(
             async verifyCt =>
             {
                 db.ChangeTracker.Clear();
-                var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId, verifyCt);
-                if (matter is null || matter.Revision != cmd.ExpectedRevision + 1 || matter.Status != "Archived")
-                    return false;
-
                 var evExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.Archived, verifyCt);
                 return evExists;

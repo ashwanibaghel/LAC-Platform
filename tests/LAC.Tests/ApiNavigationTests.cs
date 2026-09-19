@@ -67,8 +67,15 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         var first = await Create("Dharambir"); var second = await Create("Second matter");
         var firstDetail = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{first}");
         var secondDetail = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{second}");
-        Assert.Equal(document.Id.ToString(), firstDetail.GetProperty("award").GetProperty("documents")[0].GetProperty("documentId").GetString());
-        Assert.Equal(document.Id.ToString(), secondDetail.GetProperty("award").GetProperty("documents")[0].GetProperty("documentId").GetString());
+        Assert.Equal(award.Id.ToString(), firstDetail.GetProperty("award").GetProperty("awardId").GetString());
+        Assert.Equal(award.Id.ToString(), secondDetail.GetProperty("award").GetProperty("awardId").GetString());
+        Assert.False(firstDetail.GetProperty("award").TryGetProperty("documents", out _));
+
+        var firstEligible = await _client.GetFromJsonAsync<List<JsonElement>>($"/api/matters/{first}/eligible-documents");
+        var secondEligible = await _client.GetFromJsonAsync<List<JsonElement>>($"/api/matters/{second}/eligible-documents");
+        Assert.Contains(firstEligible!, d => d.GetProperty("id").GetString() == document.Id.ToString());
+        Assert.Contains(secondEligible!, d => d.GetProperty("id").GetString() == document.Id.ToString());
+
         using var verify = _factory.Services.CreateScope(); Assert.Equal(1, await verify.ServiceProvider.GetRequiredService<LacDbContext>().Documents.CountAsync(x => x.Id == document.Id));
     }
 
@@ -105,8 +112,10 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var village = await db.Villages.FirstAsync();
             var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            var vlr = new VillageLR { VillageId = village.Id, RegisterReference = "REG-VLR" };
+            db.VillageLRs.Add(vlr);
             var matter = new Matter { VillageId = village.Id, WorkstreamId = ws.Id, Title = "Matter document test" }; var allowed = new Document { OriginalFileName = "allowed.pdf", StoragePath = "allowed.pdf" }; var unrelated = new Document { OriginalFileName = "other.pdf", StoragePath = "other.pdf" };
-            db.AddRange(matter, allowed, unrelated); db.Add(new DocumentVillage { Document = allowed, VillageId = village.Id }); await db.SaveChangesAsync(); matterId = matter.Id; allowedId = allowed.Id; unrelatedId = unrelated.Id;
+            db.AddRange(matter, allowed, unrelated); db.Add(new DocumentVillageLR { Document = allowed, VillageLR = vlr }); await db.SaveChangesAsync(); matterId = matter.Id; allowedId = allowed.Id; unrelatedId = unrelated.Id;
         }
         using var allowedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = allowedId, role = "Application" });
         Assert.Equal(System.Net.HttpStatusCode.NoContent, allowedResponse.StatusCode);

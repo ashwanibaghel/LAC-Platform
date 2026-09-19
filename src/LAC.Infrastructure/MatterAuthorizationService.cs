@@ -37,6 +37,12 @@ public interface IMatterAuthorizationService
         Guid userId,
         CancellationToken ct = default);
 
+    Task<bool> CanAccessMatterDraftCapabilityAsync(
+        Guid matterId,
+        string draftPermissionCode,
+        Guid userId,
+        CancellationToken ct = default);
+
     Task<bool> CanAccessMatterDocumentAsync(
         Guid matterId,
         Guid documentId,
@@ -81,7 +87,7 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
         if (scopes.Contains(ScopeMode.All))
             return new MatterListAuthorizationResult(true, query);
 
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned))
+        if (scopes.Contains(ScopeMode.Workstream))
         {
             var userWorkstreamIds = await db.UserWorkstreamMemberships.AsNoTracking()
                 .Where(m => m.UserId == userId
@@ -112,7 +118,7 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
         var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(m => m.Id == matterId, ct);
         if (matter is null) return false;
 
-        if (matter.RecordStatus == RecordStatus.Inactive)
+        if (matter.RecordStatus != RecordStatus.Active)
             return false;
 
         var scopes = await (
@@ -130,7 +136,7 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
 
         if (scopes.Contains(ScopeMode.All)) return true;
 
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned))
+        if (scopes.Contains(ScopeMode.Workstream))
         {
             if (!matter.WorkstreamId.HasValue) return false;
 
@@ -175,7 +181,7 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
 
         if (scopes.Contains(ScopeMode.All)) return true;
 
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned))
+        if (scopes.Contains(ScopeMode.Workstream))
         {
             return await db.UserWorkstreamMemberships.AsNoTracking()
                 .AnyAsync(m => m.UserId == userId
@@ -225,7 +231,7 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
         // Legacy null WorkstreamId can ONLY be classified by ScopeMode.All
         if (!matter.WorkstreamId.HasValue) return false;
 
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned))
+        if (scopes.Contains(ScopeMode.Workstream))
         {
             var userWorkstreamIds = await db.UserWorkstreamMemberships.AsNoTracking()
                 .Where(m => m.UserId == userId
@@ -236,6 +242,55 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
                 .ToListAsync(ct);
 
             return userWorkstreamIds.Contains(matter.WorkstreamId.Value) && userWorkstreamIds.Contains(targetWorkstreamId);
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessMatterDraftCapabilityAsync(
+        Guid matterId,
+        string draftPermissionCode,
+        Guid userId,
+        CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        // 1. Caller must have Matter.View on exact parent active Matter (CanAccessMatterAsync enforces RecordStatus == Active)
+        var canViewMatter = await CanAccessMatterAsync(matterId, PermissionCodes.MatterView, userId, ct);
+        if (!canViewMatter) return false;
+
+        var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(m => m.Id == matterId, ct);
+        if (matter is null || matter.RecordStatus != RecordStatus.Active) return false;
+
+        // 2. Draft capability on parent Workstream
+        var scopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == draftPermissionCode
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            if (!matter.WorkstreamId.HasValue) return false;
+
+            return await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.WorkstreamId == matter.WorkstreamId.Value
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
         }
 
         return false;
@@ -253,43 +308,11 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
         if (!isUserActive) return false;
 
         var draft = await db.MatterDrafts.AsNoTracking()
-            .Include(d => d.Matter)
             .SingleOrDefaultAsync(d => d.Id == draftId, ct);
 
         if (draft is null || draft.RecordStatus != RecordStatus.Active) return false;
 
-        // Caller must have Matter.View on the parent Matter
-        var canViewMatter = await CanAccessMatterAsync(draft.MatterId, PermissionCodes.MatterView, userId, ct);
-        if (!canViewMatter) return false;
-
-        var scopes = await (
-            from ur in db.UserRoles
-            join r in db.Roles on ur.RoleId equals r.Id
-            join rp in db.RolePermissions on r.Id equals rp.RoleId
-            join p in db.Permissions on rp.PermissionId equals p.Id
-            where ur.UserId == userId
-               && r.IsActive && r.RecordStatus == RecordStatus.Active
-               && p.Code == draftPermissionCode
-            select rp.ScopeMode
-        ).Distinct().ToListAsync(ct);
-
-        if (scopes.Count == 0) return false;
-
-        if (scopes.Contains(ScopeMode.All)) return true;
-
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned))
-        {
-            if (!draft.Matter.WorkstreamId.HasValue) return false;
-
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId
-                            && m.WorkstreamId == draft.Matter.WorkstreamId.Value
-                            && m.IsActive
-                            && m.Workstream.IsActive
-                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
-        }
-
-        return false;
+        return await CanAccessMatterDraftCapabilityAsync(draft.MatterId, draftPermissionCode, userId, ct);
     }
 
     public async Task<bool> CanAccessMatterDocumentAsync(

@@ -86,6 +86,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
   // Edit State
   const [editTitle, setEditTitle] = useState("");
+  const [editStatus, setEditStatus] = useState("");
   const [editRefNo, setEditRefNo] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
   const [editKhasraRef, setEditKhasraRef] = useState("");
@@ -140,6 +141,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           setMatter(mData);
           setDocuments(dData);
           setEditTitle(mData.title);
+          setEditStatus(mData.status || "Open");
           setEditRefNo(mData.referenceNumber || "");
           setEditRemarks(mData.remarks || "");
           setEditKhasraRef(mData.khasraReferenceText || "");
@@ -202,6 +204,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         credentials: "include",
         body: JSON.stringify({
           title: editTitle.trim(),
+          status: editStatus.trim() || null,
           referenceNumber: editRefNo.trim() || null,
           remarks: editRemarks.trim() || null,
           khasraReferenceText: editKhasraRef.trim() || null,
@@ -449,7 +452,16 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           <div className="matter-actions-strip">
             {canEdit && (
               <>
-                <button onClick={() => setShowEditModal(true)}>Edit Details</button>
+                <button onClick={() => {
+                  if (matter) {
+                    setEditTitle(matter.title);
+                    setEditStatus(matter.status || "Open");
+                    setEditRefNo(matter.referenceNumber || "");
+                    setEditRemarks(matter.remarks || "");
+                    setEditKhasraRef(matter.khasraReferenceText || "");
+                  }
+                  setShowEditModal(true);
+                }}>Edit Details</button>
                 <button onClick={() => setShowReclassifyModal(true)}>Reclassify Workstream</button>
               </>
             )}
@@ -724,6 +736,16 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 </label>
 
                 <label>
+                  Status
+                  <input
+                    type="text"
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value)}
+                    placeholder="e.g. Open, Pending, Disposed"
+                  />
+                </label>
+
+                <label>
                   Reference Number
                   <input
                     type="text"
@@ -732,7 +754,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   />
                 </label>
 
-                <label>
+                <label style={{ gridColumn: "span 2" }}>
                   Khasra Reference
                   <input
                     type="text"

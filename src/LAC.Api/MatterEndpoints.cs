@@ -40,13 +40,7 @@ public static class MatterEndpoints
             var auth = await matterAuth.AuthorizeListQueryAsync(baseQuery, PermissionCodes.MatterView, userId, false, ct);
             if (!auth.HasPermission)
             {
-                return Results.Ok(new
-                {
-                    items = Array.Empty<object>(),
-                    totalCount = 0,
-                    page = page ?? 1,
-                    pageSize = pageSize ?? 20
-                });
+                return Results.Forbid();
             }
 
             var query = auth.Query;
@@ -170,29 +164,13 @@ public static class MatterEndpoints
                 WorkstreamId: request.WorkstreamId.Value,
                 ReferenceNumber: request.ReferenceNumber,
                 Remarks: request.Remarks,
-                KhasraReferenceText: request.KhasraReferenceText
+                KhasraReferenceText: request.KhasraReferenceText,
+                AwardId: request.AwardId
             );
 
             try
             {
                 var matter = await workflow.CreateMatterAsync(cmd, userId, ct);
-
-                if (request.AwardId.HasValue)
-                {
-                    var awardValid = await db.AwardVillages.AsNoTracking()
-                        .AnyAsync(av => av.AwardId == request.AwardId.Value && av.VillageId == request.VillageId, ct);
-                    if (awardValid)
-                    {
-                        db.MatterAwards.Add(new MatterAward
-                        {
-                            MatterId = matter.Id,
-                            AwardId = request.AwardId.Value,
-                            IsPrimary = true
-                        });
-                        await db.SaveChangesAsync(ct);
-                    }
-                }
-
                 return Results.Created($"/api/matters/{matter.Id}", new { id = matter.Id });
             }
             catch (MatterWorkflowException ex)
@@ -240,13 +218,7 @@ public static class MatterEndpoints
                     award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new
                     {
                         a.AwardId,
-                        a.Award.AwardNumber,
-                        documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new
-                        {
-                            d.DocumentId,
-                            role = d.CoreDocumentRole,
-                            d.Document.OriginalFileName
-                        }).ToList()
+                        a.Award.AwardNumber
                     }).FirstOrDefault()
                 })
                 .FirstOrDefaultAsync(ct);
@@ -276,7 +248,8 @@ public static class MatterEndpoints
                 ReferenceNumber: request.ReferenceNumber,
                 Remarks: request.Remarks,
                 KhasraReferenceText: request.KhasraReferenceText,
-                ExpectedRevision: request.ExpectedRevision
+                ExpectedRevision: request.ExpectedRevision,
+                Status: request.Status
             );
 
             try
@@ -287,6 +260,7 @@ public static class MatterEndpoints
                     id = updated.Id,
                     title = updated.Title,
                     matterType = updated.MatterType,
+                    status = updated.Status,
                     referenceNumber = updated.ReferenceNumber,
                     remarks = updated.Remarks,
                     khasraReferenceText = updated.KhasraReferenceText,
@@ -385,7 +359,7 @@ public static class MatterEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.DraftView, userId, ct))
+            if (!await matterAuth.CanAccessMatterDraftCapabilityAsync(id, PermissionCodes.DraftView, userId, ct))
                 return Results.Forbid();
 
             var exists = await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id && x.RecordStatus == RecordStatus.Active, ct);
@@ -419,12 +393,11 @@ public static class MatterEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.DraftCreate, userId, ct))
+            if (!await matterAuth.CanAccessMatterDraftCapabilityAsync(id, PermissionCodes.DraftCreate, userId, ct))
                 return Results.Forbid();
 
             var matter = await db.Matters.FirstOrDefaultAsync(x => x.Id == id && x.RecordStatus == RecordStatus.Active, ct);
             if (matter is null) return Results.NotFound(new { message = "Matter not found." });
-            if (matter.Status == "Archived") return Results.BadRequest(new { message = "Cannot add drafts to an archived matter." });
 
             if (string.IsNullOrWhiteSpace(request.Title))
                 return Results.BadRequest(new { message = "Draft title is required." });
@@ -567,66 +540,12 @@ public static class MatterEndpoints
                 .Select(md => md.DocumentId)
                 .ToListAsync(ct);
 
-            var canAward = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
-            var canLr = await accessControl.CanAsync(PermissionCodes.LrView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.LandRecords), ct);
+            var docSourceMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
 
-            var candidateDocIds = new HashSet<Guid>();
-            var docSourceMap = new Dictionary<Guid, string>();
-
-            if (canAward)
-            {
-                var linkedAwardIds = await db.MatterAwards.AsNoTracking()
-                    .Where(ma => ma.MatterId == id)
-                    .Select(ma => ma.AwardId)
-                    .ToListAsync(ct);
-
-                if (linkedAwardIds.Count > 0)
-                {
-                    var awardDocIds = await db.DocumentAwards.AsNoTracking()
-                        .Where(da => linkedAwardIds.Contains(da.AwardId))
-                        .Select(da => da.DocumentId)
-                        .ToListAsync(ct);
-                    foreach (var did in awardDocIds) { candidateDocIds.Add(did); docSourceMap[did] = "Selected Award"; }
-
-                    var nmDocIds = await db.NmDocuments.AsNoTracking()
-                        .Where(nm => nm.AwardId.HasValue && linkedAwardIds.Contains(nm.AwardId.Value))
-                        .Select(nm => nm.DocumentId)
-                        .ToListAsync(ct);
-                    foreach (var did in nmDocIds) { candidateDocIds.Add(did); docSourceMap[did] = "Selected Award NM"; }
-
-                    var notifDocIds = await db.AwardNotifications.AsNoTracking()
-                        .Where(an => linkedAwardIds.Contains(an.AwardId))
-                        .Join(db.DocumentNotifications.AsNoTracking(), an => an.NotificationId, dn => dn.NotificationId, (an, dn) => dn.DocumentId)
-                        .ToListAsync(ct);
-                    foreach (var did in notifDocIds) { candidateDocIds.Add(did); docSourceMap[did] = "Selected Award Notification"; }
-                }
-            }
-
-            if (canLr)
-            {
-                var villageDocIds = await db.DocumentVillages.AsNoTracking()
-                    .Where(dv => dv.VillageId == matter.VillageId)
-                    .Select(dv => dv.DocumentId)
-                    .ToListAsync(ct);
-                foreach (var did in villageDocIds) { candidateDocIds.Add(did); docSourceMap.TryAdd(did, "Village Document"); }
-
-                var villageLrDocIds = await db.VillageLRs.AsNoTracking()
-                    .Where(vlr => vlr.VillageId == matter.VillageId && vlr.RecordStatus == RecordStatus.Active)
-                    .Join(db.DocumentVillageLRs.AsNoTracking(), vlr => vlr.Id, dvlr => dvlr.VillageLRId, (vlr, dvlr) => dvlr.DocumentId)
-                    .ToListAsync(ct);
-                foreach (var did in villageLrDocIds) { candidateDocIds.Add(did); docSourceMap.TryAdd(did, "Village LR"); }
-
-                var khatauniDocIds = await db.KhatauniRecords.AsNoTracking()
-                    .Where(kr => kr.VillageId == matter.VillageId && kr.RecordStatus == RecordStatus.Active)
-                    .Join(db.DocumentKhatauniRecords.AsNoTracking(), kr => kr.Id, dkr => dkr.KhatauniRecordId, (kr, dkr) => dkr.DocumentId)
-                    .ToListAsync(ct);
-                foreach (var did in khatauniDocIds) { candidateDocIds.Add(did); docSourceMap.TryAdd(did, "Village Khatauni"); }
-            }
-
-            var unlinkedCandidateIds = candidateDocIds.Except(alreadyLinkedIds).ToList();
+            var unlinkedCandidateIds = docSourceMap.Keys.Except(alreadyLinkedIds).ToList();
 
             var docs = await db.Documents.AsNoTracking()
-                .Where(d => unlinkedCandidateIds.Contains(d.Id) && d.RecordStatus == RecordStatus.Active)
+                .Where(d => unlinkedCandidateIds.Contains(d.Id) && d.RecordStatus == RecordStatus.Active && d.Status == "Active")
                 .OrderByDescending(d => d.UploadedAt)
                 .Select(d => new
                 {
@@ -710,7 +629,7 @@ public static class MatterEndpoints
                 return Results.BadRequest(new { message = "Select only documents explicitly linked to this Matter." });
 
             var docs = await db.Documents.AsNoTracking()
-                .Where(x => requested.Contains(x.Id) && x.RecordStatus == RecordStatus.Active)
+                .Where(x => requested.Contains(x.Id) && x.RecordStatus == RecordStatus.Active && x.Status == "Active")
                 .ToListAsync(ct);
 
             var tempPath = Path.Combine(Path.GetTempPath(), $"lac-matter-{Guid.NewGuid():N}.zip");
@@ -804,7 +723,7 @@ public static class MatterEndpoints
             ).Distinct().ToListAsync(ct);
 
             List<object> workstreams;
-            if (createScopes.Contains(ScopeMode.All) || createScopes.Contains(ScopeMode.Assigned))
+            if (createScopes.Contains(ScopeMode.All))
             {
                 workstreams = await db.Workstreams.AsNoTracking()
                     .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
@@ -812,7 +731,7 @@ public static class MatterEndpoints
                     .Select(w => (object)new { id = w.Id, name = w.Name, code = w.Code })
                     .ToListAsync(ct);
             }
-            else
+            else if (createScopes.Contains(ScopeMode.Workstream))
             {
                 workstreams = await db.UserWorkstreamMemberships.AsNoTracking()
                     .Where(m => m.UserId == userId
@@ -822,6 +741,10 @@ public static class MatterEndpoints
                     .OrderBy(m => m.Workstream.Name)
                     .Select(m => (object)new { id = m.WorkstreamId, name = m.Workstream.Name, code = m.Workstream.Code })
                     .ToListAsync(ct);
+            }
+            else
+            {
+                return Results.Forbid();
             }
 
             return Results.Ok(new
@@ -945,7 +868,8 @@ public sealed record UpdateMatterMetadataApiRequest(
     string? ReferenceNumber,
     string? Remarks,
     string? KhasraReferenceText,
-    int ExpectedRevision
+    int ExpectedRevision,
+    string? Status = null
 );
 
 public sealed record ReclassifyMatterApiRequest(
