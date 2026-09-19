@@ -937,11 +937,16 @@ public static class RbacEndpoints
 
         admin.MapPost("/users/{userId:guid}/desks/{membershipId:guid}/set-primary", async (Guid userId, Guid membershipId, LacDbContext db, CancellationToken ct) =>
         {
-            var membership = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.Id == membershipId && m.UserId == userId && m.RecordStatus == RecordStatus.Active, ct);
+            var membership = await db.UserDeskMemberships
+                .Include(m => m.OfficeDesk)
+                .FirstOrDefaultAsync(m => m.Id == membershipId && m.UserId == userId && m.RecordStatus == RecordStatus.Active, ct);
             if (membership is null) return Results.NotFound();
 
             if (!membership.IsActive)
                 return Results.BadRequest(new { message = "Cannot set an inactive desk membership as primary." });
+
+            if (membership.OfficeDesk is null || !membership.OfficeDesk.IsActive || membership.OfficeDesk.RecordStatus != RecordStatus.Active)
+                return Results.BadRequest(new { message = "Cannot set an inactive or unavailable office desk as primary." });
 
             var otherPrimaries = await db.UserDeskMemberships
                 .Where(m => m.UserId == userId && m.Id != membershipId && m.IsActive && m.IsPrimary && m.RecordStatus == RecordStatus.Active)

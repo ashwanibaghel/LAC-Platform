@@ -413,6 +413,51 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
     }
 
     [Fact]
+    public async Task Inactive_office_desk_cannot_be_set_as_primary()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        // 1. Create User A
+        var username = $"user_inact_desk_{Guid.NewGuid():N}"[..18];
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Primary Test", "Pass!123456", null, null, null, null));
+        Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
+        var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 2. Create Desk A
+        var deskCode = $"DESK_INACT_{Guid.NewGuid():N}"[..14].ToUpperInvariant();
+        var createDeskRes = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest(deskCode, "Desk to Deactivate", null, null));
+        Assert.Equal(HttpStatusCode.Created, createDeskRes.StatusCode);
+        var deskId = (await createDeskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 3. Assign User A to Desk A (non-primary)
+        var assignRes = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId, IsPrimary: false));
+        Assert.Equal(HttpStatusCode.Created, assignRes.StatusCode);
+        var memId = (await assignRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 4. Deactivate Desk A
+        var toggleRes = await client.PostAsync($"/api/admin/desks/{deskId}/toggle-status", null);
+        Assert.Equal(HttpStatusCode.OK, toggleRes.StatusCode);
+
+        // 5. Call set-primary for that membership
+        var setPrimRes = await client.PostAsync($"/api/admin/users/{userId}/desks/{memId}/set-primary", null);
+
+        // 6. Expect 400 BadRequest
+        Assert.Equal(HttpStatusCode.BadRequest, setPrimRes.StatusCode);
+
+        // 7. Verify no invalid primary-state mutation occurred
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var membership = await db.UserDeskMemberships.FindAsync(memId);
+            Assert.NotNull(membership);
+            Assert.False(membership.IsPrimary); // Primary must NOT be set
+            Assert.True(membership.IsActive);   // Membership row itself was preserved and not mutated
+        }
+    }
+
+
+    [Fact]
     public async Task Inactive_desk_rejects_new_assignments()
     {
         using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
