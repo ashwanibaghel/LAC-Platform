@@ -1563,6 +1563,154 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         Assert.Single(storage.Files);
     }
 
+    [Fact]
+    public async Task Group22_H_Registration_commit_ambiguity_succeeds_even_if_dak_state_advanced_before_verification()
+    {
+        var dbName = $"dak-retry-h-{Guid.NewGuid():N}";
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+
+        var pdfBytes = "%PDF-1.4 advanced state test"u8.ToArray();
+        using var ms = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_RACE_REGISTER",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Race Register Test",
+            SenderName: "High Court",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Immediate,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: ms,
+            DocumentFileName: "scanned_petition.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        // Before verification evaluates, mutate the committed Dak to simulate another legitimate transaction advancing the aggregate
+        strategy = new TestCommitAmbiguityExecutionStrategy(
+            db,
+            simulateCommitAmbiguity: true,
+            maxRetries: 2,
+            onBeforeVerify: async () =>
+            {
+                var builder = new DbContextOptionsBuilder<LacDbContext>()
+                    .UseInMemoryDatabase(dbName)
+                    .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+                using var mutateDb = new LacDbContext(builder.Options);
+
+                var commitedDak = await mutateDb.Daks.SingleAsync(d => d.DiaryNumber == "DIARY_RACE_REGISTER");
+                // Advance status and revision
+                commitedDak.Status = DakStatus.InProcess;
+                commitedDak.Revision = 10;
+                await mutateDb.SaveChangesAsync();
+            });
+
+        var dak = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(dak);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Assert registration was recognized as committed despite later status/revision advancement
+        var daksInDb = await db.Daks.Where(d => d.DiaryNumber == "DIARY_RACE_REGISTER").ToListAsync();
+        Assert.Single(daksInDb);
+
+        // Assert physical file was NOT compensated/deleted
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(0, storage.DeleteCount);
+        Assert.Single(storage.Files);
+    }
+
+    [Fact]
+    public async Task Group22_I_Move_commit_ambiguity_succeeds_even_if_aggregate_advanced_before_verification()
+    {
+        var dbName = $"dak-retry-i-{Guid.NewGuid():N}";
+        var (db, adminUser, targetDesk, targetUser) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        var initialWorkflow = new DakWorkflowService(db, storage);
+
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_RACE_MOVE",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Race Move Test",
+            SenderName: "District Collector",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: null,
+            DocumentFileName: null,
+            DocumentContentType: null
+        );
+
+        var dak = await initialWorkflow.RegisterAsync(cmd, adminUser.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+
+        var moveCmd = new MoveDakCommand(
+            Action: DakMovementAction.Marked,
+            ToDeskId: targetDesk.Id,
+            ToUserId: targetUser.Id,
+            Remarks: "First Movement",
+            Instructions: null,
+            ExpectedRevision: 0
+        );
+
+        // Before verification evaluates, mutate the aggregate to simulate a later legitimate Forward/Dispose
+        strategy = new TestCommitAmbiguityExecutionStrategy(
+            db,
+            simulateCommitAmbiguity: true,
+            maxRetries: 2,
+            onBeforeVerify: async () =>
+            {
+                var builder = new DbContextOptionsBuilder<LacDbContext>()
+                    .UseInMemoryDatabase(dbName)
+                    .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+                using var mutateDb = new LacDbContext(builder.Options);
+
+                var commitedDak = await mutateDb.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
+                // Later transaction advanced the aggregate
+                commitedDak.Status = DakStatus.Disposed;
+                commitedDak.Revision = 99;
+                if (commitedDak.CurrentAssignment != null)
+                {
+                    commitedDak.CurrentAssignment.IsActive = false;
+                }
+                await mutateDb.SaveChangesAsync();
+            });
+
+        // Verification must still succeed because the immutable DakMovement committed
+        var moved = await workflow.MoveAsync(dak.Id, moveCmd, adminUser.Id);
+
+        Assert.NotNull(moved);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Verify the original movement exists immutably in the history
+        var moveRecorded = await db.DakMovements.AnyAsync(m => m.DakId == dak.Id
+                                                           && m.Action == DakMovementAction.Marked
+                                                           && m.ToDeskId == targetDesk.Id
+                                                           && m.ToUserId == targetUser.Id);
+        Assert.True(moveRecorded);
+    }
+
     private static async Task<(LacDbContext db, AppUser adminUser, OfficeDesk targetDesk, AppUser targetUser)> CreateWorkflowTestContextAsync(
         string dbName,
         params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
@@ -1715,7 +1863,8 @@ public sealed class TrackingSaveChangesInterceptor : Microsoft.EntityFrameworkCo
 public sealed class TestCommitAmbiguityExecutionStrategy(
     LacDbContext db,
     bool simulateCommitAmbiguity = true,
-    int maxRetries = 2) : Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy
+    int maxRetries = 2,
+    Func<Task>? onBeforeVerify = null) : Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy
 {
     public bool RetriesOnFailure => true;
     public int AttemptCount { get; private set; }
@@ -1747,6 +1896,11 @@ public sealed class TestCommitAmbiguityExecutionStrategy(
             }
             catch (DbUpdateException)
             {
+                if (onBeforeVerify != null)
+                {
+                    await onBeforeVerify();
+                }
+
                 if (verifySucceeded != null)
                 {
                     VerifyCount++;

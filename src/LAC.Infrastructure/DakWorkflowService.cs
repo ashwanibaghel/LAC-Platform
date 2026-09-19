@@ -197,7 +197,7 @@ public sealed class DakWorkflowService(
                     db.ChangeTracker.Clear();
 
                     var dakExists = await db.Daks.AsNoTracking()
-                        .AnyAsync(d => d.Id == dakId && d.Status == DakStatus.Registered, verifyCt);
+                        .AnyAsync(d => d.Id == dakId && (!documentId.HasValue || d.MainDocumentId == documentId.Value), verifyCt);
                     if (!dakExists) return false;
 
                     var movementExists = await db.DakMovements.AsNoTracking()
@@ -388,32 +388,12 @@ public sealed class DakWorkflowService(
             {
                 db.ChangeTracker.Clear();
 
-                var movementExists = await db.DakMovements.AsNoTracking()
+                return await db.DakMovements.AsNoTracking()
                     .AnyAsync(m => m.Id == movementId
                                 && m.DakId == dakId
-                                && m.Action == cmd.Action, verifyCt);
-                if (!movementExists) return false;
-
-                var dakState = await db.Daks.AsNoTracking()
-                    .Include(d => d.CurrentAssignment)
-                    .Where(d => d.Id == dakId)
-                    .Select(d => new
-                    {
-                        d.Revision,
-                        d.Status,
-                        AssignmentDeskId = d.CurrentAssignment != null ? (Guid?)d.CurrentAssignment.OfficeDeskId : null,
-                        AssignmentUserId = d.CurrentAssignment != null ? d.CurrentAssignment.AssignedUserId : null,
-                        AssignmentIsActive = d.CurrentAssignment != null && d.CurrentAssignment.IsActive
-                    })
-                    .FirstOrDefaultAsync(verifyCt);
-
-                if (dakState is null) return false;
-
-                return dakState.Revision == cmd.ExpectedRevision + 1
-                    && dakState.Status == DakStatus.InProcess
-                    && dakState.AssignmentDeskId == cmd.ToDeskId
-                    && dakState.AssignmentUserId == cmd.ToUserId
-                    && dakState.AssignmentIsActive;
+                                && m.Action == cmd.Action
+                                && m.ToDeskId == cmd.ToDeskId
+                                && m.ToUserId == cmd.ToUserId, verifyCt);
             },
             ct);
     }
@@ -510,28 +490,10 @@ public sealed class DakWorkflowService(
             {
                 db.ChangeTracker.Clear();
 
-                var movementExists = await db.DakMovements.AsNoTracking()
+                return await db.DakMovements.AsNoTracking()
                     .AnyAsync(m => m.Id == movementId
                                 && m.DakId == dakId
                                 && m.Action == DakMovementAction.Disposed, verifyCt);
-                if (!movementExists) return false;
-
-                var dakState = await db.Daks.AsNoTracking()
-                    .Include(d => d.CurrentAssignment)
-                    .Where(d => d.Id == dakId)
-                    .Select(d => new
-                    {
-                        d.Revision,
-                        d.Status,
-                        AssignmentIsActive = d.CurrentAssignment != null && d.CurrentAssignment.IsActive
-                    })
-                    .FirstOrDefaultAsync(verifyCt);
-
-                if (dakState is null) return false;
-
-                return dakState.Revision == cmd.ExpectedRevision + 1
-                    && dakState.Status == DakStatus.Disposed
-                    && !dakState.AssignmentIsActive;
             },
             ct);
     }
@@ -625,28 +587,10 @@ public sealed class DakWorkflowService(
             {
                 db.ChangeTracker.Clear();
 
-                var movementExists = await db.DakMovements.AsNoTracking()
+                return await db.DakMovements.AsNoTracking()
                     .AnyAsync(m => m.Id == movementId
                                 && m.DakId == dakId
                                 && m.Action == DakMovementAction.Cancelled, verifyCt);
-                if (!movementExists) return false;
-
-                var dakState = await db.Daks.AsNoTracking()
-                    .Include(d => d.CurrentAssignment)
-                    .Where(d => d.Id == dakId)
-                    .Select(d => new
-                    {
-                        d.Revision,
-                        d.Status,
-                        AssignmentIsActive = d.CurrentAssignment != null && d.CurrentAssignment.IsActive
-                    })
-                    .FirstOrDefaultAsync(verifyCt);
-
-                if (dakState is null) return false;
-
-                return dakState.Revision == cmd.ExpectedRevision + 1
-                    && dakState.Status == DakStatus.Cancelled
-                    && !dakState.AssignmentIsActive;
             },
             ct);
     }
