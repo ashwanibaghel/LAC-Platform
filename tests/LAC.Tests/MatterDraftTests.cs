@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using LAC.Domain;
 using LAC.Infrastructure;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -24,10 +25,19 @@ public sealed class MatterDraftTests : IClassFixture<ApiFactory>
         var village = await _client.GetFromJsonAsync<PageResponse<VillageListItem>>("/api/villages?page=0&pageSize=1");
         var villageId = Assert.Single(village!.Items).Id;
 
+        Guid workstreamId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            workstreamId = ws.Id;
+        }
+
         using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new
         {
             title = $"Test Matter {Guid.NewGuid()}",
             matterType = "Court Case",
+            workstreamId,
             status = "Open"
         });
         response.EnsureSuccessStatusCode();

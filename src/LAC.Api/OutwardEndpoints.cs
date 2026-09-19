@@ -167,6 +167,7 @@ public static class OutwardEndpoints
             LacDbContext db,
             IOutwardAuthorizationService outwardAuth,
             IDakAuthorizationService dakAuth,
+            IMatterAuthorizationService matterAuth,
             IAccessControlService accessControl,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -207,9 +208,7 @@ public static class OutwardEndpoints
 
             if (matterId.HasValue)
             {
-                var matterExists = await db.Matters.AsNoTracking()
-                    .AnyAsync(m => m.Id == matterId.Value && m.RecordStatus == RecordStatus.Active, ct);
-                var canViewMatter = matterExists && await accessControl.CanAsync(PermissionCodes.MatterView, null, ct);
+                var canViewMatter = await matterAuth.CanAccessMatterAsync(matterId.Value, PermissionCodes.MatterView, userId, ct);
                 if (!canViewMatter)
                 {
                     return Results.Ok(new

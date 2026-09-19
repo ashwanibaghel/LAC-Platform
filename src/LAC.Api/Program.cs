@@ -61,6 +61,8 @@ builder.Services.AddScoped<IDakAuthorizationService, DakAuthorizationService>();
 builder.Services.AddScoped<DakWorkflowService>();
 builder.Services.AddScoped<IOutwardAuthorizationService, OutwardAuthorizationService>();
 builder.Services.AddScoped<OutwardWorkflowService>();
+builder.Services.AddScoped<IMatterAuthorizationService, MatterAuthorizationService>();
+builder.Services.AddScoped<MatterWorkflowService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -116,6 +118,8 @@ var api = app.MapGroup("/api");
 api.MapRbacEndpoints();
 api.MapDakEndpoints();
 api.MapOutwardEndpoints();
+api.MapMatterEndpoints();
+api.MapMatterDraftEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";
@@ -198,7 +202,9 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
 {
     var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
         new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
-        x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(), x.DocumentRelationships.Count, db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
+        x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(),
+        x.DocumentRelationships.Count(link => link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)),
+        db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
     return village is null ? NotFound("Village", id) : Results.Ok(village);
 }).RequirePermission(PermissionCodes.VillageView);
 
@@ -209,7 +215,9 @@ api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, Canc
 {
     var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
         new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
-        x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(), x.DocumentRelationships.Count, db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
+        x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(),
+        x.DocumentRelationships.Count(link => link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)),
+        db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
     if (village is null) return NotFound("Village", id);
 
     var awardIds = db.Awards.Where(a => a.VillageLinks.Any(link => link.VillageId == id) || a.KhasraLinks.Any(link => link.Khasra.VillageId == id)).Select(a => a.Id);
@@ -305,8 +313,11 @@ api.MapGet("/villages/{id:guid}/lrs", async (Guid id, LacDbContext db, Cancellat
 api.MapGet("/villages/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
-    return Results.Ok(await db.DocumentVillages.AsNoTracking().Where(link => link.VillageId == id).OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.AwardView);
+    return Results.Ok(await db.DocumentVillages.AsNoTracking()
+        .Where(link => link.VillageId == id && (link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)))
+        .OrderByDescending(link => link.Document.UploadedAt)
+        .Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToListAsync(ct));
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -394,10 +405,19 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
     return notification is null ? NotFound("Notification", id) : Results.Ok(notification);
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
-api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Documents.AsNoTracking().OrderByDescending(x => x.UploadedAt).Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status)), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView);
+api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) =>
+{
+    var query = db.Documents.AsNoTracking()
+        .Where(x => x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .OrderByDescending(x => x.UploadedAt)
+        .Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status));
+    return Results.Ok(await ToPageAsync(query, page, pageSize, ct));
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    var document = await db.Documents.AsNoTracking()
+        .Where(x => x.Id == id && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .SingleOrDefaultAsync(ct);
     // The NM review workspace stores the NM-document identifier, whereas this
     // generic viewer is given a stored-document identifier elsewhere. Resolve
     // that stable NM-to-document relationship so the original source remains
@@ -409,12 +429,14 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
             .Select(x => (Guid?)x.DocumentId)
             .SingleOrDefaultAsync(ct);
         if (sourceDocumentId is not null)
-            document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+            document = await db.Documents.AsNoTracking()
+                .Where(x => x.Id == sourceDocumentId.Value && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+                .SingleOrDefaultAsync(ct);
     }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
     return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
@@ -450,106 +472,109 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     await db.SaveChangesAsync(ct);
     return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
 }).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
-api.MapGet("/villages/{id:guid}/matters", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Matters.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault() }).ToListAsync(ct))).RequirePermission(PermissionCodes.MatterView);
-api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest request, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/villages/{id:guid}/matters", async (
+    Guid id,
+    LacDbContext db,
+    IMatterAuthorizationService matterAuth,
+    ICurrentUserContext currentUser,
+    CancellationToken ct) =>
 {
-    if (string.IsNullOrWhiteSpace(request.Title)) return Validation("title", "Matter title is required."); if (!await db.Villages.AnyAsync(v => v.Id == id, ct)) return NotFound("Village", id);
-    var matter = new Matter { VillageId = id, Title = request.Title.Trim(), MatterType = request.MatterType?.Trim() is { Length: > 0 } type ? type : "Other", Status = request.Status?.Trim() is { Length: > 0 } status ? status : "Open", ReferenceNumber = request.ReferenceNumber?.Trim(), Remarks = request.Remarks?.Trim(), KhasraReferenceText = request.KhasraReferenceText?.Trim() };
-    if (request.AwardId is not null) { if (!await db.AwardVillages.AnyAsync(x => x.AwardId == request.AwardId && x.VillageId == id, ct)) return Validation("awardId", "Select an Award belonging to this village."); matter.AwardLinks.Add(new MatterAward { AwardId = request.AwardId.Value, IsPrimary = true }); }
-    db.Add(matter); await db.SaveChangesAsync(ct); return Results.Created($"/api/matters/{matter.Id}", new IdResponse(matter.Id));
-}).RequirePermission(PermissionCodes.MatterCreate);
-api.MapGet("/matters/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
+    if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+    var userId = currentUser.UserId.Value;
+
+    if (!await db.Villages.AsNoTracking().AnyAsync(v => v.Id == id, ct))
+        return NotFound("Village", id);
+
+    var baseQuery = db.Matters.AsNoTracking().Where(x => x.VillageId == id && x.RecordStatus == RecordStatus.Active);
+    var auth = await matterAuth.AuthorizeListQueryAsync(baseQuery, PermissionCodes.MatterView, userId, false, ct);
+    if (!auth.HasPermission)
+        return Results.Ok(Array.Empty<object>());
+
+    var query = auth.Query;
+
+    var items = await query.OrderByDescending(x => x.CreatedAt).Select(x => new
+    {
+        x.Id,
+        x.VillageId,
+        villageName = x.Village.Name,
+        x.WorkstreamId,
+        workstreamName = x.Workstream != null ? x.Workstream.Name : null,
+        workstreamCode = x.Workstream != null ? x.Workstream.Code : null,
+        isUnclassified = x.WorkstreamId == null,
+        x.Title,
+        x.MatterType,
+        x.Status,
+        x.ReferenceNumber,
+        x.Remarks,
+        x.KhasraReferenceText,
+        x.Revision,
+        award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
+    }).ToListAsync(ct);
+
+    return Results.Ok(items);
+});
+api.MapPost("/villages/{id:guid}/matters", async (
+    Guid id,
+    CreateMatterRequest request,
+    LacDbContext db,
+    MatterWorkflowService workflow,
+    ICurrentUserContext currentUser,
+    CancellationToken ct) =>
 {
-    var matter = await db.Matters.AsNoTracking().Where(x => x.Id == id).Select(x => new { x.Id, x.VillageId, villageName = x.Village.Name, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.Remarks, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber, documents = a.Award.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, role = d.CoreDocumentRole, d.Document.OriginalFileName }).ToList() }).FirstOrDefault() }).FirstOrDefaultAsync(ct);
-    return matter is null ? NotFound("Matter", id) : Results.Ok(matter);
-}).RequirePermission(PermissionCodes.MatterView);
-api.MapGet("/matters/{id:guid}/drafts", async (Guid id, LacDbContext db, CancellationToken ct) =>
-{
-    if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
-    return Results.Ok(await db.MatterDrafts.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.UpdatedAt).Select(x => new { x.Id, x.Title, draftType = x.DraftType.ToString(), status = x.Status.ToString(), x.Revision, x.UpdatedAt }).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.DraftView);
-api.MapPost("/matters/{id:guid}/drafts", async (Guid id, CreateMatterDraftRequest request, LacDbContext db, CancellationToken ct) =>
-{
-    if (!await db.Matters.AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
-    if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
-    if (!Enum.TryParse<MatterDraftType>(request.DraftType, true, out var draftType)) return Validation("draftType", "Choose Letter or Noting.");
-    var draft = new MatterDraft { MatterId = id, Title = title, DraftType = draftType };
-    if (draftType == MatterDraftType.Noting) ApplyDraftLayout(draft, MatterDraftLayoutProfiles.NotingSheetV1Provisional);
-    db.Add(draft); await db.SaveChangesAsync(ct);
-    return Results.Created($"/api/matter-drafts/{draft.Id}", new IdResponse(draft.Id));
-}).RequirePermission(PermissionCodes.DraftCreate);
-api.MapGet("/matter-drafts/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
-{
-    var draft = await db.MatterDrafts.AsNoTracking().Include(x => x.Matter).SingleOrDefaultAsync(x => x.Id == id, ct);
-    if (draft is null) return NotFound("Matter draft", id);
-    var layout = MatterDraftLayoutProfiles.For(draft);
-    return Results.Ok(new { draft.Id, draft.MatterId, matterTitle = draft.Matter.Title, draft.Title, draftType = draft.DraftType.ToString(), status = draft.Status.ToString(), draft.ContentJson, draft.Revision, layout.PageSize, layout.Orientation, layout.MarginTopMm, layout.MarginRightMm, layout.MarginBottomMm, layout.MarginLeftMm, draft.UpdatedAt });
-}).RequirePermission(PermissionCodes.DraftView);
-api.MapPut("/matter-drafts/{id:guid}", async (Guid id, UpdateMatterDraftRequest request, LacDbContext db, CancellationToken ct) =>
-{
-    var draft = await db.MatterDrafts.SingleOrDefaultAsync(x => x.Id == id, ct); if (draft is null) return NotFound("Matter draft", id);
-    if (draft.Revision != request.ExpectedRevision) return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving.");
-    if (!TryDraftTitle(request.Title, out var title, out var titleProblem)) return Validation("title", titleProblem);
-    if (!TryValidateDraftContent(request.ContentJson, out var contentProblem)) return Validation("contentJson", contentProblem);
-    if (!TryValidateDraftLayout(request, draft.DraftType, out var layout, out var layoutProblem)) return Validation("pageLayout", layoutProblem);
-    draft.Title = title; draft.ContentJson = request.ContentJson; ApplyDraftLayout(draft, layout); draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
-    try { await db.SaveChangesAsync(ct); }
-    catch (DbUpdateConcurrencyException) { return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving."); }
-    return Results.Ok(new { draft.Id, draft.Revision, draft.UpdatedAt });
-}).RequirePermission(PermissionCodes.DraftEdit);
-api.MapGet("/matters/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
-{
-    if (!await db.Matters.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Matter", id);
-    return Results.Ok(await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).OrderByDescending(x => x.Document.UploadedAt).Select(x => new { x.DocumentId, x.DocumentRole, x.DisplayName, x.Document.OriginalFileName, x.Document.UploadedAt }).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.MatterView);
-api.MapGet("/matters/{id:guid}/eligible-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
-{
-    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    var linked = db.MatterDocuments.Where(x => x.MatterId == id).Select(x => x.DocumentId);
-    return Results.Ok(await db.Documents.AsNoTracking().Where(d => !linked.Contains(d.Id) && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))))
-        .OrderByDescending(d => d.UploadedAt).Select(d => new { d.Id, d.OriginalFileName, d.DocumentType, d.UploadedAt, source = d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId)) ? "Selected Award" : "Village" }).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.MatterView);
-api.MapPost("/matters/{id:guid}/documents", async (Guid id, string role, string? displayName, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
-{
-    if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
-    if (file.Length > pdfMaxRequestBytes) return Validation("file", $"Document exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
-    if (!matterDocumentExtensions.Contains(Path.GetExtension(file.FileName))) return Validation("file", "Choose a supported office document, image, or PDF file.");
-    var matter = await db.Matters.SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
-    try { var document = new Document { DocumentType = "Matter", OriginalFileName = Path.GetFileName(file.FileName), StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
-        db.Add(document); db.Add(new DocumentVillage { Document = document, VillageId = matter.VillageId }); db.Add(new MatterDocument { MatterId = id, Document = document, DocumentRole = role?.Trim(), DisplayName = displayName?.Trim() }); await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id }); }
-    catch { db.ChangeTracker.Clear(); await storage.DeleteAsync(stored.StoragePath, CancellationToken.None); throw; }
-}).DisableAntiforgery().RequirePermission(PermissionCodes.MatterDocumentManage);
-api.MapPost("/matters/{id:guid}/documents/link", async (Guid id, LinkMatterDocumentRequest request, LacDbContext db, CancellationToken ct) =>
-{
-    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    var allowed = await db.Documents.AsNoTracking().AnyAsync(d => d.Id == request.DocumentId && (d.VillageLinks.Any(v => v.VillageId == matter.VillageId) || d.AwardLinks.Any(a => db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == a.AwardId))), ct);
-    if (!allowed) return Validation("documentId", "Only a document from this Matter's Village or selected Award may be attached.");
-    if (!await db.MatterDocuments.AnyAsync(x => x.MatterId == id && x.DocumentId == request.DocumentId, ct)) db.Add(new MatterDocument { MatterId = id, DocumentId = request.DocumentId, DocumentRole = request.Role?.Trim(), DisplayName = request.DisplayName?.Trim() });
-    await db.SaveChangesAsync(ct); return Results.NoContent();
-}).RequirePermission(PermissionCodes.MatterDocumentManage);
-api.MapPost("/matters/{id:guid}/export", async (Guid id, ExportMatterDocumentsRequest request, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
-{
-    var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct); if (matter is null) return NotFound("Matter", id);
-    var allowedIds = await db.MatterDocuments.AsNoTracking().Where(x => x.MatterId == id).Select(x => x.DocumentId).Concat(db.DocumentAwards.Where(x => x.CoreDocumentRole != null && db.MatterAwards.Any(ma => ma.MatterId == id && ma.AwardId == x.AwardId)).Select(x => x.DocumentId)).Distinct().ToListAsync(ct);
-    var requested = request.DocumentIds.Distinct().ToList(); if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x))) return Validation("documentIds", "Select only documents available to this Matter.");
-    var docs = await db.Documents.AsNoTracking().Where(x => requested.Contains(x.Id)).ToListAsync(ct); var tempPath = Path.Combine(Path.GetTempPath(), $"lac-matter-{Guid.NewGuid():N}.zip"); var zipStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 131072, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
-    try { using (var zip = new ZipArchive(zipStream, ZipArchiveMode.Create, true)) { var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase); foreach (var document in docs) { var name = Path.GetFileName(document.OriginalFileName); var candidate = name; var n = 2; while (!names.Add(candidate)) candidate = $"{Path.GetFileNameWithoutExtension(name)} ({n++}){Path.GetExtension(name)}"; var entry = zip.CreateEntry(candidate, CompressionLevel.Fastest); await using var input = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new InvalidOperationException("A selected document is unavailable."); await using var output = entry.Open(); await input.CopyToAsync(output, ct); } } zipStream.Position = 0; return Results.File(zipStream, "application/zip", $"matter-{id:N}-documents.zip"); }
-    catch { await zipStream.DisposeAsync(); throw; }
-}).RequirePermission(PermissionCodes.MatterDocumentManage);
+    if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+    var userId = currentUser.UserId.Value;
+
+    if (string.IsNullOrWhiteSpace(request.Title)) return Validation("title", "Matter title is required.");
+    if (!await db.Villages.AnyAsync(v => v.Id == id, ct)) return NotFound("Village", id);
+
+    if (!request.WorkstreamId.HasValue || request.WorkstreamId.Value == Guid.Empty)
+        return Validation("workstreamId", "Workstream is mandatory for new matters.");
+
+    var cmd = new CreateMatterCommand(
+        VillageId: id,
+        Title: request.Title,
+        MatterType: !string.IsNullOrWhiteSpace(request.MatterType) ? request.MatterType.Trim() : "Other",
+        WorkstreamId: request.WorkstreamId.Value,
+        ReferenceNumber: request.ReferenceNumber,
+        Remarks: request.Remarks,
+        KhasraReferenceText: request.KhasraReferenceText
+    );
+
+    try
+    {
+        var matter = await workflow.CreateMatterAsync(cmd, userId, ct);
+        if (request.AwardId is not null)
+        {
+            if (await db.AwardVillages.AnyAsync(x => x.AwardId == request.AwardId && x.VillageId == id, ct))
+            {
+                db.MatterAwards.Add(new MatterAward { MatterId = matter.Id, AwardId = request.AwardId.Value, IsPrimary = true });
+                await db.SaveChangesAsync(ct);
+            }
+        }
+        return Results.Created($"/api/matters/{matter.Id}", new IdResponse(matter.Id));
+    }
+    catch (MatterWorkflowException ex)
+    {
+        return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+    }
+});
 api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbContext db, DocumentPageImageService renderer, CancellationToken ct) =>
 {
-    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.Status == "Active", ct);
+    var document = await db.Documents.AsNoTracking()
+        .Where(x => x.Id == id && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+        .SingleOrDefaultAsync(ct);
     if (document is null)
     {
         var sourceDocumentId = await db.NmDocuments.AsNoTracking().Where(x => x.Id == id).Select(x => (Guid?)x.DocumentId).SingleOrDefaultAsync(ct);
-        if (sourceDocumentId is not null) document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == sourceDocumentId && x.Status == "Active", ct);
+        if (sourceDocumentId is not null)
+            document = await db.Documents.AsNoTracking()
+                .Where(x => x.Id == sourceDocumentId.Value && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
+                .SingleOrDefaultAsync(ct);
     }
     if (document is null) return Results.NotFound();
     try { return Results.File(await renderer.RenderAsync(document.StoragePath, page, rotateClockwise: true, ct), "image/png"); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =>
 {
@@ -954,97 +979,7 @@ app.Run();
 
 static IResult NotFound(string entityName, Guid id) => Results.Problem(statusCode: StatusCodes.Status404NotFound, title: $"{entityName} not found", detail: $"No {entityName.ToLowerInvariant()} exists for id {id}.");
 static IResult Validation(string field, string message) => Results.ValidationProblem(new Dictionary<string, string[]> { [field] = [message] });
-static bool TryDraftTitle(string? value, out string title, out string problem) { title = value?.Trim() ?? ""; problem = title.Length switch { 0 => "Draft title is required.", > 300 => "Draft title must be 300 characters or fewer.", _ => "" }; return problem.Length == 0; }
-static bool TryValidateDraftLayout(UpdateMatterDraftRequest request, MatterDraftType draftType, out MatterDraftLayout layout, out string problem)
-{
-    problem = ""; layout = default;
-    if (draftType == MatterDraftType.Noting)
-    {
-        layout = MatterDraftLayoutProfiles.NotingSheetV1Provisional;
-        if (request.PageSize != layout.PageSize || request.Orientation != layout.Orientation || request.MarginTopMm != layout.MarginTopMm || request.MarginRightMm != layout.MarginRightMm || request.MarginBottomMm != layout.MarginBottomMm || request.MarginLeftMm != layout.MarginLeftMm) { problem = "Noting Sheet layout is fixed by the office profile."; return false; }
-        return true;
-    }
-    if (request.PageSize is not ("A4" or "Legal")) problem = "Page size must be A4 or Legal.";
-    else if (request.Orientation is not ("Portrait" or "Landscape")) problem = "Orientation must be Portrait or Landscape.";
-    else if (new[] { request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm }.Any(x => x < 0 || x > 50)) problem = "Margins must be between 0 and 50 mm.";
-    if (problem.Length > 0) return false;
-    layout = new MatterDraftLayout(request.PageSize, request.Orientation, request.MarginTopMm, request.MarginRightMm, request.MarginBottomMm, request.MarginLeftMm);
-    return true;
-}
-static void ApplyDraftLayout(MatterDraft draft, MatterDraftLayout layout) { draft.PageSize = layout.PageSize; draft.Orientation = layout.Orientation; draft.MarginTopMm = layout.MarginTopMm; draft.MarginRightMm = layout.MarginRightMm; draft.MarginBottomMm = layout.MarginBottomMm; draft.MarginLeftMm = layout.MarginLeftMm; }
-static bool TryValidateDraftContent(string? contentJson, out string problem)
-{
-    problem = "";
-    if (string.IsNullOrWhiteSpace(contentJson)) { problem = "Structured editor content is required."; return false; }
-    if (contentJson.Length > 1_000_000) { problem = "Draft content must be 1 MB or smaller."; return false; }
-    try
-    {
-        using var document = JsonDocument.Parse(contentJson);
-        if (document.RootElement.ValueKind != JsonValueKind.Object || !document.RootElement.TryGetProperty("type", out var rootType) || rootType.GetString() != "doc") { problem = "Content must be a structured editor document."; return false; }
-        return TryValidateDraftNode(document.RootElement, isRoot: true, out problem);
-    }
-    catch (JsonException) { problem = "Content must be valid structured editor JSON."; return false; }
-}
-static bool TryValidateDraftNode(JsonElement node, bool isRoot, out string problem)
-{
-    problem = "";
-    if (node.ValueKind != JsonValueKind.Object || !node.TryGetProperty("type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String) { problem = "Every editor node must have a type."; return false; }
-    var type = typeValue.GetString()!;
-    var allowedNodes = new HashSet<string>(StringComparer.Ordinal) { "doc", "draftPage", "paragraph", "text", "heading", "bulletList", "orderedList", "listItem", "hardBreak", "blockquote", "horizontalRule", "table", "tableRow", "tableHeader", "tableCell" };
-    if (!allowedNodes.Contains(type)) { problem = $"Editor node type '{type}' is not supported."; return false; }
-    if (isRoot != (type == "doc")) { problem = isRoot ? "The root editor node must be a document." : "A document node is only allowed at the root."; return false; }
-    foreach (var property in node.EnumerateObject())
-    {
-        if (property.Name is "html" or "src" or "href") { problem = "Draft content cannot include HTML or external resources."; return false; }
-        if (property.Name == "content")
-        {
-            if (property.Value.ValueKind != JsonValueKind.Array) { problem = "Node content must be an array."; return false; }
-            foreach (var child in property.Value.EnumerateArray()) if (!TryValidateDraftNode(child, false, out problem)) return false;
-        }
-        else if (property.Name == "marks")
-        {
-            if (property.Value.ValueKind != JsonValueKind.Array) { problem = "Node marks must be an array."; return false; }
-            foreach (var mark in property.Value.EnumerateArray()) if (!TryValidateDraftMark(mark, out problem)) return false;
-        }
-        else if (property.Name == "attrs")
-        {
-            if (!TryValidateDraftAttributes(property.Value, type, out problem)) return false;
-        }
-        else if (property.Name == "text")
-        {
-            if (type != "text" || property.Value.ValueKind != JsonValueKind.String) { problem = "Only text nodes may contain plain text."; return false; }
-        }
-        else if (property.Name != "type") { problem = $"Unsupported editor node property '{property.Name}'."; return false; }
-    }
-    return true;
-}
-static bool TryValidateDraftMark(JsonElement mark, out string problem)
-{
-    problem = "";
-    if (mark.ValueKind != JsonValueKind.Object || !mark.TryGetProperty("type", out var typeValue) || typeValue.ValueKind != JsonValueKind.String) { problem = "Every text mark must have a type."; return false; }
-    if (!new HashSet<string>(StringComparer.Ordinal) { "bold", "italic", "underline", "textStyle" }.Contains(typeValue.GetString()!)) { problem = $"Text mark type '{typeValue.GetString()}' is not supported."; return false; }
-    foreach (var property in mark.EnumerateObject()) { if (property.Name == "type") continue; if (property.Name == "attrs" && TryValidateDraftAttributes(property.Value, "textStyle", out problem)) continue; problem = $"Unsupported text mark property '{property.Name}'."; return false; }
-    return true;
-}
-static bool TryValidateDraftAttributes(JsonElement attributes, string nodeType, out string problem)
-{
-    problem = "";
-    if (attributes.ValueKind != JsonValueKind.Object) { problem = "Editor attributes must be an object."; return false; }
-    var allowed = nodeType switch
-    {
-        "paragraph" or "heading" => new HashSet<string>(StringComparer.Ordinal) { "textAlign", "level" },
-        "orderedList" => new HashSet<string>(StringComparer.Ordinal) { "start" },
-        "textStyle" => new HashSet<string>(StringComparer.Ordinal) { "color", "fontFamily", "fontSize" },
-        "tableCell" or "tableHeader" => new HashSet<string>(StringComparer.Ordinal) { "colspan", "rowspan", "colwidth", "align" },
-        _ => new HashSet<string>(StringComparer.Ordinal)
-    };
-    foreach (var property in attributes.EnumerateObject())
-    {
-        if (property.Name is "src" or "href" or "html" || !allowed.Contains(property.Name)) { problem = $"Editor attribute '{property.Name}' is not supported."; return false; }
-        if (property.Value.ValueKind is JsonValueKind.Object or JsonValueKind.Array && property.Name != "colwidth") { problem = $"Editor attribute '{property.Name}' has an invalid value."; return false; }
-    }
-    return true;
-}
+
 static IResult WorkflowProblem(LrWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "LR workflow validation", detail: exception.Message);
 static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Recorded ownership validation", detail: exception.Message);
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
@@ -1145,7 +1080,7 @@ public sealed record LrReviewItem(Guid Id, Guid VillageLrId, Guid VillageId, str
 public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int Verified, int Committed);
 public sealed record IdResponse(Guid Id);
 public sealed record CreateVillageAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Remarks);
-public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId);
+public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId, Guid? WorkstreamId = null);
 public sealed record CreateMatterDraftRequest(string Title, string DraftType);
 public sealed record UpdateMatterDraftRequest(string Title, string ContentJson, string PageSize, string Orientation, decimal MarginTopMm, decimal MarginRightMm, decimal MarginBottomMm, decimal MarginLeftMm, int ExpectedRevision);
 public sealed record LinkMatterDocumentRequest(Guid DocumentId, string? Role, string? DisplayName);

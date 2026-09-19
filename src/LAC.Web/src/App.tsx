@@ -13,7 +13,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { ExportMenu } from "./components/ExportMenu";
-import { MatterDraftEditorPage, MatterDrafts } from "./editor/MatterDraftEditor";
+import { MatterDraftEditorPage } from "./editor/MatterDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
@@ -26,6 +26,9 @@ import { MyDesk } from "./dak/MyDesk";
 import { OutwardDirectory } from "./outward/OutwardDirectory";
 import { OutwardRegistration } from "./outward/OutwardRegistration";
 import { OutwardDetailWorkspace } from "./outward/OutwardDetailWorkspace";
+import { MatterDirectory } from "./matter/MatterDirectory";
+import { MatterWorkspace } from "./matter/MatterWorkspace";
+import "./matter/matter.css";
 import "./index.css";
 import "./sidebar.css";
 import "./dak/dak.css";
@@ -234,6 +237,7 @@ const route = {
   notification: (id: string) => `/notifications/${id}`,
   subdivision: (id: string) => `/subdivisions/${id}`,
   district: (id: string) => `/districts/${id}`,
+  matter: (id: string) => `/matters/${id}`,
 };
 
 function LoadingState({ label = "Loading records…" }: { label?: string }) {
@@ -455,6 +459,9 @@ function Shell({ children }: { children: ReactNode }) {
   }
   if (hasPermission("Outward.View") || hasPermission("Outward.Create")) {
     links.push(["Outward / Dispatch", "/outward", "📤"]);
+  }
+  if (hasPermission("Matter.View") || hasPermission("Matter.Create")) {
+    links.push(["Matters", "/matters", "⚖"]);
   }
   if (hasPermission("Users.Manage")) {
     links.push(["Users", "/admin/users", "👥"]);
@@ -795,7 +802,110 @@ function VillageCoreRecords({id}:{id:string}){
   const send=async()=>{if(!upload.file)return;try{const form=new FormData();form.append("file",upload.file);await fetch(`${api}/awards/${upload.awardId}/core-documents?role=${encodeURIComponent(upload.role)}`,{method:"POST",body:form}).then(async r=>{if(!r.ok)throw new Error(await r.text())});setUpload({awardId:"",role:"Award"});setRefresh(x=>x+1)}catch(e){setMessage(e instanceof Error?e.message:"Could not upload core document.")}};
   return <section className="section"><div className="section-heading"><div><h2>Core Records</h2><span>Award-level files are reusable by every Matter that selects the Award.</span></div></div><div className="field-grid"><label>Award number<input value={award.awardNumber} onChange={e=>setAward({...award,awardNumber:e.target.value})}/></label><label>Award date<input type="date" value={award.awardDate} onChange={e=>setAward({...award,awardDate:e.target.value})}/></label><label>Award type<input value={award.awardType} onChange={e=>setAward({...award,awardType:e.target.value})}/></label><button disabled={!award.awardNumber.trim()} onClick={()=>void create()}>Add Award</button></div>{records.loading?<LoadingState/>:records.data?.map(a=><article className="section" key={a.id}><h3><EntityLink to={route.award(a.id)}>{a.awardNumber}</EntityLink></h3><p>{date(a.awardDate)} · {a.awardType||"Type not recorded"}</p>{a.roles.map((r:any)=><p key={r.role}><strong>{r.role}</strong> · {r.count?`${r.count} file${r.count>1?"s":""}`:"Missing"}</p>)}<div className="field-grid"><select value={upload.awardId===a.id?upload.role:"Award"} onChange={e=>setUpload({...upload,awardId:a.id,role:e.target.value})}><option>Award</option><option>NM</option><option>StatementA</option><option>PossessionProceeding</option></select><input type="file" accept="application/pdf,.pdf" onChange={e=>setUpload({...upload,awardId:a.id,file:e.target.files?.[0]})}/><button disabled={upload.awardId!==a.id||!upload.file} onClick={()=>void send()}>Upload core document</button></div></article>)}{message&&<p role="alert">{message}</p>}</section>;
 }
-function VillageMatters({id}:{id:string}){const [refresh,setRefresh]=useState(0);const [form,setForm]=useState<any>({title:"",matterType:"Court Case",status:"Open",awardId:"",khasraReferenceText:""});const matters=useApi<any[]>(`/villages/${id}/matters?r=${refresh}`);const awards=useApi<any[]>(`/villages/${id}/core-records`);const create=async()=>{try{await post(`/villages/${id}/matters`,{...form,awardId:form.awardId||null,referenceNumber:null,remarks:null});setRefresh(x=>x+1);setForm({...form,title:"",khasraReferenceText:""})}catch{}};return <section className="section"><h2>Matters</h2><div className="field-grid"><label>Title<input value={form.title} onChange={e=>setForm({...form,title:e.target.value})}/></label><label>Type<select value={form.matterType} onChange={e=>setForm({...form,matterType:e.target.value})}><option>Court Case</option><option>Compensation</option><option>Demarcation</option><option>Possession</option><option>Other</option></select></label><label>Award<select value={form.awardId} onChange={e=>setForm({...form,awardId:e.target.value})}><option value="">No Award selected</option>{awards.data?.map(a=><option key={a.id} value={a.id}>{a.awardNumber}</option>)}</select></label><label>Optional Khasra reference<input value={form.khasraReferenceText} onChange={e=>setForm({...form,khasraReferenceText:e.target.value})}/></label><button disabled={!form.title.trim()} onClick={()=>void create()}>Create Matter</button></div>{matters.data?.map(m=><p key={m.id}><EntityLink to={`/matters/${m.id}`}>{m.title}</EntityLink> · {m.matterType} · {m.award?.awardNumber||"No Award"}</p>)}<p className="hint">Case-specific documents will be added in the next phase.</p></section>}
+function VillageMatters({ id }: { id: string }) {
+  const [refresh, setRefresh] = useState(0);
+  const [workstreams, setWorkstreams] = useState<any[]>([]);
+  const [form, setForm] = useState<any>({
+    title: "",
+    matterType: "Court Case",
+    workstreamId: "",
+    status: "Open",
+    awardId: "",
+    khasraReferenceText: ""
+  });
+  const matters = useApi<any[]>(`/villages/${id}/matters?r=${refresh}`);
+  const awards = useApi<any[]>(`/villages/${id}/core-records`);
+
+  useEffect(() => {
+    fetch("/api/matters/context", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.workstreams && d.workstreams.length > 0) {
+          setWorkstreams(d.workstreams);
+          setForm((f: any) => (f.workstreamId ? f : { ...f, workstreamId: d.workstreams[0].id }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const create = async () => {
+    if (!form.workstreamId) return;
+    try {
+      await post(`/villages/${id}/matters`, {
+        ...form,
+        workstreamId: form.workstreamId,
+        awardId: form.awardId || null,
+        referenceNumber: null,
+        remarks: null
+      });
+      setRefresh((x) => x + 1);
+      setForm({ ...form, title: "", khasraReferenceText: "" });
+    } catch {}
+  };
+
+  return (
+    <section className="section">
+      <h2>Matters</h2>
+      <div className="field-grid">
+        <label>
+          Title
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        </label>
+        <label>
+          Workstream *
+          <select
+            value={form.workstreamId}
+            onChange={(e) => setForm({ ...form, workstreamId: e.target.value })}
+            required
+          >
+            {workstreams.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name} ({w.code})
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Type
+          <select value={form.matterType} onChange={(e) => setForm({ ...form, matterType: e.target.value })}>
+            <option>Court Case</option>
+            <option>Compensation</option>
+            <option>Demarcation</option>
+            <option>Possession</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label>
+          Award
+          <select value={form.awardId} onChange={(e) => setForm({ ...form, awardId: e.target.value })}>
+            <option value="">No Award selected</option>
+            {awards.data?.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.awardNumber}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Optional Khasra reference
+          <input
+            value={form.khasraReferenceText}
+            onChange={(e) => setForm({ ...form, khasraReferenceText: e.target.value })}
+          />
+        </label>
+        <button disabled={!form.title.trim() || !form.workstreamId} onClick={() => void create()}>
+          Create Matter
+        </button>
+      </div>
+      {matters.data?.map((m) => (
+        <p key={m.id}>
+          <EntityLink to={`/matters/${m.id}`}>{m.title}</EntityLink> · {m.matterType} · {m.award?.awardNumber || "No Award"}
+        </p>
+      ))}
+      <p className="hint">Case-specific documents are managed inside each secure Matter workspace.</p>
+    </section>
+  );
+}
 function MatterOutwardSection({ matterId }: { matterId: string }) {
   const [items, setItems] = useState<any[]>([]);
   const { hasPermission } = useAuth();
@@ -842,7 +952,9 @@ function MatterOutwardSection({ matterId }: { matterId: string }) {
     </section>
   );
 }
-function Matter(){const {id=""}=useParams();const [refresh,setRefresh]=useState(0);const [selected,setSelected]=useState<string[]>([]);const [file,setFile]=useState<File>();const [role,setRole]=useState("Application");const [core,setCore]=useState<{role:string;file?:File}>();const [picker,setPicker]=useState(false);const data=useApi<any>(`/matters/${id}?r=${refresh}`);const docs=useApi<any[]>(`/matters/${id}/documents?r=${refresh}`);const eligible=useApi<any[]>(picker?`/matters/${id}/eligible-documents?r=${refresh}`:undefined);const toggle=(docId:string)=>setSelected(x=>x.includes(docId)?x.filter(v=>v!==docId):[...x,docId]);const upload=async()=>{if(!file)return;const form=new FormData();form.append("file",file);const r=await fetch(`${api}/matters/${id}/documents?role=${encodeURIComponent(role)}`,{method:"POST",body:form});if(r.ok){setFile(undefined);setRefresh(x=>x+1)}};const uploadCore=async()=>{if(!core?.file||!data.data?.award)return;const form=new FormData();form.append("file",core.file);const r=await fetch(`${api}/awards/${data.data.award.awardId}/core-documents?role=${core.role}`,{method:"POST",body:form});if(r.ok){setCore(undefined);setRefresh(x=>x+1)}};const linkExisting=async(documentId:string)=>{const r=await post(`/matters/${id}/documents/link`,{documentId,role:"Other"});if(r!==undefined){setPicker(false);setRefresh(x=>x+1)}};const exportZip=async()=>{const r=await fetch(`${api}/matters/${id}/export`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({documentIds:selected})});if(!r.ok)return;const u=URL.createObjectURL(await r.blob());const a=document.createElement("a");a.href=u;a.download="matter-documents.zip";a.click();URL.revokeObjectURL(u)};if(data.loading)return <LoadingState/>;if(data.error||!data.data)return <ErrorState message={data.error||"Matter not found."}/>;const m=data.data;const roles=["Award","NM","StatementA","PossessionProceeding"];return <><Breadcrumbs items={[{label:"Village",to:route.village(m.villageId)},{label:m.title}]}/><PageHeader eyebrow="Matter workspace" title={m.title}><p>{m.matterType} · {m.status} · {m.award?.awardNumber||"No Award"}</p></PageHeader><section className="section"><h2>Core Records</h2>{m.award&&roles.map(coreRole=><div key={coreRole}><strong>{coreRole}</strong>{m.award.documents.filter((d:any)=>d.role===coreRole).map((d:any)=><p key={d.documentId}><input type="checkbox" checked={selected.includes(d.documentId)} onChange={()=>toggle(d.documentId)}/> <a href={`${api}/documents/${d.documentId}/content`} target="_blank" rel="noreferrer">{d.originalFileName}</a></p>)}{!m.award.documents.some((d:any)=>d.role===coreRole)&&<span> · Missing</span>}<button className="quiet-button" onClick={()=>setCore({role:coreRole})}>+ Add {coreRole}</button></div>)}{core&&<div className="field-grid"><input type="file" onChange={e=>setCore({...core,file:e.target.files?.[0]})}/><button disabled={!core.file} onClick={()=>void uploadCore()}>Upload {core.role}</button><button className="quiet-button" onClick={()=>setCore(undefined)}>Cancel</button></div>}</section><section className="section"><h2>Matter Documents</h2><div className="field-grid"><select value={role} onChange={e=>setRole(e.target.value)}>{["Application","Court Order","ADM Letter","Joint Declaration","Khatoni","Demarcation","Correspondence","Other"].map(x=><option key={x}>{x}</option>)}</select><input type="file" onChange={e=>setFile(e.target.files?.[0])}/><button disabled={!file} onClick={()=>void upload()}>Upload Document</button><button onClick={()=>setPicker(true)}>+ Add Existing Document</button><button disabled={!selected.length} onClick={()=>void exportZip()}>Export Selected ({selected.length})</button></div>{docs.data?.map(d=><p key={d.documentId}><input type="checkbox" checked={selected.includes(d.documentId)} onChange={()=>toggle(d.documentId)}/> <strong>{d.documentRole||"Other"}</strong> · <a href={`${api}/documents/${d.documentId}/content`} target="_blank" rel="noreferrer">{d.displayName||d.originalFileName}</a></p>)}{picker&&<aside className="section"><h3>Add Existing Document</h3>{eligible.data?.length?eligible.data.map(d=><p key={d.id}><strong>{d.originalFileName}</strong> · {d.documentType} · {d.source} · {date(d.uploadedAt)} <button onClick={()=>void linkExisting(d.id)}>Attach</button></p>):<p>No eligible documents are available.</p>}<button className="quiet-button" onClick={()=>setPicker(false)}>Close</button></aside>}</section><MatterDrafts matterId={id}/><MatterOutwardSection matterId={id}/></>}
+function Matter() {
+  return <MatterWorkspace MatterOutwardSection={MatterOutwardSection} />;
+}
 function VillageOverview({ id }: { id: string }) {
   const overview = useApi<any>(`/villages/${id}/overview`);
   if (overview.loading) return <LoadingState label="Loading village overview…" />;
@@ -3138,6 +3250,7 @@ function AuthenticatedApp() {
         <Route path="/subdivisions/:id" element={<Subdivision />} />
         <Route path="/villages" element={<Villages />} />
         <Route path="/villages/:id" element={<Village />} />
+        <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
         <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
         <Route

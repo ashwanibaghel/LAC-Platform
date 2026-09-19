@@ -49,16 +49,19 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         var villageId = Assert.Single(village!.Items).Id;
         var award = new Award { AwardNumber = "CORE-TEST" };
         var document = new Document { DocumentType = "NM", OriginalFileName = "nm.pdf", StoragePath = "nm.pdf" };
+        Guid workstreamId;
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            workstreamId = ws.Id;
             db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = villageId });
             db.Add(document); db.Add(new DocumentAward { Award = award, Document = document, CoreDocumentRole = "NM" });
             await db.SaveChangesAsync();
         }
         async Task<Guid> Create(string title)
         {
-            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", status = "Open", awardId = award.Id });
+            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", workstreamId, status = "Open", awardId = award.Id });
             response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         }
         var first = await Create("Dharambir"); var second = await Create("Second matter");
@@ -101,12 +104,13 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var village = await db.Villages.FirstAsync();
-            var matter = new Matter { VillageId = village.Id, Title = "Matter document test" }; var allowed = new Document { OriginalFileName = "allowed.pdf", StoragePath = "allowed.pdf" }; var unrelated = new Document { OriginalFileName = "other.pdf", StoragePath = "other.pdf" };
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            var matter = new Matter { VillageId = village.Id, WorkstreamId = ws.Id, Title = "Matter document test" }; var allowed = new Document { OriginalFileName = "allowed.pdf", StoragePath = "allowed.pdf" }; var unrelated = new Document { OriginalFileName = "other.pdf", StoragePath = "other.pdf" };
             db.AddRange(matter, allowed, unrelated); db.Add(new DocumentVillage { Document = allowed, VillageId = village.Id }); await db.SaveChangesAsync(); matterId = matter.Id; allowedId = allowed.Id; unrelatedId = unrelated.Id;
         }
         using var allowedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = allowedId, role = "Application" });
         Assert.Equal(System.Net.HttpStatusCode.NoContent, allowedResponse.StatusCode);
-        using var rejectedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = unrelatedId, role = "Other" });
+        using var rejectedResponse = await _client.PostAsJsonAsync($"/api/matters/{matterId}/documents/link", new { documentId = unrelatedId, role = "Other", expectedRevision = 1 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, rejectedResponse.StatusCode);
         var linked = await _client.GetFromJsonAsync<JsonElement>($"/api/matters/{matterId}/documents");
         Assert.Equal(allowedId, linked[0].GetProperty("documentId").GetGuid());
@@ -126,14 +130,17 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     public async Task Matter_drafts_are_isolated_structured_and_revision_safe()
     {
         Guid villageId;
+        Guid workstreamId;
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             villageId = (await db.Villages.FirstAsync()).Id;
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            workstreamId = ws.Id;
         }
         async Task<Guid> CreateMatter(string title)
         {
-            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", status = "Open" });
+            using var response = await _client.PostAsJsonAsync($"/api/villages/{villageId}/matters", new { title, matterType = "Court Case", workstreamId, status = "Open" });
             response.EnsureSuccessStatusCode(); return (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         }
         var firstMatter = await CreateMatter("Draft matter A"); var secondMatter = await CreateMatter("Draft matter B");

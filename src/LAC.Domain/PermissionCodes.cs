@@ -17,6 +17,7 @@ public static class PermissionCodes
     public const string MatterCreate = "Matter.Create";
     public const string MatterEdit = "Matter.Edit";
     public const string MatterDocumentManage = "Matter.Document.Manage";
+    public const string MatterArchive = "Matter.Archive";
     public const string DraftView = "Draft.View";
     public const string DraftCreate = "Draft.Create";
     public const string DraftEdit = "Draft.Edit";
@@ -52,6 +53,7 @@ public static class PermissionCodes
         new(MatterCreate, "Create Matters", "Create new matters", "Matter"),
         new(MatterEdit, "Edit Matters", "Edit existing matters", "Matter"),
         new(MatterDocumentManage, "Manage Matter Documents", "Attach or remove documents from matters", "Matter"),
+        new(MatterArchive, "Archive Matters", "Archive closed or inactive matters", "Matter"),
         new(DraftView, "View Drafts", "View matter drafts and noting", "Draft"),
         new(DraftCreate, "Create Drafts", "Create new matter drafts", "Draft"),
         new(DraftEdit, "Edit Drafts", "Edit and revise matter drafts", "Draft"),

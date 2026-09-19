@@ -98,8 +98,19 @@ public sealed class OutwardWorkflowService(
     IDocumentStorage storage,
     IDakAuthorizationService dakAuth,
     IAccessControlService accessControl,
+    IMatterAuthorizationService? matterAuth = null,
     Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
 {
+    public OutwardWorkflowService(
+        LacDbContext db,
+        IDocumentStorage storage,
+        IDakAuthorizationService dakAuth,
+        IAccessControlService accessControl,
+        Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory)
+        : this(db, storage, dakAuth, accessControl, null, strategyFactory)
+    {
+    }
+
     private static readonly HashSet<string> AllowedModes = new(StringComparer.OrdinalIgnoreCase)
     {
         "SpeedPost", "RegisteredPost", "ByHand", "SpecialMessenger", "Courier", "Email", "Other"
@@ -197,7 +208,10 @@ public sealed class OutwardWorkflowService(
         {
             var matterExists = await db.Matters.AsNoTracking()
                 .AnyAsync(m => m.Id == matterId.Value && m.RecordStatus == RecordStatus.Active, ct);
-            if (matterExists && await accessControl.CanAsync(PermissionCodes.MatterView, null, ct))
+            var canView = matterExists && (matterAuth != null
+                ? await matterAuth.CanAccessMatterAsync(matterId.Value, PermissionCodes.MatterView, currentUserId, ct)
+                : await accessControl.CanAsync(PermissionCodes.MatterView, null, ct));
+            if (canView)
             {
                 var isMatterDoc = await db.MatterDocuments.AsNoTracking()
                     .AnyAsync(md => md.MatterId == matterId.Value && md.DocumentId == documentId, ct);
@@ -246,7 +260,10 @@ public sealed class OutwardWorkflowService(
         {
             var matterExists = await db.Matters.AsNoTracking()
                 .AnyAsync(m => m.Id == outward.MatterId.Value && m.RecordStatus == RecordStatus.Active, ct);
-            if (matterExists && await accessControl.CanAsync(PermissionCodes.MatterView, null, ct))
+            var canView = matterExists && (matterAuth != null
+                ? await matterAuth.CanAccessMatterAsync(outward.MatterId.Value, PermissionCodes.MatterView, currentUserId, ct)
+                : await accessControl.CanAsync(PermissionCodes.MatterView, null, ct));
+            if (canView)
             {
                 var isMatterDoc = await db.MatterDocuments.AsNoTracking()
                     .AnyAsync(md => md.MatterId == outward.MatterId.Value && md.DocumentId == documentId, ct);
@@ -410,7 +427,9 @@ public sealed class OutwardWorkflowService(
             if (!matterExists)
                 throw new OutwardWorkflowException("Specified Matter does not exist or is inactive.", 400);
 
-            var canViewMatter = await accessControl.CanAsync(PermissionCodes.MatterView, null, ct);
+            var canViewMatter = matterAuth != null
+                ? await matterAuth.CanAccessMatterAsync(cmd.MatterId.Value, PermissionCodes.MatterView, currentUserId, ct)
+                : await accessControl.CanAsync(PermissionCodes.MatterView, null, ct);
             if (!canViewMatter)
                 throw new OutwardWorkflowException("You do not have permission to view the specified Matter.", 403);
         }
@@ -598,7 +617,9 @@ public sealed class OutwardWorkflowService(
             if (!matterExists)
                 throw new OutwardWorkflowException("Specified Matter does not exist or is inactive.", 400);
 
-            var canViewMatter = await accessControl.CanAsync(PermissionCodes.MatterView, null, ct);
+            var canViewMatter = matterAuth != null
+                ? await matterAuth.CanAccessMatterAsync(cmd.MatterId.Value, PermissionCodes.MatterView, currentUserId, ct)
+                : await accessControl.CanAsync(PermissionCodes.MatterView, null, ct);
             if (!canViewMatter)
                 throw new OutwardWorkflowException("You do not have permission to view the specified Matter.", 403);
         }

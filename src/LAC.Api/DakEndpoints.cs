@@ -1092,7 +1092,7 @@ public static class DakEndpoints
             UnlinkAwardInternal(id, linkId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
 
         // Matter Links
-        async Task<IResult> LinkMatterInternal(Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
+        async Task<IResult> LinkMatterInternal(Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct)
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
@@ -1100,6 +1100,9 @@ public static class DakEndpoints
 
             var matterExists = await db.Matters.AsNoTracking().AnyAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
             if (!matterExists) return Results.BadRequest(new { message = "Matter does not exist or is inactive." });
+
+            if (!await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterView, currentUser.UserId.Value, ct))
+                return Results.Forbid();
 
             var existingActive = await db.DakMatterLinks.AnyAsync(l => l.DakId == id && l.MatterId == matterId && l.RecordStatus == RecordStatus.Active, ct);
             if (existingActive) return Results.Conflict(new { message = "Matter is already actively linked." });
@@ -1125,11 +1128,11 @@ public static class DakEndpoints
             return Results.NoContent();
         }
 
-        dak.MapPost("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkMatterInternal(id, matterId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkMatterInternal(id, matterId, db, dakAuth, matterAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
 
-        dak.MapPost("/{id:guid}/links/matters", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkMatterInternal(id, request.EntityId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/links/matters", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkMatterInternal(id, request.EntityId, db, dakAuth, matterAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
 
         dak.MapDelete("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
             UnlinkMatterInternal(id, matterId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
