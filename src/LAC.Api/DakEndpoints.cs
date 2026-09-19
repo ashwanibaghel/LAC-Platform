@@ -331,18 +331,19 @@ public static class DakEndpoints
             var p = Math.Max(0, page ?? 0);
             var ps = Math.Clamp(pageSize ?? 25, 1, 100);
 
-            // Validate priority
+            // Validate priority: strictly textual (all, routine, urgent, immediate)
             DakPriority? priorityFilter = null;
-            if (!string.IsNullOrWhiteSpace(priority) && !string.Equals(priority, "all", StringComparison.OrdinalIgnoreCase))
+            var priorityStr = (priority ?? "all").Trim().ToLowerInvariant();
+            if (priorityStr != "all")
             {
-                if (Enum.TryParse<DakPriority>(priority, true, out var parsedPriority))
-                {
-                    priorityFilter = parsedPriority;
-                }
+                if (priorityStr == "routine")
+                    priorityFilter = DakPriority.Routine;
+                else if (priorityStr == "urgent")
+                    priorityFilter = DakPriority.Urgent;
+                else if (priorityStr == "immediate")
+                    priorityFilter = DakPriority.Immediate;
                 else
-                {
                     return Results.BadRequest(new { message = "Invalid priority filter. Valid values are: all, routine, urgent, immediate." });
-                }
             }
 
             // Validate due

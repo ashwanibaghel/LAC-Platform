@@ -28,48 +28,68 @@ export const MyDesk: React.FC = () => {
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [dueFilter, setDueFilter] = useState<string>("all");
   const [handlerFilter, setHandlerFilter] = useState<string>("all");
+  const [refreshIndex, setRefreshIndex] = useState(0);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadMyDesk = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const params = new URLSearchParams();
-      params.append("page", page.toString());
-      params.append("pageSize", pageSize.toString());
-      if (selectedDeskId) params.append("deskId", selectedDeskId);
-      if (searchQuery.trim()) params.append("q", searchQuery.trim());
-      if (priorityFilter !== "all") params.append("priority", priorityFilter);
-      if (dueFilter !== "all") params.append("due", dueFilter);
-      if (handlerFilter !== "all") params.append("handler", handlerFilter);
-
-      const res = await fetch(`/api/dak/my-desk?${params.toString()}`, { credentials: "include" });
-      if (!res.ok) {
-        if (res.status === 403) throw new Error("Access denied: You do not have permission to view Dak.");
-        if (res.status === 400) {
-          const errData = (await res.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(errData?.message || "Invalid My Desk filter criteria.");
-        }
-        throw new Error("Failed to load My Desk records.");
-      }
-
-      const data = (await res.json()) as MyDeskResponse;
-      setItems(data.items);
-      setDesks(data.desks);
-      setSummary(data.summary);
-      setTotalCount(data.totalCount);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load My Desk records.");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, selectedDeskId, searchQuery, priorityFilter, dueFilter, handlerFilter]);
-
   useEffect(() => {
-    void loadMyDesk();
-  }, [loadMyDesk]);
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    const executeFetch = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        params.append("page", page.toString());
+        params.append("pageSize", pageSize.toString());
+        if (selectedDeskId) params.append("deskId", selectedDeskId);
+        if (searchQuery.trim()) params.append("q", searchQuery.trim());
+        if (priorityFilter !== "all") params.append("priority", priorityFilter);
+        if (dueFilter !== "all") params.append("due", dueFilter);
+        if (handlerFilter !== "all") params.append("handler", handlerFilter);
+
+        const res = await fetch(`/api/dak/my-desk?${params.toString()}`, {
+          credentials: "include",
+          signal,
+        });
+
+        if (signal.aborted) return;
+
+        if (!res.ok) {
+          if (res.status === 403) throw new Error("Access denied: You do not have permission to view Dak.");
+          if (res.status === 400) {
+            const errData = (await res.json().catch(() => null)) as { message?: string } | null;
+            throw new Error(errData?.message || "Invalid My Desk filter criteria.");
+          }
+          throw new Error("Failed to load My Desk records.");
+        }
+
+        const data = (await res.json()) as MyDeskResponse;
+        if (signal.aborted) return;
+
+        setItems(data.items);
+        setDesks(data.desks);
+        setSummary(data.summary);
+        setTotalCount(data.totalCount);
+        setLoading(false);
+      } catch (err: unknown) {
+        if (signal.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Failed to load My Desk records.");
+        setLoading(false);
+      }
+    };
+
+    void executeFetch();
+
+    return () => {
+      controller.abort();
+    };
+  }, [page, pageSize, selectedDeskId, searchQuery, priorityFilter, dueFilter, handlerFilter, refreshIndex]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,7 +170,7 @@ export const MyDesk: React.FC = () => {
           <p>Active institutional custody for your assigned office desks. Actionable inward Dak awaiting processing.</p>
         </div>
         <div className="header-actions">
-          <button className="secondary-button" onClick={() => void loadMyDesk()} title="Refresh queue">
+          <button className="secondary-button" onClick={() => setRefreshIndex((idx) => idx + 1)} title="Refresh queue">
             ↻ Refresh Queue
           </button>
         </div>

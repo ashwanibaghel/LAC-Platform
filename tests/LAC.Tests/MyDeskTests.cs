@@ -33,7 +33,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         return client;
     }
 
-    private async Task<(HttpClient Client, Guid UserId)> CreateScopedUserClientAsync(
+    private Task<(HttpClient Client, Guid UserId)> CreateScopedUserClientAsync(
         string username,
         string roleCode,
         ScopeMode scopeMode,
@@ -41,7 +41,21 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         Guid? workstreamId = null,
         bool isPrimary = true)
     {
-        var adminClient = await CreateAdminClientAsync();
+        return CreateScopedUserClientWithFactoryAsync(_factory, username, roleCode, scopeMode, deskId, workstreamId, isPrimary);
+    }
+
+    private async Task<(HttpClient Client, Guid UserId)> CreateScopedUserClientWithFactoryAsync(
+        WebApplicationFactory<Program> factory,
+        string username,
+        string roleCode,
+        ScopeMode scopeMode,
+        Guid? deskId = null,
+        Guid? workstreamId = null,
+        bool isPrimary = true)
+    {
+        var adminClient = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var adminLoginRes = await adminClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(DakTestFactory.TestAdminUser, DakTestFactory.TestAdminPass));
+        Assert.Equal(HttpStatusCode.OK, adminLoginRes.StatusCode);
 
         var permCodes = new[]
         {
@@ -53,7 +67,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
             PermissionCodes.DakCancel
         };
 
-        using (var scope = _factory.Services.CreateScope())
+        using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             var role = await db.Roles.Include(r => r.RolePermissions).FirstOrDefaultAsync(r => r.Code == roleCode);
@@ -85,7 +99,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
 
         var userPass = "ScopedPass!123";
         Guid roleId;
-        using (var scope = _factory.Services.CreateScope())
+        using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             roleId = (await db.Roles.FirstAsync(r => r.Code == roleCode)).Id;
@@ -110,7 +124,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
             Assert.Equal(HttpStatusCode.Created, assignRes.StatusCode);
         }
 
-        var userClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var userClient = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
         var loginRes = await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, userPass));
         Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
 
@@ -647,9 +661,28 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         var resInvalidDesk = await client.GetAsync($"/api/dak/my-desk?deskId={deskB}");
         Assert.Equal(HttpStatusCode.BadRequest, resInvalidDesk.StatusCode);
 
-        // Invalid query enum values -> 400
+        // --------------------------------------------------------------------
+        // Test 25b: Strict priority validation (numeric/malformed rejected with 400; textual accepted case-insensitively)
+        // --------------------------------------------------------------------
+        var resPriority999 = await client.GetAsync("/api/dak/my-desk?priority=999");
+        Assert.Equal(HttpStatusCode.BadRequest, resPriority999.StatusCode);
+
+        var resPriority0 = await client.GetAsync("/api/dak/my-desk?priority=0");
+        Assert.Equal(HttpStatusCode.BadRequest, resPriority0.StatusCode);
+
         var resBadPriority = await client.GetAsync("/api/dak/my-desk?priority=superurgent");
         Assert.Equal(HttpStatusCode.BadRequest, resBadPriority.StatusCode);
+
+        // Valid priorities accepted case-insensitively
+        var resPriorityRoutine = await client.GetAsync("/api/dak/my-desk?priority=Routine");
+        Assert.Equal(HttpStatusCode.OK, resPriorityRoutine.StatusCode);
+
+        var resPriorityImmediate = await client.GetAsync("/api/dak/my-desk?priority=immediate");
+        Assert.Equal(HttpStatusCode.OK, resPriorityImmediate.StatusCode);
+
+        var resPriorityUrgent = await client.GetAsync("/api/dak/my-desk?priority=URGENT");
+        Assert.Equal(HttpStatusCode.OK, resPriorityUrgent.StatusCode);
+
         var resBadDue = await client.GetAsync("/api/dak/my-desk?due=yesterday");
         Assert.Equal(HttpStatusCode.BadRequest, resBadDue.StatusCode);
         var resBadHandler = await client.GetAsync("/api/dak/my-desk?handler=supervisor");
@@ -746,5 +779,104 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
             Assert.DoesNotContain("QueueItem", modelEntityTypes);
             Assert.DoesNotContain("InboxItem", modelEntityTypes);
         }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    // ========================================================================
+    // TEST 31: Truly Deterministic OfficeClock with Delhi Timezone Boundary Case
+    // ========================================================================
+    [Fact]
+    public async Task MyDesk_31_Deterministic_OfficeClock_Delhi_Timezone_Boundary_Classification()
+    {
+        // Fixed UTC timestamp: 2026-09-19T20:30:00Z (8:30 PM UTC on September 19, 2026)
+        // In Delhi (IST, UTC+05:30): 2026-09-20T02:00:00+05:30 (2:00 AM on September 20, 2026)
+        // Critical boundary: UTC calendar date is Sept 19, but Delhi office calendar date is Sept 20!
+        var fixedUtc = new DateTimeOffset(2026, 9, 19, 20, 30, 0, TimeSpan.Zero);
+        var expectedDelhiToday = new DateOnly(2026, 9, 20);
+
+        // 1. Verify OfficeClock standalone unit calculation with FixedTimeProvider
+        var testClock = new OfficeClock(new FixedTimeProvider(fixedUtc));
+        Assert.Equal(expectedDelhiToday, testClock.GetCurrentDate());
+
+        // 2. Build custom WebApplicationFactory overriding IOfficeClock
+        using var deterministicFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IOfficeClock>();
+                services.AddSingleton<IOfficeClock>(testClock);
+            });
+        });
+
+        using var adminClient = deterministicFactory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var adminLoginRes = await adminClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(DakTestFactory.TestAdminUser, DakTestFactory.TestAdminPass));
+        Assert.Equal(HttpStatusCode.OK, adminLoginRes.StatusCode);
+
+        var desk = await CreateDeskAsync(adminClient, "Fixed Clock Desk");
+        var officerUsername = $"officer_clk_{Guid.NewGuid():N}"[..12];
+        var roleCode = $"ROLE_CLK_{Guid.NewGuid():N}"[..12];
+        var (client, _) = await CreateScopedUserClientWithFactoryAsync(deterministicFactory, officerUsername, roleCode, ScopeMode.Assigned, desk);
+
+        // Setup test records relative to expectedDelhiToday (2026-09-20):
+        // 1. Overdue: DueDate = 2026-09-19 (< 2026-09-20)
+        //    Crucial boundary: On raw UTC, 2026-09-19 is today, but in Delhi it is already OVERDUE!
+        var dakOverdue = await RegisterAndMarkDakAsync(adminClient, desk, "Dak Overdue Fixed", "Routine", "2026-09-19");
+
+        // 2. Due Today: DueDate = 2026-09-20 (== 2026-09-20)
+        //    Crucial boundary: On raw UTC, 2026-09-20 is tomorrow, but in Delhi it is DUE TODAY!
+        var dakToday = await RegisterAndMarkDakAsync(adminClient, desk, "Dak Due Today Fixed", "Urgent", "2026-09-20");
+
+        // 3. Upcoming: DueDate = 2026-09-21 (> 2026-09-20)
+        var dakUpcoming = await RegisterAndMarkDakAsync(adminClient, desk, "Dak Upcoming Fixed", "Immediate", "2026-09-21");
+
+        // 4. No Due Date: null
+        var dakNone = await RegisterAndMarkDakAsync(adminClient, desk, "Dak No Due Date Fixed", "Routine", null);
+
+        // Verify full summary metrics under fixed Delhi clock
+        var resAll = await client.GetAsync("/api/dak/my-desk");
+        Assert.Equal(HttpStatusCode.OK, resAll.StatusCode);
+        var dataAll = await resAll.Content.ReadFromJsonAsync<MyDeskResponseDto>(JsonOpts);
+        Assert.NotNull(dataAll);
+        Assert.Equal(4, dataAll.TotalCount);
+        Assert.Equal(1, dataAll.Summary.Immediate);
+        Assert.Equal(1, dataAll.Summary.Urgent);
+        Assert.Equal(1, dataAll.Summary.Overdue);
+        Assert.Equal(1, dataAll.Summary.DueToday);
+
+        // Verify due=overdue filter
+        var resOverdue = await client.GetAsync("/api/dak/my-desk?due=overdue");
+        Assert.Equal(HttpStatusCode.OK, resOverdue.StatusCode);
+        var dataOverdue = await resOverdue.Content.ReadFromJsonAsync<MyDeskResponseDto>(JsonOpts);
+        Assert.NotNull(dataOverdue);
+        Assert.Equal(1, dataOverdue.TotalCount);
+        Assert.Equal(dakOverdue, dataOverdue.Items.Single().Id);
+
+        // Verify due=today filter
+        var resToday = await client.GetAsync("/api/dak/my-desk?due=today");
+        Assert.Equal(HttpStatusCode.OK, resToday.StatusCode);
+        var dataToday = await resToday.Content.ReadFromJsonAsync<MyDeskResponseDto>(JsonOpts);
+        Assert.NotNull(dataToday);
+        Assert.Equal(1, dataToday.TotalCount);
+        Assert.Equal(dakToday, dataToday.Items.Single().Id);
+
+        // Verify due=upcoming filter
+        var resUpcoming = await client.GetAsync("/api/dak/my-desk?due=upcoming");
+        Assert.Equal(HttpStatusCode.OK, resUpcoming.StatusCode);
+        var dataUpcoming = await resUpcoming.Content.ReadFromJsonAsync<MyDeskResponseDto>(JsonOpts);
+        Assert.NotNull(dataUpcoming);
+        Assert.Equal(1, dataUpcoming.TotalCount);
+        Assert.Equal(dakUpcoming, dataUpcoming.Items.Single().Id);
+
+        // Verify due=none filter
+        var resNone = await client.GetAsync("/api/dak/my-desk?due=none");
+        Assert.Equal(HttpStatusCode.OK, resNone.StatusCode);
+        var dataNone = await resNone.Content.ReadFromJsonAsync<MyDeskResponseDto>(JsonOpts);
+        Assert.NotNull(dataNone);
+        Assert.Equal(1, dataNone.TotalCount);
+        Assert.Equal(dakNone, dataNone.Items.Single().Id);
     }
 }
