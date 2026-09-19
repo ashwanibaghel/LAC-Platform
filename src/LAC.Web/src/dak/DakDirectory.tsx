@@ -34,11 +34,11 @@ export const DakDirectory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load active desks for filter
+  // Load active desks for filter via operational lookup
   useEffect(() => {
-    fetch("/api/admin/desks", { credentials: "include" })
-      .then((r) => r.json() as Promise<DeskOption[]>)
-      .then((d) => setDesks(d))
+    fetch("/api/dak/lookups/directory", { credentials: "include" })
+      .then((r) => r.json() as Promise<{ desks: DeskOption[] }>)
+      .then((data) => setDesks(data.desks))
       .catch(() => {});
   }, []);
 

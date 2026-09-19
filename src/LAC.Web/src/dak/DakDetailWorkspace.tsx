@@ -87,17 +87,21 @@ export const DakDetailWorkspace: React.FC = () => {
   }, [loadDak]);
 
   useEffect(() => {
-    // Load categories & workstreams for editing
-    fetch("/api/admin/dak-categories", { credentials: "include" })
-      .then((r) => r.json() as Promise<DakCategory[]>)
-      .then((cats) => setCategories(cats.filter((c) => c.isActive)))
+    if (!id) return;
+    // Load categories & workstreams for editing via operational lookup
+    fetch(`/api/dak/${id}/lookups/edit`, { credentials: "include" })
+      .then((r) => {
+        if (!r.ok) return null;
+        return r.json() as Promise<{ categories: DakCategory[]; workstreams: { id: string; name: string }[] }>;
+      })
+      .then((data) => {
+        if (data) {
+          setCategories(data.categories.filter((c) => c.isActive));
+          setWorkstreams(data.workstreams);
+        }
+      })
       .catch(() => {});
-
-    fetch("/api/admin/workstreams", { credentials: "include" })
-      .then((r) => r.json() as Promise<{ id: string; name: string }[]>)
-      .then((wss) => setWorkstreams(wss))
-      .catch(() => {});
-  }, []);
+  }, [id]);
 
   const handleSaveMetadata = async (e: React.FormEvent) => {
     e.preventDefault();

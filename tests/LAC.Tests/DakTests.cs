@@ -355,7 +355,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
     // GROUP 6: Forwarding transitions between desks
     // ------------------------------------------------------------------------
     [Fact]
-    public async Task Group06_Forwarding_deactivates_previous_assignment_and_activates_new_desk()
+    public async Task Group06_Forwarding_updates_single_assignment_projection_and_records_movement_history()
     {
         using var client = await CreateAdminClientAsync();
         var diaryNo = $"DAK_{Guid.NewGuid():N}"[..16].ToUpperInvariant();
@@ -813,5 +813,294 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var currentAssign3 = doc3.RootElement.GetProperty("currentAssignment");
         Assert.True(currentAssign3.GetProperty("needsAttention").GetBoolean());
         Assert.False(currentAssign3.GetProperty("isDeskActive").GetBoolean());
+    }
+
+    // ------------------------------------------------------------------------
+    // GROUP 17: Dak registration scoped authorization rules
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group17_Dak_registration_scoped_authorization_enforces_rules()
+    {
+        using var adminClient = await CreateAdminClientAsync();
+
+        // Find workstream IDs for DAK_CORRESPONDENCE and AWARD
+        Guid dakWsId;
+        Guid awardWsId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            dakWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.DakCorrespondence)).Id;
+            awardWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.Award)).Id;
+        }
+
+        // 1. User with ScopeMode.All -> allowed
+        var (clientAll, _) = await CreateScopedUserClientAsync($"user_reg_all_{Guid.NewGuid():N}"[..16], "ROLE_REG_ALL", ScopeMode.All);
+        using (var f1 = CreateRegisterForm($"DAK_ALL_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject All", "Sender All"))
+        {
+            var r1 = await clientAll.PostAsync("/api/dak", f1);
+            Assert.Equal(HttpStatusCode.Created, r1.StatusCode);
+        }
+
+        // 2. User with ScopeMode.Workstream in DAK_CORRESPONDENCE -> allowed
+        var (clientWsDak, _) = await CreateScopedUserClientAsync($"user_reg_ws_dak_{Guid.NewGuid():N}"[..16], "ROLE_REG_WS_DAK", ScopeMode.Workstream, workstreamId: dakWsId);
+        using (var f2 = CreateRegisterForm($"DAK_WS_OK_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject WS Dak", "Sender WS Dak"))
+        {
+            var r2 = await clientWsDak.PostAsync("/api/dak", f2);
+            Assert.Equal(HttpStatusCode.Created, r2.StatusCode);
+        }
+
+        // 3. User with ScopeMode.Workstream in AWARD (not DAK_CORRESPONDENCE) -> forbidden 403
+        var (clientWsAward, _) = await CreateScopedUserClientAsync($"user_reg_ws_awd_{Guid.NewGuid():N}"[..16], "ROLE_REG_WS_AWD", ScopeMode.Workstream, workstreamId: awardWsId);
+        using (var f3 = CreateRegisterForm($"DAK_WS_NO_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject WS Award", "Sender WS Award"))
+        {
+            var r3 = await clientWsAward.PostAsync("/api/dak", f3);
+            Assert.Equal(HttpStatusCode.Forbidden, r3.StatusCode);
+        }
+
+        // 4. User with ScopeMode.Assigned -> forbidden 403
+        var (clientAssigned, _) = await CreateScopedUserClientAsync($"user_reg_asg_{Guid.NewGuid():N}"[..16], "ROLE_REG_ASG", ScopeMode.Assigned);
+        using (var f4 = CreateRegisterForm($"DAK_ASG_NO_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject Assigned", "Sender Assigned"))
+        {
+            var r4 = await clientAssigned.PostAsync("/api/dak", f4);
+            Assert.Equal(HttpStatusCode.Forbidden, r4.StatusCode);
+        }
+
+        // 5. User with ScopeMode.Own -> forbidden 403
+        var (clientOwn, _) = await CreateScopedUserClientAsync($"user_reg_own_{Guid.NewGuid():N}"[..16], "ROLE_REG_OWN", ScopeMode.Own);
+        using (var f5 = CreateRegisterForm($"DAK_OWN_NO_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject Own", "Sender Own"))
+        {
+            var r5 = await clientOwn.PostAsync("/api/dak", f5);
+            Assert.Equal(HttpStatusCode.Forbidden, r5.StatusCode);
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // GROUP 18: Strict input validation on registration
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group18_Dak_registration_strict_input_validation()
+    {
+        using var client = await CreateAdminClientAsync();
+
+        // 1. Missing received date
+        var formBadDate = new MultipartFormDataContent();
+        formBadDate.Add(new StringContent($"DAK_{Guid.NewGuid():N}"[..16]), "diaryNumber");
+        formBadDate.Add(new StringContent("not-a-date"), "receivedDate");
+        formBadDate.Add(new StringContent("Subject"), "subject");
+        formBadDate.Add(new StringContent("Sender"), "senderName");
+        var rBadDate = await client.PostAsync("/api/dak", formBadDate);
+        Assert.Equal(HttpStatusCode.BadRequest, rBadDate.StatusCode);
+
+        // 2. Invalid priority
+        var formBadPriority = new MultipartFormDataContent();
+        formBadPriority.Add(new StringContent($"DAK_{Guid.NewGuid():N}"[..16]), "diaryNumber");
+        formBadPriority.Add(new StringContent("2026-09-19"), "receivedDate");
+        formBadPriority.Add(new StringContent("Subject"), "subject");
+        formBadPriority.Add(new StringContent("Sender"), "senderName");
+        formBadPriority.Add(new StringContent("SuperUrgent"), "priority");
+        var rBadPriority = await client.PostAsync("/api/dak", formBadPriority);
+        Assert.Equal(HttpStatusCode.BadRequest, rBadPriority.StatusCode);
+
+        // 3. Malformed categoryId
+        var formBadCat = new MultipartFormDataContent();
+        formBadCat.Add(new StringContent($"DAK_{Guid.NewGuid():N}"[..16]), "diaryNumber");
+        formBadCat.Add(new StringContent("2026-09-19"), "receivedDate");
+        formBadCat.Add(new StringContent("Subject"), "subject");
+        formBadCat.Add(new StringContent("Sender"), "senderName");
+        formBadCat.Add(new StringContent("invalid-guid"), "categoryId");
+        var rBadCat = await client.PostAsync("/api/dak", formBadCat);
+        Assert.Equal(HttpStatusCode.BadRequest, rBadCat.StatusCode);
+
+        // 4. Malformed workstreamId
+        var formBadWs = new MultipartFormDataContent();
+        formBadWs.Add(new StringContent($"DAK_{Guid.NewGuid():N}"[..16]), "diaryNumber");
+        formBadWs.Add(new StringContent("2026-09-19"), "receivedDate");
+        formBadWs.Add(new StringContent("Subject"), "subject");
+        formBadWs.Add(new StringContent("Sender"), "senderName");
+        formBadWs.Add(new StringContent("invalid-guid"), "workstreamId");
+        var rBadWs = await client.PostAsync("/api/dak", formBadWs);
+        Assert.Equal(HttpStatusCode.BadRequest, rBadWs.StatusCode);
+
+        // 5. Empty diaryNumber
+        var formEmptyDiary = new MultipartFormDataContent();
+        formEmptyDiary.Add(new StringContent("   "), "diaryNumber");
+        formEmptyDiary.Add(new StringContent("2026-09-19"), "receivedDate");
+        formEmptyDiary.Add(new StringContent("Subject"), "subject");
+        formEmptyDiary.Add(new StringContent("Sender"), "senderName");
+        var rEmptyDiary = await client.PostAsync("/api/dak", formEmptyDiary);
+        Assert.Equal(HttpStatusCode.BadRequest, rEmptyDiary.StatusCode);
+    }
+
+    // ------------------------------------------------------------------------
+    // GROUP 19: Server-side MIME & Magic Bytes Validation
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group19_Server_side_MIME_and_magic_bytes_validation()
+    {
+        using var client = await CreateAdminClientAsync();
+
+        // 1. Spoofed PDF with HTML text -> rejected 400
+        var fakePdfBytes = "<html><body>evil script</body></html>"u8.ToArray();
+        using var formFakePdf = CreateRegisterForm($"DAK_SPOOF_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Spoof Subject", "Sender", fileBytes: fakePdfBytes, fileName: "exploit.pdf");
+        var resFakePdf = await client.PostAsync("/api/dak", formFakePdf);
+        Assert.Equal(HttpStatusCode.BadRequest, resFakePdf.StatusCode);
+
+        // 2. Spoofed PNG with plain text -> rejected 400
+        var fakePngBytes = "Plain text pretending to be an image"u8.ToArray();
+        using var formFakePng = new MultipartFormDataContent();
+        formFakePng.Add(new StringContent($"DAK_PNG_{Guid.NewGuid():N}"[..16]), "diaryNumber");
+        formFakePng.Add(new StringContent("2026-09-19"), "receivedDate");
+        formFakePng.Add(new StringContent("PNG Subject"), "subject");
+        formFakePng.Add(new StringContent("Sender"), "senderName");
+        var fakePngContent = new ByteArrayContent(fakePngBytes);
+        fakePngContent.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
+        formFakePng.Add(fakePngContent, "file", "fake.png");
+        var resFakePng = await client.PostAsync("/api/dak", formFakePng);
+        Assert.Equal(HttpStatusCode.BadRequest, resFakePng.StatusCode);
+
+        // 3. Genuine PDF -> 201 Created and MimeType is application/pdf
+        var validPdfBytes = "%PDF-1.7 Valid Header content"u8.ToArray();
+        using var formValidPdf = CreateRegisterForm($"DAK_VALID_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Valid Subject", "Sender", fileBytes: validPdfBytes, fileName: "document.pdf");
+        var resValidPdf = await client.PostAsync("/api/dak", formValidPdf);
+        Assert.Equal(HttpStatusCode.Created, resValidPdf.StatusCode);
+
+        var dakId = (await JsonDocument.ParseAsync(await resValidPdf.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var dak = await db.Daks.Include(d => d.MainDocument).FirstAsync(d => d.Id == dakId);
+        Assert.NotNull(dak.MainDocument);
+        Assert.Equal("application/pdf", dak.MainDocument.MimeType);
+    }
+
+    // ------------------------------------------------------------------------
+    // GROUP 20: Operational lookups allow non-admin authorized users
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group20_Operational_lookups_allow_authorized_non_admin_users()
+    {
+        using var adminClient = await CreateAdminClientAsync();
+
+        // Create a desk and a Dak
+        var deskRes = await adminClient.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_20_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Desk 20", null, null));
+        var deskId = (await deskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        using var form = CreateRegisterForm($"DAK_20_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject 20", "Sender 20");
+        var regRes = await adminClient.PostAsync("/api/dak", form);
+        var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
+        await adminClient.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, null, null, null, 0));
+
+        // Create a non-admin user assigned to this desk
+        var (nonAdminClient, userId) = await CreateScopedUserClientAsync($"user_op_{Guid.NewGuid():N}"[..16], "ROLE_OPERATIONAL_TEST", ScopeMode.Assigned, deskId: deskId);
+
+        // 1. Directory lookup (/api/dak/lookups/directory) -> 200 OK
+        var dirRes = await nonAdminClient.GetAsync("/api/dak/lookups/directory");
+        Assert.Equal(HttpStatusCode.OK, dirRes.StatusCode);
+        var dirDoc = await JsonDocument.ParseAsync(await dirRes.Content.ReadAsStreamAsync());
+        Assert.True(dirDoc.RootElement.GetProperty("desks").EnumerateArray().Any());
+
+        // 2. Edit lookup (/api/dak/{id}/lookups/edit) -> 200 OK
+        var editLookupRes = await nonAdminClient.GetAsync($"/api/dak/{dakId}/lookups/edit");
+        Assert.Equal(HttpStatusCode.OK, editLookupRes.StatusCode);
+        var editDoc = await JsonDocument.ParseAsync(await editLookupRes.Content.ReadAsStreamAsync());
+        Assert.True(editDoc.RootElement.TryGetProperty("categories", out _));
+        Assert.True(editDoc.RootElement.TryGetProperty("workstreams", out _));
+
+        // 3. Movement targets lookup (/api/dak/{id}/movement-targets) -> 200 OK
+        var moveTargetsRes = await nonAdminClient.GetAsync($"/api/dak/{dakId}/movement-targets");
+        Assert.Equal(HttpStatusCode.OK, moveTargetsRes.StatusCode);
+        var moveDoc = await JsonDocument.ParseAsync(await moveTargetsRes.Content.ReadAsStreamAsync());
+        Assert.True(moveDoc.RootElement.TryGetProperty("desks", out var targetDesks));
+        Assert.True(targetDesks.EnumerateArray().Any());
+    }
+
+    // ------------------------------------------------------------------------
+    // GROUP 21: Multi-scope union visibility
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group21_Multi_scope_union_visibility()
+    {
+        using var adminClient = await CreateAdminClientAsync();
+
+        Guid dakWsId;
+        Guid otherWsId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            dakWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.DakCorrespondence)).Id;
+            otherWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.LandAcquisition)).Id;
+        }
+
+        var desk1Res = await adminClient.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_21A_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Desk 21A", null, null));
+        var desk1Id = (await desk1Res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var desk2Res = await adminClient.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_21B_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Desk 21B", null, null));
+        var desk2Id = (await desk2Res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Dak 1: in DAK_CORRESPONDENCE workstream, unassigned
+        using var f1 = CreateRegisterForm($"DAK_21_WS_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Sub WS", "Sender 1", workstreamId: dakWsId.ToString());
+        var r1 = await adminClient.PostAsync("/api/dak", f1);
+        var dak1Id = (await JsonDocument.ParseAsync(await r1.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
+
+        // Dak 2: assigned to Desk 1, in other workstream
+        using var f2 = CreateRegisterForm($"DAK_21_DSK_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Sub Desk", "Sender 2", workstreamId: otherWsId.ToString());
+        var r2 = await adminClient.PostAsync("/api/dak", f2);
+        var dak2Id = (await JsonDocument.ParseAsync(await r2.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
+        await adminClient.PostAsJsonAsync($"/api/dak/{dak2Id}/move", new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
+
+        // Dak 3: in other workstream, assigned to Desk 2
+        using var f3 = CreateRegisterForm($"DAK_21_OUT_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Sub Outside", "Sender 3", workstreamId: otherWsId.ToString());
+        var r3 = await adminClient.PostAsync("/api/dak", f3);
+        var dak3Id = (await JsonDocument.ParseAsync(await r3.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
+        await adminClient.PostAsJsonAsync($"/api/dak/{dak3Id}/move", new MoveDakRequest("Marked", desk2Id, null, null, null, 0));
+
+        // User with ScopeMode.Workstream on DAK_CORRESPONDENCE AND ScopeMode.Assigned on Desk 1
+        Guid wsRoleId;
+        Guid asgRoleId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var pView = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.DakView);
+
+            var rWs = new Role { Code = $"ROLE_UNION_WS_{Guid.NewGuid():N}"[..16], Name = "Union WS", IsActive = true };
+            rWs.RolePermissions.Add(new RolePermission { PermissionId = pView.Id, ScopeMode = ScopeMode.Workstream });
+            db.Roles.Add(rWs);
+
+            var rAsg = new Role { Code = $"ROLE_UNION_ASG_{Guid.NewGuid():N}"[..16], Name = "Union ASG", IsActive = true };
+            rAsg.RolePermissions.Add(new RolePermission { PermissionId = pView.Id, ScopeMode = ScopeMode.Assigned });
+            db.Roles.Add(rAsg);
+
+            await db.SaveChangesAsync();
+            wsRoleId = rWs.Id;
+            asgRoleId = rAsg.Id;
+        }
+
+        var uName = $"user_union_{Guid.NewGuid():N}"[..16];
+        var uPass = "UnionPass!123";
+        var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
+            Username: uName,
+            DisplayName: "Union User",
+            Password: uPass,
+            DesignationId: null,
+            RoleIds: [wsRoleId, asgRoleId],
+            WorkstreamIds: [dakWsId],
+            PrimaryWorkstreamId: dakWsId
+        ));
+        var userId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        await adminClient.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(desk1Id, IsPrimary: true));
+
+        var userClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(uName, uPass));
+
+        var listRes = await userClient.GetAsync("/api/dak");
+        Assert.Equal(HttpStatusCode.OK, listRes.StatusCode);
+        var listDoc = await JsonDocument.ParseAsync(await listRes.Content.ReadAsStreamAsync());
+        var items = listDoc.RootElement.GetProperty("items").EnumerateArray().ToList();
+
+        // Must see Dak 1 (via Workstream) and Dak 2 (via Desk assignment)
+        Assert.Contains(items, i => i.GetProperty("id").GetGuid() == dak1Id);
+        Assert.Contains(items, i => i.GetProperty("id").GetGuid() == dak2Id);
+        // Must NOT see Dak 3 (outside both)
+        Assert.DoesNotContain(items, i => i.GetProperty("id").GetGuid() == dak3Id);
     }
 }

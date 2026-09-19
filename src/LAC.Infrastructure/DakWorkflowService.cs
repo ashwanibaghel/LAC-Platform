@@ -106,10 +106,13 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
         }
 
         var isRelational = db.Database.IsRelational();
-        await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
+        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? tx = null;
 
         try
         {
+            if (isRelational)
+                tx = await db.Database.BeginTransactionAsync(ct);
+
             if (document is not null)
             {
                 db.Documents.Add(document);
@@ -172,6 +175,11 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
                 try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { /* best effort */ }
             }
             throw;
+        }
+        finally
+        {
+            if (tx is not null)
+                await tx.DisposeAsync();
         }
     }
 

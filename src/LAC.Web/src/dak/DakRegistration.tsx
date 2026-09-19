@@ -35,14 +35,15 @@ export const DakRegistration: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load categories & workstreams
-    Promise.all([
-      fetch("/api/admin/dak-categories", { credentials: "include" }).then((r) => r.json() as Promise<DakCategory[]>),
-      fetch("/api/admin/workstreams", { credentials: "include" }).then((r) => r.json() as Promise<WorkstreamOption[]>),
-    ])
-      .then(([cats, wss]) => {
-        setCategories(cats.filter((c) => c.isActive));
-        setWorkstreams(wss.filter((w) => w.isActive));
+    // Load categories & workstreams via operational lookup
+    fetch("/api/dak/lookups/registration", { credentials: "include" })
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load categories or workstreams.");
+        return r.json() as Promise<{ categories: DakCategory[]; workstreams: WorkstreamOption[] }>;
+      })
+      .then((data) => {
+        setCategories(data.categories.filter((c) => c.isActive));
+        setWorkstreams(data.workstreams.filter((w) => w.isActive));
       })
       .catch(() => setError("Failed to load categories or workstreams."));
   }, []);

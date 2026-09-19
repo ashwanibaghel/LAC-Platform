@@ -19,42 +19,95 @@ public static class DakEndpoints
             HttpRequest request,
             LacDbContext db,
             DakWorkflowService workflow,
+            IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
+            if (!await dakAuth.CanRegisterDakAsync(userId, ct))
+                return Results.Forbid();
+
             if (!request.HasFormContentType)
                 return Results.BadRequest(new { message = "Request must be multipart/form-data." });
 
             var form = await request.ReadFormAsync(ct);
 
-            var diaryNumber = form["diaryNumber"].ToString();
-            var subject = form["subject"].ToString();
-            var senderName = form["senderName"].ToString();
-            var senderDesignation = form["senderDesignation"].ToString();
-            var senderDepartment = form["senderDepartment"].ToString();
-            var senderAddress = form["senderAddress"].ToString();
-            var senderReferenceNumber = form["senderReferenceNumber"].ToString();
-            var inwardMode = form["inwardMode"].ToString();
-            var priorityStr = form["priority"].ToString();
+            var diaryNumber = form["diaryNumber"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(diaryNumber))
+                return Results.BadRequest(new { message = "Diary Number is mandatory." });
+            if (diaryNumber.Length > 100)
+                return Results.BadRequest(new { message = "Diary Number cannot exceed 100 characters." });
 
-            if (!DateOnly.TryParse(form["receivedDate"].ToString(), out var receivedDate))
-                receivedDate = DateOnly.FromDateTime(DateTime.UtcNow);
+            var subject = form["subject"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(subject))
+                return Results.BadRequest(new { message = "Subject is mandatory." });
+            if (subject.Length > 500)
+                return Results.BadRequest(new { message = "Subject cannot exceed 500 characters." });
+
+            var senderName = form["senderName"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(senderName))
+                return Results.BadRequest(new { message = "Sender Name is mandatory." });
+            if (senderName.Length > 200)
+                return Results.BadRequest(new { message = "Sender Name cannot exceed 200 characters." });
+
+            var receivedDateStr = form["receivedDate"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(receivedDateStr) || !DateOnly.TryParse(receivedDateStr, out var receivedDate))
+            {
+                return Results.BadRequest(new { message = "Received Date is required and must be a valid date (YYYY-MM-DD)." });
+            }
 
             DateOnly? senderLetterDate = null;
-            if (DateOnly.TryParse(form["senderLetterDate"].ToString(), out var sld))
+            var senderLetterDateStr = form["senderLetterDate"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(senderLetterDateStr))
+            {
+                if (!DateOnly.TryParse(senderLetterDateStr, out var sld))
+                    return Results.BadRequest(new { message = "Sender Letter Date is invalid." });
                 senderLetterDate = sld;
+            }
 
             DateOnly? dueDate = null;
-            if (DateOnly.TryParse(form["dueDate"].ToString(), out var dd))
+            var dueDateStr = form["dueDate"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(dueDateStr))
+            {
+                if (!DateOnly.TryParse(dueDateStr, out var dd))
+                    return Results.BadRequest(new { message = "Due Date is invalid." });
                 dueDate = dd;
+            }
 
-            Guid? categoryId = Guid.TryParse(form["categoryId"].ToString(), out var catId) ? catId : null;
-            Guid? workstreamId = Guid.TryParse(form["workstreamId"].ToString(), out var wsId) ? wsId : null;
+            Guid? categoryId = null;
+            var categoryIdStr = form["categoryId"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(categoryIdStr))
+            {
+                if (!Guid.TryParse(categoryIdStr, out var catId))
+                    return Results.BadRequest(new { message = "Category ID is invalid." });
+                categoryId = catId;
+            }
 
-            Enum.TryParse<DakPriority>(priorityStr, true, out var priority);
+            Guid? workstreamId = null;
+            var workstreamIdStr = form["workstreamId"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(workstreamIdStr))
+            {
+                if (!Guid.TryParse(workstreamIdStr, out var wsId))
+                    return Results.BadRequest(new { message = "Workstream ID is invalid." });
+                workstreamId = wsId;
+            }
+
+            DakPriority priority = DakPriority.Routine;
+            var priorityStr = form["priority"].ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(priorityStr))
+            {
+                if (!Enum.TryParse<DakPriority>(priorityStr, true, out priority))
+                    return Results.BadRequest(new { message = $"Priority '{priorityStr}' is invalid." });
+            }
+
+            var senderDesignation = form["senderDesignation"].ToString().Trim();
+            var senderDepartment = form["senderDepartment"].ToString().Trim();
+            var senderAddress = form["senderAddress"].ToString().Trim();
+            var senderReferenceNumber = form["senderReferenceNumber"].ToString().Trim();
+            var inwardMode = form["inwardMode"].ToString().Trim();
+            if (string.IsNullOrWhiteSpace(inwardMode)) inwardMode = "Physical";
 
             var file = form.Files.GetFile("file");
             Stream? stream = null;
@@ -64,8 +117,13 @@ public static class DakEndpoints
             if (file is not null && file.Length > 0)
             {
                 stream = file.OpenReadStream();
+                if (!TryValidateAndDeriveMime(stream, file.FileName, out var derivedMime, out var mimeError))
+                {
+                    await stream.DisposeAsync();
+                    return Results.BadRequest(new { message = mimeError });
+                }
                 fileName = file.FileName;
-                contentType = file.ContentType;
+                contentType = derivedMime;
             }
 
             var cmd = new RegisterDakCommand(
@@ -102,6 +160,51 @@ public static class DakEndpoints
                 if (stream is not null) await stream.DisposeAsync();
             }
         }).RequirePermission(PermissionCodes.DakRegister);
+
+        // 1b. Operational Lookup: Registration Categories & Workstreams
+        dak.MapGet("/lookups/registration", async (
+            LacDbContext db,
+            IDakAuthorizationService dakAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!await dakAuth.CanRegisterDakAsync(userId, ct))
+                return Results.Forbid();
+
+            var categories = await db.DakCategories.AsNoTracking()
+                .Where(c => c.IsActive && c.RecordStatus == RecordStatus.Active)
+                .OrderBy(c => c.Name)
+                .Select(c => new DakCategoryDto(c.Id, c.Code, c.Name, c.Description, c.DefaultPriority.ToString(), c.DefaultWorkstreamId, c.DefaultWorkstream == null ? null : c.DefaultWorkstream.Name, c.IsActive))
+                .ToListAsync(ct);
+
+            var workstreams = await db.Workstreams.AsNoTracking()
+                .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
+                .OrderBy(w => w.Name)
+                .Select(w => new { id = w.Id, code = w.Code, name = w.Name, isActive = w.IsActive })
+                .ToListAsync(ct);
+
+            return Results.Ok(new { categories, workstreams });
+        }).RequirePermission(PermissionCodes.DakRegister);
+
+        // 1c. Operational Lookup: Directory Active Office Desks
+        dak.MapGet("/lookups/directory", async (
+            LacDbContext db,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+
+            var desks = await db.OfficeDesks.AsNoTracking()
+                .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
+                .OrderBy(d => d.Name)
+                .Select(d => new { id = d.Id, code = d.Code, name = d.Name, isActive = d.IsActive })
+                .ToListAsync(ct);
+
+            return Results.Ok(new { desks });
+        }).RequirePermission(PermissionCodes.DakView);
 
         // 2. Collection Query with Union-of-Scopes Filtering
         dak.MapGet("/", async (
@@ -349,9 +452,44 @@ public static class DakEndpoints
             dak.WorkstreamId = request.WorkstreamId;
             dak.Revision++;
 
-            await db.SaveChangesAsync(ct);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return Results.Ok(new { id = dak.Id, revision = dak.Revision, updatedAt = dak.UpdatedAt });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Conflict", detail: "This Dak was modified elsewhere. Refresh before saving.");
+            }
+        }).RequirePermission(PermissionCodes.DakEdit);
 
-            return Results.Ok(new { id = dak.Id, revision = dak.Revision, updatedAt = dak.UpdatedAt });
+        // 4b. Operational Lookup: Edit Categories & Workstreams
+        dak.MapGet("/{id:guid}/lookups/edit", async (
+            Guid id,
+            LacDbContext db,
+            IDakAuthorizationService dakAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct))
+                return Results.Forbid();
+
+            var categories = await db.DakCategories.AsNoTracking()
+                .Where(c => c.IsActive && c.RecordStatus == RecordStatus.Active)
+                .OrderBy(c => c.Name)
+                .Select(c => new DakCategoryDto(c.Id, c.Code, c.Name, c.Description, c.DefaultPriority.ToString(), c.DefaultWorkstreamId, c.DefaultWorkstream == null ? null : c.DefaultWorkstream.Name, c.IsActive))
+                .ToListAsync(ct);
+
+            var workstreams = await db.Workstreams.AsNoTracking()
+                .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
+                .OrderBy(w => w.Name)
+                .Select(w => new { id = w.Id, code = w.Code, name = w.Name, isActive = w.IsActive })
+                .ToListAsync(ct);
+
+            return Results.Ok(new { categories, workstreams });
         }).RequirePermission(PermissionCodes.DakEdit);
 
         // 5. Get Movement Timeline
@@ -394,6 +532,51 @@ public static class DakEndpoints
 
             return Results.Ok(movements);
         }).RequirePermission(PermissionCodes.DakView);
+
+        // 5b. Operational Lookup: Movement Target Desks & Eligible Members
+        dak.MapGet("/{id:guid}/movement-targets", async (
+            Guid id,
+            LacDbContext db,
+            IDakAuthorizationService dakAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakMove, userId, ct))
+                return Results.Forbid();
+
+            var desks = await db.OfficeDesks.AsNoTracking()
+                .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
+                .OrderBy(d => d.Name)
+                .Select(d => new
+                {
+                    id = d.Id,
+                    code = d.Code,
+                    name = d.Name,
+                    isActive = d.IsActive,
+                    members = d.UserMemberships
+                        .Where(m => m.IsActive
+                                 && m.RemovedAt == null
+                                 && m.RecordStatus == RecordStatus.Active
+                                 && m.User.IsActive
+                                 && m.User.RecordStatus == RecordStatus.Active)
+                        .OrderByDescending(m => m.IsPrimary)
+                        .ThenBy(m => m.User.DisplayName)
+                        .Select(m => new
+                        {
+                            userId = m.UserId,
+                            displayName = m.User.DisplayName,
+                            designation = m.User.Designation == null ? null : m.User.Designation.Name,
+                            isPrimary = m.IsPrimary
+                        })
+                        .ToList()
+                })
+                .ToListAsync(ct);
+
+            return Results.Ok(new { desks });
+        }).RequirePermission(PermissionCodes.DakMove);
 
         // 6. Move Dak (Marked, Forwarded, Returned)
         dak.MapPost("/{id:guid}/move", async (
@@ -510,14 +693,15 @@ public static class DakEndpoints
             var title = form["title"].ToString();
             var attachmentType = form["attachmentType"].ToString();
 
-            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (ext != ".pdf" && ext != ".png" && ext != ".jpg" && ext != ".jpeg")
-                return Results.BadRequest(new { message = "Only PDF and standard image files are allowed." });
+            await using var stream = file.OpenReadStream();
+            if (!TryValidateAndDeriveMime(stream, file.FileName, out var derivedMime, out var mimeError))
+            {
+                return Results.BadRequest(new { message = mimeError });
+            }
 
             var actionUser = await db.AppUsers.AsNoTracking().SingleAsync(u => u.Id == userId, ct);
 
             string? savedStoragePath = null;
-            await using var stream = file.OpenReadStream();
             var fileResult = await storage.SaveAndHashAsync(stream, file.FileName, ct);
             savedStoragePath = fileResult.StoragePath;
 
@@ -529,16 +713,11 @@ public static class DakEndpoints
                     StoragePath = fileResult.StoragePath,
                     Sha256Hash = fileResult.Sha256Hash,
                     FileSize = fileResult.FileSize,
-                    MimeType = file.ContentType ?? "application/pdf",
+                    MimeType = derivedMime,
                     DocumentType = "DakAttachment",
                     UploadedBy = actionUser.DisplayName
                 };
                 db.Documents.Add(doc);
-
-                // Check active duplicate
-                var duplicate = await db.DakAttachments.AnyAsync(a => a.DakId == id && a.DocumentId == doc.Id && a.RecordStatus == RecordStatus.Active, ct);
-                if (duplicate)
-                    return Results.BadRequest(new { message = "This document is already an active attachment." });
 
                 var maxSeq = await db.DakAttachments.Where(a => a.DakId == id).MaxAsync(a => (int?)a.SequenceOrder, ct);
                 var att = new DakAttachment
@@ -777,6 +956,7 @@ public static class DakEndpoints
         // Primary main document
         dak.MapGet("/{id:guid}/content", async (
             Guid id,
+            HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
@@ -796,13 +976,17 @@ public static class DakEndpoints
             if (document is null) return Results.NotFound();
 
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
-            return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+            if (stream is null) return Results.NotFound();
+
+            httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 
         // Attachment document
         dak.MapGet("/{id:guid}/attachments/{attachmentId:guid}/content", async (
             Guid id,
             Guid attachmentId,
+            HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
@@ -822,13 +1006,17 @@ public static class DakEndpoints
             if (document is null) return Results.NotFound();
 
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
-            return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+            if (stream is null) return Results.NotFound();
+
+            httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 
         // Document by document ID
         dak.MapGet("/{id:guid}/documents/{docId:guid}/content", async (
             Guid id,
             Guid docId,
+            HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
@@ -845,7 +1033,10 @@ public static class DakEndpoints
             if (document is null) return Results.NotFound();
 
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
-            return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+            if (stream is null) return Results.NotFound();
+
+            httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 
         // 12. Dak Category Admin Endpoints
@@ -931,6 +1122,83 @@ public static class DakEndpoints
         }).RequirePermission(PermissionCodes.AccessManage);
 
         return api;
+    }
+
+    private static bool TryValidateAndDeriveMime(Stream stream, string fileName, out string mimeType, out string? errorMessage)
+    {
+        mimeType = "";
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            errorMessage = "File name is required.";
+            return false;
+        }
+
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        if (ext != ".pdf" && ext != ".png" && ext != ".jpg" && ext != ".jpeg")
+        {
+            errorMessage = "Only PDF (.pdf) and standard image files (.png, .jpg, .jpeg) are allowed.";
+            return false;
+        }
+
+        if (!stream.CanSeek)
+        {
+            errorMessage = "Unable to inspect file stream.";
+            return false;
+        }
+
+        stream.Position = 0;
+        Span<byte> header = stackalloc byte[8];
+        var bytesRead = stream.Read(header);
+        stream.Position = 0;
+
+        if (bytesRead < 4)
+        {
+            errorMessage = "File is empty or corrupted.";
+            return false;
+        }
+
+        // PDF magic bytes: %PDF- (0x25, 0x50, 0x44, 0x46)
+        if (ext == ".pdf")
+        {
+            if (header[0] == 0x25 && header[1] == 0x50 && header[2] == 0x44 && header[3] == 0x46)
+            {
+                mimeType = "application/pdf";
+                return true;
+            }
+            errorMessage = "File has a .pdf extension but its content does not have a valid PDF header (%PDF-).";
+            return false;
+        }
+
+        // PNG magic bytes: 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+        if (ext == ".png")
+        {
+            if (bytesRead >= 8 &&
+                header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 &&
+                header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A)
+            {
+                mimeType = "image/png";
+                return true;
+            }
+            errorMessage = "File has a .png extension but its content does not have a valid PNG header.";
+            return false;
+        }
+
+        // JPEG magic bytes: 0xFF, 0xD8, 0xFF
+        if (ext == ".jpg" || ext == ".jpeg")
+        {
+            if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF)
+            {
+                mimeType = "image/jpeg";
+                return true;
+            }
+            errorMessage = "File has a JPEG extension but its content does not have a valid JPEG header.";
+            return false;
+        }
+
+        errorMessage = "Unsupported file format.";
+        return false;
     }
 }
 

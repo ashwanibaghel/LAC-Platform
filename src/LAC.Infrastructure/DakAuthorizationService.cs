@@ -8,6 +8,7 @@ public sealed record DakListAuthorizationResult(bool HasPermission, IQueryable<D
 public interface IDakAuthorizationService
 {
     Task<DakListAuthorizationResult> AuthorizeListQueryAsync(IQueryable<Dak> query, string permissionCode, Guid userId, CancellationToken ct = default);
+    Task<bool> CanRegisterDakAsync(Guid userId, CancellationToken ct = default);
     Task<bool> CanAccessDakAsync(Guid dakId, string permissionCode, Guid userId, CancellationToken ct = default);
     Task<bool> CanAccessDocumentAsync(Guid dakId, Guid documentId, Guid userId, CancellationToken ct = default);
 }
@@ -185,5 +186,49 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
             .AnyAsync(a => a.DakId == dakId && a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
 
         return isAttachment;
+    }
+
+    public async Task<bool> CanRegisterDakAsync(Guid userId, CancellationToken ct = default)
+    {
+        // 1. Verify user exists, is active, and has active record status
+        var isUserActive = await db.AppUsers
+            .AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        // 2. Fetch all ScopeModes across active roles for Dak.Register
+        var scopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == PermissionCodes.DakRegister
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (scopes.Count == 0) return false;
+
+        // ScopeMode.All allows registration across the entire organization
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        // ScopeMode.Workstream allows registration ONLY if user has active membership in DAK_CORRESPONDENCE
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var inDakCorrespondence = await db.UserWorkstreamMemberships
+                .AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.IsActive
+                            && m.Workstream.Code == WorkstreamCodes.DakCorrespondence
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+
+            if (inDakCorrespondence) return true;
+        }
+
+        // ScopeMode.Assigned and ScopeMode.Own are denied for registration
+        return false;
     }
 }

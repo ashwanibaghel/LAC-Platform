@@ -1,19 +1,19 @@
 import React, { useState, useEffect } from "react";
 import type { DakDetail } from "./types";
 
-interface DeskOption {
+interface DeskMemberOption {
+  userId: string;
+  displayName: string;
+  designation?: string | null;
+  isPrimary: boolean;
+}
+
+interface TargetDeskOption {
   id: string;
   code: string;
   name: string;
   isActive: boolean;
-}
-
-interface DeskMemberOption {
-  userId: string;
-  username: string;
-  displayName: string;
-  isPrimary: boolean;
-  isActive: boolean;
+  members: DeskMemberOption[];
 }
 
 interface Props {
@@ -30,9 +30,8 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, onClose, onSucces
   const [action, setAction] = useState<"Marked" | "Forwarded" | "Returned">(
     isCurrentlyAssigned ? "Forwarded" : "Marked"
   );
-  const [desks, setDesks] = useState<DeskOption[]>([]);
+  const [desks, setDesks] = useState<TargetDeskOption[]>([]);
   const [selectedDeskId, setSelectedDeskId] = useState<string>("");
-  const [members, setMembers] = useState<DeskMemberOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [instructions, setInstructions] = useState<string>("");
 
@@ -43,13 +42,16 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, onClose, onSucces
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load active desks if in move mode
+  // Load active desks and members if in move mode
   useEffect(() => {
     if (mode === "move") {
-      fetch("/api/admin/desks", { credentials: "include" })
-        .then((res) => res.json() as Promise<DeskOption[]>)
+      fetch(`/api/dak/${dak.id}/movement-targets`, { credentials: "include" })
+        .then((res) => {
+          if (!res.ok) throw new Error("Failed to load available office desks.");
+          return res.json() as Promise<{ desks: TargetDeskOption[] }>;
+        })
         .then((data) => {
-          const activeDesks = data.filter((d) => d.isActive);
+          const activeDesks = data.desks.filter((d) => d.isActive);
           setDesks(activeDesks);
           if (activeDesks.length > 0) {
             setSelectedDeskId(activeDesks[0].id);
@@ -57,20 +59,10 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, onClose, onSucces
         })
         .catch(() => setError("Failed to load available office desks."));
     }
-  }, [mode]);
+  }, [mode, dak.id]);
 
-  // Load members when desk changes
-  useEffect(() => {
-    if (mode === "move" && selectedDeskId) {
-      setSelectedUserId("");
-      fetch(`/api/admin/desks/${selectedDeskId}/members`, { credentials: "include" })
-        .then((res) => res.json() as Promise<DeskMemberOption[]>)
-        .then((data) => {
-          setMembers(data.filter((m) => m.isActive));
-        })
-        .catch(() => setMembers([]));
-    }
-  }, [mode, selectedDeskId]);
+  const selectedDesk = desks.find((d) => d.id === selectedDeskId);
+  const members = selectedDesk ? selectedDesk.members : [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -202,7 +194,10 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, onClose, onSucces
                 <label>Target Office Desk *</label>
                 <select
                   value={selectedDeskId}
-                  onChange={(e) => setSelectedDeskId(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedDeskId(e.target.value);
+                    setSelectedUserId("");
+                  }}
                   disabled={loading}
                   required
                 >
