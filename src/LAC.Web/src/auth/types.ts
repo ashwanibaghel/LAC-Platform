@@ -11,6 +11,13 @@ export interface Workstream {
   isPrimary: boolean;
 }
 
+export interface Desk {
+  id: string;
+  code: string;
+  name: string;
+  isPrimary: boolean;
+}
+
 export interface PermissionScope {
   code: string;
   scope: string;
@@ -24,7 +31,9 @@ export interface CurrentUser {
   roles: string[];
   permissions: PermissionScope[];
   workstreams: Workstream[];
+  desks: Desk[];
 }
+
 
 export interface AuthContextType {
   user: CurrentUser | null;

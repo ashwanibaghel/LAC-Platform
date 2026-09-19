@@ -30,6 +30,7 @@ public sealed class AppUser : OfficialRecord
     public DateTimeOffset? PasswordChangedAt { get; set; }
     public ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
     public ICollection<UserWorkstreamMembership> WorkstreamMemberships { get; set; } = new List<UserWorkstreamMembership>();
+    public ICollection<UserDeskMembership> DeskMemberships { get; set; } = new List<UserDeskMembership>();
 }
 
 public sealed class Role : OfficialRecord
@@ -80,6 +81,7 @@ public sealed class Workstream : OfficialRecord
     public string? Description { get; set; }
     public bool IsActive { get; set; } = true;
     public ICollection<UserWorkstreamMembership> UserMemberships { get; set; } = new List<UserWorkstreamMembership>();
+    public ICollection<OfficeDesk> Desks { get; set; } = new List<OfficeDesk>();
 }
 
 public sealed class UserWorkstreamMembership
@@ -93,3 +95,42 @@ public sealed class UserWorkstreamMembership
     public bool IsActive { get; set; } = true;
     public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
 }
+
+public sealed class OfficeDesk : OfficialRecord
+{
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public Guid? WorkstreamId { get; set; }
+    public Workstream? Workstream { get; set; }
+    public bool IsActive { get; set; } = true;
+    public ICollection<UserDeskMembership> UserMemberships { get; set; } = new List<UserDeskMembership>();
+}
+
+public sealed class UserDeskMembership : OfficialRecord
+{
+    public Guid UserId { get; set; }
+    public AppUser User { get; set; } = null!;
+    public Guid OfficeDeskId { get; set; }
+    public OfficeDesk OfficeDesk { get; set; } = null!;
+    public bool IsPrimary { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? RemovedAt { get; set; }
+}
+
+public static class WorkstreamCodes
+{
+    public const string DakCorrespondence = "DAK_CORRESPONDENCE";
+    public const string LandAcquisition = "LAND_ACQUISITION";
+    public const string Award = "AWARD";
+    public const string LandRecords = "LAND_RECORDS";
+    public const string Possession = "POSSESSION";
+    public const string AccountsCompensation = "ACCOUNTS_COMPENSATION";
+    public const string CourtReferences = "COURT_REFERENCES";
+    public const string Rti = "RTI";
+    public const string RecordRoom = "RECORD_ROOM";
+    public const string GeneralAdmin = "GENERAL_ADMIN";
+}
+
+

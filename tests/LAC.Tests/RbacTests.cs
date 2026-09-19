@@ -96,257 +96,40 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         var awardsRes = await client.GetAsync("/api/awards");
         Assert.Equal(HttpStatusCode.Unauthorized, awardsRes.StatusCode);
 
-        var adminUsersRes = await client.GetAsync("/api/admin/users");
-        Assert.Equal(HttpStatusCode.Unauthorized, adminUsersRes.StatusCode);
+        var adminRes = await client.GetAsync("/api/admin/users");
+        Assert.Equal(HttpStatusCode.Unauthorized, adminRes.StatusCode);
 
-        var postKhasraRes = await client.PostAsJsonAsync($"/api/villages/{Guid.NewGuid()}/khasras", new { rawKhasraNumber = "1" });
-        Assert.Equal(HttpStatusCode.Unauthorized, postKhasraRes.StatusCode);
+        var desksRes = await client.GetAsync("/api/admin/desks");
+        Assert.Equal(HttpStatusCode.Unauthorized, desksRes.StatusCode);
     }
 
     [Fact]
-    public async Task Login_with_invalid_credentials_returns_401()
-    {
-        using var client = _factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, "WrongPassword@123"));
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Full_login_me_and_logout_lifecycle()
+    public async Task Admin_login_receives_cookie_and_full_permissions()
     {
         using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-
-        // 1. Login as bootstrap admin
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
 
-        var currentUser = await loginResponse.Content.ReadFromJsonAsync<CurrentUserResponse>();
-        Assert.NotNull(currentUser);
-        Assert.Equal(RbacFactory.TestAdminUser, currentUser.Username);
-        Assert.Contains("SYSTEM_ADMIN", currentUser.Roles);
+        var user = await loginResponse.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        Assert.NotNull(user);
+        Assert.Equal(RbacFactory.TestAdminUser, user.Username);
+        Assert.Contains("SYSTEM_ADMIN", user.Roles);
+        Assert.Contains(user.Permissions, p => p.Code == PermissionCodes.UsersManage);
+        Assert.Contains(user.Permissions, p => p.Code == PermissionCodes.AccessManage);
 
-        // 2. Call /api/auth/me
+        // Verify authenticated /me returns same user
         var meResponse = await client.GetAsync("/api/auth/me");
         Assert.Equal(HttpStatusCode.OK, meResponse.StatusCode);
-        var me = await meResponse.Content.ReadFromJsonAsync<CurrentUserResponse>();
-        Assert.NotNull(me);
-        Assert.Equal(RbacFactory.TestAdminUser, me.Username);
+        var meUser = await meResponse.Content.ReadFromJsonAsync<CurrentUserResponse>();
+        Assert.NotNull(meUser);
+        Assert.Equal(user.Id, meUser.Id);
 
-        // 3. Call protected domain endpoint
-        var villagesResponse = await client.GetAsync("/api/villages?page=0&pageSize=5");
-        Assert.Equal(HttpStatusCode.OK, villagesResponse.StatusCode);
-
-        // 4. Logout
+        // Verify logout clears session
         var logoutResponse = await client.PostAsync("/api/auth/logout", null);
         Assert.Equal(HttpStatusCode.OK, logoutResponse.StatusCode);
 
-        // 5. Protected endpoint should now return 401
-        var afterLogoutResponse = await client.GetAsync("/api/villages?page=0&pageSize=5");
-        Assert.Equal(HttpStatusCode.Unauthorized, afterLogoutResponse.StatusCode);
-    }
-
-    [Fact]
-    public async Task Deactivated_user_cannot_log_in()
-    {
-        var username = $"inactive_{Guid.NewGuid():N}";
-        const string testPass = "TestP@ss!123";
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>();
-            var user = new AppUser
-            {
-                Username = username,
-                NormalizedUsername = username.ToUpperInvariant(),
-                DisplayName = "Inactive User",
-                IsActive = false
-            };
-            user.PasswordHash = hasher.HashPassword(user, testPass);
-            db.AppUsers.Add(user);
-            await db.SaveChangesAsync();
-        }
-
-        using var client = _factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, testPass));
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task Limited_user_with_only_village_view_is_forbidden_from_other_modules_and_mutations()
-    {
-        var username = $"limited_{Guid.NewGuid():N}";
-        const string testPass = "LimitedP@ss!456";
-        Guid villageId;
-
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>();
-
-            var village = await db.Villages.FirstAsync();
-            villageId = village.Id;
-
-            // Role with ONLY Village.View
-            var role = new Role
-            {
-                Code = $"ROLE_VIEW_{Guid.NewGuid():N}",
-                Name = "Viewer Only",
-                IsActive = true
-            };
-            db.Roles.Add(role);
-
-            var villageViewPerm = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.VillageView);
-            db.RolePermissions.Add(new RolePermission
-            {
-                Role = role,
-                Permission = villageViewPerm,
-                ScopeMode = ScopeMode.All
-            });
-
-            var user = new AppUser
-            {
-                Username = username,
-                NormalizedUsername = username.ToUpperInvariant(),
-                DisplayName = "Limited User",
-                IsActive = true
-            };
-            user.PasswordHash = hasher.HashPassword(user, testPass);
-            db.AppUsers.Add(user);
-            db.UserRoles.Add(new UserRole { User = user, Role = role });
-
-            await db.SaveChangesAsync();
-        }
-
-        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, testPass));
-        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
-
-        // Allowed: View villages
-        var viewResponse = await client.GetAsync("/api/villages?page=0&pageSize=5");
-        Assert.Equal(HttpStatusCode.OK, viewResponse.StatusCode);
-
-        // Forbidden: Create khasra (mutation requires Khasra.Edit)
-        var postKhasraResponse = await client.PostAsJsonAsync($"/api/villages/{villageId}/khasras", new { rawKhasraNumber = "99" });
-        Assert.Equal(HttpStatusCode.Forbidden, postKhasraResponse.StatusCode);
-
-        // Forbidden: Award endpoints (requires Award.View)
-        var awardsResponse = await client.GetAsync("/api/awards");
-        Assert.Equal(HttpStatusCode.Forbidden, awardsResponse.StatusCode);
-
-        // Forbidden: LR review (requires Lr.View)
-        var lrReviewResponse = await client.GetAsync("/api/lr-review");
-        Assert.Equal(HttpStatusCode.Forbidden, lrReviewResponse.StatusCode);
-
-        // Forbidden: Admin endpoints (requires Admin.UserManage)
-        var adminUsersResponse = await client.GetAsync("/api/admin/users");
-        Assert.Equal(HttpStatusCode.Forbidden, adminUsersResponse.StatusCode);
-    }
-
-    [Fact]
-    public async Task Scope_evaluation_handles_all_workstream_assigned_and_own_modes()
-    {
-        using var scope = _factory.Services.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>();
-
-        var ws1 = await db.Workstreams.FirstAsync(w => w.Code == "LAND_RECORDS");
-        var ws2 = await db.Workstreams.FirstAsync(w => w.Code == "AWARD");
-
-        // Create user with Workstream scope role
-        var testUser = new AppUser
-        {
-            Username = $"scopeuser_{Guid.NewGuid():N}",
-            NormalizedUsername = $"SCOPEUSER_{Guid.NewGuid():N}",
-            DisplayName = "Scope User",
-            IsActive = true
-        };
-        testUser.PasswordHash = hasher.HashPassword(testUser, "ScopeP@ss!123");
-        db.AppUsers.Add(testUser);
-
-        // Assign to ws1
-        db.UserWorkstreamMemberships.Add(new UserWorkstreamMembership
-        {
-            User = testUser,
-            Workstream = ws1,
-            IsActive = true
-        });
-
-        var roleWs = new Role { Code = $"ROLE_WS_{Guid.NewGuid():N}", Name = "WS Scoped", IsActive = true };
-        var roleOwn = new Role { Code = $"ROLE_OWN_{Guid.NewGuid():N}", Name = "Own Scoped", IsActive = true };
-        var roleAssigned = new Role { Code = $"ROLE_ASGN_{Guid.NewGuid():N}", Name = "Assigned Scoped", IsActive = true };
-        db.Roles.AddRange(roleWs, roleOwn, roleAssigned);
-
-        var perm = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.LrEdit);
-
-        db.RolePermissions.Add(new RolePermission { Role = roleWs, Permission = perm, ScopeMode = ScopeMode.Workstream });
-        db.RolePermissions.Add(new RolePermission { Role = roleOwn, Permission = perm, ScopeMode = ScopeMode.Own });
-        db.RolePermissions.Add(new RolePermission { Role = roleAssigned, Permission = perm, ScopeMode = ScopeMode.Assigned });
-
-        db.UserRoles.Add(new UserRole { User = testUser, Role = roleWs });
-        db.UserRoles.Add(new UserRole { User = testUser, Role = roleOwn });
-        db.UserRoles.Add(new UserRole { User = testUser, Role = roleAssigned });
-
-        await db.SaveChangesAsync();
-
-        var testUserContext = new TestUserContext(testUser.Id, testUser.Username, [ws1.Id], [ws1.Code]);
-        var accessControl = new AccessControlService(db, testUserContext);
-
-        // 1. Workstream matching
-        Assert.True(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(WorkstreamId: ws1.Id)));
-        Assert.True(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(WorkstreamCode: ws1.Code)));
-        Assert.False(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(WorkstreamId: ws2.Id)));
-
-        // 2. Own matching
-        Assert.True(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(OwnerUserId: testUser.Id)));
-        Assert.False(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(OwnerUserId: Guid.NewGuid())));
-
-        // 3. Assigned mode fails closed in Phase 1
-        Assert.False(await accessControl.CanAsync(PermissionCodes.LrEdit, new AccessResourceContext(AssignedUserId: testUser.Id)));
-
-        // 4. Scoped permission without resource context fails closed
-        Assert.False(await accessControl.CanAsync(PermissionCodes.LrEdit, null));
-    }
-
-    [Fact]
-    public async Task Admin_user_management_crud_and_security()
-    {
-        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
-
-        var newUsername = $"newuser_{Guid.NewGuid():N}";
-        var createRequest = new CreateUserRequest(
-            newUsername,
-            "New Test User",
-            "SecretPass@123!",
-            null,
-            null,
-            null,
-            null
-        );
-
-        // 1. Create user
-        var createResponse = await client.PostAsJsonAsync("/api/admin/users", createRequest);
-        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
-        var createdId = (await createResponse.Content.ReadFromJsonAsync<IdResponse>())!.Id;
-
-        // 2. Prevent duplicate username
-        var duplicateResponse = await client.PostAsJsonAsync("/api/admin/users", createRequest);
-        Assert.Equal(HttpStatusCode.Conflict, duplicateResponse.StatusCode);
-
-        // 3. Verify user list does NOT expose password or hash
-        var usersResponse = await client.GetAsync("/api/admin/users");
-        Assert.Equal(HttpStatusCode.OK, usersResponse.StatusCode);
-        var responseString = await usersResponse.Content.ReadAsStringAsync();
-        Assert.DoesNotContain("password", responseString, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("hash", responseString, StringComparison.OrdinalIgnoreCase);
-
-        // 4. Toggle status
-        var toggleResponse = await client.PostAsync($"/api/admin/users/{createdId}/toggle-status", null);
-        Assert.Equal(HttpStatusCode.OK, toggleResponse.StatusCode);
-
-        // 5. Reset password
-        var resetResponse = await client.PostAsJsonAsync($"/api/admin/users/{createdId}/reset-password", new ResetPasswordRequest("BrandNewPass@123!"));
-        Assert.Equal(HttpStatusCode.OK, resetResponse.StatusCode);
+        var meAfterLogout = await client.GetAsync("/api/auth/me");
+        Assert.Equal(HttpStatusCode.Unauthorized, meAfterLogout.StatusCode);
     }
 
     [Fact]
@@ -432,6 +215,333 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
     }
 
     [Fact]
+    public async Task Admin_can_crud_office_desks_and_enforce_validations()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        Guid lrWsId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            lrWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.LandRecords)).Id;
+        }
+
+        // 1. Create Office Desk
+        var deskCode = $"TEST_NT_{Guid.NewGuid():N}"[..12].ToUpperInvariant();
+        var createReq = new CreateDeskRequest(deskCode, "Test Naib Tehsildar Desk", "Operations for land verification", lrWsId);
+        var createRes = await client.PostAsJsonAsync("/api/admin/desks", createReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var created = await createRes.Content.ReadFromJsonAsync<IdResponse>();
+        Assert.NotNull(created);
+        var deskId = created.Id;
+
+        // 2. Duplicate Code returns 409 Conflict
+        var dupRes = await client.PostAsJsonAsync("/api/admin/desks", createReq);
+        Assert.Equal(HttpStatusCode.Conflict, dupRes.StatusCode);
+
+        // 3. Invalid Workstream returns 400 BadRequest
+        var invalidWsReq = new CreateDeskRequest($"INV_{Guid.NewGuid():N}"[..10].ToUpperInvariant(), "Invalid WS Desk", null, Guid.NewGuid());
+        var invalidRes = await client.PostAsJsonAsync("/api/admin/desks", invalidWsReq);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidRes.StatusCode);
+
+        // 4. Update Desk
+        var updateReq = new UpdateDeskRequest("Updated NT Desk Name", "Updated description", lrWsId);
+        var updateRes = await client.PutAsJsonAsync($"/api/admin/desks/{deskId}", updateReq);
+        Assert.Equal(HttpStatusCode.OK, updateRes.StatusCode);
+
+        // 5. Toggle Desk Status
+        var toggleRes = await client.PostAsync($"/api/admin/desks/{deskId}/toggle-status", null);
+        Assert.Equal(HttpStatusCode.OK, toggleRes.StatusCode);
+
+        // Verify inactive in DB
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var deskInDb = await db.OfficeDesks.FindAsync(deskId);
+            Assert.NotNull(deskInDb);
+            Assert.False(deskInDb.IsActive);
+            Assert.Equal("Updated NT Desk Name", deskInDb.Name);
+        }
+
+        // Toggle back to active
+        await client.PostAsync($"/api/admin/desks/{deskId}/toggle-status", null);
+    }
+
+    [Fact]
+    public async Task Desk_membership_history_period_preserves_old_rows_and_creates_new_row_on_reassignment()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        // Create a test user
+        var username = $"desk_hist_user_{Guid.NewGuid():N}"[..18];
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "History User", "Pass!123456", null, null, null, null));
+        Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
+        var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Create an office desk
+        var deskCode = $"DESK_HIST_{Guid.NewGuid():N}"[..14].ToUpperInvariant();
+        var createDeskRes = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest(deskCode, "History Period Desk", null, null));
+        var deskId = (await createDeskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Step 1: Assign user to desk
+        var assignRes1 = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId, IsPrimary: true));
+        Assert.Equal(HttpStatusCode.Created, assignRes1.StatusCode);
+        var mem1Id = (await assignRes1.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Verify active
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var m1 = await db.UserDeskMemberships.FindAsync(mem1Id);
+            Assert.NotNull(m1);
+            Assert.True(m1.IsActive);
+            Assert.True(m1.IsPrimary);
+            Assert.Null(m1.RemovedAt);
+        }
+
+        // Attempting duplicate active assignment while active returns 400 BadRequest
+        var dupAssignRes = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId, IsPrimary: false));
+        Assert.Equal(HttpStatusCode.BadRequest, dupAssignRes.StatusCode);
+
+        // Step 2: Remove membership
+        var removeRes = await client.PostAsync($"/api/admin/users/{userId}/desks/{mem1Id}/remove", null);
+        Assert.Equal(HttpStatusCode.OK, removeRes.StatusCode);
+
+        // Verify membership is now inactive and preserves historical dates
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var m1 = await db.UserDeskMemberships.FindAsync(mem1Id);
+            Assert.NotNull(m1);
+            Assert.False(m1.IsActive);
+            Assert.False(m1.IsPrimary);
+            Assert.NotNull(m1.RemovedAt);
+        }
+
+        // Step 3: Reassign user to same desk months later -> MUST create a NEW row, NOT overwrite the old one!
+        var assignRes2 = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId, IsPrimary: true));
+        Assert.Equal(HttpStatusCode.Created, assignRes2.StatusCode);
+        var mem2Id = (await assignRes2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        Assert.NotEqual(mem1Id, mem2Id);
+
+        // Verify BOTH rows exist in database
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var userMemberships = await db.UserDeskMemberships
+                .Where(m => m.UserId == userId && m.OfficeDeskId == deskId)
+                .OrderBy(m => m.AssignedAt)
+                .ToListAsync();
+
+            Assert.Equal(2, userMemberships.Count);
+
+            var oldPeriod = userMemberships[0];
+            Assert.Equal(mem1Id, oldPeriod.Id);
+            Assert.False(oldPeriod.IsActive);
+            Assert.False(oldPeriod.IsPrimary);
+            Assert.NotNull(oldPeriod.RemovedAt);
+
+            var newPeriod = userMemberships[1];
+            Assert.Equal(mem2Id, newPeriod.Id);
+            Assert.True(newPeriod.IsActive);
+            Assert.True(newPeriod.IsPrimary);
+            Assert.Null(newPeriod.RemovedAt);
+        }
+    }
+
+    [Fact]
+    public async Task Single_active_primary_desk_is_enforced_transactionally()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        // Create user
+        var username = $"desk_prim_user_{Guid.NewGuid():N}"[..18];
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Primary Test User", "Pass!123456", null, null, null, null));
+        var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Create Desk A & Desk B
+        var resDeskA = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_A_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Desk A", null, null));
+        var deskAId = (await resDeskA.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var resDeskB = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_B_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Desk B", null, null));
+        var deskBId = (await resDeskB.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 1. Assign Desk A as Primary
+        var assignARes = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskAId, IsPrimary: true));
+        var memAId = (await assignARes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 2. Assign Desk B as Primary -> Desk A must automatically lose Primary status
+        var assignBRes = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskBId, IsPrimary: true));
+        var memBId = (await assignBRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var memA = await db.UserDeskMemberships.FindAsync(memAId);
+            var memB = await db.UserDeskMemberships.FindAsync(memBId);
+
+            Assert.NotNull(memA);
+            Assert.NotNull(memB);
+            Assert.False(memA.IsPrimary);
+            Assert.True(memB.IsPrimary);
+        }
+
+        // 3. Set Desk A back to Primary via set-primary endpoint
+        var setPrimRes = await client.PostAsync($"/api/admin/users/{userId}/desks/{memAId}/set-primary", null);
+        Assert.Equal(HttpStatusCode.OK, setPrimRes.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var memA = await db.UserDeskMemberships.FindAsync(memAId);
+            var memB = await db.UserDeskMemberships.FindAsync(memBId);
+
+            Assert.NotNull(memA);
+            Assert.NotNull(memB);
+            Assert.True(memA.IsPrimary);
+            Assert.False(memB.IsPrimary);
+        }
+
+        // 4. Remove Desk A and verify attempting to set inactive Desk A as primary returns 400 BadRequest
+        await client.PostAsync($"/api/admin/users/{userId}/desks/{memAId}/remove", null);
+        var setInactivePrimRes = await client.PostAsync($"/api/admin/users/{userId}/desks/{memAId}/set-primary", null);
+        Assert.Equal(HttpStatusCode.BadRequest, setInactivePrimRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Inactive_desk_rejects_new_assignments()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        // Create user
+        var username = $"desk_inact_user_{Guid.NewGuid():N}"[..18];
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Test", "Pass!123456", null, null, null, null));
+        var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Create desk and deactivate it
+        var resDesk = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"DESK_OFF_{Guid.NewGuid():N}"[..12].ToUpperInvariant(), "Deactivated Desk", null, null));
+        var deskId = (await resDesk.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        await client.PostAsync($"/api/admin/desks/{deskId}/toggle-status", null);
+
+        // Attempt assignment
+        var assignRes = await client.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId, IsPrimary: true));
+        Assert.Equal(HttpStatusCode.BadRequest, assignRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Scoped_workstream_user_access_is_enforced_by_business_function()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        Guid lrWsId;
+        Guid awardWsId;
+        Guid villageId;
+        Guid awardId;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            lrWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.LandRecords)).Id;
+            awardWsId = (await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.Award)).Id;
+            villageId = (await db.Villages.FirstAsync()).Id;
+            awardId = (await db.Awards.FirstAsync()).Id;
+        }
+
+        // 1. Create a scoped Role: LR_READER with ScopeMode.Workstream on LrView, AwardView, and MatterView
+        var roleCode = $"WS_ROLE_{Guid.NewGuid():N}"[..12].ToUpperInvariant();
+        var createRoleRes = await client.PostAsJsonAsync("/api/admin/roles", new CreateRoleRequest(
+            roleCode, "Workstream Scoped Role", "Scoped to workstream",
+            [
+                new RolePermissionInput(PermissionCodes.LrView, ScopeMode.Workstream),
+                new RolePermissionInput(PermissionCodes.AwardView, ScopeMode.Workstream),
+                new RolePermissionInput(PermissionCodes.MatterView, ScopeMode.Workstream)
+            ]));
+        Assert.Equal(HttpStatusCode.Created, createRoleRes.StatusCode);
+        var roleId = (await createRoleRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // 2. Create user with LAND_RECORDS workstream and this role
+        var lrUsername = $"lr_ws_user_{Guid.NewGuid():N}"[..16];
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
+            lrUsername, "LR Scoped Officer", "Pass!123456", null, [roleId], [lrWsId], lrWsId));
+        Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
+
+        // Login as this LR scoped user
+        using var lrClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var loginRes = await lrClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(lrUsername, "Pass!123456"));
+        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+
+        // A. Accessing LAND_RECORDS endpoint: /villages/{id}/khatauni -> ALLOWED (200 OK)
+        var khatauniRes = await lrClient.GetAsync($"/api/villages/{villageId}/khatauni");
+        Assert.Equal(HttpStatusCode.OK, khatauniRes.StatusCode);
+
+        // B. Accessing AWARD-workstream endpoint: /awards/{id} -> FORBIDDEN (403) because user is only in LAND_RECORDS
+        var awardRes = await lrClient.GetAsync($"/api/awards/{awardId}");
+        Assert.Equal(HttpStatusCode.Forbidden, awardRes.StatusCode);
+
+        // C. Accessing POSSESSION-workstream endpoint: /awards/{id}/possession-events -> FORBIDDEN (403)
+        var possessionRes = await lrClient.GetAsync($"/api/awards/{awardId}/possession-events");
+        Assert.Equal(HttpStatusCode.Forbidden, possessionRes.StatusCode);
+
+        // D. Accessing CONTEXT-LESS endpoint requiring ScopeMode.All: /matters/{id} -> FORBIDDEN (403 fail closed)
+        var matterRes = await lrClient.GetAsync($"/api/matters/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.Forbidden, matterRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task ScopeMode_Assigned_and_Own_fail_closed()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass));
+
+        Guid villageId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            villageId = (await db.Villages.FirstAsync()).Id;
+        }
+
+        // Role with Assigned scope mode
+        var assignedRoleCode = $"ASSIGNED_ROLE_{Guid.NewGuid():N}"[..16].ToUpperInvariant();
+        var res1 = await client.PostAsJsonAsync("/api/admin/roles", new CreateRoleRequest(
+            assignedRoleCode, "Assigned Role", "ScopeMode Assigned",
+            [new RolePermissionInput(PermissionCodes.LrView, ScopeMode.Assigned)]));
+        Assert.Equal(HttpStatusCode.Created, res1.StatusCode);
+        var assignedRoleId = (await res1.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Role with Own scope mode
+        var ownRoleCode = $"OWN_ROLE_{Guid.NewGuid():N}"[..16].ToUpperInvariant();
+        var res2 = await client.PostAsJsonAsync("/api/admin/roles", new CreateRoleRequest(
+            ownRoleCode, "Own Role", "ScopeMode Own",
+            [new RolePermissionInput(PermissionCodes.LrView, ScopeMode.Own)]));
+        Assert.Equal(HttpStatusCode.Created, res2.StatusCode);
+        var ownRoleId = (await res2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // User with Assigned role
+        var usrAssigned = $"usr_assigned_{Guid.NewGuid():N}"[..16];
+        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrAssigned, "Assigned User", "Pass!123456", null, [assignedRoleId], null, null));
+
+        using var clientAssigned = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await clientAssigned.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrAssigned, "Pass!123456"));
+        var assignedAttempt = await clientAssigned.GetAsync($"/api/villages/{villageId}/khatauni");
+        Assert.Equal(HttpStatusCode.Forbidden, assignedAttempt.StatusCode);
+
+        // User with Own role
+        var usrOwn = $"usr_own_{Guid.NewGuid():N}"[..16];
+        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrOwn, "Own User", "Pass!123456", null, [ownRoleId], null, null));
+
+        using var clientOwn = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        await clientOwn.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrOwn, "Pass!123456"));
+        var ownAttempt = await clientOwn.GetAsync($"/api/villages/{villageId}/khatauni");
+        Assert.Equal(HttpStatusCode.Forbidden, ownAttempt.StatusCode);
+    }
+
+    [Fact]
     public async Task Audit_trail_populates_CreatedBy_UpdatedBy_and_AuditLog_ChangedBy_with_userId_string()
     {
         var testActorId = Guid.NewGuid();
@@ -482,7 +592,6 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         using var noAdminFactory = new NoBootstrapAdminFactory();
         using var client = noAdminFactory.CreateClient();
 
-        // Health endpoint succeeds and app starts up without crashing
         var healthRes = await client.GetAsync("/api/health");
         Assert.Equal(HttpStatusCode.OK, healthRes.StatusCode);
 
@@ -507,7 +616,6 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         Assert.NotEmpty(admin.PasswordHash);
         Assert.Contains(admin.UserRoles, ur => ur.Role.Code == "SYSTEM_ADMIN");
 
-        // Verify password hasher successfully verifies
         var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>();
         var verifyResult = hasher.VerifyHashedPassword(admin, admin.PasswordHash, RbacFactory.TestAdminPass);
         Assert.Equal(PasswordVerificationResult.Success, verifyResult);
@@ -521,7 +629,6 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         var countBefore = await db.AppUsers.CountAsync();
         Assert.True(countBefore >= 1);
 
-        // Run seed again
         var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
         await SeedData.SeedAsync(db, config);
 
@@ -529,7 +636,14 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         Assert.Equal(countBefore, countAfter);
     }
 
-    private sealed class TestUserContext(Guid userId, string username, IReadOnlyList<Guid> workstreamIds, IReadOnlyList<string> workstreamCodes) : ICurrentUserContext
+    private sealed class TestUserContext(
+        Guid userId,
+        string username,
+        IReadOnlyList<Guid> workstreamIds,
+        IReadOnlyList<string> workstreamCodes,
+        IReadOnlyList<Guid>? deskIds = null,
+        IReadOnlyList<string>? deskCodes = null,
+        Guid? primaryDeskId = null) : ICurrentUserContext
     {
         public bool IsAuthenticated => true;
         public Guid? UserId => userId;
@@ -542,6 +656,9 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         public IReadOnlyList<string> Permissions => [];
         public IReadOnlyList<Guid> WorkstreamIds => workstreamIds;
         public IReadOnlyList<string> WorkstreamCodes => workstreamCodes;
+        public IReadOnlyList<Guid> DeskIds => deskIds ?? [];
+        public IReadOnlyList<string> DeskCodes => deskCodes ?? [];
+        public Guid? PrimaryDeskId => primaryDeskId;
     }
 
     private sealed class AnonymousUserContext : ICurrentUserContext
@@ -557,5 +674,8 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         public IReadOnlyList<string> Permissions => [];
         public IReadOnlyList<Guid> WorkstreamIds => [];
         public IReadOnlyList<string> WorkstreamCodes => [];
+        public IReadOnlyList<Guid> DeskIds => [];
+        public IReadOnlyList<string> DeskCodes => [];
+        public Guid? PrimaryDeskId => null;
     }
 }

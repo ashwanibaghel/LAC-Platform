@@ -286,13 +286,13 @@ api.MapGet("/villages/{id:guid}/notifications", async (Guid id, LacDbContext db,
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     return Results.Ok(await db.Notifications.AsNoTracking().Where(n => n.KhasraLinks.Any(link => link.Khasra.VillageId == id)).OrderByDescending(n => n.NotificationDate).Select(NotificationListItem.Selector).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/villages/{id:guid}/lrs", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     return Results.Ok(await db.VillageLRs.AsNoTracking().Where(lr => lr.VillageId == id).OrderBy(lr => lr.RegisterReference).Select(lr => new VillageLrListItem(lr.Id, lr.RegisterReference, lr.Entries.Count)).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 
 api.MapGet("/villages/{id:guid}/documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -345,7 +345,7 @@ api.MapGet("/awards/{id:guid}", async (Guid id, LacDbContext db, CancellationTok
         x.KhasraLinks.SelectMany(link => link.Khasra.NotificationLinks).Select(link => new NotificationLinkItem(link.Notification.Id, link.Notification.NotificationNumber, link.Notification.SectionType, link.Notification.NotificationDate, link.NotifiedArea, link.AreaUnit)).Distinct().ToList(),
         x.DocumentRelationships.OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToList())).FirstOrDefaultAsync(ct);
     return award is null ? NotFound("Award", id) : Results.Ok(award);
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -358,7 +358,7 @@ api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, Cance
     )).FirstOrDefaultAsync(ct);
     if (item is null) return NotFound("Award", id);
     return Results.Ok(item);
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 // This deliberately exposes only the direct AwardVillage relationship.  The workspace
 // overview may display Khasra-derived villages for navigation, but those are not valid
@@ -368,14 +368,14 @@ api.MapGet("/awards/{id:guid}/ingestion-villages", async (Guid id, LacDbContext 
     if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
     return Results.Ok(await db.AwardVillages.AsNoTracking().Where(x => x.AwardId == id)
         .OrderBy(x => x.Village.Name).Select(x => new { x.VillageId, x.Village.Name }).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/notifications", async (int page, int pageSize, string? q, LacDbContext db, CancellationToken ct) =>
 {
     var notifications = db.Notifications.AsNoTracking().AsQueryable();
     if (!string.IsNullOrWhiteSpace(q)) { var term = q.Trim().ToUpperInvariant(); notifications = notifications.Where(x => x.NotificationNumber.ToUpper().Contains(term)); }
     return Results.Ok(await ToPageAsync(notifications.OrderByDescending(x => x.NotificationDate).Select(NotificationListItem.Selector), page, pageSize, ct));
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -384,7 +384,7 @@ api.MapGet("/notifications/{id:guid}", async (Guid id, LacDbContext db, Cancella
         x.KhasraLinks.OrderBy(link => link.Khasra.DisplayNumber).Select(link => new NotificationKhasraItem(link.Khasra.Id, link.Khasra.DisplayNumber, link.Khasra.Village.Name, link.NotifiedArea, link.AreaUnit)).ToList(),
         x.DocumentRelationships.OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).ToList())).FirstOrDefaultAsync(ct);
     return notification is null ? NotFound("Notification", id) : Results.Ok(notification);
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Documents.AsNoTracking().OrderByDescending(x => x.UploadedAt).Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status)), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
@@ -427,7 +427,7 @@ api.MapGet("/awards/{id:guid}/core-documents", async (Guid id, LacDbContext db, 
     if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
     return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null).OrderByDescending(x => x.Document.UploadedAt)
         .Select(x => new { x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType, x.Document.UploadedAt }).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
     var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
@@ -441,7 +441,7 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     foreach (var villageId in villageIds) db.Add(new DocumentVillage { VillageId = villageId, Document = document });
     await db.SaveChangesAsync(ct);
     return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
-}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload);
+}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
 api.MapGet("/villages/{id:guid}/matters", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Matters.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.CreatedAt).Select(x => new { x.Id, x.Title, x.MatterType, x.Status, x.ReferenceNumber, x.KhasraReferenceText, award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault() }).ToListAsync(ct))).RequirePermission(PermissionCodes.MatterView);
 api.MapPost("/villages/{id:guid}/matters", async (Guid id, CreateMatterRequest request, LacDbContext db, CancellationToken ct) =>
 {
@@ -567,7 +567,7 @@ api.MapGet("/village-lrs/{id:guid}", async (Guid id, LacDbContext db, Cancellati
         x.Entries.Count(e => e.VerificationStatus == VerificationStatus.Committed),
         x.DocumentRelationships.OrderByDescending(link => link.Document.UploadedAt).Select(link => new DocumentListItem(link.Document.Id, link.Document.OriginalFileName, link.Document.DocumentType, link.Document.UploadedAt, link.Document.Status)).FirstOrDefault())).FirstOrDefaultAsync(ct);
     return register is null ? NotFound("Village LR register", id) : Results.Ok(register);
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 
 api.MapGet("/village-lrs/{id:guid}/entries", async (Guid id, int page, int pageSize, string? status, string? q, Guid? khasraId, Guid? awardId, LacDbContext db, CancellationToken ct) =>
 {
@@ -578,7 +578,7 @@ api.MapGet("/village-lrs/{id:guid}/entries", async (Guid id, int page, int pageS
     if (awardId is not null) rows = rows.Where(x => x.AwardId == awardId);
     if (!string.IsNullOrWhiteSpace(q)) { var term = q.Trim().ToUpperInvariant(); rows = rows.Where(x => x.RawKhasraText.ToUpper().Contains(term)); }
     return Results.Ok(await ToPageAsync(rows.OrderBy(x => x.RowNumber).ThenBy(x => x.CreatedAt).Select(LrEntryDetailItem.Selector), page, pageSize, ct));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 
 api.MapGet("/villages/{id:guid}/lr-progress", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
@@ -590,7 +590,7 @@ api.MapGet("/villages/{id:guid}/lr-progress", async (Guid id, LacDbContext db, C
         await rows.CountAsync(x => x.VerificationStatus == VerificationStatus.NeedsReview, ct),
         await rows.CountAsync(x => x.VerificationStatus == VerificationStatus.Verified, ct),
         await rows.CountAsync(x => x.VerificationStatus == VerificationStatus.Committed, ct)));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 
 api.MapGet("/lr-review", async (Guid? villageId, Guid? registerId, string? status, Guid? khasraId, Guid? awardId, int page, int pageSize, LacDbContext db, CancellationToken ct) =>
 {
@@ -602,7 +602,7 @@ api.MapGet("/lr-review", async (Guid? villageId, Guid? registerId, string? statu
     if (Enum.TryParse<VerificationStatus>(status, true, out var parsedStatus)) rows = rows.Where(x => x.VerificationStatus == parsedStatus);
     else rows = rows.Where(x => x.VerificationStatus == VerificationStatus.NeedsReview || x.VerificationStatus == VerificationStatus.Draft);
     return Results.Ok(await ToPageAsync(rows.OrderBy(x => x.VerificationStatus).ThenBy(x => x.VillageLR.Village.Name).ThenBy(x => x.RowNumber).Select(LrReviewItem.Selector), page, pageSize, ct));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 
 api.MapPost("/village-lrs", async (CreateVillageLrRequest request, LacDbContext db, CancellationToken ct) =>
 {
@@ -611,40 +611,40 @@ api.MapPost("/village-lrs", async (CreateVillageLrRequest request, LacDbContext 
     var register = new VillageLR { VillageId = request.VillageId, RegisterReference = request.RegisterReference?.Trim(), Remarks = request.Remarks?.Trim() };
     db.VillageLRs.Add(register); await db.SaveChangesAsync(ct);
     return Results.Created($"/api/village-lrs/{register.Id}", new IdResponse(register.Id));
-}).RequirePermission(PermissionCodes.LrEdit);
+}).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
 
 api.MapPost("/villages/{id:guid}/khasras", async (Guid id, CreateKhasraRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { var khasra = await workflow.CreateKhasraAsync(id, request.DisplayNumber, request.TotalArea, request.AreaUnit, request.RectangleNumber, request.KillaNumber, request.SubdivisionNumber, ct); return Results.Created($"/api/khasras/{khasra.Id}", new IdResponse(khasra.Id)); }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 
 api.MapPost("/villages/{id:guid}/khasras/batch", async (Guid id, KhasraBatchRequest request, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapPost("/villages/{id:guid}/khasras/import-preview", async (Guid id, IFormFile file, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { if (file.Length == 0) return Validation("file", "Select a non-empty .xlsx workbook."); await using var stream = file.OpenReadStream(); return Results.Ok(await workspace.PreviewAsync(id, stream, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
     catch (Exception) { return Validation("file", "The workbook could not be read. Use a valid .xlsx file with the expected headers."); }
-}).DisableAntiforgery().RequirePermission(PermissionCodes.KhasraEdit);
+}).DisableAntiforgery().RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapPost("/villages/{id:guid}/khasras/import", async (Guid id, KhasraBatchRequest request, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { return Results.Ok(await workspace.ImportAsync(id, request.Rows, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapGet("/villages/{id:guid}/khasras/import-template", (Guid id) => Results.File(KhasraWorkspaceService.ImportTemplate(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "village-khasra-import-template.xlsx")).RequirePermission(PermissionCodes.KhasraView);
 api.MapPut("/khasras/{id:guid}", async (Guid id, KhasraWorkspaceRow request, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try { await workspace.UpdateAsync(id, request, ct); return Results.NoContent(); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapDelete("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     var khasra = await db.Khasras.SingleOrDefaultAsync(x => x.Id == id, ct); if (khasra is null) return NotFound("Khasra", id); db.Remove(khasra); await db.SaveChangesAsync(ct); return Results.NoContent();
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapGet("/villages/{id:guid}/khasras/export/{format}", async (Guid id, string format, string? q, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     try
@@ -659,7 +659,7 @@ api.MapPost("/notifications", async (CreateNotificationRequest request, LrWorkfl
 {
     try { var notification = await workflow.CreateNotificationAsync(request.SectionType, request.NotificationNumber, request.NotificationDate, request.Remarks, ct); return Results.Created($"/api/notifications/{notification.Id}", new IdResponse(notification.Id)); }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardCreate);
+}).RequirePermission(PermissionCodes.AwardCreate, WorkstreamCodes.Award);
 
 api.MapPost("/awards", async (CreateAwardRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
@@ -671,31 +671,31 @@ api.MapPost("/awards/foundation", async (AwardFoundationCreateRequest request, A
 {
     try { var award = await workflow.CreateAsync(new(request.AwardNumber, request.VillageId, request.AwardDate, request.AwardType, request.ActRegime, request.Purpose, request.AcquisitionProjectId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardCreate);
+}).RequirePermission(PermissionCodes.AwardCreate, WorkstreamCodes.Award);
 api.MapPost("/awards/supplementary", async (CreateSupplementaryAwardRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { var award = await workflow.CreateSupplementaryAsync(new(request.AwardNumber, request.AwardDate, request.ParentAwardReference, request.ParentAwardId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardCreate);
+}).RequirePermission(PermissionCodes.AwardCreate, WorkstreamCodes.Award);
 
 api.MapPost("/award-ingestion-sessions", async (CreateAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) =>
 {
     try { var session = await ingestion.CreatePreviewFromJsonAsync(request.SourceType, request.TargetAwardId, request.SelectedVillageId, request.SourceDocumentId, request.CreatedBy, request.Remarks, request.Candidates, ct); return Results.Created($"/api/award-ingestion-sessions/{session.Id}", new IdResponse(session.Id)); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/nm-documents", async (CreateNmDocumentRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var item=await workflow.CreateReviewAsync(request.DocumentId,request.VillageId,request.AwardId,request.ReferenceNumber,request.RecordDate,ct); return Results.Created($"/api/nm-documents/{item.Id}",new IdResponse(item.Id)); } catch(NmWorkflowException ex){ return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardCoreDocumentUpload);
-api.MapPost("/awards/{awardId:guid}/nm-documents", async(Guid awardId,Guid? villageId,IFormFile file,LacDbContext db,NmWorkflowService workflow,CancellationToken ct)=>{ if(file.Length==0)return Validation("file","Choose a non-empty NM PDF."); var resolved=villageId??await db.AwardVillages.Where(x=>x.AwardId==awardId).Select(x=>(Guid?)x.VillageId).SingleOrDefaultAsync(ct); if(resolved is null)return Validation("villageId","This Award needs one selected Village before NM upload."); try{await using var stream=file.OpenReadStream();var nm=await workflow.UploadAsync(stream,file.FileName,file.ContentType,awardId,resolved.Value,ct);return Results.Created($"/api/nm-documents/{nm.Id}",new {nmDocumentId=nm.Id,documentId=nm.DocumentId,status="Uploaded"});}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload);
-api.MapGet("/awards/{awardId:guid}/nm-documents", async(Guid awardId,LacDbContext db,CancellationToken ct)=>Results.Ok(await db.NmDocuments.AsNoTracking().Where(x=>x.AwardId==awardId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Id,x.DocumentId,x.Document.OriginalFileName,x.VillageId,VillageName=x.Village.Name,x.Status,Rows=x.ReviewRows.Count}).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/nm-documents/{id:guid}/analyze-pilot", async(Guid id,NmWorkflowService workflow,CancellationToken ct)=> { try { return Results.Ok(new { rowsCreated = await workflow.AnalyzePilotAsync(id,ct) }); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/nm-documents/{id:guid}/analyze-semantic", async(Guid id,HttpRequest request,NmWorkflowService workflow,CancellationToken ct)=> { try { var rawPages=request.Query["pages"].SelectMany(value=>(value ?? "").Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries)).ToArray(); if(rawPages.Any(value=>!int.TryParse(value,out _))) return Results.Problem("Semantic analysis pages must be integers.",statusCode:400); var pages=rawPages.Length==0?null:rawPages.Select(int.Parse).ToArray(); var session = await workflow.AnalyzeSemanticAsync(id,ct,pages); return Results.Ok(new { session.Id, session.Status, session.AutoStructuredCount, session.ExceptionCount }); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/nm-documents", async (CreateNmDocumentRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var item=await workflow.CreateReviewAsync(request.DocumentId,request.VillageId,request.AwardId,request.ReferenceNumber,request.RecordDate,ct); return Results.Created($"/api/nm-documents/{item.Id}",new IdResponse(item.Id)); } catch(NmWorkflowException ex){ return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
+api.MapPost("/awards/{awardId:guid}/nm-documents", async(Guid awardId,Guid? villageId,IFormFile file,LacDbContext db,NmWorkflowService workflow,CancellationToken ct)=>{ if(file.Length==0)return Validation("file","Choose a non-empty NM PDF."); var resolved=villageId??await db.AwardVillages.Where(x=>x.AwardId==awardId).Select(x=>(Guid?)x.VillageId).SingleOrDefaultAsync(ct); if(resolved is null)return Validation("villageId","This Award needs one selected Village before NM upload."); try{await using var stream=file.OpenReadStream();var nm=await workflow.UploadAsync(stream,file.FileName,file.ContentType,awardId,resolved.Value,ct);return Results.Created($"/api/nm-documents/{nm.Id}",new {nmDocumentId=nm.Id,documentId=nm.DocumentId,status="Uploaded"});}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
+api.MapGet("/awards/{awardId:guid}/nm-documents", async(Guid awardId,LacDbContext db,CancellationToken ct)=>Results.Ok(await db.NmDocuments.AsNoTracking().Where(x=>x.AwardId==awardId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Id,x.DocumentId,x.Document.OriginalFileName,x.VillageId,VillageName=x.Village.Name,x.Status,Rows=x.ReviewRows.Count}).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/nm-documents/{id:guid}/analyze-pilot", async(Guid id,NmWorkflowService workflow,CancellationToken ct)=> { try { return Results.Ok(new { rowsCreated = await workflow.AnalyzePilotAsync(id,ct) }); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/nm-documents/{id:guid}/analyze-semantic", async(Guid id,HttpRequest request,NmWorkflowService workflow,CancellationToken ct)=> { try { var rawPages=request.Query["pages"].SelectMany(value=>(value ?? "").Split(',',StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries)).ToArray(); if(rawPages.Any(value=>!int.TryParse(value,out _))) return Results.Problem("Semantic analysis pages must be integers.",statusCode:400); var pages=rawPages.Length==0?null:rawPages.Select(int.Parse).ToArray(); var session = await workflow.AnalyzeSemanticAsync(id,ct,pages); return Results.Ok(new { session.Id, session.Status, session.AutoStructuredCount, session.ExceptionCount }); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/nm-documents/{id:guid}/semantic-sessions/latest", async(Guid id,LacDbContext db,CancellationToken ct) => {
     var session = await db.NmSemanticAnalysisSessions.AsNoTracking().Where(x=>x.NmDocumentId==id).OrderByDescending(x=>x.StartedAt).Select(x=>new {x.Id,x.NmDocumentId,x.ParserVersion,x.Status,x.SourcePagesJson,x.AutoStructuredCount,x.ExceptionCount,x.StartedAt,x.CompletedAt,ExceptionReasons=x.OwnerBlocks.SelectMany(b=>b.Exceptions).GroupBy(e=>e.Reason).Select(g=>new {Reason=g.Key,Count=g.Count()}).ToList()}).FirstOrDefaultAsync(ct); return session is null ? Results.NotFound() : Results.Ok(session);
-}).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/nm-semantic-sessions/{id:guid}/owner-blocks", async(Guid id,string? status,LacDbContext db,CancellationToken ct) => Results.Ok(await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x=>x.AnalysisSessionId==id && (status==null || x.Status.ToString()==status)).OrderBy(x=>x.SourceSequence).Select(x=>new{x.Id,x.SourceSequence,x.PageStart,x.PageEnd,x.RecordedNameRaw,x.FatherOrSpouseRaw,x.ResidenceRaw,x.ShareRaw,x.Status,x.SourceRegionJson,x.FieldSourcesJson,Exceptions=x.Exceptions.Select(e=>new{e.Reason,e.FieldName,e.Detail,e.SourcePage,e.SourceRegionJson}).ToList(),Parcels=x.ParcelGroups.SelectMany(g=>g.Entries).Select(p=>new{p.RawKhasraText,p.RawAreaText,p.LandClassRaw,p.IsInherited,p.ValidationState,p.SourcePage,p.SourceRegionJson,p.KhasraSourceRegionJson,p.AreaSourceRegionJson,p.LandClassSourceRegionJson}).ToList(),Components=x.CompensationComponents.Select(c=>new{c.ComponentType,c.RawAmountText,c.Amount,c.SemanticState,c.SourcePage,c.SourceRegionJson}).ToList(),Relations=db.NmSemanticSourceRelations.Where(r=>r.OwnerBlockId==x.Id).Select(r=>new{r.RelationType,r.SourcePage,r.SourceRegionJson,r.RawSourceText,r.OriginalSourcePage,r.OriginalSourceRegionJson,r.OriginalSourceSequence}).ToList()}).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/nm-semantic-sessions/{id:guid}/exceptions", async(Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x=>x.AnalysisSessionId==id).SelectMany(x=>x.Exceptions.Select(e=>new { e.Id, OwnerBlockId=x.Id, x.SourceSequence, x.RecordedNameRaw, e.Reason, e.FieldName, e.Detail, e.SourcePage, e.SourceRegionJson })).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapPut("/nm-semantic-parcels/{id:guid}/area", async(Guid id, ReviewNmSemanticAreaRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var entry=await workflow.ReviewSemanticAreaAsync(id,request.RawReviewerValue,request.ReviewedBy,ct); return Results.Ok(new {entry.Id,entry.AreaReviewerValueRaw,entry.AreaReviewerValueNormalized,entry.AreaFieldState,entry.AreaReviewedAt,entry.AreaReviewedBy,Status=entry.ParcelGroup.OwnerBlock.Status}); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/nm-semantic-parcels/{id:guid}/area/unreadable", async(Guid id, ReviewNmSemanticUnreadableRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var entry=await workflow.MarkSemanticAreaUnreadableAsync(id,request.ReviewedBy,ct); return Results.Ok(new {entry.Id,entry.AreaFieldState,entry.AreaReviewedAt,entry.AreaReviewedBy,Status=entry.ParcelGroup.OwnerBlock.Status}); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPut("/nm-semantic-owners/{id:guid}/review", async(Guid id, ReviewNmSemanticOwnerRequest request, LacDbContext db, CancellationToken ct) => { var owner=await db.NmSemanticOwnerBlocks.Include(x=>x.ParcelGroups).ThenInclude(x=>x.Entries).SingleOrDefaultAsync(x=>x.Id==id,ct); if(owner is null)return Results.NotFound(); owner.ReviewerName=request.Name?.Trim();owner.ReviewerFatherOrSpouse=request.FatherOrSpouse?.Trim();owner.ReviewerResidence=request.Residence?.Trim();owner.ReviewerShare=request.Share?.Trim();owner.ReviewedBy=request.ReviewedBy.Trim();owner.ReviewedAt=DateTimeOffset.UtcNow;owner.ReviewState=request.SourceUnclear?"SourceUnclear":"Reviewed"; foreach(var item in request.Parcels){var entry=owner.ParcelGroups.SelectMany(x=>x.Entries).SingleOrDefault(x=>x.Id==item.Id);if(entry is null)continue;entry.ReviewerKhasra=item.Khasra?.Trim();entry.ReviewerKhasraNormalized=string.IsNullOrWhiteSpace(item.Khasra)?null:KhasraNumber.Normalize(item.Khasra);entry.AreaReviewerValueRaw=item.Area?.Trim();entry.ReviewerLandClass=item.LandClass?.Trim();}await db.SaveChangesAsync(ct);return Results.NoContent();}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/nm-semantic-sessions/{id:guid}/owner-blocks", async(Guid id,string? status,LacDbContext db,CancellationToken ct) => Results.Ok(await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x=>x.AnalysisSessionId==id && (status==null || x.Status.ToString()==status)).OrderBy(x=>x.SourceSequence).Select(x=>new{x.Id,x.SourceSequence,x.PageStart,x.PageEnd,x.RecordedNameRaw,x.FatherOrSpouseRaw,x.ResidenceRaw,x.ShareRaw,x.Status,x.SourceRegionJson,x.FieldSourcesJson,Exceptions=x.Exceptions.Select(e=>new{e.Reason,e.FieldName,e.Detail,e.SourcePage,e.SourceRegionJson}).ToList(),Parcels=x.ParcelGroups.SelectMany(g=>g.Entries).Select(p=>new{p.RawKhasraText,p.RawAreaText,p.LandClassRaw,p.IsInherited,p.ValidationState,p.SourcePage,p.SourceRegionJson,p.KhasraSourceRegionJson,p.AreaSourceRegionJson,p.LandClassSourceRegionJson}).ToList(),Components=x.CompensationComponents.Select(c=>new{c.ComponentType,c.RawAmountText,c.Amount,c.SemanticState,c.SourcePage,c.SourceRegionJson}).ToList(),Relations=db.NmSemanticSourceRelations.Where(r=>r.OwnerBlockId==x.Id).Select(r=>new{r.RelationType,r.SourcePage,r.SourceRegionJson,r.RawSourceText,r.OriginalSourcePage,r.OriginalSourceRegionJson,r.OriginalSourceSequence}).ToList()}).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/nm-semantic-sessions/{id:guid}/exceptions", async(Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await db.NmSemanticOwnerBlocks.AsNoTracking().Where(x=>x.AnalysisSessionId==id).SelectMany(x=>x.Exceptions.Select(e=>new { e.Id, OwnerBlockId=x.Id, x.SourceSequence, x.RecordedNameRaw, e.Reason, e.FieldName, e.Detail, e.SourcePage, e.SourceRegionJson })).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPut("/nm-semantic-parcels/{id:guid}/area", async(Guid id, ReviewNmSemanticAreaRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var entry=await workflow.ReviewSemanticAreaAsync(id,request.RawReviewerValue,request.ReviewedBy,ct); return Results.Ok(new {entry.Id,entry.AreaReviewerValueRaw,entry.AreaReviewerValueNormalized,entry.AreaFieldState,entry.AreaReviewedAt,entry.AreaReviewedBy,Status=entry.ParcelGroup.OwnerBlock.Status}); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/nm-semantic-parcels/{id:guid}/area/unreadable", async(Guid id, ReviewNmSemanticUnreadableRequest request, NmWorkflowService workflow, CancellationToken ct) => { try { var entry=await workflow.MarkSemanticAreaUnreadableAsync(id,request.ReviewedBy,ct); return Results.Ok(new {entry.Id,entry.AreaFieldState,entry.AreaReviewedAt,entry.AreaReviewedBy,Status=entry.ParcelGroup.OwnerBlock.Status}); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPut("/nm-semantic-owners/{id:guid}/review", async(Guid id, ReviewNmSemanticOwnerRequest request, LacDbContext db, CancellationToken ct) => { var owner=await db.NmSemanticOwnerBlocks.Include(x=>x.ParcelGroups).ThenInclude(x=>x.Entries).SingleOrDefaultAsync(x=>x.Id==id,ct); if(owner is null)return Results.NotFound(); owner.ReviewerName=request.Name?.Trim();owner.ReviewerFatherOrSpouse=request.FatherOrSpouse?.Trim();owner.ReviewerResidence=request.Residence?.Trim();owner.ReviewerShare=request.Share?.Trim();owner.ReviewedBy=request.ReviewedBy.Trim();owner.ReviewedAt=DateTimeOffset.UtcNow;owner.ReviewState=request.SourceUnclear?"SourceUnclear":"Reviewed"; foreach(var item in request.Parcels){var entry=owner.ParcelGroups.SelectMany(x=>x.Entries).SingleOrDefault(x=>x.Id==item.Id);if(entry is null)continue;entry.ReviewerKhasra=item.Khasra?.Trim();entry.ReviewerKhasraNormalized=string.IsNullOrWhiteSpace(item.Khasra)?null:KhasraNumber.Normalize(item.Khasra);entry.AreaReviewerValueRaw=item.Area?.Trim();entry.ReviewerLandClass=item.LandClass?.Trim();}await db.SaveChangesAsync(ct);return Results.NoContent();}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/nm-semantic-sessions/{id:guid}/review-workspace", async(Guid id,LacDbContext db,CancellationToken ct) =>
 {
     var session = await db.NmSemanticAnalysisSessions.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct)
@@ -740,29 +740,29 @@ api.MapGet("/nm-semantic-sessions/{id:guid}/review-workspace", async(Guid id,Lac
     })).OrderBy(item => item.SourcePage).ThenBy(item => item.SourceSequence).ThenBy(item => item.FieldName).ToList();
     var resolved = ownerCards.SelectMany(owner => owner.Parcels.Where(parcel => parcel.AreaFieldState == "ResolvedByReviewer" || parcel.AreaFieldState == "SourceUnreadable").Select(parcel => new { OwnerBlockId = owner.Id, owner.SourceSequence, owner.RecordedNameRaw, SourcePage = parcel.SourcePage, FieldName = "Area", Parcel = parcel })).OrderBy(item => item.SourcePage).ThenBy(item => item.SourceSequence).ToList();
     return Results.Ok(new { session.Id, session.NmDocumentId, session.ParserVersion, session.Status, session.SourcePagesJson, session.StartedAt, session.CompletedAt, OwnerCount = ownerCards.Count, TotalExceptions = queue.Count, ResolvedCount = resolved.Count, Owners = ownerCards, Queue = queue, Resolved = resolved });
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/nm-documents/{id:guid}/review-rows", async(Guid id,LacDbContext db,CancellationToken ct)=> {
     var exists=await db.NmDocuments.AnyAsync(x=>x.Id==id,ct); if(!exists)return Results.NotFound();
     var rows=await db.NmReviewRows.AsNoTracking().Where(x=>x.NmDocumentId==id).OrderBy(x=>x.SourcePage).ThenBy(x=>x.SourceRow).Select(x=>new {x.Id,x.SourcePage,x.SourceRow,x.SourceRegionJson,x.RecordedPersonText,x.FatherOrSpouseText,x.RawKhasrasText,x.RawShareText,x.RawAreaText,x.EntitlementAmount,x.EntitlementBasisText,x.RawSuggestionText,x.Status,x.VerifiedBy,x.VerifiedAt,Khasras=x.Khasras.Select(k=>new{k.Id,k.RawKhasraText,k.NormalizedNumber,k.Qualifier,k.SuggestedKhasraId,SuggestedKhasraDisplay=k.SuggestedKhasra==null?null:k.SuggestedKhasra.DisplayNumber,k.Status,k.RawAreaText,k.RawShareText,k.SourceRegionJson}).ToList()}).ToListAsync(ct);
     var context=await db.NmDocuments.AsNoTracking().Where(x=>x.Id==id).Select(x=>new{x.DocumentId,x.VillageId}).SingleAsync(ct);
     var fragments=await db.NmReviewFragments.AsNoTracking().Where(x=>x.NmDocumentId==id).OrderBy(x=>x.SourcePage).Select(x=>new{x.Id,x.SourcePage,x.SourceRegionJson,x.RawOcrText,x.Status}).ToListAsync(ct);
     return Results.Ok(new { context.DocumentId, context.VillageId, rows, fragments });
-}).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/nm-documents/{id:guid}/rows", async(Guid id, CreateNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try { var row=await workflow.AddReviewRowAsync(id,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.Created($"/api/nm-review-rows/{row.Id}",new IdResponse(row.Id));}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/nm-review-rows/{id:guid}/verify", async(Guid id, VerifyNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try {await workflow.VerifyRowAsync(id,request.VerifiedBy,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.NoContent();}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPut("/nm-review-rows/{id:guid}/khasra-selections", async(Guid id, SelectNmKhasrasRequest request,NmWorkflowService workflow,CancellationToken ct)=> { try { await workflow.SelectKhasrasAsync(id,request.Reviewer,request.Selections.Select(x=>new NmKhasraSelection(x.ReviewKhasraId,x.KhasraId,x.MarkUnreadable)).ToList(),ct); return Results.NoContent(); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/nm-documents/{id:guid}/commit", async(Guid id, CommitNmRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try{return Results.Ok(new{committed=await workflow.CommitAsync(id,request.VerifiedBy,ct)});}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/awards/{id:guid}/documents", async (Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.AwardDocumentsAsync(db,id,ct))).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/nm-documents/{id:guid}/rows", async(Guid id, CreateNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try { var row=await workflow.AddReviewRowAsync(id,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.Created($"/api/nm-review-rows/{row.Id}",new IdResponse(row.Id));}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/nm-review-rows/{id:guid}/verify", async(Guid id, VerifyNmRowRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try {await workflow.VerifyRowAsync(id,request.VerifiedBy,new(request.SourcePage,request.SourceRow,request.SourceRegionJson??"{}",request.RecordedPersonText,request.FatherOrSpouseText,request.RawShareText,request.RawAreaText,request.EntitlementAmount,request.EntitlementBasisText,request.Khasras.Select(x=>new NmKhasraInput(x.RawKhasraText,x.Qualifier,x.RawAreaText,x.RawShareText,x.SourceRegionJson)).ToList()),ct);return Results.NoContent();}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPut("/nm-review-rows/{id:guid}/khasra-selections", async(Guid id, SelectNmKhasrasRequest request,NmWorkflowService workflow,CancellationToken ct)=> { try { await workflow.SelectKhasrasAsync(id,request.Reviewer,request.Selections.Select(x=>new NmKhasraSelection(x.ReviewKhasraId,x.KhasraId,x.MarkUnreadable)).ToList(),ct); return Results.NoContent(); } catch(NmWorkflowException ex) { return Results.Problem(ex.Message,statusCode:ex.StatusCode); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/nm-documents/{id:guid}/commit", async(Guid id, CommitNmRequest request,NmWorkflowService workflow,CancellationToken ct)=> {try{return Results.Ok(new{committed=await workflow.CommitAsync(id,request.VerifiedBy,ct)});}catch(NmWorkflowException ex){return Results.Problem(ex.Message,statusCode:ex.StatusCode);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/awards/{id:guid}/documents", async (Guid id,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.AwardDocumentsAsync(db,id,ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardKhasra!=null && x.AwardKhasra.KhasraId==id,page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/awards/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardId==id || (x.AwardKhasra!=null && x.AwardKhasra.AwardId==id) || (x.PossessionEvent!=null && x.PossessionEvent.AwardId==id) || (x.NotificationId!=null && db.AwardNotifications.Any(n=>n.AwardId==id && n.NotificationId==x.NotificationId)),page??0,ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.VerifyAwardKhasraFieldAsync(id, request, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/award-ingestion-candidates/{id:guid}/source-crop", async (Guid id, string? fieldRole, DocumentSourceCropService crops, CancellationToken ct) => { try { return Results.File(await crops.CreateAsync(id, fieldRole, ct), "image/png"); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView);
+api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.VerifyAwardKhasraFieldAsync(id, request, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/award-ingestion-candidates/{id:guid}/source-crop", async (Guid id, string? fieldRole, DocumentSourceCropService crops, CancellationToken ct) => { try { return Results.File(await crops.CreateAsync(id, fieldRole, ct), "image/png"); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId, Guid? selectedVillageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {
     if (file.Length == 0) return Validation("file", "Choose a non-empty PDF.");
@@ -770,53 +770,53 @@ api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId
     if (file.Length > pdfMaxRequestBytes) return Validation("file", $"PDF exceeds the configured {pdfMaxFileSizeMb} MB upload limit.");
     try { await using var stream = file.OpenReadStream(); var result = await extraction.QueueUploadAsync(stream, file.FileName, file.ContentType, targetAwardId, selectedVillageId, null, ct); return Results.Created($"/api/documents/{result.DocumentId}", result); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
-}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload);
+}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
 api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/link", async (Guid awardId, Guid documentId, Guid? villageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {
     try { return Results.Ok(await extraction.LinkStoredDocumentAsync(documentId, awardId, villageId, ct)); }
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/analyze", async (Guid awardId,Guid documentId,Guid? villageId,AwardPdfExtractionService extraction,CancellationToken ct) =>
 {
     try { var result=await extraction.AnalyzeAsync(documentId,awardId,villageId,ct);return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}",result); }
     catch(AwardIngestionException ex){return IngestionProblem(ex);}
-}).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/award-pdf-uploads/unlinked", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetUnlinkedStoredDocumentsAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardPdfJobRunner runner, CancellationToken ct) => { try { return Results.Ok(await runner.ReanalyzeAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/awards/{id:guid}/pdf-extractions", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetForAwardAsync(id, ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/awards/{id:guid}/ingestion-sessions", async (Guid id, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => Results.Ok(await ingestion.GetHistoryAsync(id, page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, string? bucket, int? sourcePage, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct, bucket, sourcePage)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/award-ingestion-candidates/{id:guid}/resolve", async (Guid id, ResolveAwardIngestionCandidateRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.ResolveAsync(id, request.Action, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, CommitAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.CommitAsync(id, request.CandidateIds, request.CommittedBy, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/award-pdf-uploads/unlinked", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetUnlinkedStoredDocumentsAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardPdfJobRunner runner, CancellationToken ct) => { try { return Results.Ok(await runner.ReanalyzeAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/awards/{id:guid}/pdf-extractions", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetForAwardAsync(id, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/awards/{id:guid}/ingestion-sessions", async (Guid id, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => Results.Ok(await ingestion.GetHistoryAsync(id, page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, string? bucket, int? sourcePage, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct, bucket, sourcePage)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/resolve", async (Guid id, ResolveAwardIngestionCandidateRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.ResolveAsync(id, request.Action, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, CommitAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.CommitAsync(id, request.CandidateIds, request.CommittedBy, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 
 api.MapPost("/awards/{id:guid}/khasras", async (Guid id, AwardFoundationKhasraRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { return Results.Ok(await workflow.LinkKhasraAsync(id, new(request.VillageId, request.KhasraNumber, request.Qualifier, request.RecordedTotalAreaBigha, request.RecordedTotalAreaBiswa, request.RecordedTotalAreaBiswansi, request.AwardedAreaBigha, request.AwardedAreaBiswa, request.AwardedAreaBiswansi, request.RelationshipStatus, request.Remarks, request.CanonicalAreaBigha, request.CanonicalAreaBiswa, request.CanonicalAreaBiswansi), ct)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/awards/{id:guid}/khasras/match", async (Guid id, Guid villageId, string khasraNumber, string? qualifier, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { return Results.Ok(await workflow.MatchKhasraAsync(id, villageId, khasraNumber, qualifier, ct)); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/awards/{id:guid}/khasras/import-preview", async (Guid id, Guid villageId, IFormFile file, LacDbContext db, KhasraWorkspaceService workspace, CancellationToken ct) =>
 {
     if (!await db.AwardVillages.AnyAsync(x => x.AwardId == id && x.VillageId == villageId, ct)) return Validation("villageId", "Select a Village linked to this Award.");
     if (file.Length == 0) return Validation("file", "Choose a non-empty Excel workbook.");
     try { await using var stream = file.OpenReadStream(); return Results.Ok(await workspace.PreviewAsync(villageId, stream, ct)); }
     catch (KhasraWorkspaceException ex) { return KhasraProblem(ex); }
-}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardEdit);
+}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 
-api.MapPost("/awards/{id:guid}/notifications/{notificationId:guid}", async (Guid id, Guid notificationId, AwardWorkflowService workflow, CancellationToken ct) => { try { await workflow.LinkNotificationAsync(id, notificationId, ct); return Results.NoContent(); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/awards/{id:guid}/notifications", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.AwardNotifications.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.Notification.NotificationDate).Select(x => new AwardNotificationWorkspaceItem(x.NotificationId, x.Notification.NotificationNumber, x.Notification.SectionType, x.Notification.NotificationDate)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/awards/{id:guid}/possession-events", async (Guid id, CreatePossessionEventRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.AddPossessionAsync(id, request.PossessionDate, request.EventType, request.Status, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/possession-events/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/awards/{id:guid}/possession-events", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.PossessionEvents.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.PossessionDate).Select(x => new AwardPossessionWorkspaceItem(x.Id, x.PossessionDate, x.EventType, x.Status, x.KhasraLinks.Count)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.CreateCourtCaseAsync(id, request.CaseNumber, request.CourtName, request.CaseType, request.FiledDate, request.CurrentStatus, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/court-cases/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit);
-api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Set<CourtCaseAward>().AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.CourtCase.FiledDate).Select(x => new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CourtCase.CaseNumber, x.CourtCase.CourtName, x.CourtCase.CurrentStatus, db.Set<CourtCaseKhasra>().Count(k => k.CourtCaseId == x.CourtCaseId))).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView);
-api.MapGet("/awards/{id:guid}/claims", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Claims.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.ClaimDate).Select(x => new AwardClaimItem(x.Id, x.ClaimReference, x.ClaimDate, x.ClaimantParty == null ? null : x.ClaimantParty.DisplayName, x.ClaimedRateAmount, x.ClaimedAmount, x.Status, db.Set<ClaimKhasra>().Count(k => k.ClaimId == x.Id))), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView);
+api.MapPost("/awards/{id:guid}/notifications/{notificationId:guid}", async (Guid id, Guid notificationId, AwardWorkflowService workflow, CancellationToken ct) => { try { await workflow.LinkNotificationAsync(id, notificationId, ct); return Results.NoContent(); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/awards/{id:guid}/notifications", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.AwardNotifications.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.Notification.NotificationDate).Select(x => new AwardNotificationWorkspaceItem(x.NotificationId, x.Notification.NotificationNumber, x.Notification.SectionType, x.Notification.NotificationDate)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapPost("/awards/{id:guid}/possession-events", async (Guid id, CreatePossessionEventRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.AddPossessionAsync(id, request.PossessionDate, request.EventType, request.Status, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/possession-events/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Possession);
+api.MapGet("/awards/{id:guid}/possession-events", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.PossessionEvents.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.PossessionDate).Select(x => new AwardPossessionWorkspaceItem(x.Id, x.PossessionDate, x.EventType, x.Status, x.KhasraLinks.Count)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Possession);
+api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.CreateCourtCaseAsync(id, request.CaseNumber, request.CourtName, request.CaseType, request.FiledDate, request.CurrentStatus, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/court-cases/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.CourtReferences);
+api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Set<CourtCaseAward>().AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.CourtCase.FiledDate).Select(x => new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CourtCase.CaseNumber, x.CourtCase.CourtName, x.CourtCase.CurrentStatus, db.Set<CourtCaseKhasra>().Count(k => k.CourtCaseId == x.CourtCaseId))).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.CourtReferences);
+api.MapGet("/awards/{id:guid}/claims", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Claims.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.ClaimDate).Select(x => new AwardClaimItem(x.Id, x.ClaimReference, x.ClaimDate, x.ClaimantParty == null ? null : x.ClaimantParty.DisplayName, x.ClaimedRateAmount, x.ClaimedAmount, x.Status, db.Set<ClaimKhasra>().Count(k => k.ClaimId == x.Id))), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.AccountsCompensation);
 
 api.MapPost("/awards/{id:guid}/claims", async (Guid id, CreateAwardClaimRequest request, LacDbContext db, CancellationToken ct) =>
 {
@@ -827,7 +827,7 @@ api.MapPost("/awards/{id:guid}/claims", async (Guid id, CreateAwardClaimRequest 
     var claim = new Claim { AwardId = id, ClaimReference = Clean(request.ClaimReference), ClaimDate = request.ClaimDate, ClaimText = Clean(request.ClaimText), ClaimedRateAmount = request.ClaimedRateAmount, ClaimedRateUnit = Clean(request.ClaimedRateUnit), ClaimedAmount = request.ClaimedAmount, Status = Clean(request.Status), Remarks = Clean(request.Remarks) };
     db.Claims.Add(claim); foreach (var khasraId in valid) db.Add(new ClaimKhasra { Claim = claim, KhasraId = khasraId });
     await db.SaveChangesAsync(ct); return Results.Created($"/api/claims/{claim.Id}", new IdResponse(claim.Id));
-}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.AccountsCompensation);
 api.MapPost("/awards/{id:guid}/land-classes", async (Guid id, CreateAwardLandClassRequest request, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
@@ -840,12 +840,12 @@ api.MapPost("/awards/{id:guid}/valuation-rules", async (Guid id, CreateAwardValu
     if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
     if (request.AwardLandClassId is not null && !await db.Set<AwardLandClass>().AnyAsync(x => x.Id == request.AwardLandClassId && x.AwardId == id, ct)) return Validation("awardLandClassId", "Land class must belong to this Award.");
     var item = new AwardValuationRule { AwardId = id, AwardLandClassId = request.AwardLandClassId, RuleType = Clean(request.RuleType) ?? "Other", RateAmount = request.RateAmount, RateUnit = Clean(request.RateUnit), ReferenceDate = request.ReferenceDate, LegalSection = Clean(request.LegalSection), Description = Clean(request.Description) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-valuation-rules/{item.Id}", new IdResponse(item.Id));
-}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.AccountsCompensation);
 api.MapPost("/awards/{id:guid}/compensation-rules", async (Guid id, CreateAwardCompensationRuleRequest request, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
     var item = new AwardCompensationRule { AwardId = id, RuleType = Clean(request.RuleType) ?? "Other", RatePercent = request.RatePercent, RateAmount = request.RateAmount, LegalSection = Clean(request.LegalSection), BasisDescription = Clean(request.BasisDescription), StartEvent = Clean(request.StartEvent), EndEvent = Clean(request.EndEvent), Remarks = Clean(request.Remarks) }; db.Add(item); await db.SaveChangesAsync(ct); return Results.Created($"/api/award-compensation-rules/{item.Id}", new IdResponse(item.Id));
-}).RequirePermission(PermissionCodes.AwardEdit);
+}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.AccountsCompensation);
 api.MapPost("/awards/{id:guid}/area-issues", async (Guid id, CreateAwardAreaIssueRequest request, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Awards.AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
@@ -869,7 +869,7 @@ api.MapPost("/khasra-review-flags/{id:guid}/resolve", async (Guid id, ResolveKha
 {
     try { await workflow.ResolveReviewFlagAsync(id, request.ResolvedBy, ct); return Results.NoContent(); }
     catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.KhasraEdit);
+}).RequirePermission(PermissionCodes.KhasraEdit, WorkstreamCodes.LandRecords);
 api.MapGet("/khasras/{id:guid}/review-flags", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.KhasraReviewFlags.AsNoTracking().Where(x => x.KhasraId == id && x.Status == "Open").OrderByDescending(x => x.CreatedAt).Select(x => new KhasraReviewFlagItem(x.Id, x.Status, x.ReasonCode, x.Message, x.RelatedAwardId, x.RelatedAward == null ? null : x.RelatedAward.AwardNumber)).ToListAsync(ct))).RequirePermission(PermissionCodes.KhasraView);
 
 api.MapGet("/awards/{id:guid}/khasras", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) =>
@@ -877,13 +877,13 @@ api.MapGet("/awards/{id:guid}/khasras", async (Guid id, int page, int pageSize, 
     var rows = db.Set<AwardKhasra>().AsNoTracking().Where(x => x.AwardId == id).OrderBy(x => x.Khasra.Village.Name).ThenBy(x => x.Khasra.RectangleNumber == null).ThenBy(x => x.Khasra.RectangleNumber!.Length).ThenBy(x => x.Khasra.RectangleNumber).ThenBy(x => x.Khasra.DisplayNumber)
         .Select(x => new AwardWorkspaceKhasraItem(x.Id, x.Khasra.Id, x.Khasra.DisplayNumber, x.Khasra.Village.Name, x.Khasra.RectangleNumber, x.Khasra.AreaBigha, x.Khasra.AreaBiswa, x.Khasra.AreaBiswansi, x.RecordedTotalAreaBigha, x.RecordedTotalAreaBiswa, x.RecordedTotalAreaBiswansi, x.AwardedAreaBigha, x.AwardedAreaBiswa, x.AwardedAreaBiswansi, x.RelationshipStatus, db.KhasraReviewFlags.Where(f => f.KhasraId == x.KhasraId && f.Status == "Open").Select(f => (Guid?)f.Id).FirstOrDefault()));
     return Results.Ok(await ToPageAsync(rows, page, pageSize, ct));
-}).RequirePermission(PermissionCodes.AwardView);
+}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 api.MapPost("/village-lrs/{id:guid}/entries", async (Guid id, LrEntryRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { var saved = await workflow.CreateAsync(id, request.ToInput(), ct); return Results.Created($"/api/lr-entries/{saved.Id}", saved); }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.LrEdit);
+}).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
 
 api.MapPost("/village-lrs/{id:guid}/entries/batch", async (Guid id, BatchLrEntryRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
@@ -894,50 +894,50 @@ api.MapPost("/village-lrs/{id:guid}/entries/batch", async (Guid id, BatchLrEntry
         return Results.Created($"/api/village-lrs/{id}/entries", saved);
     }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.LrEdit);
+}).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
 
 api.MapPut("/lr-entries/{id:guid}", async (Guid id, UpdateLrEntryRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { return Results.Ok(await workflow.UpdateAsync(id, request.ExpectedRevision, request.Row.ToInput(), ct)); }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.LrEdit);
+}).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
 
 api.MapPost("/lr-entries/{id:guid}/commit", async (Guid id, CommitLrEntryRequest request, LrWorkflowService workflow, CancellationToken ct) =>
 {
     try { return Results.Ok(await workflow.CommitAsync(id, request.ExpectedRevision, request.ApplyParsedAreaToAcquisitionLinks, ct)); }
     catch (LrWorkflowException ex) { return WorkflowProblem(ex); }
-}).RequirePermission(PermissionCodes.LrCommit);
+}).RequirePermission(PermissionCodes.LrCommit, WorkstreamCodes.LandRecords);
 
 api.MapGet("/villages/{id:guid}/khatauni", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     return Results.Ok(await db.KhatauniRecords.AsNoTracking().Where(x => x.VillageId == id).OrderByDescending(x => x.AsOfDate).ThenByDescending(x => x.RecordYearText).Select(KhatauniListItem.Selector).ToListAsync(ct));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 api.MapGet("/khatauni/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     var record = await db.KhatauniRecords.AsNoTracking().Include(x => x.Village).Include(x => x.SourceDocument).Include(x => x.Khatas).ThenInclude(x => x.KhasraLinks).Include(x => x.Khatas).ThenInclude(x => x.PartyShares).SingleOrDefaultAsync(x => x.Id == id, ct);
     if (record is null) return NotFound("Khatauni record", id);
     return Results.Ok(new KhatauniDetail(record.Id, record.VillageId, record.Village.Name, record.ReferenceNumber, record.RecordYearText, record.AsOfDate, record.EffectiveFrom, record.EffectiveTo, record.Remarks, record.VerificationStatus.ToString(), record.Version, record.SourceDocumentId, record.SourceDocument?.OriginalFileName, record.Khatas.Count, record.Khatas.Sum(k => k.KhasraLinks.Count), record.Khatas.SelectMany(k => k.PartyShares).Select(s => s.PartyId).Distinct().Count(), record.Khatas.OrderBy(k => k.KhataNumber).Select(k => new KhataSummary(k.Id, k.KhataNumber, k.KhasraLinks.Count, k.PartyShares.Count, OwnershipService.ValidateShares(k.PartyShares).Message, k.PartyShares.All(s => s.VerificationStatus == RevenueRecordVerificationStatus.Verified))).ToList()));
-}).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 api.MapGet("/khatas/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     var khata = await db.Khatas.AsNoTracking().Include(x => x.KhatauniRecord).ThenInclude(x => x.Village).Include(x => x.KhasraLinks).ThenInclude(x => x.Khasra).Include(x => x.PartyShares).ThenInclude(x => x.Party).SingleOrDefaultAsync(x => x.Id == id, ct);
     if (khata is null) return NotFound("Khata", id);
     var validation = OwnershipService.ValidateShares(khata.PartyShares);
     return Results.Ok(new KhataDetail(khata.Id, khata.KhataNumber, khata.RawKhataNumber, khata.Remarks, khata.KhatauniRecordId, khata.KhatauniRecord.ReferenceNumber, khata.KhatauniRecord.VillageId, khata.KhatauniRecord.Village.Name, khata.KhasraLinks.OrderBy(x => x.Khasra.DisplayNumber).Select(x => new KhataKhasraItem(x.KhasraId, x.Khasra.DisplayNumber, x.RecordedArea, x.RawAreaText, x.AreaUnit)).ToList(), khata.PartyShares.OrderBy(x => x.Party.DisplayName).Select(x => new PartyShareItem(x.Id, x.PartyId, x.Party.DisplayName, x.RawShareText, x.ShareNumerator, x.ShareDenominator, x.VerificationStatus.ToString(), x.Version)).ToList(), validation.Message));
-}).RequirePermission(PermissionCodes.LrView);
-api.MapGet("/khasras/{id:guid}/ownership", async (Guid id, DateOnly? asOfDate, OwnershipService ownership, CancellationToken ct) => Results.Ok(await ownership.GetRecordedOwnershipAsync(id, asOfDate, ct))).RequirePermission(PermissionCodes.LrView);
-api.MapGet("/khasras/{id:guid}/ownership-history", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.KhataKhasras.AsNoTracking().Where(x => x.KhasraId == id).OrderByDescending(x => x.Khata.KhatauniRecord.AsOfDate).Select(x => new OwnershipHistoryItem(x.Khata.KhatauniRecordId, x.KhataId, x.Khata.KhatauniRecord.ReferenceNumber, x.Khata.KhatauniRecord.RecordYearText, x.Khata.KhatauniRecord.AsOfDate, x.Khata.KhataNumber, x.Khata.KhatauniRecord.VerificationStatus.ToString())).ToListAsync(ct))).RequirePermission(PermissionCodes.LrView);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
+api.MapGet("/khasras/{id:guid}/ownership", async (Guid id, DateOnly? asOfDate, OwnershipService ownership, CancellationToken ct) => Results.Ok(await ownership.GetRecordedOwnershipAsync(id, asOfDate, ct))).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
+api.MapGet("/khasras/{id:guid}/ownership-history", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.KhataKhasras.AsNoTracking().Where(x => x.KhasraId == id).OrderByDescending(x => x.Khata.KhatauniRecord.AsOfDate).Select(x => new OwnershipHistoryItem(x.Khata.KhatauniRecordId, x.KhataId, x.Khata.KhatauniRecord.ReferenceNumber, x.Khata.KhatauniRecord.RecordYearText, x.Khata.KhatauniRecord.AsOfDate, x.Khata.KhataNumber, x.Khata.KhatauniRecord.VerificationStatus.ToString())).ToListAsync(ct))).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
 api.MapGet("/parties/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
  var p = await db.Parties.AsNoTracking().Where(x => x.Id == id).Select(x => new PartyDetail(x.Id, x.PartyType.ToString(), x.DisplayName, x.FatherOrSpouseName, x.AddressText, x.Remarks, x.Version, x.KhataShares.Select(s => new PartyHoldingItem(s.Khata.KhatauniRecord.VillageId, s.Khata.KhatauniRecord.Village.Name, s.Khata.KhatauniRecordId, s.Khata.KhatauniRecord.ReferenceNumber, s.KhataId, s.Khata.KhataNumber, s.Khata.KhasraLinks.Select(k => new KhasraReference(k.KhasraId, k.Khasra.DisplayNumber)).ToList(), s.RawShareText, s.ShareNumerator, s.ShareDenominator)).ToList())).FirstOrDefaultAsync(ct); return p is null ? NotFound("Party", id) : Results.Ok(p);
-}).RequirePermission(PermissionCodes.LrView);
-api.MapPost("/khatauni", async (CreateKhatauniRequest request, LacDbContext db, CancellationToken ct) => { if (request.VillageId == Guid.Empty || !await db.Villages.AnyAsync(x => x.Id == request.VillageId, ct)) return NotFound("Village", request.VillageId); var record = new KhatauniRecord { VillageId = request.VillageId, ReferenceNumber = request.ReferenceNumber?.Trim(), RecordYearText = request.RecordYearText?.Trim(), AsOfDate = request.AsOfDate, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks?.Trim(), VerificationStatus = request.VerificationStatus }; db.KhatauniRecords.Add(record); await db.SaveChangesAsync(ct); return Results.Created($"/api/khatauni/{record.Id}", new IdResponse(record.Id)); }).RequirePermission(PermissionCodes.LrEdit);
-api.MapPost("/khatauni/{id:guid}/khatas", async (Guid id, CreateKhataRequest request, OwnershipService ownership, CancellationToken ct) => { try { var khata = await ownership.CreateKhataAsync(id, request.KhataNumber, request.RawKhataNumber, request.Remarks, ct); return Results.Created($"/api/khatas/{khata.Id}", new IdResponse(khata.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit);
-api.MapPost("/khatas/{id:guid}/khasras", async (Guid id, LinkKhataKhasraRequest request, OwnershipService ownership, CancellationToken ct) => { try { var link = await ownership.LinkKhasraAsync(id, request.KhasraId, request.RawKhasraText, request.RecordedArea, request.RawAreaText, request.AreaUnit, request.Remarks, ct); return Results.Created($"/api/khatas/{id}/khasras/{link.Id}", new IdResponse(link.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit);
-api.MapPost("/parties", async (CreatePartyRequest request, OwnershipService ownership, CancellationToken ct) => { try { var party = await ownership.CreatePartyAsync(request.PartyType, request.DisplayName, request.FatherOrSpouseName, request.AddressText, request.Remarks, ct); return Results.Created($"/api/parties/{party.Id}", new IdResponse(party.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit);
-api.MapPost("/khatas/{id:guid}/shares", async (Guid id, AddShareRequest request, OwnershipService ownership, CancellationToken ct) => { try { var share = await ownership.AddShareAsync(id, request.PartyId, request.RawShareText, request.ShareNumerator, request.ShareDenominator, request.Remarks, request.VerificationStatus, ct); return Results.Created($"/api/khatas/{id}/shares/{share.Id}", new IdResponse(share.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit);
-api.MapPost("/khatauni/{id:guid}/verify", async (Guid id, VerifyKhatauniRequest request, OwnershipService ownership, CancellationToken ct) => { try { await ownership.VerifyKhatauniAsync(id, request.ExpectedVersion, ct); return Results.NoContent(); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrVerify);
+}).RequirePermission(PermissionCodes.LrView, WorkstreamCodes.LandRecords);
+api.MapPost("/khatauni", async (CreateKhatauniRequest request, LacDbContext db, CancellationToken ct) => { if (request.VillageId == Guid.Empty || !await db.Villages.AnyAsync(x => x.Id == request.VillageId, ct)) return NotFound("Village", request.VillageId); var record = new KhatauniRecord { VillageId = request.VillageId, ReferenceNumber = request.ReferenceNumber?.Trim(), RecordYearText = request.RecordYearText?.Trim(), AsOfDate = request.AsOfDate, EffectiveFrom = request.EffectiveFrom, EffectiveTo = request.EffectiveTo, Remarks = request.Remarks?.Trim(), VerificationStatus = request.VerificationStatus }; db.KhatauniRecords.Add(record); await db.SaveChangesAsync(ct); return Results.Created($"/api/khatauni/{record.Id}", new IdResponse(record.Id)); }).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
+api.MapPost("/khatauni/{id:guid}/khatas", async (Guid id, CreateKhataRequest request, OwnershipService ownership, CancellationToken ct) => { try { var khata = await ownership.CreateKhataAsync(id, request.KhataNumber, request.RawKhataNumber, request.Remarks, ct); return Results.Created($"/api/khatas/{khata.Id}", new IdResponse(khata.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
+api.MapPost("/khatas/{id:guid}/khasras", async (Guid id, LinkKhataKhasraRequest request, OwnershipService ownership, CancellationToken ct) => { try { var link = await ownership.LinkKhasraAsync(id, request.KhasraId, request.RawKhasraText, request.RecordedArea, request.RawAreaText, request.AreaUnit, request.Remarks, ct); return Results.Created($"/api/khatas/{id}/khasras/{link.Id}", new IdResponse(link.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
+api.MapPost("/parties", async (CreatePartyRequest request, OwnershipService ownership, CancellationToken ct) => { try { var party = await ownership.CreatePartyAsync(request.PartyType, request.DisplayName, request.FatherOrSpouseName, request.AddressText, request.Remarks, ct); return Results.Created($"/api/parties/{party.Id}", new IdResponse(party.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
+api.MapPost("/khatas/{id:guid}/shares", async (Guid id, AddShareRequest request, OwnershipService ownership, CancellationToken ct) => { try { var share = await ownership.AddShareAsync(id, request.PartyId, request.RawShareText, request.ShareNumerator, request.ShareDenominator, request.Remarks, request.VerificationStatus, ct); return Results.Created($"/api/khatas/{id}/shares/{share.Id}", new IdResponse(share.Id)); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrEdit, WorkstreamCodes.LandRecords);
+api.MapPost("/khatauni/{id:guid}/verify", async (Guid id, VerifyKhatauniRequest request, OwnershipService ownership, CancellationToken ct) => { try { await ownership.VerifyKhatauniAsync(id, request.ExpectedVersion, ct); return Results.NoContent(); } catch (OwnershipWorkflowException ex) { return OwnershipProblem(ex); } }).RequirePermission(PermissionCodes.LrVerify, WorkstreamCodes.LandRecords);
 
 // Keep unmatched API paths as real 404s; only browser routes receive index.html.
 api.MapFallback(() => Results.NotFound());

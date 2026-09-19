@@ -52,6 +52,50 @@ public static class EndpointSecurityExtensions
             return await next(context);
         });
     }
+
+    public static RouteHandlerBuilder RequirePermission(this RouteHandlerBuilder builder, string permissionCode, string workstreamCode)
+    {
+        var resourceContext = new AccessResourceContext(WorkstreamCode: workstreamCode);
+        return builder.AddEndpointFilter(async (context, next) =>
+        {
+            var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
+            if (!currentUser.IsAuthenticated)
+            {
+                return Results.Unauthorized();
+            }
+
+            var accessControl = context.HttpContext.RequestServices.GetRequiredService<IAccessControlService>();
+            var allowed = await accessControl.CanAsync(permissionCode, resourceContext);
+            if (!allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return await next(context);
+        });
+    }
+
+    public static RouteGroupBuilder RequirePermission(this RouteGroupBuilder builder, string permissionCode, string workstreamCode)
+    {
+        var resourceContext = new AccessResourceContext(WorkstreamCode: workstreamCode);
+        return builder.AddEndpointFilter(async (context, next) =>
+        {
+            var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
+            if (!currentUser.IsAuthenticated)
+            {
+                return Results.Unauthorized();
+            }
+
+            var accessControl = context.HttpContext.RequestServices.GetRequiredService<IAccessControlService>();
+            var allowed = await accessControl.CanAsync(permissionCode, resourceContext);
+            if (!allowed)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+
+            return await next(context);
+        });
+    }
 }
 
 public static class RbacEndpoints
@@ -132,6 +176,24 @@ public static class RbacEndpoints
                 claims.Add(new("permission", code));
             }
 
+            var activeDesks = await db.UserDeskMemberships
+                .AsNoTracking()
+                .Where(m => m.UserId == user.Id && m.IsActive && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+                .Include(m => m.OfficeDesk)
+                .OrderByDescending(m => m.IsPrimary).ThenBy(m => m.OfficeDesk.Name)
+                .Select(m => new UserDeskDto(m.OfficeDesk.Id, m.OfficeDesk.Code, m.OfficeDesk.Name, m.IsPrimary))
+                .ToListAsync(ct);
+
+            foreach (var d in activeDesks)
+            {
+                claims.Add(new("desk_id", d.Id.ToString()));
+                claims.Add(new("desk_code", d.Code));
+                if (d.IsPrimary)
+                {
+                    claims.Add(new("primary_desk_id", d.Id.ToString()));
+                }
+            }
+
             var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
             var principal = new ClaimsPrincipal(identity);
             var authProps = new AuthenticationProperties
@@ -149,7 +211,8 @@ public static class RbacEndpoints
                 user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name) : null,
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
-                activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList()
+                activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
+                activeDesks
             );
 
             return Results.Ok(response);
@@ -191,6 +254,14 @@ public static class RbacEndpoints
 
             var effectivePermissions = await accessControl.GetEffectivePermissionsAsync(user.Id, ct);
 
+            var activeDesks = await db.UserDeskMemberships
+                .AsNoTracking()
+                .Where(m => m.UserId == user.Id && m.IsActive && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+                .Include(m => m.OfficeDesk)
+                .OrderByDescending(m => m.IsPrimary).ThenBy(m => m.OfficeDesk.Name)
+                .Select(m => new UserDeskDto(m.OfficeDesk.Id, m.OfficeDesk.Code, m.OfficeDesk.Name, m.IsPrimary))
+                .ToListAsync(ct);
+
             var response = new CurrentUserResponse(
                 user.Id,
                 user.Username,
@@ -198,7 +269,8 @@ public static class RbacEndpoints
                 user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name) : null,
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
-                activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList()
+                activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
+                activeDesks
             );
 
             return Results.Ok(response);
@@ -214,6 +286,7 @@ public static class RbacEndpoints
                 .Include(u => u.Designation)
                 .Include(u => u.UserRoles).ThenInclude(ur => ur.Role)
                 .Include(u => u.WorkstreamMemberships).ThenInclude(wm => wm.Workstream)
+                .Include(u => u.DeskMemberships).ThenInclude(dm => dm.OfficeDesk)
                 .OrderBy(u => u.Username)
                 .Select(u => new UserListItem(
                     u.Id,
@@ -224,7 +297,9 @@ public static class RbacEndpoints
                     u.LastLoginAt,
                     u.CreatedAt,
                     u.UserRoles.Where(r => r.Role.IsActive && r.Role.RecordStatus == RecordStatus.Active).Select(r => r.Role.Code).ToList(),
-                    u.WorkstreamMemberships.Where(m => m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active).Select(m => m.Workstream.Code).ToList()
+                    u.WorkstreamMemberships.Where(m => m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active).Select(m => m.Workstream.Code).ToList(),
+                    u.DeskMemberships.Where(m => m.IsActive && m.IsPrimary && m.OfficeDesk.IsActive && m.RecordStatus == RecordStatus.Active).Select(m => m.OfficeDesk.Name).FirstOrDefault(),
+                    u.DeskMemberships.Count(m => m.IsActive && m.OfficeDesk.IsActive && m.RecordStatus == RecordStatus.Active)
                 ))
                 .ToListAsync(ct);
             return Results.Ok(users);
@@ -238,11 +313,39 @@ public static class RbacEndpoints
                 .Include(x => x.Designation)
                 .Include(x => x.UserRoles).ThenInclude(ur => ur.Role)
                 .Include(x => x.WorkstreamMemberships).ThenInclude(wm => wm.Workstream)
+                .Include(x => x.DeskMemberships).ThenInclude(dm => dm.OfficeDesk).ThenInclude(d => d.Workstream)
                 .FirstOrDefaultAsync(ct);
 
             if (u is null) return Results.NotFound();
 
-            var detail = new UserDetailResponse(
+            var roleIds = u.UserRoles.Select(r => r.RoleId).ToList();
+            var roles = u.UserRoles
+                .Where(r => r.Role.RecordStatus == RecordStatus.Active)
+                .Select(r => new RoleSummaryDto(r.Role.Id, r.Role.Code, r.Role.Name, r.Role.IsSystemRole))
+                .ToList();
+
+            var workstreams = u.WorkstreamMemberships
+                .Where(m => m.Workstream.RecordStatus == RecordStatus.Active)
+                .Select(m => new UserWorkstreamDto(m.Workstream.Id, m.Workstream.Code, m.Workstream.Name, m.IsPrimary))
+                .ToList();
+
+            var desks = u.DeskMemberships
+                .Where(m => m.RecordStatus == RecordStatus.Active)
+                .OrderByDescending(m => m.IsActive).ThenByDescending(m => m.IsPrimary).ThenBy(m => m.OfficeDesk.Name)
+                .Select(m => new UserDeskMembershipDto(
+                    m.Id,
+                    m.OfficeDeskId,
+                    m.OfficeDesk.Code,
+                    m.OfficeDesk.Name,
+                    m.OfficeDesk.Workstream != null ? m.OfficeDesk.Workstream.Name : null,
+                    m.IsPrimary,
+                    m.IsActive,
+                    m.AssignedAt,
+                    m.RemovedAt
+                ))
+                .ToList();
+
+            var response = new UserDetailResponse(
                 u.Id,
                 u.Username,
                 u.DisplayName,
@@ -252,11 +355,13 @@ public static class RbacEndpoints
                 u.LastLoginAt,
                 u.PasswordChangedAt,
                 u.CreatedAt,
-                u.UserRoles.Select(r => r.RoleId).ToList(),
-                u.UserRoles.Select(r => new RoleSummaryDto(r.Role.Id, r.Role.Code, r.Role.Name, r.Role.IsSystemRole)).ToList(),
-                u.WorkstreamMemberships.Select(m => new UserWorkstreamDto(m.WorkstreamId, m.Workstream.Code, m.Workstream.Name, m.IsPrimary)).ToList()
+                roleIds,
+                roles,
+                workstreams,
+                desks
             );
-            return Results.Ok(detail);
+
+            return Results.Ok(response);
         }).RequirePermission(PermissionCodes.UsersManage);
 
         admin.MapPost("/users", async (CreateUserRequest request, LacDbContext db, IPasswordHasher<AppUser> hasher, CancellationToken ct) =>
@@ -658,6 +763,198 @@ public static class RbacEndpoints
             return Results.Ok(new PageResponse<AuditLogListItem>(items, total, page, pageSize));
         }).RequirePermission(PermissionCodes.AuditView);
 
+        // --- Office Desks Administration ---
+        admin.MapGet("/desks", async (LacDbContext db, CancellationToken ct) =>
+        {
+            var desks = await db.OfficeDesks
+                .AsNoTracking()
+                .Where(d => d.RecordStatus == RecordStatus.Active)
+                .Include(d => d.Workstream)
+                .OrderBy(d => d.Name)
+                .Select(d => new DeskListItemDto(
+                    d.Id,
+                    d.Code,
+                    d.Name,
+                    d.Description,
+                    d.WorkstreamId,
+                    d.Workstream != null ? d.Workstream.Code : null,
+                    d.Workstream != null ? d.Workstream.Name : null,
+                    d.IsActive,
+                    d.UserMemberships.Count(m => m.IsActive && m.RecordStatus == RecordStatus.Active),
+                    d.CreatedAt
+                ))
+                .ToListAsync(ct);
+            return Results.Ok(desks);
+        }).RequirePermission(PermissionCodes.AccessManage);
+
+        admin.MapPost("/desks", async (CreateDeskRequest request, LacDbContext db, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.Name))
+                return Results.BadRequest(new { message = "Desk code and name are required." });
+
+            var code = request.Code.Trim().ToUpperInvariant();
+            if (await db.OfficeDesks.AnyAsync(d => d.Code == code && d.RecordStatus == RecordStatus.Active, ct))
+                return Results.Conflict(new { message = $"Desk with code '{code}' already exists." });
+
+            Guid? wsId = null;
+            if (request.WorkstreamId.HasValue && request.WorkstreamId.Value != Guid.Empty)
+            {
+                var wsExists = await db.Workstreams.AnyAsync(w => w.Id == request.WorkstreamId.Value && w.IsActive && w.RecordStatus == RecordStatus.Active, ct);
+                if (!wsExists)
+                    return Results.BadRequest(new { message = "Invalid or inactive workstream." });
+                wsId = request.WorkstreamId.Value;
+            }
+
+            var desk = new OfficeDesk
+            {
+                Code = code,
+                Name = request.Name.Trim(),
+                Description = request.Description?.Trim(),
+                WorkstreamId = wsId,
+                IsActive = true
+            };
+
+            db.OfficeDesks.Add(desk);
+            await db.SaveChangesAsync(ct);
+            return Results.Created($"/api/admin/desks/{desk.Id}", new IdResponse(desk.Id));
+        }).RequirePermission(PermissionCodes.AccessManage);
+
+        admin.MapPut("/desks/{id:guid}", async (Guid id, UpdateDeskRequest request, LacDbContext db, CancellationToken ct) =>
+        {
+            var desk = await db.OfficeDesks.FirstOrDefaultAsync(d => d.Id == id && d.RecordStatus == RecordStatus.Active, ct);
+            if (desk is null) return Results.NotFound();
+
+            if (string.IsNullOrWhiteSpace(request.Name))
+                return Results.BadRequest(new { message = "Desk name is required." });
+
+            Guid? wsId = null;
+            if (request.WorkstreamId.HasValue && request.WorkstreamId.Value != Guid.Empty)
+            {
+                var wsExists = await db.Workstreams.AnyAsync(w => w.Id == request.WorkstreamId.Value && w.IsActive && w.RecordStatus == RecordStatus.Active, ct);
+                if (!wsExists)
+                    return Results.BadRequest(new { message = "Invalid or inactive workstream." });
+                wsId = request.WorkstreamId.Value;
+            }
+
+            desk.Name = request.Name.Trim();
+            desk.Description = request.Description?.Trim();
+            desk.WorkstreamId = wsId;
+
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new IdResponse(desk.Id));
+        }).RequirePermission(PermissionCodes.AccessManage);
+
+        admin.MapPost("/desks/{id:guid}/toggle-status", async (Guid id, LacDbContext db, CancellationToken ct) =>
+        {
+            var desk = await db.OfficeDesks.FirstOrDefaultAsync(d => d.Id == id && d.RecordStatus == RecordStatus.Active, ct);
+            if (desk is null) return Results.NotFound();
+
+            desk.IsActive = !desk.IsActive;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { id = desk.Id, isActive = desk.IsActive });
+        }).RequirePermission(PermissionCodes.AccessManage);
+
+        // --- User Desk Memberships Administration ---
+        admin.MapGet("/users/{userId:guid}/desks", async (Guid userId, LacDbContext db, CancellationToken ct) =>
+        {
+            var userExists = await db.AppUsers.AnyAsync(u => u.Id == userId && u.RecordStatus == RecordStatus.Active, ct);
+            if (!userExists) return Results.NotFound();
+
+            var memberships = await db.UserDeskMemberships
+                .AsNoTracking()
+                .Where(m => m.UserId == userId && m.RecordStatus == RecordStatus.Active)
+                .Include(m => m.OfficeDesk).ThenInclude(d => d.Workstream)
+                .OrderByDescending(m => m.IsActive).ThenByDescending(m => m.IsPrimary).ThenBy(m => m.OfficeDesk.Name)
+                .Select(m => new UserDeskMembershipDto(
+                    m.Id,
+                    m.OfficeDeskId,
+                    m.OfficeDesk.Code,
+                    m.OfficeDesk.Name,
+                    m.OfficeDesk.Workstream != null ? m.OfficeDesk.Workstream.Name : null,
+                    m.IsPrimary,
+                    m.IsActive,
+                    m.AssignedAt,
+                    m.RemovedAt
+                ))
+                .ToListAsync(ct);
+            return Results.Ok(memberships);
+        }).RequirePermission(PermissionCodes.UsersManage);
+
+        admin.MapPost("/users/{userId:guid}/desks", async (Guid userId, AssignDeskRequest request, LacDbContext db, CancellationToken ct) =>
+        {
+            var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Id == userId && u.RecordStatus == RecordStatus.Active, ct);
+            if (user is null || !user.IsActive)
+                return Results.BadRequest(new { message = "User not found or is inactive." });
+
+            var desk = await db.OfficeDesks.FirstOrDefaultAsync(d => d.Id == request.OfficeDeskId && d.RecordStatus == RecordStatus.Active, ct);
+            if (desk is null || !desk.IsActive)
+                return Results.BadRequest(new { message = "Office desk not found or is inactive." });
+
+            var alreadyActive = await db.UserDeskMemberships.AnyAsync(m => m.UserId == userId && m.OfficeDeskId == request.OfficeDeskId && m.IsActive && m.RecordStatus == RecordStatus.Active, ct);
+            if (alreadyActive)
+                return Results.BadRequest(new { message = "User already has an active membership for this desk." });
+
+            if (request.IsPrimary)
+            {
+                var activeMemberships = await db.UserDeskMemberships
+                    .Where(m => m.UserId == userId && m.IsActive && m.IsPrimary && m.RecordStatus == RecordStatus.Active)
+                    .ToListAsync(ct);
+                foreach (var active in activeMemberships)
+                {
+                    active.IsPrimary = false;
+                }
+            }
+
+            var membership = new UserDeskMembership
+            {
+                UserId = userId,
+                OfficeDeskId = request.OfficeDeskId,
+                IsPrimary = request.IsPrimary,
+                IsActive = true,
+                AssignedAt = DateTimeOffset.UtcNow,
+                RemovedAt = null
+            };
+
+            db.UserDeskMemberships.Add(membership);
+            await db.SaveChangesAsync(ct);
+            return Results.Created($"/api/admin/users/{userId}/desks/{membership.Id}", new IdResponse(membership.Id));
+        }).RequirePermission(PermissionCodes.UsersManage);
+
+        admin.MapPost("/users/{userId:guid}/desks/{membershipId:guid}/remove", async (Guid userId, Guid membershipId, LacDbContext db, CancellationToken ct) =>
+        {
+            var membership = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.Id == membershipId && m.UserId == userId && m.RecordStatus == RecordStatus.Active, ct);
+            if (membership is null) return Results.NotFound();
+
+            if (!membership.IsActive)
+                return Results.Ok(new { message = "Membership already inactive." });
+
+            membership.IsActive = false;
+            membership.IsPrimary = false;
+            membership.RemovedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = "Desk membership removed successfully." });
+        }).RequirePermission(PermissionCodes.UsersManage);
+
+        admin.MapPost("/users/{userId:guid}/desks/{membershipId:guid}/set-primary", async (Guid userId, Guid membershipId, LacDbContext db, CancellationToken ct) =>
+        {
+            var membership = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.Id == membershipId && m.UserId == userId && m.RecordStatus == RecordStatus.Active, ct);
+            if (membership is null) return Results.NotFound();
+
+            if (!membership.IsActive)
+                return Results.BadRequest(new { message = "Cannot set an inactive desk membership as primary." });
+
+            var otherPrimaries = await db.UserDeskMemberships
+                .Where(m => m.UserId == userId && m.Id != membershipId && m.IsActive && m.IsPrimary && m.RecordStatus == RecordStatus.Active)
+                .ToListAsync(ct);
+            foreach (var op in otherPrimaries)
+            {
+                op.IsPrimary = false;
+            }
+            membership.IsPrimary = true;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { message = "Primary desk set successfully." });
+        }).RequirePermission(PermissionCodes.UsersManage);
+
         return api;
     }
 }
@@ -670,11 +967,13 @@ public sealed record CurrentUserResponse(
     DesignationDto? Designation,
     IReadOnlyList<string> Roles,
     IReadOnlyList<PermissionScopeDto> Permissions,
-    IReadOnlyList<WorkstreamDto> Workstreams
+    IReadOnlyList<WorkstreamDto> Workstreams,
+    IReadOnlyList<UserDeskDto> Desks
 );
 public sealed record DesignationDto(Guid Id, string Code, string Name);
 public sealed record WorkstreamDto(Guid Id, string Code, string Name, bool IsPrimary);
 public sealed record PermissionScopeDto(string Code, string Scope);
+public sealed record UserDeskDto(Guid Id, string Code, string Name, bool IsPrimary);
 
 public sealed record UserListItem(
     Guid Id,
@@ -685,7 +984,9 @@ public sealed record UserListItem(
     DateTimeOffset? LastLoginAt,
     DateTimeOffset CreatedAt,
     IReadOnlyList<string> Roles,
-    IReadOnlyList<string> Workstreams
+    IReadOnlyList<string> Workstreams,
+    string? PrimaryDeskName,
+    int ActiveDesksCount
 );
 
 public sealed record UserDetailResponse(
@@ -700,8 +1001,39 @@ public sealed record UserDetailResponse(
     DateTimeOffset CreatedAt,
     IReadOnlyList<Guid> RoleIds,
     IReadOnlyList<RoleSummaryDto> Roles,
-    IReadOnlyList<UserWorkstreamDto> Workstreams
+    IReadOnlyList<UserWorkstreamDto> Workstreams,
+    IReadOnlyList<UserDeskMembershipDto> Desks
 );
+
+public sealed record DeskListItemDto(
+    Guid Id,
+    string Code,
+    string Name,
+    string? Description,
+    Guid? WorkstreamId,
+    string? WorkstreamCode,
+    string? WorkstreamName,
+    bool IsActive,
+    int ActiveMembersCount,
+    DateTimeOffset CreatedAt
+);
+
+public sealed record CreateDeskRequest(string Code, string Name, string? Description, Guid? WorkstreamId);
+public sealed record UpdateDeskRequest(string Name, string? Description, Guid? WorkstreamId);
+
+public sealed record UserDeskMembershipDto(
+    Guid Id,
+    Guid OfficeDeskId,
+    string DeskCode,
+    string DeskName,
+    string? WorkstreamName,
+    bool IsPrimary,
+    bool IsActive,
+    DateTimeOffset AssignedAt,
+    DateTimeOffset? RemovedAt
+);
+
+public sealed record AssignDeskRequest(Guid OfficeDeskId, bool IsPrimary);
 
 public sealed record RoleSummaryDto(Guid Id, string Code, string Name, bool IsSystemRole);
 public sealed record UserWorkstreamDto(Guid WorkstreamId, string Code, string Name, bool IsPrimary);

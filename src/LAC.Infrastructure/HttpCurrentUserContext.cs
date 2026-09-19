@@ -48,4 +48,21 @@ public sealed class HttpCurrentUserContext(IHttpContextAccessor httpContextAcces
         .ToList() ?? [];
 
     public IReadOnlyList<string> WorkstreamCodes => User?.FindAll("workstream_code").Select(c => c.Value).Distinct().ToList() ?? [];
+    public IReadOnlyList<Guid> DeskIds => User?.FindAll("desk_id")
+        .Select(c => Guid.TryParse(c.Value, out var id) ? (Guid?)id : null)
+        .Where(id => id.HasValue)
+        .Select(id => id!.Value)
+        .Distinct()
+        .ToList() ?? [];
+
+    public IReadOnlyList<string> DeskCodes => User?.FindAll("desk_code").Select(c => c.Value).Distinct().ToList() ?? [];
+
+    public Guid? PrimaryDeskId
+    {
+        get
+        {
+            var val = User?.FindFirstValue("primary_desk_id");
+            return Guid.TryParse(val, out var id) ? id : null;
+        }
+    }
 }

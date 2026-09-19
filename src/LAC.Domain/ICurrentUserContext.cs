@@ -13,4 +13,7 @@ public interface ICurrentUserContext
     IReadOnlyList<string> Permissions { get; }
     IReadOnlyList<Guid> WorkstreamIds { get; }
     IReadOnlyList<string> WorkstreamCodes { get; }
+    IReadOnlyList<Guid> DeskIds { get; }
+    IReadOnlyList<string> DeskCodes { get; }
+    Guid? PrimaryDeskId { get; }
 }
