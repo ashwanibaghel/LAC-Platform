@@ -81,7 +81,7 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
                 throw new DakWorkflowException("The specified Workstream does not exist or is inactive.");
         }
 
-        Document? document = null;
+        DocumentStorageWriteResult? fileResult = null;
         string? savedStoragePath = null;
 
         if (cmd.DocumentStream is not null && !string.IsNullOrWhiteSpace(cmd.DocumentFileName))
@@ -90,96 +90,91 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
             if (ext != ".pdf" && ext != ".png" && ext != ".jpg" && ext != ".jpeg")
                 throw new DakWorkflowException("Only PDF and standard image files are permitted for scanned intake documents.");
 
-            var fileResult = await storage.SaveAndHashAsync(cmd.DocumentStream, cmd.DocumentFileName, ct);
+            fileResult = await storage.SaveAndHashAsync(cmd.DocumentStream, cmd.DocumentFileName, ct);
             savedStoragePath = fileResult.StoragePath;
-
-            document = new Document
-            {
-                OriginalFileName = cmd.DocumentFileName,
-                StoragePath = fileResult.StoragePath,
-                Sha256Hash = fileResult.Sha256Hash,
-                FileSize = fileResult.FileSize,
-                MimeType = cmd.DocumentContentType ?? "application/pdf",
-                DocumentType = "DakScan",
-                UploadedBy = actionUser.DisplayName
-            };
         }
 
-        var isRelational = db.Database.IsRelational();
-        Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction? tx = null;
-
+        var strategy = db.Database.CreateExecutionStrategy();
         try
         {
-            if (isRelational)
-                tx = await db.Database.BeginTransactionAsync(ct);
-
-            if (document is not null)
+            return await strategy.ExecuteAsync(async () =>
             {
-                db.Documents.Add(document);
-            }
+                db.ChangeTracker.Clear();
 
-            var dak = new Dak
-            {
-                DiaryNumber = cmd.DiaryNumber.Trim(),
-                ReceivedDate = cmd.ReceivedDate,
-                Subject = cmd.Subject.Trim(),
-                SenderName = cmd.SenderName.Trim(),
-                SenderDesignation = cmd.SenderDesignation?.Trim(),
-                SenderDepartment = cmd.SenderDepartment?.Trim(),
-                SenderAddress = cmd.SenderAddress?.Trim(),
-                SenderReferenceNumber = cmd.SenderReferenceNumber?.Trim(),
-                SenderLetterDate = cmd.SenderLetterDate,
-                InwardMode = string.IsNullOrWhiteSpace(cmd.InwardMode) ? "Physical" : cmd.InwardMode.Trim(),
-                Priority = cmd.Priority,
-                DueDate = cmd.DueDate,
-                CategoryId = cmd.CategoryId,
-                WorkstreamId = cmd.WorkstreamId,
-                Status = DakStatus.Registered,
-                MainDocument = document,
-                Revision = 0
-            };
-            db.Daks.Add(dak);
+                var isRelational = db.Database.IsRelational();
+                await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
 
-            // Sequence 1 movement (Registered) with FromDesk = null, ToDesk = null
-            var movement = new DakMovement
-            {
-                Dak = dak,
-                SequenceNumber = 1,
-                Action = DakMovementAction.Registered,
-                FromDeskId = null,
-                FromUserId = null,
-                ToDeskId = null,
-                ToUserId = null,
-                ActionByUserId = currentUserId,
-                ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                ActionAt = DateTimeOffset.UtcNow,
-                Remarks = "Registered in official inward correspondence"
-            };
-            db.DakMovements.Add(movement);
+                Document? document = null;
+                if (fileResult is not null)
+                {
+                    document = new Document
+                    {
+                        OriginalFileName = cmd.DocumentFileName!,
+                        StoragePath = fileResult.StoragePath,
+                        Sha256Hash = fileResult.Sha256Hash,
+                        FileSize = fileResult.FileSize,
+                        MimeType = cmd.DocumentContentType ?? "application/pdf",
+                        DocumentType = "DakScan",
+                        UploadedBy = actionUser.DisplayName
+                    };
+                    db.Documents.Add(document);
+                }
 
-            await db.SaveChangesAsync(ct);
+                var dak = new Dak
+                {
+                    DiaryNumber = cmd.DiaryNumber.Trim(),
+                    ReceivedDate = cmd.ReceivedDate,
+                    Subject = cmd.Subject.Trim(),
+                    SenderName = cmd.SenderName.Trim(),
+                    SenderDesignation = cmd.SenderDesignation?.Trim(),
+                    SenderDepartment = cmd.SenderDepartment?.Trim(),
+                    SenderAddress = cmd.SenderAddress?.Trim(),
+                    SenderReferenceNumber = cmd.SenderReferenceNumber?.Trim(),
+                    SenderLetterDate = cmd.SenderLetterDate,
+                    InwardMode = string.IsNullOrWhiteSpace(cmd.InwardMode) ? "Physical" : cmd.InwardMode.Trim(),
+                    Priority = cmd.Priority,
+                    DueDate = cmd.DueDate,
+                    CategoryId = cmd.CategoryId,
+                    WorkstreamId = cmd.WorkstreamId,
+                    Status = DakStatus.Registered,
+                    MainDocument = document,
+                    Revision = 0
+                };
+                db.Daks.Add(dak);
 
-            if (tx is not null)
-                await tx.CommitAsync(ct);
+                // Sequence 1 movement (Registered) with FromDesk = null, ToDesk = null
+                var movement = new DakMovement
+                {
+                    Dak = dak,
+                    SequenceNumber = 1,
+                    Action = DakMovementAction.Registered,
+                    FromDeskId = null,
+                    FromUserId = null,
+                    ToDeskId = null,
+                    ToUserId = null,
+                    ActionByUserId = currentUserId,
+                    ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                    ActionAt = DateTimeOffset.UtcNow,
+                    Remarks = "Registered in official inward correspondence"
+                };
+                db.DakMovements.Add(movement);
 
-            return dak;
+                await db.SaveChangesAsync(ct);
+
+                if (tx is not null)
+                    await tx.CommitAsync(ct);
+
+                return dak;
+            });
         }
         catch
         {
-            if (tx is not null)
-                await tx.RollbackAsync(ct);
-
             // Filesystem compensation: delete newly uploaded file if DB save failed
             if (savedStoragePath is not null)
             {
                 try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { /* best effort */ }
             }
             throw;
-        }
-        finally
-        {
-            if (tx is not null)
-                await tx.DisposeAsync();
         }
     }
 
@@ -193,148 +188,154 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
             throw new DakWorkflowException($"Action '{cmd.Action}' is not permitted via Move. Only Marked, Forwarded, and Returned are allowed.");
         }
 
-        var isRelational = db.Database.IsRelational();
-        await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
-
-        // Provider-aware locking seam
-        Dak? dak;
-        if (isRelational)
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            dak = await db.Daks
-                .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(ct);
-        }
-        else
-        {
-            dak = await db.Daks
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(d => d.Id == dakId, ct);
-        }
+            db.ChangeTracker.Clear();
 
-        if (dak is null)
-            throw new DakWorkflowException("Dak record not found.", 404);
+            var isRelational = db.Database.IsRelational();
+            await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
 
-        // Concurrency token validation
-        if (dak.Revision != cmd.ExpectedRevision)
-            throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
+            // Provider-aware locking seam
+            Dak? dak;
+            if (isRelational)
+            {
+                dak = await db.Daks
+                    .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(ct);
+            }
+            else
+            {
+                dak = await db.Daks
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(d => d.Id == dakId, ct);
+            }
 
-        // 2. Lifecycle Transition Invariants
-        if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
-            throw new DakWorkflowException($"Cannot move a Dak that is in terminal status '{dak.Status}'.");
+            if (dak is null)
+                throw new DakWorkflowException("Dak record not found.", 404);
 
-        if (dak.Status == DakStatus.Registered)
-        {
-            if (cmd.Action != DakMovementAction.Marked)
-                throw new DakWorkflowException($"Dak in Registered status must be Marked first. Action '{cmd.Action}' is not permitted.");
-        }
-        else if (dak.Status == DakStatus.InProcess)
-        {
-            if (cmd.Action == DakMovementAction.Marked)
-                throw new DakWorkflowException("Dak is already actively assigned and InProcess; subsequent movements must be Forwarded or Returned.");
-        }
+            // Concurrency token validation
+            if (dak.Revision != cmd.ExpectedRevision)
+                throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 
-        // 3. Desk & User Eligibility Validations using live DB state
-        var toDesk = await db.OfficeDesks.AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == cmd.ToDeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, ct)
-            ?? throw new DakWorkflowException("Target Office Desk does not exist or is inactive.");
+            // 2. Lifecycle Transition Invariants
+            if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
+                throw new DakWorkflowException($"Cannot move a Dak that is in terminal status '{dak.Status}'.");
 
-        AppUser? toUser = null;
-        if (cmd.ToUserId.HasValue)
-        {
-            toUser = await db.AppUsers.AsNoTracking()
-                .FirstOrDefaultAsync(u => u.Id == cmd.ToUserId.Value && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
-                ?? throw new DakWorkflowException("Target user account does not exist or is inactive.");
+            if (dak.Status == DakStatus.Registered)
+            {
+                if (cmd.Action != DakMovementAction.Marked)
+                    throw new DakWorkflowException($"Dak in Registered status must be Marked first. Action '{cmd.Action}' is not permitted.");
+            }
+            else if (dak.Status == DakStatus.InProcess)
+            {
+                if (cmd.Action == DakMovementAction.Marked)
+                    throw new DakWorkflowException("Dak is already actively assigned and InProcess; subsequent movements must be Forwarded or Returned.");
+            }
 
-            var isEligibleMember = await db.UserDeskMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == cmd.ToUserId.Value
-                            && m.OfficeDeskId == cmd.ToDeskId
-                            && m.IsActive
-                            && m.RemovedAt == null
-                            && m.OfficeDesk.IsActive
-                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+            // 3. Desk & User Eligibility Validations using live DB state
+            var toDesk = await db.OfficeDesks.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == cmd.ToDeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, ct)
+                ?? throw new DakWorkflowException("Target Office Desk does not exist or is inactive.");
 
-            if (!isEligibleMember)
-                throw new DakWorkflowException("Target user is not an active member of the designated Office Desk.");
-        }
+            AppUser? toUser = null;
+            if (cmd.ToUserId.HasValue)
+            {
+                toUser = await db.AppUsers.AsNoTracking()
+                    .FirstOrDefaultAsync(u => u.Id == cmd.ToUserId.Value && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
+                    ?? throw new DakWorkflowException("Target user account does not exist or is inactive.");
 
-        var actionUser = await db.AppUsers.AsNoTracking()
-            .SingleAsync(u => u.Id == currentUserId, ct);
+                var isEligibleMember = await db.UserDeskMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == cmd.ToUserId.Value
+                                && m.OfficeDeskId == cmd.ToDeskId
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.OfficeDesk.IsActive
+                                && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
 
-        // 4. Safe Sequence Calculation: (maxSequence ?? 0) + 1
-        var maxSeq = await db.DakMovements
-            .Where(m => m.DakId == dakId)
-            .MaxAsync(m => (int?)m.SequenceNumber, ct);
-        var nextSeq = (maxSeq ?? 0) + 1;
+                if (!isEligibleMember)
+                    throw new DakWorkflowException("Target user is not an active member of the designated Office Desk.");
+            }
 
-        var currentAssignment = dak.CurrentAssignment;
+            var actionUser = await db.AppUsers.AsNoTracking()
+                .SingleAsync(u => u.Id == currentUserId, ct);
 
-        // 5. Append Movement with Event-Time Identity Snapshots
-        var movement = new DakMovement
-        {
-            DakId = dakId,
-            SequenceNumber = nextSeq,
-            Action = cmd.Action,
-            FromDeskId = currentAssignment?.OfficeDeskId,
-            FromUserId = currentAssignment?.AssignedUserId,
-            FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
-            FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
-            FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
-            ToDeskId = cmd.ToDeskId,
-            ToUserId = cmd.ToUserId,
-            ToDeskCodeSnapshot = toDesk.Code,
-            ToDeskNameSnapshot = toDesk.Name,
-            ToUserDisplayNameSnapshot = toUser?.DisplayName,
-            ActionByUserId = currentUserId,
-            ActionByDisplayNameSnapshot = actionUser.DisplayName,
-            ActionAt = DateTimeOffset.UtcNow,
-            Remarks = cmd.Remarks?.Trim(),
-            InstructionsSnapshot = cmd.Instructions?.Trim()
-        };
-        db.DakMovements.Add(movement);
+            // 4. Safe Sequence Calculation: (maxSequence ?? 0) + 1
+            var maxSeq = await db.DakMovements
+                .Where(m => m.DakId == dakId)
+                .MaxAsync(m => (int?)m.SequenceNumber, ct);
+            var nextSeq = (maxSeq ?? 0) + 1;
 
-        // 6. Update Single Current Assignment Projection Row
-        if (currentAssignment is null)
-        {
-            currentAssignment = new DakAssignment
+            var currentAssignment = dak.CurrentAssignment;
+
+            // 5. Append Movement with Event-Time Identity Snapshots
+            var movement = new DakMovement
             {
                 DakId = dakId,
-                OfficeDeskId = cmd.ToDeskId,
-                AssignedUserId = cmd.ToUserId,
-                AssignedByUserId = currentUserId,
-                AssignedAt = DateTimeOffset.UtcNow,
-                Instructions = cmd.Instructions?.Trim(),
-                IsActive = true
+                SequenceNumber = nextSeq,
+                Action = cmd.Action,
+                FromDeskId = currentAssignment?.OfficeDeskId,
+                FromUserId = currentAssignment?.AssignedUserId,
+                FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
+                FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
+                FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
+                ToDeskId = cmd.ToDeskId,
+                ToUserId = cmd.ToUserId,
+                ToDeskCodeSnapshot = toDesk.Code,
+                ToDeskNameSnapshot = toDesk.Name,
+                ToUserDisplayNameSnapshot = toUser?.DisplayName,
+                ActionByUserId = currentUserId,
+                ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                ActionAt = DateTimeOffset.UtcNow,
+                Remarks = cmd.Remarks?.Trim(),
+                InstructionsSnapshot = cmd.Instructions?.Trim()
             };
-            db.DakAssignments.Add(currentAssignment);
-        }
-        else
-        {
-            currentAssignment.OfficeDeskId = cmd.ToDeskId;
-            currentAssignment.AssignedUserId = cmd.ToUserId;
-            currentAssignment.AssignedByUserId = currentUserId;
-            currentAssignment.AssignedAt = DateTimeOffset.UtcNow;
-            currentAssignment.Instructions = cmd.Instructions?.Trim();
-            currentAssignment.IsActive = true;
-            currentAssignment.ClosedAt = null;
-        }
+            db.DakMovements.Add(movement);
 
-        // 7. Transition Status to InProcess and Increment Revision
-        dak.Status = DakStatus.InProcess;
-        dak.Revision++;
+            // 6. Update Single Current Assignment Projection Row
+            if (currentAssignment is null)
+            {
+                currentAssignment = new DakAssignment
+                {
+                    DakId = dakId,
+                    OfficeDeskId = cmd.ToDeskId,
+                    AssignedUserId = cmd.ToUserId,
+                    AssignedByUserId = currentUserId,
+                    AssignedAt = DateTimeOffset.UtcNow,
+                    Instructions = cmd.Instructions?.Trim(),
+                    IsActive = true
+                };
+                db.DakAssignments.Add(currentAssignment);
+            }
+            else
+            {
+                currentAssignment.OfficeDeskId = cmd.ToDeskId;
+                currentAssignment.AssignedUserId = cmd.ToUserId;
+                currentAssignment.AssignedByUserId = currentUserId;
+                currentAssignment.AssignedAt = DateTimeOffset.UtcNow;
+                currentAssignment.Instructions = cmd.Instructions?.Trim();
+                currentAssignment.IsActive = true;
+                currentAssignment.ClosedAt = null;
+            }
 
-        await db.SaveChangesAsync(ct);
+            // 7. Transition Status to InProcess and Increment Revision
+            dak.Status = DakStatus.InProcess;
+            dak.Revision++;
 
-        if (tx is not null)
-            await tx.CommitAsync(ct);
+            await db.SaveChangesAsync(ct);
 
-        return dak;
+            if (tx is not null)
+                await tx.CommitAsync(ct);
+
+            return dak;
+        });
     }
 
     public async Task<Dak> DisposeAsync(Guid dakId, DisposeDakCommand cmd, Guid currentUserId, CancellationToken ct = default)
@@ -342,86 +343,92 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
         if (string.IsNullOrWhiteSpace(cmd.Remarks))
             throw new DakWorkflowException("Disposal remarks/justification are required.");
 
-        var isRelational = db.Database.IsRelational();
-        await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
-
-        Dak? dak;
-        if (isRelational)
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            dak = await db.Daks
-                .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(ct);
-        }
-        else
-        {
-            dak = await db.Daks
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(d => d.Id == dakId, ct);
-        }
+            db.ChangeTracker.Clear();
 
-        if (dak is null)
-            throw new DakWorkflowException("Dak record not found.", 404);
+            var isRelational = db.Database.IsRelational();
+            await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
 
-        if (dak.Revision != cmd.ExpectedRevision)
-            throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
+            Dak? dak;
+            if (isRelational)
+            {
+                dak = await db.Daks
+                    .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(ct);
+            }
+            else
+            {
+                dak = await db.Daks
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(d => d.Id == dakId, ct);
+            }
 
-        if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
-            throw new DakWorkflowException($"Cannot dispose a Dak that is already in status '{dak.Status}'.");
+            if (dak is null)
+                throw new DakWorkflowException("Dak record not found.", 404);
 
-        if (dak.Status == DakStatus.Registered)
-            throw new DakWorkflowException("Cannot dispose unassigned Registered Dak; it must be marked and processed first.");
+            if (dak.Revision != cmd.ExpectedRevision)
+                throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 
-        var actionUser = await db.AppUsers.AsNoTracking()
-            .SingleAsync(u => u.Id == currentUserId, ct);
+            if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
+                throw new DakWorkflowException($"Cannot dispose a Dak that is already in status '{dak.Status}'.");
 
-        var currentAssignment = dak.CurrentAssignment;
+            if (dak.Status == DakStatus.Registered)
+                throw new DakWorkflowException("Cannot dispose unassigned Registered Dak; it must be marked and processed first.");
 
-        var maxSeq = await db.DakMovements
-            .Where(m => m.DakId == dakId)
-            .MaxAsync(m => (int?)m.SequenceNumber, ct);
-        var nextSeq = (maxSeq ?? 0) + 1;
+            var actionUser = await db.AppUsers.AsNoTracking()
+                .SingleAsync(u => u.Id == currentUserId, ct);
 
-        var movement = new DakMovement
-        {
-            DakId = dakId,
-            SequenceNumber = nextSeq,
-            Action = DakMovementAction.Disposed,
-            FromDeskId = currentAssignment?.OfficeDeskId,
-            FromUserId = currentAssignment?.AssignedUserId,
-            FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
-            FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
-            FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
-            ToDeskId = null,
-            ToUserId = null,
-            ActionByUserId = currentUserId,
-            ActionByDisplayNameSnapshot = actionUser.DisplayName,
-            ActionAt = DateTimeOffset.UtcNow,
-            Remarks = cmd.Remarks.Trim()
-        };
-        db.DakMovements.Add(movement);
+            var currentAssignment = dak.CurrentAssignment;
 
-        if (currentAssignment is not null)
-        {
-            currentAssignment.IsActive = false;
-            currentAssignment.ClosedAt = DateTimeOffset.UtcNow;
-        }
+            var maxSeq = await db.DakMovements
+                .Where(m => m.DakId == dakId)
+                .MaxAsync(m => (int?)m.SequenceNumber, ct);
+            var nextSeq = (maxSeq ?? 0) + 1;
 
-        dak.Status = DakStatus.Disposed;
-        dak.Revision++;
+            var movement = new DakMovement
+            {
+                DakId = dakId,
+                SequenceNumber = nextSeq,
+                Action = DakMovementAction.Disposed,
+                FromDeskId = currentAssignment?.OfficeDeskId,
+                FromUserId = currentAssignment?.AssignedUserId,
+                FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
+                FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
+                FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
+                ToDeskId = null,
+                ToUserId = null,
+                ActionByUserId = currentUserId,
+                ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                ActionAt = DateTimeOffset.UtcNow,
+                Remarks = cmd.Remarks.Trim()
+            };
+            db.DakMovements.Add(movement);
 
-        await db.SaveChangesAsync(ct);
+            if (currentAssignment is not null)
+            {
+                currentAssignment.IsActive = false;
+                currentAssignment.ClosedAt = DateTimeOffset.UtcNow;
+            }
 
-        if (tx is not null)
-            await tx.CommitAsync(ct);
+            dak.Status = DakStatus.Disposed;
+            dak.Revision++;
 
-        return dak;
+            await db.SaveChangesAsync(ct);
+
+            if (tx is not null)
+                await tx.CommitAsync(ct);
+
+            return dak;
+        });
     }
 
     public async Task<Dak> CancelAsync(Guid dakId, CancelDakCommand cmd, Guid currentUserId, CancellationToken ct = default)
@@ -429,82 +436,88 @@ public sealed class DakWorkflowService(LacDbContext db, IDocumentStorage storage
         if (string.IsNullOrWhiteSpace(cmd.Reason))
             throw new DakWorkflowException("Cancellation reason is mandatory.");
 
-        var isRelational = db.Database.IsRelational();
-        await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
-
-        Dak? dak;
-        if (isRelational)
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
         {
-            dak = await db.Daks
-                .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(ct);
-        }
-        else
-        {
-            dak = await db.Daks
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.OfficeDesk)
-                .Include(d => d.CurrentAssignment)
-                    .ThenInclude(a => a!.AssignedUser)
-                .FirstOrDefaultAsync(d => d.Id == dakId, ct);
-        }
+            db.ChangeTracker.Clear();
 
-        if (dak is null)
-            throw new DakWorkflowException("Dak record not found.", 404);
+            var isRelational = db.Database.IsRelational();
+            await using var tx = isRelational ? await db.Database.BeginTransactionAsync(ct) : null;
 
-        if (dak.Revision != cmd.ExpectedRevision)
-            throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
+            Dak? dak;
+            if (isRelational)
+            {
+                dak = await db.Daks
+                    .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(ct);
+            }
+            else
+            {
+                dak = await db.Daks
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.OfficeDesk)
+                    .Include(d => d.CurrentAssignment)
+                        .ThenInclude(a => a!.AssignedUser)
+                    .FirstOrDefaultAsync(d => d.Id == dakId, ct);
+            }
 
-        if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
-            throw new DakWorkflowException($"Cannot cancel a Dak that is already in terminal status '{dak.Status}'.");
+            if (dak is null)
+                throw new DakWorkflowException("Dak record not found.", 404);
 
-        var actionUser = await db.AppUsers.AsNoTracking()
-            .SingleAsync(u => u.Id == currentUserId, ct);
+            if (dak.Revision != cmd.ExpectedRevision)
+                throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 
-        var currentAssignment = dak.CurrentAssignment;
+            if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
+                throw new DakWorkflowException($"Cannot cancel a Dak that is already in terminal status '{dak.Status}'.");
 
-        var maxSeq = await db.DakMovements
-            .Where(m => m.DakId == dakId)
-            .MaxAsync(m => (int?)m.SequenceNumber, ct);
-        var nextSeq = (maxSeq ?? 0) + 1;
+            var actionUser = await db.AppUsers.AsNoTracking()
+                .SingleAsync(u => u.Id == currentUserId, ct);
 
-        var movement = new DakMovement
-        {
-            DakId = dakId,
-            SequenceNumber = nextSeq,
-            Action = DakMovementAction.Cancelled,
-            FromDeskId = currentAssignment?.OfficeDeskId,
-            FromUserId = currentAssignment?.AssignedUserId,
-            FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
-            FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
-            FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
-            ToDeskId = null,
-            ToUserId = null,
-            ActionByUserId = currentUserId,
-            ActionByDisplayNameSnapshot = actionUser.DisplayName,
-            ActionAt = DateTimeOffset.UtcNow,
-            Remarks = cmd.Reason.Trim()
-        };
-        db.DakMovements.Add(movement);
+            var currentAssignment = dak.CurrentAssignment;
 
-        if (currentAssignment is not null)
-        {
-            currentAssignment.IsActive = false;
-            currentAssignment.ClosedAt = DateTimeOffset.UtcNow;
-        }
+            var maxSeq = await db.DakMovements
+                .Where(m => m.DakId == dakId)
+                .MaxAsync(m => (int?)m.SequenceNumber, ct);
+            var nextSeq = (maxSeq ?? 0) + 1;
 
-        dak.Status = DakStatus.Cancelled;
-        dak.Revision++;
+            var movement = new DakMovement
+            {
+                DakId = dakId,
+                SequenceNumber = nextSeq,
+                Action = DakMovementAction.Cancelled,
+                FromDeskId = currentAssignment?.OfficeDeskId,
+                FromUserId = currentAssignment?.AssignedUserId,
+                FromDeskCodeSnapshot = currentAssignment?.OfficeDesk?.Code,
+                FromDeskNameSnapshot = currentAssignment?.OfficeDesk?.Name,
+                FromUserDisplayNameSnapshot = currentAssignment?.AssignedUser?.DisplayName,
+                ToDeskId = null,
+                ToUserId = null,
+                ActionByUserId = currentUserId,
+                ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                ActionAt = DateTimeOffset.UtcNow,
+                Remarks = cmd.Reason.Trim()
+            };
+            db.DakMovements.Add(movement);
 
-        await db.SaveChangesAsync(ct);
+            if (currentAssignment is not null)
+            {
+                currentAssignment.IsActive = false;
+                currentAssignment.ClosedAt = DateTimeOffset.UtcNow;
+            }
 
-        if (tx is not null)
-            await tx.CommitAsync(ct);
+            dak.Status = DakStatus.Cancelled;
+            dak.Revision++;
 
-        return dak;
+            await db.SaveChangesAsync(ct);
+
+            if (tx is not null)
+                await tx.CommitAsync(ct);
+
+            return dak;
+        });
     }
 }

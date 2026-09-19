@@ -1103,4 +1103,196 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         // Must NOT see Dak 3 (outside both)
         Assert.DoesNotContain(items, i => i.GetProperty("id").GetGuid() == dak3Id);
     }
+
+    // ------------------------------------------------------------------------
+    // GROUP 22: Workflow Execution Strategy, Concurrency, and Compensation
+    // ------------------------------------------------------------------------
+    [Fact]
+    public async Task Group22_Workflow_registration_file_compensation_and_lifecycle_retries()
+    {
+        var dbName = $"dak-retry-test-{Guid.NewGuid():N}";
+        var interceptor = new FailingSaveChangesInterceptor();
+        var dbOptions = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .AddInterceptors(interceptor)
+            .Options;
+
+        var storage = new TestInMemoryDocumentStorage();
+        using var db = new LacDbContext(dbOptions);
+        var workflow = new DakWorkflowService(db, storage);
+
+        var adminUser = new AppUser
+        {
+            Username = "admin_g22",
+            DisplayName = "Admin G22",
+            PasswordHash = "hash",
+            IsActive = true,
+            RecordStatus = RecordStatus.Active
+        };
+        var targetDesk = new OfficeDesk
+        {
+            Code = "DESK_G22",
+            Name = "Desk G22",
+            IsActive = true,
+            RecordStatus = RecordStatus.Active
+        };
+        var targetUser = new AppUser
+        {
+            Username = "target_g22",
+            DisplayName = "Target G22",
+            PasswordHash = "hash",
+            IsActive = true,
+            RecordStatus = RecordStatus.Active
+        };
+        var membership = new UserDeskMembership
+        {
+            UserId = targetUser.Id,
+            User = targetUser,
+            OfficeDeskId = targetDesk.Id,
+            OfficeDesk = targetDesk,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active
+        };
+
+        db.AppUsers.AddRange(adminUser, targetUser);
+        db.OfficeDesks.Add(targetDesk);
+        db.UserDeskMemberships.Add(membership);
+        await db.SaveChangesAsync();
+
+        var pdfBytes = "%PDF-1.4 dummy dak content"u8.ToArray();
+        using var msFail = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_G22_001",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Compensation Test",
+            SenderName: "Test Sender",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: msFail,
+            DocumentFileName: "test_file.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        // 1. Induce failure on DB save inside execution strategy -> file must be compensated (deleted)
+        interceptor.FailOnSave = true;
+        await Assert.ThrowsAsync<DbUpdateException>(() => workflow.RegisterAsync(cmd, adminUser.Id));
+
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(1, storage.DeleteCount);
+        Assert.Empty(storage.Files);
+
+        // 2. Disable failure -> registration inside execution strategy succeeds cleanly
+        interceptor.FailOnSave = false;
+        using var msSuccess = new MemoryStream(pdfBytes);
+        var cmdSuccess = cmd with { DocumentStream = msSuccess };
+        var dak = await workflow.RegisterAsync(cmdSuccess, adminUser.Id);
+
+        Assert.NotNull(dak);
+        Assert.Equal(DakStatus.Registered, dak.Status);
+        Assert.Equal(0, dak.Revision);
+        Assert.Equal(2, storage.SaveCount);
+        Assert.Equal(1, storage.DeleteCount);
+        Assert.Single(storage.Files);
+
+        // 3. MoveDak inside execution strategy
+        var moveCmd = new MoveDakCommand(
+            Action: DakMovementAction.Marked,
+            ToDeskId: targetDesk.Id,
+            ToUserId: targetUser.Id,
+            Remarks: "Assigning to target desk",
+            Instructions: "Action immediately",
+            ExpectedRevision: 0
+        );
+        var moved = await workflow.MoveAsync(dak.Id, moveCmd, adminUser.Id);
+        Assert.Equal(DakStatus.InProcess, moved.Status);
+        Assert.Equal(1, moved.Revision);
+
+        // 4. Concurrency conflict check inside MoveAsync
+        var staleMoveCmd = new MoveDakCommand(
+            Action: DakMovementAction.Forwarded,
+            ToDeskId: targetDesk.Id,
+            ToUserId: targetUser.Id,
+            Remarks: "Stale update",
+            Instructions: null,
+            ExpectedRevision: 0
+        );
+        var ex = await Assert.ThrowsAsync<DakWorkflowException>(() => workflow.MoveAsync(dak.Id, staleMoveCmd, adminUser.Id));
+        Assert.Equal(409, ex.StatusCode);
+
+        // 5. DisposeDak inside execution strategy
+        var disposeCmd = new DisposeDakCommand("Disposed properly", ExpectedRevision: 1);
+        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, adminUser.Id);
+        Assert.Equal(DakStatus.Disposed, disposed.Status);
+        Assert.Equal(2, disposed.Revision);
+
+        // 6. CancelDak inside execution strategy
+        using var ms2 = new MemoryStream(pdfBytes);
+        var dak2 = await workflow.RegisterAsync(cmd with { DiaryNumber = "DIARY_G22_002", DocumentStream = ms2 }, adminUser.Id);
+        Assert.Equal(0, dak2.Revision);
+
+        var cancelCmd = new CancelDakCommand("Cancellation valid", ExpectedRevision: 0);
+        var cancelled = await workflow.CancelAsync(dak2.Id, cancelCmd, adminUser.Id);
+        Assert.Equal(DakStatus.Cancelled, cancelled.Status);
+        Assert.Equal(1, cancelled.Revision);
+    }
 }
+
+public sealed class TestInMemoryDocumentStorage : IDocumentStorage
+{
+    public readonly Dictionary<string, byte[]> Files = new();
+    public int SaveCount { get; private set; }
+    public int DeleteCount { get; private set; }
+
+    public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) => throw new NotImplementedException();
+
+    public async Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct)
+    {
+        SaveCount++;
+        using var ms = new MemoryStream();
+        await content.CopyToAsync(ms, ct);
+        var bytes = ms.ToArray();
+        var key = $"{Guid.NewGuid():N}_{fileName}";
+        Files[key] = bytes;
+        return new DocumentStorageWriteResult(key, "hash123", bytes.Length);
+    }
+
+    public Task DeleteAsync(string storagePath, CancellationToken ct)
+    {
+        DeleteCount++;
+        Files.Remove(storagePath);
+        return Task.CompletedTask;
+    }
+
+    public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken ct)
+    {
+        if (Files.TryGetValue(storagePath, out var bytes))
+            return Task.FromResult<Stream?>(new MemoryStream(bytes));
+        return Task.FromResult<Stream?>(null);
+    }
+
+    public StorageHealth GetHealth() => new StorageHealth("TestStorage", true, 1000000, 1000000);
+}
+
+public sealed class FailingSaveChangesInterceptor : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+{
+    public bool FailOnSave { get; set; }
+
+    public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+        Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+        Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        if (FailOnSave)
+            throw new DbUpdateException("Simulated failure inside execution strategy transaction");
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+}
+
