@@ -141,8 +141,18 @@ public sealed class OutwardWorkflowService(
         else if (ext == ".png")
         {
             // PNG header starts with 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
-            if (read < 8 || buffer[0] != 0x89 || buffer[1] != 0x50 || buffer[2] != 0x4E || buffer[3] != 0x47)
+            if (read < 8
+                || buffer[0] != 0x89
+                || buffer[1] != 0x50
+                || buffer[2] != 0x4E
+                || buffer[3] != 0x47
+                || buffer[4] != 0x0D
+                || buffer[5] != 0x0A
+                || buffer[6] != 0x1A
+                || buffer[7] != 0x0A)
+            {
                 throw new OutwardWorkflowException("File content does not match standard PNG file signature.");
+            }
         }
         else if (ext == ".jpg" || ext == ".jpeg")
         {
@@ -150,6 +160,158 @@ public sealed class OutwardWorkflowService(
             if (read < 3 || buffer[0] != 0xFF || buffer[1] != 0xD8 || buffer[2] != 0xFF)
                 throw new OutwardWorkflowException("File content does not match standard JPEG file signature.");
         }
+    }
+
+    private static string GetServerDerivedMime(string fileName)
+    {
+        var ext = Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            _ => throw new OutwardWorkflowException("Only PDF and standard image files (.png, .jpg, .jpeg) are permitted.", 400)
+        };
+    }
+
+    private async Task VerifyDocumentProvenanceForRegistrationAsync(
+        Guid documentId,
+        Guid? primaryDakId,
+        Guid? matterId,
+        Guid currentUserId,
+        CancellationToken ct)
+    {
+        var proven = false;
+
+        // 1. Linked Primary Dak
+        if (primaryDakId.HasValue)
+        {
+            if (await dakAuth.CanAccessDocumentAsync(primaryDakId.Value, documentId, currentUserId, ct))
+            {
+                proven = true;
+            }
+        }
+
+        // 2. Linked Matter
+        if (!proven && matterId.HasValue)
+        {
+            var matterExists = await db.Matters.AsNoTracking()
+                .AnyAsync(m => m.Id == matterId.Value && m.RecordStatus == RecordStatus.Active, ct);
+            if (matterExists && await accessControl.CanAsync(PermissionCodes.MatterView, null, ct))
+            {
+                var isMatterDoc = await db.MatterDocuments.AsNoTracking()
+                    .AnyAsync(md => md.MatterId == matterId.Value && md.DocumentId == documentId, ct);
+                if (isMatterDoc)
+                {
+                    var docActive = await db.Documents.AsNoTracking()
+                        .AnyAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct);
+                    if (docActive)
+                    {
+                        proven = true;
+                    }
+                }
+            }
+        }
+
+        // 3. Document already in the outward system (cross-outward reuse)
+        // A document that was previously uploaded to any active outward is considered proven —
+        // the caller demonstrated access when they first uploaded or referenced it.
+        if (!proven)
+        {
+            var onAnyActiveOutward = await db.Outwards.AsNoTracking()
+                .AnyAsync(o => o.RecordStatus == RecordStatus.Active && o.MainDocumentId == documentId, ct);
+            if (!onAnyActiveOutward)
+            {
+                onAnyActiveOutward = await db.OutwardAttachments.AsNoTracking()
+                    .AnyAsync(a => a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
+            }
+            if (onAnyActiveOutward)
+                proven = true;
+        }
+
+        if (!proven)
+            throw new OutwardWorkflowException("You do not have permission to access the specified document.", 403);
+    }
+
+    private async Task VerifyDocumentProvenanceForExistingOutwardAsync(
+        Guid outwardId,
+        Outward outward,
+        Guid documentId,
+        Guid currentUserId,
+        CancellationToken ct)
+    {
+        var proven = false;
+
+        // 1. Provenance through this outward's active linked Daks
+        var linkedDakIds = await db.OutwardDakLinks.AsNoTracking()
+            .Where(l => l.OutwardId == outwardId && l.RecordStatus == RecordStatus.Active)
+            .Select(l => l.DakId)
+            .ToListAsync(ct);
+
+        foreach (var dakId in linkedDakIds)
+        {
+            if (await dakAuth.CanAccessDocumentAsync(dakId, documentId, currentUserId, ct))
+            {
+                proven = true;
+                break;
+            }
+        }
+
+        // 2. Provenance through this outward's linked Matter
+        if (!proven && outward.MatterId.HasValue)
+        {
+            var matterExists = await db.Matters.AsNoTracking()
+                .AnyAsync(m => m.Id == outward.MatterId.Value && m.RecordStatus == RecordStatus.Active, ct);
+            if (matterExists && await accessControl.CanAsync(PermissionCodes.MatterView, null, ct))
+            {
+                var isMatterDoc = await db.MatterDocuments.AsNoTracking()
+                    .AnyAsync(md => md.MatterId == outward.MatterId.Value && md.DocumentId == documentId, ct);
+                if (isMatterDoc)
+                {
+                    var docActive = await db.Documents.AsNoTracking()
+                        .AnyAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct);
+                    if (docActive)
+                    {
+                        proven = true;
+                    }
+                }
+            }
+        }
+
+        // 3. Provenance through this outward's own active documents
+        if (!proven)
+        {
+            if (outward.MainDocumentId == documentId)
+            {
+                proven = true;
+            }
+            else
+            {
+                var isAttachedToThisOutward = await db.OutwardAttachments.AsNoTracking()
+                    .AnyAsync(a => a.OutwardId == outwardId && a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
+                if (isAttachedToThisOutward)
+                {
+                    proven = true;
+                }
+            }
+        }
+
+        // 4. Document already in the outward system on any OTHER active outward (cross-outward reuse)
+        if (!proven)
+        {
+            var onAnotherOutward = await db.Outwards.AsNoTracking()
+                .AnyAsync(o => o.RecordStatus == RecordStatus.Active && o.MainDocumentId == documentId, ct);
+            if (!onAnotherOutward)
+            {
+                onAnotherOutward = await db.OutwardAttachments.AsNoTracking()
+                    .AnyAsync(a => a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
+            }
+            if (onAnotherOutward)
+                proven = true;
+        }
+
+        if (!proven)
+            throw new OutwardWorkflowException("You do not have permission to access the specified document.", 403);
     }
 
     private async Task<DocumentStorageWriteResult> SaveFileAsync(Stream stream, string fileName, CancellationToken ct)
@@ -256,13 +418,10 @@ public sealed class OutwardWorkflowService(
         if (cmd.DocumentStream is not null && cmd.ExistingDocumentId.HasValue)
             throw new OutwardWorkflowException("Cannot specify both a new uploaded file and an existing document ID.", 400);
 
-        // Verify existing document if supplied
+        // Verify existing document provenance if supplied
         if (cmd.ExistingDocumentId.HasValue)
         {
-            var docExists = await db.Documents.AsNoTracking()
-                .AnyAsync(d => d.Id == cmd.ExistingDocumentId.Value && d.RecordStatus == RecordStatus.Active, ct);
-            if (!docExists)
-                throw new OutwardWorkflowException("Existing document not found.", 404);
+            await VerifyDocumentProvenanceForRegistrationAsync(cmd.ExistingDocumentId.Value, cmd.PrimaryDakId, cmd.MatterId, currentUserId, ct);
         }
 
         // Verify Primary Dak access if supplied
@@ -315,9 +474,6 @@ public sealed class OutwardWorkflowService(
                     Document? document = null;
                     if (fileResult is not null && initialDocumentId.HasValue)
                     {
-                        var ext = Path.GetExtension(cmd.DocumentFileName!).ToLowerInvariant();
-                        var mime = ext == ".pdf" ? "application/pdf" : ext == ".png" ? "image/png" : "image/jpeg";
-
                         document = new Document
                         {
                             Id = initialDocumentId.Value,
@@ -325,7 +481,7 @@ public sealed class OutwardWorkflowService(
                             StoragePath = fileResult.StoragePath,
                             Sha256Hash = fileResult.Sha256Hash,
                             FileSize = fileResult.FileSize,
-                            MimeType = cmd.DocumentContentType ?? mime,
+                            MimeType = GetServerDerivedMime(cmd.DocumentFileName!),
                             DocumentType = "OutwardLetter",
                             UploadedBy = actionUser.DisplayName
                         };
@@ -550,14 +706,6 @@ public sealed class OutwardWorkflowService(
             .FirstOrDefaultAsync(u => u.Id == currentUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
             ?? throw new OutwardWorkflowException("Current user account is inactive or not found.", 403);
 
-        if (cmd.ExistingDocumentId.HasValue)
-        {
-            var docExists = await db.Documents.AsNoTracking()
-                .AnyAsync(d => d.Id == cmd.ExistingDocumentId.Value && d.RecordStatus == RecordStatus.Active, ct);
-            if (!docExists)
-                throw new OutwardWorkflowException("Existing document not found.", 404);
-        }
-
         DocumentStorageWriteResult? fileResult = null;
         string? savedStoragePath = null;
         if (cmd.DocumentStream is not null)
@@ -586,11 +734,13 @@ public sealed class OutwardWorkflowService(
                     if (outward.Status != OutwardStatus.Registered)
                         throw new OutwardWorkflowException($"Cannot change document for an outward record in terminal status '{outward.Status}'.", 409);
 
+                    if (cmd.ExistingDocumentId.HasValue)
+                    {
+                        await VerifyDocumentProvenanceForExistingOutwardAsync(outwardId, outward, cmd.ExistingDocumentId.Value, currentUserId, opCt);
+                    }
+
                     if (fileResult is not null && newDocumentId.HasValue)
                     {
-                        var ext = Path.GetExtension(cmd.DocumentFileName!).ToLowerInvariant();
-                        var mime = ext == ".pdf" ? "application/pdf" : ext == ".png" ? "image/png" : "image/jpeg";
-
                         var document = new Document
                         {
                             Id = newDocumentId.Value,
@@ -598,7 +748,7 @@ public sealed class OutwardWorkflowService(
                             StoragePath = fileResult.StoragePath,
                             Sha256Hash = fileResult.Sha256Hash,
                             FileSize = fileResult.FileSize,
-                            MimeType = cmd.DocumentContentType ?? mime,
+                            MimeType = GetServerDerivedMime(cmd.DocumentFileName!),
                             DocumentType = "OutwardLetter",
                             UploadedBy = actionUser.DisplayName
                         };
@@ -664,14 +814,6 @@ public sealed class OutwardWorkflowService(
             .FirstOrDefaultAsync(u => u.Id == currentUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
             ?? throw new OutwardWorkflowException("Current user account is inactive or not found.", 403);
 
-        if (cmd.ExistingDocumentId.HasValue)
-        {
-            var docExists = await db.Documents.AsNoTracking()
-                .AnyAsync(d => d.Id == cmd.ExistingDocumentId.Value && d.RecordStatus == RecordStatus.Active, ct);
-            if (!docExists)
-                throw new OutwardWorkflowException("Existing document not found.", 404);
-        }
-
         DocumentStorageWriteResult? fileResult = null;
         string? savedStoragePath = null;
         if (cmd.DocumentStream is not null)
@@ -701,6 +843,11 @@ public sealed class OutwardWorkflowService(
                     if (outward.Status != OutwardStatus.Registered)
                         throw new OutwardWorkflowException($"Cannot add attachment to an outward record in terminal status '{outward.Status}'.", 409);
 
+                    if (cmd.ExistingDocumentId.HasValue)
+                    {
+                        await VerifyDocumentProvenanceForExistingOutwardAsync(outwardId, outward, cmd.ExistingDocumentId.Value, currentUserId, opCt);
+                    }
+
                     // Check duplicate attachment
                     var alreadyAttached = await db.OutwardAttachments.AsNoTracking()
                         .AnyAsync(a => a.OutwardId == outwardId && a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, opCt);
@@ -709,9 +856,6 @@ public sealed class OutwardWorkflowService(
 
                     if (fileResult is not null)
                     {
-                        var ext = Path.GetExtension(cmd.DocumentFileName!).ToLowerInvariant();
-                        var mime = ext == ".pdf" ? "application/pdf" : ext == ".png" ? "image/png" : "image/jpeg";
-
                         var document = new Document
                         {
                             Id = documentId,
@@ -719,7 +863,7 @@ public sealed class OutwardWorkflowService(
                             StoragePath = fileResult.StoragePath,
                             Sha256Hash = fileResult.Sha256Hash,
                             FileSize = fileResult.FileSize,
-                            MimeType = cmd.DocumentContentType ?? mime,
+                            MimeType = GetServerDerivedMime(cmd.DocumentFileName!),
                             DocumentType = "OutwardAttachment",
                             UploadedBy = actionUser.DisplayName
                         };
@@ -1018,6 +1162,14 @@ public sealed class OutwardWorkflowService(
 
                 if (outward.Status != OutwardStatus.Registered)
                     throw new OutwardWorkflowException($"Cannot dispatch an outward record in status '{outward.Status}'. Only Registered records can be dispatched.", 409);
+
+                if (!outward.MainDocumentId.HasValue)
+                    throw new OutwardWorkflowException("A final main document is required before dispatch.", 400);
+
+                var docExists = await db.Documents.AsNoTracking()
+                    .AnyAsync(d => d.Id == outward.MainDocumentId.Value && d.RecordStatus == RecordStatus.Active, opCt);
+                if (!docExists)
+                    throw new OutwardWorkflowException("Referenced main document does not exist or is inactive.", 400);
 
                 var now = DateTimeOffset.UtcNow;
                 outward.Status = OutwardStatus.Dispatched;

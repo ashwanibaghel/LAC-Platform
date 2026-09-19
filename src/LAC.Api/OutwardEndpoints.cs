@@ -474,13 +474,17 @@ public static class OutwardEndpoints
             });
         });
 
-        outward.MapGet("/lookups/registration", async (
+        async Task<IResult> RegistrationLookupsHandler(
             LacDbContext db,
+            IOutwardAuthorizationService outwardAuth,
             ICurrentUserContext currentUser,
-            CancellationToken ct) =>
+            CancellationToken ct)
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
+
+            if (!await outwardAuth.CanAccessRegistrationLookupsAsync(userId, ct))
+                return Results.Forbid();
 
             // Only desks where user holds an active live membership can be used for creation
             var desks = await db.UserDeskMemberships.AsNoTracking()
@@ -501,15 +505,37 @@ public static class OutwardEndpoints
                 })
                 .ToListAsync(ct);
 
-            // Active workstreams
-            var workstreams = await db.UserWorkstreamMemberships.AsNoTracking()
-                .Where(m => m.UserId == userId
-                         && m.IsActive
-                         && m.Workstream.IsActive
-                         && m.Workstream.RecordStatus == RecordStatus.Active)
-                .OrderBy(m => m.Workstream.Name)
-                .Select(m => new { id = m.WorkstreamId, name = m.Workstream.Name, code = m.Workstream.Code })
-                .ToListAsync(ct);
+            var createScopes = await (
+                from ur in db.UserRoles
+                join r in db.Roles on ur.RoleId equals r.Id
+                join rp in db.RolePermissions on r.Id equals rp.RoleId
+                join p in db.Permissions on rp.PermissionId equals p.Id
+                where ur.UserId == userId
+                   && r.IsActive && r.RecordStatus == RecordStatus.Active
+                   && p.Code == PermissionCodes.OutwardCreate
+                select rp.ScopeMode
+            ).Distinct().ToListAsync(ct);
+
+            List<object> workstreams;
+            if (createScopes.Contains(ScopeMode.All) || createScopes.Contains(ScopeMode.Assigned))
+            {
+                workstreams = await db.Workstreams.AsNoTracking()
+                    .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
+                    .OrderBy(w => w.Name)
+                    .Select(w => (object)new { id = w.Id, name = w.Name, code = w.Code })
+                    .ToListAsync(ct);
+            }
+            else
+            {
+                workstreams = await db.UserWorkstreamMemberships.AsNoTracking()
+                    .Where(m => m.UserId == userId
+                             && m.IsActive
+                             && m.Workstream.IsActive
+                             && m.Workstream.RecordStatus == RecordStatus.Active)
+                    .OrderBy(m => m.Workstream.Name)
+                    .Select(m => (object)new { id = m.WorkstreamId, name = m.Workstream.Name, code = m.Workstream.Code })
+                    .ToListAsync(ct);
+            }
 
             return Results.Ok(new
             {
@@ -517,7 +543,10 @@ public static class OutwardEndpoints
                 workstreams,
                 dispatchModes = new[] { "SpeedPost", "RegisteredPost", "ByHand", "SpecialMessenger", "Courier", "Email", "Other" }
             });
-        });
+        }
+
+        outward.MapGet("/lookups/registration", RegistrationLookupsHandler);
+        outward.MapGet("/context", RegistrationLookupsHandler);
 
         // ====================================================================
         // 5. UPDATE METADATA
@@ -534,6 +563,9 @@ public static class OutwardEndpoints
             var userId = currentUser.UserId.Value;
 
             if (!await outwardAuth.CanAccessOutwardAsync(id, PermissionCodes.OutwardEdit, userId, ct))
+                return Results.Forbid();
+
+            if (!await outwardAuth.CanUseEditContextAsync(request.IssuingDeskId, request.WorkstreamId, userId, ct))
                 return Results.Forbid();
 
             var cmd = new UpdateOutwardMetadataCommand(

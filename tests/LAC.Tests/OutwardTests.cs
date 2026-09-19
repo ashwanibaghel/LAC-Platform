@@ -48,6 +48,8 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
     private readonly OutwardTestFactory _factory;
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
     private static readonly byte[] SamplePdfBytes = Encoding.UTF8.GetBytes("%PDF-1.4 sample content for outward testing");
+    private static readonly byte[] SamplePngBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00 };
+    private static readonly byte[] SampleJpegBytes = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46 };
 
     public OutwardTests(OutwardTestFactory factory)
     {
@@ -219,7 +221,9 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         byte[]? fileBytes = null,
         string? fileName = null,
         Guid? existingDocumentId = null,
-        Guid? matterId = null)
+        Guid? matterId = null,
+        Guid? primaryDakId = null,
+        string contentType = "application/pdf")
     {
         var form = new MultipartFormDataContent();
         form.Add(new StringContent(outwardNumber), "outwardNumber");
@@ -234,17 +238,88 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         if (matterId.HasValue)
             form.Add(new StringContent(matterId.Value.ToString()), "matterId");
 
+        if (primaryDakId.HasValue)
+            form.Add(new StringContent(primaryDakId.Value.ToString()), "primaryDakId");
+
         if (existingDocumentId.HasValue)
             form.Add(new StringContent(existingDocumentId.Value.ToString()), "existingDocumentId");
 
         if (fileBytes != null && fileName != null)
         {
             var fileContent = new ByteArrayContent(fileBytes);
-            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/pdf");
+            fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
             form.Add(fileContent, "file", fileName);
         }
 
         return form;
+    }
+
+    private async Task<(Guid MatterId, Guid DocumentId)> CreateSampleMatterWithDocumentAsync()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var matter = new Matter
+        {
+            Id = Guid.NewGuid(),
+            Title = $"WP(C) {Guid.NewGuid():N}"[..15],
+            MatterType = "Court Case",
+            Status = "Pending",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.Matters.Add(matter);
+
+        var doc = new Document
+        {
+            Id = Guid.NewGuid(),
+            OriginalFileName = "matter_doc.pdf",
+            StoragePath = $"documents/{Guid.NewGuid():N}.pdf",
+            MimeType = "application/pdf",
+            FileSize = 1024,
+            Sha256Hash = "dummyhash",
+            RecordStatus = RecordStatus.Active,
+            UploadedAt = DateTimeOffset.UtcNow
+        };
+        db.Documents.Add(doc);
+
+        var matterDoc = new MatterDocument
+        {
+            Id = Guid.NewGuid(),
+            MatterId = matter.Id,
+            DocumentId = doc.Id
+        };
+        db.MatterDocuments.Add(matterDoc);
+
+        await db.SaveChangesAsync();
+        return (matter.Id, doc.Id);
+    }
+
+    private async Task<(Guid DakId, Guid DocumentId)> CreateSampleDakWithDocumentAsync(HttpClient adminClient, string diaryNo)
+    {
+        var dakId = await CreateSampleDakAsync(adminClient, diaryNo);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var dak = await db.Daks.SingleAsync(d => d.Id == dakId);
+
+        var doc = new Document
+        {
+            Id = Guid.NewGuid(),
+            OriginalFileName = "dak_doc.pdf",
+            StoragePath = $"documents/{Guid.NewGuid():N}.pdf",
+            MimeType = "application/pdf",
+            FileSize = 1024,
+            Sha256Hash = "dummyhash",
+            RecordStatus = RecordStatus.Active,
+            UploadedAt = DateTimeOffset.UtcNow
+        };
+        db.Documents.Add(doc);
+
+        dak.MainDocumentId = doc.Id;
+        await db.SaveChangesAsync();
+
+        return (dakId, doc.Id);
     }
 
     // ========================================================================
@@ -689,16 +764,16 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_DISPDOC_{Guid.NewGuid():N}"[..10], "Desk DispDoc");
 
         var num = $"OUT_DD_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "before_dispatch.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
-        // Dispatch outward
+        // Dispatch outward (requires main document — supplied at registration)
         var dispReq = new { dispatchDate = "2026-09-19", dispatchMode = "SpeedPost", expectedRevision = 0 };
         var dispRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dispatch", dispReq);
         Assert.Equal(HttpStatusCode.OK, dispRes.StatusCode);
 
-        // Attempt document mutation -> Conflict 409
+        // Attempt document mutation on dispatched outward -> Conflict 409
         var uploadForm = new MultipartFormDataContent();
         var fileContent = new ByteArrayContent(SamplePdfBytes);
         fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("application/pdf");
@@ -1396,13 +1471,13 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
     // ========================================================================
 
     [Fact]
-    public async Task Test44_Outward_Dispatch_TransitionsToDispatched_AppendsEvent()
+    public async Task Test44_Outward_Dispatch_RegisteredOutward_TransitionsToDispatched()
     {
         using var admin = await CreateAdminClientAsync();
         var desk = await CreateDeskAsync($"D_DISP1_{Guid.NewGuid():N}"[..10], "Desk Disp1");
 
         var num = $"OUT_DSP1_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "dispatch1.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1443,7 +1518,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_MODE_{Guid.NewGuid():N}"[..10], "Desk Mode");
 
         var num = $"OUT_M_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "mode.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1475,7 +1550,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_ALRDSP_{Guid.NewGuid():N}"[..10], "Desk AlrDsp");
 
         var num = $"OUT_AD_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "alrdsp.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1496,7 +1571,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_DSPCNC_{Guid.NewGuid():N}"[..10], "Desk DspCnc");
 
         var num = $"OUT_DC_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "dspcnc.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1517,7 +1592,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_SEAL_{Guid.NewGuid():N}"[..10], "Desk Seal");
 
         var num = $"OUT_SEAL_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "seal.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1547,7 +1622,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_DISPCANC_{Guid.NewGuid():N}"[..10], "Desk DispCanc");
 
         var num = $"OUT_DCNC_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "dispcanc.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1657,7 +1732,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var desk = await CreateDeskAsync($"D_CANC5_{Guid.NewGuid():N}"[..10], "Desk Canc5");
 
         var num = $"OUT_CNC5_{Guid.NewGuid():N}"[..14];
-        using var form = CreateRegisterForm(num, desk.Id);
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "canc5.pdf");
         var res = await admin.PostAsync("/api/outward", form);
         var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -1745,5 +1820,824 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         // 2. Attempting to delete OutwardEvent throws InvalidOperationException in SaveChangesAsync
         db.OutwardEvents.Remove(ev);
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    // ========================================================================
+    // CATEGORY 10: HARDENING & SECURITY (Tests 59-84)
+    // ========================================================================
+
+    // --- Category A: Document Signature & Upload Security (Tests 59-62) ---
+
+    [Fact]
+    public async Task Test59_Register_PdfWithPngExtension_Rejected()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_SEC59_{Guid.NewGuid():N}"[..10], "Desk Sec59");
+
+        var num = $"OUT_SEC59_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "test.png", contentType: "image/png");
+        var res = await admin.PostAsync("/api/outward", form);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test60_Register_PdfMagicBytesMismatch_Rejected()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_SEC60_{Guid.NewGuid():N}"[..10], "Desk Sec60");
+
+        var num = $"OUT_SEC60_{Guid.NewGuid():N}"[..14];
+        var invalidBytes = new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04 };
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: invalidBytes, fileName: "test.pdf", contentType: "application/pdf");
+        var res = await admin.PostAsync("/api/outward", form);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test61_AddAttachment_FullPng8ByteHeader_Accepted()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_SEC61_{Guid.NewGuid():N}"[..10], "Desk Sec61");
+
+        var num = $"OUT_SEC61_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id);
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        using var attForm = new MultipartFormDataContent();
+        attForm.Add(new StringContent("Valid PNG Annexure"), "title");
+        attForm.Add(new StringContent("Annexure"), "attachmentType");
+        attForm.Add(new StringContent("1"), "sequenceOrder");
+        attForm.Add(new StringContent("0"), "expectedRevision");
+        var fileContent = new ByteArrayContent(SamplePngBytes);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
+        attForm.Add(fileContent, "file", "valid.png");
+
+        var attRes = await admin.PostAsync($"/api/outward/{outId}/attachments", attForm);
+        Assert.Equal(HttpStatusCode.Created, attRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test62_AddAttachment_Partial4BytePng_Rejected()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_SEC62_{Guid.NewGuid():N}"[..10], "Desk Sec62");
+
+        var num = $"OUT_SEC62_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id);
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        using var attForm = new MultipartFormDataContent();
+        attForm.Add(new StringContent("Partial PNG Annexure"), "title");
+        attForm.Add(new StringContent("Annexure"), "attachmentType");
+        attForm.Add(new StringContent("1"), "sequenceOrder");
+        attForm.Add(new StringContent("0"), "expectedRevision");
+        var partialBytes = new byte[] { 0x89, 0x50, 0x4E, 0x47 }; // Only 4 bytes
+        var fileContent = new ByteArrayContent(partialBytes);
+        fileContent.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
+        attForm.Add(fileContent, "file", "partial.png");
+
+        var attRes = await admin.PostAsync($"/api/outward/{outId}/attachments", attForm);
+        Assert.Equal(HttpStatusCode.BadRequest, attRes.StatusCode);
+    }
+
+    // --- Category B: Document Provenance (Tests 63-68) ---
+
+    [Fact]
+    public async Task Test63_Register_ExistingDocFromUnrelatedEntity_RejectedWith403()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV63_{Guid.NewGuid():N}"[..10], "Desk Prov63");
+
+        // Create an unrelated document
+        Guid unrelatedDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var doc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "unrelated.pdf",
+                StoragePath = $"documents/{Guid.NewGuid():N}.pdf",
+                MimeType = "application/pdf",
+                FileSize = 1024,
+                Sha256Hash = "dummyhash",
+                RecordStatus = RecordStatus.Active,
+                UploadedAt = DateTimeOffset.UtcNow
+            };
+            db.Documents.Add(doc);
+            await db.SaveChangesAsync();
+            unrelatedDocId = doc.Id;
+        }
+
+        var num = $"OUT_PRV63_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, existingDocumentId: unrelatedDocId);
+        var res = await admin.PostAsync("/api/outward", form);
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test64_Register_ExistingDocFromActiveMatter_Accepted()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV64_{Guid.NewGuid():N}"[..10], "Desk Prov64");
+        var (matterId, matterDocId) = await CreateSampleMatterWithDocumentAsync();
+
+        var num = $"OUT_PRV64_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, matterId: matterId, existingDocumentId: matterDocId);
+        var res = await admin.PostAsync("/api/outward", form);
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+        Assert.Equal(matterDocId, outward.MainDocumentId);
+    }
+
+    [Fact]
+    public async Task Test65_Register_ExistingDocFromPrimaryDak_Accepted()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV65_{Guid.NewGuid():N}"[..10], "Desk Prov65");
+        var (dakId, dakDocId) = await CreateSampleDakWithDocumentAsync(admin, $"DAK_PR65_{Guid.NewGuid():N}"[..14]);
+
+        var num = $"OUT_PRV65_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, primaryDakId: dakId, existingDocumentId: dakDocId);
+        var res = await admin.PostAsync("/api/outward", form);
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+        Assert.Equal(dakDocId, outward.MainDocumentId);
+    }
+
+    [Fact]
+    public async Task Test66_ChangeMainDoc_ExistingDocFromLinkedDak_Accepted()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV66_{Guid.NewGuid():N}"[..10], "Desk Prov66");
+
+        var num = $"OUT_PRV66_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id);
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var (dakId, dakDocId) = await CreateSampleDakWithDocumentAsync(admin, $"DAK_PR66_{Guid.NewGuid():N}"[..14]);
+
+        // Link Dak to outward
+        var linkReq = new { dakId, relationshipType = "PrimaryReply", isPrimary = true, expectedRevision = 0 };
+        var linkRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dak-links", linkReq);
+        Assert.Equal(HttpStatusCode.Created, linkRes.StatusCode);
+
+        // Change main document referencing Dak's document
+        var docReq = new { existingDocumentId = dakDocId, expectedRevision = 1 };
+        var docRes = await admin.PutAsJsonAsync($"/api/outward/{outId}/document", docReq);
+        Assert.Equal(HttpStatusCode.OK, docRes.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+        Assert.Equal(dakDocId, outward.MainDocumentId);
+    }
+
+    [Fact]
+    public async Task Test67_ChangeMainDoc_ExistingDocFromUnlinkedMatter_RejectedWith403()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV67_{Guid.NewGuid():N}"[..10], "Desk Prov67");
+
+        var num = $"OUT_PRV67_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id);
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var (_, matterDocId) = await CreateSampleMatterWithDocumentAsync();
+
+        // Attempt to set main document to an unlinked matter's document -> 403 Forbidden
+        var docReq = new { existingDocumentId = matterDocId, expectedRevision = 0 };
+        var docRes = await admin.PutAsJsonAsync($"/api/outward/{outId}/document", docReq);
+        Assert.Equal(HttpStatusCode.Forbidden, docRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test68_AddAttachment_ExistingDocFromSameOutward_Accepted()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_PROV68_{Guid.NewGuid():N}"[..10], "Desk Prov68");
+
+        var num = $"OUT_PRV68_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "main68.pdf");
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        Guid mainDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+            mainDocId = outward.MainDocumentId!.Value;
+        }
+
+        var attReq = new
+        {
+            title = "Attachment Reusing Main Doc",
+            attachmentType = "Annexure",
+            sequenceOrder = 1,
+            existingDocumentId = mainDocId,
+            expectedRevision = 0
+        };
+        var attRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/attachments", attReq);
+        Assert.Equal(HttpStatusCode.Created, attRes.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var att = await db.OutwardAttachments.SingleAsync(a => a.OutwardId == outId);
+            Assert.Equal(mainDocId, att.DocumentId);
+        }
+    }
+
+    // --- Category C: Dispatch Main Document Precondition (Tests 69-71) ---
+
+    [Fact]
+    public async Task Test69_Dispatch_WithoutMainDocument_RejectedWith400()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_DISP69_{Guid.NewGuid():N}"[..10], "Desk Disp69");
+
+        var num = $"OUT_DSP69_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id); // No main document file
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var dispReq = new { dispatchDate = "2026-09-19", dispatchMode = "SpeedPost", expectedRevision = 0 };
+        var dispRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dispatch", dispReq);
+        Assert.Equal(HttpStatusCode.BadRequest, dispRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test70_Dispatch_WithSoftDeletedMainDocument_RejectedWith400()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_DISP70_{Guid.NewGuid():N}"[..10], "Desk Disp70");
+
+        var num = $"OUT_DSP70_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "softdel.pdf");
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // Soft-delete main document directly in DB
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+            var doc = await db.Documents.SingleAsync(d => d.Id == outward.MainDocumentId);
+            doc.RecordStatus = RecordStatus.Archived;
+            await db.SaveChangesAsync();
+        }
+
+        var dispReq = new { dispatchDate = "2026-09-19", dispatchMode = "SpeedPost", expectedRevision = 0 };
+        var dispRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dispatch", dispReq);
+        Assert.Equal(HttpStatusCode.BadRequest, dispRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test71_Dispatch_WithValidMainDocument_Succeeds()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_DISP71_{Guid.NewGuid():N}"[..10], "Desk Disp71");
+
+        var num = $"OUT_DSP71_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "valid71.pdf");
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var dispReq = new { dispatchDate = "2026-09-19", dispatchMode = "SpeedPost", expectedRevision = 0 };
+        var dispRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dispatch", dispReq);
+        Assert.Equal(HttpStatusCode.OK, dispRes.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var outward = await db.Outwards.SingleAsync(o => o.Id == outId);
+        Assert.Equal(OutwardStatus.Dispatched, outward.Status);
+    }
+
+    // --- Category D: Scope Mode Authorization & Lookups (Tests 72-76) ---
+
+    [Fact]
+    public async Task Test72_Lookups_Registration_UserWithNoDeskMembership_Returns403()
+    {
+        var (client, _) = await CreateScopedUserClientAsync($"user_nodesk_{Guid.NewGuid():N}"[..12], "R_NODESK72", ScopeMode.All, deskId: null);
+        var res = await client.GetAsync("/api/outward/lookups/registration");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test73_Lookups_Registration_UserWithAssignedScope_ReturnsOnlyAssignedDesks()
+    {
+        var deskA = await CreateDeskAsync($"D73A_{Guid.NewGuid():N}"[..10], "Desk 73A");
+        var deskB = await CreateDeskAsync($"D73B_{Guid.NewGuid():N}"[..10], "Desk 73B");
+
+        var (client, _) = await CreateScopedUserClientAsync($"user_73_{Guid.NewGuid():N}"[..12], "R_73", ScopeMode.Assigned, deskId: deskA.Id);
+        var res = await client.GetAsync("/api/outward/lookups/registration");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<JsonElement>();
+        var desks = json.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
+        Assert.Contains(deskA.Id, desks);
+        Assert.DoesNotContain(deskB.Id, desks);
+    }
+
+    [Fact]
+    public async Task Test74_Lookups_Registration_UserWithWorkstreamScope_ReturnsOnlyWorkstreamDesks()
+    {
+        var ws = await CreateWorkstreamAsync($"WS74_{Guid.NewGuid():N}"[..10], "Workstream 74");
+        var deskInWs = await CreateDeskAsync($"D74A_{Guid.NewGuid():N}"[..10], "Desk 74A", workstreamId: ws.Id);
+
+        var (client, _) = await CreateScopedUserClientAsync($"user_74_{Guid.NewGuid():N}"[..12], "R_74", ScopeMode.Workstream, deskId: deskInWs.Id, workstreamId: ws.Id);
+        var res = await client.GetAsync("/api/outward/lookups/registration");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<JsonElement>();
+        var desks = json.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
+        Assert.Contains(deskInWs.Id, desks);
+    }
+
+    [Fact]
+    public async Task Test75_Lookups_Registration_UserWithOwnScope_Returns403()
+    {
+        var desk75 = await CreateDeskAsync($"D75_{Guid.NewGuid():N}"[..10], "Desk 75");
+        var (client, _) = await CreateScopedUserClientAsync($"user_75_{Guid.NewGuid():N}"[..12], "R_75", ScopeMode.Own, deskId: desk75.Id);
+        var res = await client.GetAsync("/api/outward/lookups/registration");
+        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Test76_UpdateMetadata_TargetDeskScopeEscape_Returns403()
+    {
+        var deskEsc1 = await CreateDeskAsync($"D76A_{Guid.NewGuid():N}"[..10], "Desk 76A");
+        var deskEsc2 = await CreateDeskAsync($"D76B_{Guid.NewGuid():N}"[..10], "Desk 76B");
+
+        using var admin = await CreateAdminClientAsync();
+        var num = $"OUT_76_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, deskEsc1.Id);
+        var regRes = await admin.PostAsync("/api/outward", form);
+        var outId = (await regRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        // User assigned to deskEsc1 only attempts to set issuingDeskId to deskEsc2
+        var (client, _) = await CreateScopedUserClientAsync($"user_76_{Guid.NewGuid():N}"[..12], "R_76", ScopeMode.Assigned, deskId: deskEsc1.Id);
+        var updateReq = new
+        {
+            subject = "Escaped Subject",
+            recipientName = "Recipient",
+            issuingDeskId = deskEsc2.Id,
+            expectedRevision = 0
+        };
+        var updateRes = await client.PutAsJsonAsync($"/api/outward/{outId}", updateReq);
+        Assert.Equal(HttpStatusCode.Forbidden, updateRes.StatusCode);
+    }
+
+    // --- Category E: Ambiguous-Commit Verification Hardening (Tests 77-80) ---
+
+    [Fact]
+    public async Task Test77_Register_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-reg-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var cmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_REG_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Commit Ambiguity Registration",
+            RecipientName: "Recipient Ambiguous",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "ambiguous.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var outward = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(outward);
+        Assert.Equal(OutwardStatus.Registered, outward.Status);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var evCount = await db.OutwardEvents.CountAsync(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.Registered);
+        Assert.Equal(1, evCount);
+    }
+
+    [Fact]
+    public async Task Test78_ChangeMainDoc_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-cmd-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register without commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_CMD_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+
+        // 2. Change main document with commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        using var newMs = new MemoryStream(SamplePdfBytes);
+        var cmd = new ChangeMainDocumentCommand(
+            ExistingDocumentId: null,
+            DocumentStream: newMs,
+            DocumentFileName: "changed.pdf",
+            DocumentContentType: "application/pdf",
+            ExpectedRevision: 0
+        );
+
+        var updated = await workflow.ChangeMainDocumentAsync(outward.Id, cmd, adminUser.Id);
+
+        Assert.NotNull(updated);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var evCount = await db.OutwardEvents.CountAsync(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.MainDocumentChanged);
+        Assert.Equal(1, evCount);
+    }
+
+    [Fact]
+    public async Task Test79_AddAttachment_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-att-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_ATT_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+
+        // 2. Add attachment with commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        using var attMs = new MemoryStream(SamplePdfBytes);
+        var cmd = new AddAttachmentCommand(
+            Title: "Ambiguous Attachment",
+            AttachmentType: "Annexure",
+            SequenceOrder: 1,
+            ExistingDocumentId: null,
+            DocumentStream: attMs,
+            DocumentFileName: "amb_att.pdf",
+            DocumentContentType: "application/pdf",
+            ExpectedRevision: 0
+        );
+
+        var att = await workflow.AddAttachmentAsync(outward.Id, cmd, adminUser.Id);
+
+        Assert.NotNull(att);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var evCount = await db.OutwardEvents.CountAsync(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.AttachmentAdded);
+        Assert.Equal(1, evCount);
+    }
+
+    [Fact]
+    public async Task Test80_RemoveAttachment_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-rmatt-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_RMATT_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+
+        // 2. Add attachment
+        using var attMs = new MemoryStream(SamplePdfBytes);
+        var addCmd = new AddAttachmentCommand(
+            Title: "Attachment To Remove",
+            AttachmentType: "Annexure",
+            SequenceOrder: 1,
+            ExistingDocumentId: null,
+            DocumentStream: attMs,
+            DocumentFileName: "to_remove.pdf",
+            DocumentContentType: "application/pdf",
+            ExpectedRevision: 0
+        );
+        var att = await workflow.AddAttachmentAsync(outward.Id, addCmd, adminUser.Id);
+
+        // 3. Remove attachment with commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var rmCmd = new RemoveAttachmentCommand(ExpectedRevision: 1);
+
+        var updated = await workflow.RemoveAttachmentAsync(outward.Id, att.Id, rmCmd, adminUser.Id);
+
+        Assert.True(updated);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var evCount = await db.OutwardEvents.CountAsync(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.AttachmentRemoved);
+        Assert.Equal(1, evCount);
+    }
+
+    // --- Category F: Three-Layer Immutability & Event Completeness (Tests 81-84) ---
+
+    [Fact]
+    public async Task Test81_OutwardEvent_SaveInterceptor_BlocksUpdate()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var ev = new OutwardEvent
+        {
+            Id = Guid.NewGuid(),
+            OutwardId = Guid.NewGuid(),
+            SequenceNumber = 1,
+            Action = OutwardEventAction.Registered,
+            ActionByUserId = Guid.NewGuid(),
+            ActionByDisplayNameSnapshot = "Officer 81",
+            ActionAt = DateTimeOffset.UtcNow
+        };
+        db.OutwardEvents.Add(ev);
+        await db.SaveChangesAsync();
+
+        ev.ActionByDisplayNameSnapshot = "Tampered 81";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Test82_OutwardEvent_SaveInterceptor_BlocksDelete()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var ev = new OutwardEvent
+        {
+            Id = Guid.NewGuid(),
+            OutwardId = Guid.NewGuid(),
+            SequenceNumber = 1,
+            Action = OutwardEventAction.Registered,
+            ActionByUserId = Guid.NewGuid(),
+            ActionByDisplayNameSnapshot = "Officer 82",
+            ActionAt = DateTimeOffset.UtcNow
+        };
+        db.OutwardEvents.Add(ev);
+        await db.SaveChangesAsync();
+
+        db.OutwardEvents.Remove(ev);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task Test83_DispatchEvent_CapturesAllDispatchMetadata()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_EV83_{Guid.NewGuid():N}"[..10], "Desk EV83");
+
+        var num = $"OUT_EV83_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id, fileBytes: SamplePdfBytes, fileName: "ev83.pdf");
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var dispReq = new
+        {
+            dispatchDate = "2026-09-19",
+            dispatchMode = "Courier",
+            dispatchReferenceNumber = "TRACK_EV83_999",
+            expectedRevision = 0
+        };
+        var dispRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/dispatch", dispReq);
+        Assert.Equal(HttpStatusCode.OK, dispRes.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var ev = await db.OutwardEvents.OrderByDescending(e => e.SequenceNumber).FirstAsync(e => e.OutwardId == outId);
+
+        Assert.Equal(OutwardEventAction.Dispatched, ev.Action);
+        Assert.Equal("Courier", ev.DispatchMode);
+        Assert.Equal("TRACK_EV83_999", ev.DispatchReferenceNumber);
+        Assert.Equal(new DateOnly(2026, 9, 19), ev.DispatchDate);
+        Assert.NotEqual(Guid.Empty, ev.ActionByUserId);
+        Assert.False(string.IsNullOrWhiteSpace(ev.ActionByDisplayNameSnapshot));
+    }
+
+    [Fact]
+    public async Task Test84_CancelEvent_CapturesCancellationReason()
+    {
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_EV84_{Guid.NewGuid():N}"[..10], "Desk EV84");
+
+        var num = $"OUT_EV84_{Guid.NewGuid():N}"[..14];
+        using var form = CreateRegisterForm(num, desk.Id);
+        var res = await admin.PostAsync("/api/outward", form);
+        var outId = (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var cancReq = new
+        {
+            cancellationReason = "Cancellation reason for test 84 audit record",
+            expectedRevision = 0
+        };
+        var cancRes = await admin.PostAsJsonAsync($"/api/outward/{outId}/cancel", cancReq);
+        Assert.Equal(HttpStatusCode.OK, cancRes.StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var ev = await db.OutwardEvents.OrderByDescending(e => e.SequenceNumber).FirstAsync(e => e.OutwardId == outId);
+
+        Assert.Equal(OutwardEventAction.Cancelled, ev.Action);
+        Assert.Equal("Cancellation reason for test 84 audit record", ev.CancellationReason);
+        Assert.NotEqual(Guid.Empty, ev.ActionByUserId);
+        Assert.False(string.IsNullOrWhiteSpace(ev.ActionByDisplayNameSnapshot));
+    }
+
+    private static async Task<(LacDbContext db, AppUser adminUser, OfficeDesk targetDesk)> CreateOutwardWorkflowContextAsync(
+        string dbName,
+        params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
+    {
+        var seedBuilder = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+
+        using (var seedDb = new LacDbContext(seedBuilder.Options))
+        {
+            var admin = new AppUser
+            {
+                Id = Guid.NewGuid(),
+                Username = $"admin_out_{Guid.NewGuid():N}",
+                NormalizedUsername = $"ADMIN_OUT_{Guid.NewGuid():N}",
+                DisplayName = "Admin Outward",
+                PasswordHash = "hash",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var desk = new OfficeDesk
+            {
+                Id = Guid.NewGuid(),
+                Code = $"DSK_{Guid.NewGuid():N}"[..10],
+                Name = "Desk Outward",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var membership = new UserDeskMembership
+            {
+                Id = Guid.NewGuid(),
+                UserId = admin.Id,
+                User = admin,
+                OfficeDeskId = desk.Id,
+                OfficeDesk = desk,
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+
+            seedDb.AppUsers.Add(admin);
+            seedDb.OfficeDesks.Add(desk);
+            seedDb.UserDeskMemberships.Add(membership);
+            await seedDb.SaveChangesAsync();
+        }
+
+        var testBuilder = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+
+        foreach (var interceptor in interceptors)
+        {
+            testBuilder.AddInterceptors(interceptor);
+        }
+
+        var db = new LacDbContext(testBuilder.Options);
+        var adminUser = await db.AppUsers.FirstAsync(u => u.DisplayName == "Admin Outward");
+        var targetDesk = await db.OfficeDesks.FirstAsync();
+
+        return (db, adminUser, targetDesk);
+    }
+}
+
+public sealed class TestOutwardAccessControlService : IAccessControlService
+{
+    public bool AllowAll { get; set; } = true;
+    public Task<bool> CanAsync(string permissionCode, AccessResourceContext? resourceContext = null, CancellationToken cancellationToken = default) => Task.FromResult(AllowAll);
+    public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+}
+
+public sealed class TrackingOutwardSaveChangesInterceptor : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+{
+    public int FailTimes { get; set; }
+    public int SaveCalls { get; private set; }
+    public readonly List<Guid> AttemptOutwardIds = new();
+    public readonly List<Guid> AttemptEventIds = new();
+
+    public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+        Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+        Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        SaveCalls++;
+        if (eventData.Context != null)
+        {
+            var outward = eventData.Context.ChangeTracker.Entries<Outward>().FirstOrDefault()?.Entity;
+            if (outward != null) AttemptOutwardIds.Add(outward.Id);
+            var ev = eventData.Context.ChangeTracker.Entries<OutwardEvent>().FirstOrDefault()?.Entity;
+            if (ev != null) AttemptEventIds.Add(ev.Id);
+        }
+
+        if (FailTimes > 0 && SaveCalls <= FailTimes)
+        {
+            throw new DbUpdateException("Simulated transient DB failure on SaveChangesAsync");
+        }
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
     }
 }

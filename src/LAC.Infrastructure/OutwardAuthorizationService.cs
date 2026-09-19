@@ -11,6 +11,8 @@ public interface IOutwardAuthorizationService
     Task<bool> CanCreateAsync(Guid issuingDeskId, Guid? workstreamId, Guid userId, CancellationToken ct = default);
     Task<bool> CanAccessOutwardAsync(Guid outwardId, string permissionCode, Guid userId, CancellationToken ct = default);
     Task<bool> CanAccessDocumentAsync(Guid outwardId, Guid documentId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessRegistrationLookupsAsync(Guid userId, CancellationToken ct = default);
+    Task<bool> CanUseEditContextAsync(Guid targetIssuingDeskId, Guid? targetWorkstreamId, Guid userId, CancellationToken ct = default);
 }
 
 public sealed class OutwardAuthorizationService(LacDbContext db) : IOutwardAuthorizationService
@@ -219,5 +221,126 @@ public sealed class OutwardAuthorizationService(LacDbContext db) : IOutwardAutho
             .AnyAsync(a => a.OutwardId == outwardId && a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
 
         return isAttachment;
+    }
+
+    public async Task<bool> CanAccessRegistrationLookupsAsync(Guid userId, CancellationToken ct = default)
+    {
+        // 1. Verify active user
+        var isUserActive = await db.AppUsers
+            .AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        // 2. Must hold at least one live active issuing-desk membership
+        var hasLiveDesk = await db.UserDeskMemberships
+            .AsNoTracking()
+            .AnyAsync(m => m.UserId == userId
+                        && m.IsActive
+                        && m.RemovedAt == null
+                        && m.RecordStatus == RecordStatus.Active
+                        && m.OfficeDesk.IsActive
+                        && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+
+        if (!hasLiveDesk) return false;
+
+        // 3. Fetch distinct ScopeModes for Outward.Create
+        var scopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == PermissionCodes.OutwardCreate
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (scopes.Count == 0) return false;
+
+        // All or Assigned + live desk membership qualifies
+        if (scopes.Contains(ScopeMode.All) || scopes.Contains(ScopeMode.Assigned))
+            return true;
+
+        // Workstream requires at least one live active workstream membership
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var hasLiveWorkstream = await db.UserWorkstreamMemberships
+                .AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+
+            if (hasLiveWorkstream) return true;
+        }
+
+        // ScopeMode.Own fails closed
+        return false;
+    }
+
+    public async Task<bool> CanUseEditContextAsync(Guid targetIssuingDeskId, Guid? targetWorkstreamId, Guid userId, CancellationToken ct = default)
+    {
+        // 1. Verify active user
+        var isUserActive = await db.AppUsers
+            .AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        // 2. Caller must hold live active membership in targetIssuingDeskId
+        var isDeskMember = await db.UserDeskMemberships
+            .AsNoTracking()
+            .AnyAsync(m => m.UserId == userId
+                        && m.OfficeDeskId == targetIssuingDeskId
+                        && m.IsActive
+                        && m.RemovedAt == null
+                        && m.RecordStatus == RecordStatus.Active
+                        && m.OfficeDesk.IsActive
+                        && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isDeskMember) return false;
+
+        // 3. Fetch distinct ScopeModes for Outward.Edit
+        var scopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == PermissionCodes.OutwardEdit
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (scopes.Count == 0) return false;
+
+        // ScopeMode.All allows placing record into target context if caller is member of target desk
+        if (scopes.Contains(ScopeMode.All))
+            return true;
+
+        // ScopeMode.Assigned: target desk is caller's live active desk (verified above); workstream does not define boundary
+        if (scopes.Contains(ScopeMode.Assigned))
+            return true;
+
+        // ScopeMode.Workstream: targetWorkstreamId must be non-null and caller must have live active membership in targetWorkstream
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            if (targetWorkstreamId.HasValue)
+            {
+                var isWorkstreamMember = await db.UserWorkstreamMemberships
+                    .AsNoTracking()
+                    .AnyAsync(m => m.UserId == userId
+                                && m.WorkstreamId == targetWorkstreamId.Value
+                                && m.IsActive
+                                && m.Workstream.IsActive
+                                && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+
+                if (isWorkstreamMember) return true;
+            }
+        }
+
+        // ScopeMode.Own fails closed
+        return false;
     }
 }
