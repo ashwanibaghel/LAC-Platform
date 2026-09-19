@@ -1112,52 +1112,10 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
     {
         var dbName = $"dak-retry-test-{Guid.NewGuid():N}";
         var interceptor = new FailingSaveChangesInterceptor();
-        var dbOptions = new DbContextOptionsBuilder<LacDbContext>()
-            .UseInMemoryDatabase(dbName)
-            .AddInterceptors(interceptor)
-            .Options;
+        var (db, adminUser, targetDesk, targetUser) = await CreateWorkflowTestContextAsync(dbName, interceptor);
 
         var storage = new TestInMemoryDocumentStorage();
-        using var db = new LacDbContext(dbOptions);
         var workflow = new DakWorkflowService(db, storage);
-
-        var adminUser = new AppUser
-        {
-            Username = "admin_g22",
-            DisplayName = "Admin G22",
-            PasswordHash = "hash",
-            IsActive = true,
-            RecordStatus = RecordStatus.Active
-        };
-        var targetDesk = new OfficeDesk
-        {
-            Code = "DESK_G22",
-            Name = "Desk G22",
-            IsActive = true,
-            RecordStatus = RecordStatus.Active
-        };
-        var targetUser = new AppUser
-        {
-            Username = "target_g22",
-            DisplayName = "Target G22",
-            PasswordHash = "hash",
-            IsActive = true,
-            RecordStatus = RecordStatus.Active
-        };
-        var membership = new UserDeskMembership
-        {
-            UserId = targetUser.Id,
-            User = targetUser,
-            OfficeDeskId = targetDesk.Id,
-            OfficeDesk = targetDesk,
-            IsActive = true,
-            RecordStatus = RecordStatus.Active
-        };
-
-        db.AppUsers.AddRange(adminUser, targetUser);
-        db.OfficeDesks.Add(targetDesk);
-        db.UserDeskMemberships.Add(membership);
-        await db.SaveChangesAsync();
 
         var pdfBytes = "%PDF-1.4 dummy dak content"u8.ToArray();
         using var msFail = new MemoryStream(pdfBytes);
@@ -1243,6 +1201,435 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         Assert.Equal(DakStatus.Cancelled, cancelled.Status);
         Assert.Equal(1, cancelled.Revision);
     }
+
+    [Fact]
+    public async Task Group22_A_Stable_workflow_ids_reused_across_retry_attempts()
+    {
+        var dbName = $"dak-retry-a-{Guid.NewGuid():N}";
+        var trackingInterceptor = new TrackingSaveChangesInterceptor { FailTimes = 1 };
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName, trackingInterceptor);
+
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+
+        var pdfBytes = "%PDF-1.4 dummy content"u8.ToArray();
+        using var ms = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_STABLE_IDS",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Stable ID Test",
+            SenderName: "Revenue Office",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: ms,
+            DocumentFileName: "stable_id.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var dak = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(dak);
+        Assert.Equal(2, strategy.AttemptCount);
+        // Ensure entity IDs used on Attempt 1 match entity IDs used on Attempt 2 exactly
+        Assert.Equal(2, trackingInterceptor.AttemptDakIds.Count);
+        Assert.Equal(trackingInterceptor.AttemptDakIds[0], trackingInterceptor.AttemptDakIds[1]);
+        Assert.Equal(dak.Id, trackingInterceptor.AttemptDakIds[0]);
+
+        Assert.Equal(2, trackingInterceptor.AttemptMovementIds.Count);
+        Assert.Equal(trackingInterceptor.AttemptMovementIds[0], trackingInterceptor.AttemptMovementIds[1]);
+    }
+
+    [Fact]
+    public async Task Group22_B_Registration_commit_ambiguity_returns_success_without_duplicate()
+    {
+        var dbName = $"dak-retry-b-{Guid.NewGuid():N}";
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var pdfBytes = "%PDF-1.4 file content"u8.ToArray();
+        using var ms = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_COMMIT_AMBIGUITY_REG",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Commit Ambiguity Registration",
+            SenderName: "Test Sender B",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Immediate,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: ms,
+            DocumentFileName: "doc_b.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var dak = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(dak);
+        Assert.Equal(DakStatus.Registered, dak.Status);
+        Assert.Equal(0, dak.Revision);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Verify that only 1 Dak was committed to database (no duplicate registration)
+        var count = await db.Daks.CountAsync(d => d.DiaryNumber == "DIARY_COMMIT_AMBIGUITY_REG");
+        Assert.Equal(1, count);
+
+        // Verify movement sequence 1 was committed
+        var movements = await db.DakMovements.Where(m => m.DakId == dak.Id).ToListAsync();
+        Assert.Single(movements);
+        Assert.Equal(1, movements[0].SequenceNumber);
+        Assert.Equal(DakMovementAction.Registered, movements[0].Action);
+
+        // Verify storage file was preserved (not compensated)
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(0, storage.DeleteCount);
+        Assert.Single(storage.Files);
+    }
+
+    [Fact]
+    public async Task Group22_C_Move_commit_ambiguity_avoids_false_409_concurrency_conflict()
+    {
+        var dbName = $"dak-retry-c-{Guid.NewGuid():N}";
+        var (db, adminUser, targetDesk, targetUser) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        var initialWorkflow = new DakWorkflowService(db, storage);
+
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_COMMIT_AMBIGUITY_MOVE",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Commit Ambiguity Move",
+            SenderName: "Test Sender C",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Urgent,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: null,
+            DocumentFileName: null,
+            DocumentContentType: null
+        );
+
+        var dak = await initialWorkflow.RegisterAsync(cmd, adminUser.Id);
+        Assert.Equal(0, dak.Revision);
+
+        // Configure workflow service with commit ambiguity strategy
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var moveCmd = new MoveDakCommand(
+            Action: DakMovementAction.Marked,
+            ToDeskId: targetDesk.Id,
+            ToUserId: targetUser.Id,
+            Remarks: "Forwarding with ambiguity simulation",
+            Instructions: "Action quickly",
+            ExpectedRevision: 0
+        );
+
+        // MoveAsync should succeed via verifySucceeded without throwing 409
+        var moved = await workflow.MoveAsync(dak.Id, moveCmd, adminUser.Id);
+
+        Assert.NotNull(moved);
+        Assert.Equal(1, moved.Revision);
+        Assert.Equal(DakStatus.InProcess, moved.Status);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var dbDak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
+        Assert.Equal(1, dbDak.Revision);
+        Assert.Equal(DakStatus.InProcess, dbDak.Status);
+        Assert.NotNull(dbDak.CurrentAssignment);
+        Assert.Equal(targetDesk.Id, dbDak.CurrentAssignment.OfficeDeskId);
+        Assert.Equal(targetUser.Id, dbDak.CurrentAssignment.AssignedUserId);
+        Assert.True(dbDak.CurrentAssignment.IsActive);
+    }
+
+    [Fact]
+    public async Task Group22_D_Dispose_commit_ambiguity_recognized_by_verify_succeeded()
+    {
+        var dbName = $"dak-retry-d-{Guid.NewGuid():N}";
+        var (db, adminUser, targetDesk, targetUser) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        var initialWorkflow = new DakWorkflowService(db, storage);
+
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_COMMIT_AMBIGUITY_DISPOSE",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Commit Ambiguity Dispose",
+            SenderName: "Test Sender D",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: null,
+            DocumentFileName: null,
+            DocumentContentType: null
+        );
+
+        var dak = await initialWorkflow.RegisterAsync(cmd, adminUser.Id);
+
+        // Dak must be InProcess before it can be Disposed
+        var moveCmd = new MoveDakCommand(
+            Action: DakMovementAction.Marked,
+            ToDeskId: targetDesk.Id,
+            ToUserId: targetUser.Id,
+            Remarks: "Marking before disposal",
+            Instructions: null,
+            ExpectedRevision: 0
+        );
+        var moved = await initialWorkflow.MoveAsync(dak.Id, moveCmd, adminUser.Id);
+        Assert.Equal(1, moved.Revision);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var disposeCmd = new DisposeDakCommand("Disposal remarks", ExpectedRevision: 1);
+        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, adminUser.Id);
+
+        Assert.NotNull(disposed);
+        Assert.Equal(2, disposed.Revision);
+        Assert.Equal(DakStatus.Disposed, disposed.Status);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var dbDak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
+        Assert.Equal(DakStatus.Disposed, dbDak.Status);
+        Assert.Equal(2, dbDak.Revision);
+        Assert.NotNull(dbDak.CurrentAssignment);
+        Assert.False(dbDak.CurrentAssignment.IsActive);
+    }
+
+    [Fact]
+    public async Task Group22_E_Cancel_commit_ambiguity_recognized_by_verify_succeeded()
+    {
+        var dbName = $"dak-retry-e-{Guid.NewGuid():N}";
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName);
+
+        var storage = new TestInMemoryDocumentStorage();
+        var initialWorkflow = new DakWorkflowService(db, storage);
+
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_COMMIT_AMBIGUITY_CANCEL",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Commit Ambiguity Cancel",
+            SenderName: "Test Sender E",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: null,
+            DocumentFileName: null,
+            DocumentContentType: null
+        );
+
+        var dak = await initialWorkflow.RegisterAsync(cmd, adminUser.Id);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var cancelCmd = new CancelDakCommand("Cancellation remarks", ExpectedRevision: 0);
+        var cancelled = await workflow.CancelAsync(dak.Id, cancelCmd, adminUser.Id);
+
+        Assert.NotNull(cancelled);
+        Assert.Equal(1, cancelled.Revision);
+        Assert.Equal(DakStatus.Cancelled, cancelled.Status);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        var dbDak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
+        Assert.Equal(DakStatus.Cancelled, dbDak.Status);
+        Assert.Equal(1, dbDak.Revision);
+    }
+
+    [Fact]
+    public async Task Group22_F_Permanent_failure_compensates_and_deletes_physical_file()
+    {
+        var dbName = $"dak-retry-f-{Guid.NewGuid():N}";
+        var interceptor = new FailingSaveChangesInterceptor { FailOnSave = true };
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName, interceptor);
+
+        var storage = new TestInMemoryDocumentStorage();
+        var workflow = new DakWorkflowService(db, storage);
+
+        var pdfBytes = "%PDF-1.4 file content"u8.ToArray();
+        using var ms = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_FAIL_COMPENSATE",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Permanent Fail Compensation",
+            SenderName: "Test Sender F",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: ms,
+            DocumentFileName: "fail_file.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => workflow.RegisterAsync(cmd, adminUser.Id));
+
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(1, storage.DeleteCount);
+        Assert.Empty(storage.Files);
+    }
+
+    [Fact]
+    public async Task Group22_G_True_rollback_and_retry_preserves_single_file_save()
+    {
+        var dbName = $"dak-retry-g-{Guid.NewGuid():N}";
+        var interceptor = new TrackingSaveChangesInterceptor { FailTimes = 1 };
+        var (db, adminUser, _, _) = await CreateWorkflowTestContextAsync(dbName, interceptor);
+
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new DakWorkflowService(db, storage, () => strategy!);
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+
+        var pdfBytes = "%PDF-1.4 file content"u8.ToArray();
+        using var ms = new MemoryStream(pdfBytes);
+        var cmd = new RegisterDakCommand(
+            DiaryNumber: "DIARY_ROLLBACK_RETRY_FILE",
+            ReceivedDate: new DateOnly(2026, 9, 19),
+            Subject: "Rollback and Retry File",
+            SenderName: "Test Sender G",
+            SenderDesignation: null,
+            SenderDepartment: null,
+            SenderAddress: null,
+            SenderReferenceNumber: null,
+            SenderLetterDate: null,
+            InwardMode: "Physical",
+            Priority: DakPriority.Routine,
+            DueDate: null,
+            CategoryId: null,
+            WorkstreamId: null,
+            DocumentStream: ms,
+            DocumentFileName: "retry_file.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var dak = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(dak);
+        Assert.Equal(2, strategy.AttemptCount);
+        // Physical file must have been written ONCE outside retries and NOT deleted
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(0, storage.DeleteCount);
+        Assert.Single(storage.Files);
+    }
+
+    private static async Task<(LacDbContext db, AppUser adminUser, OfficeDesk targetDesk, AppUser targetUser)> CreateWorkflowTestContextAsync(
+        string dbName,
+        params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
+    {
+        // 1. Seed initial users and desks using a separate un-intercepted DbContext
+        var seedBuilder = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+
+        using (var seedDb = new LacDbContext(seedBuilder.Options))
+        {
+            var admin = new AppUser
+            {
+                Username = $"admin_{Guid.NewGuid():N}",
+                DisplayName = "Admin G22",
+                PasswordHash = "hash",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var desk = new OfficeDesk
+            {
+                Code = $"DESK_{Guid.NewGuid():N}"[..10],
+                Name = "Desk G22",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var user = new AppUser
+            {
+                Username = $"target_{Guid.NewGuid():N}",
+                DisplayName = "Target G22",
+                PasswordHash = "hash",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var membership = new UserDeskMembership
+            {
+                UserId = user.Id,
+                User = user,
+                OfficeDeskId = desk.Id,
+                OfficeDesk = desk,
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+
+            seedDb.AppUsers.AddRange(admin, user);
+            seedDb.OfficeDesks.Add(desk);
+            seedDb.UserDeskMemberships.Add(membership);
+            await seedDb.SaveChangesAsync();
+        }
+
+        // 2. Return test DbContext with interceptors attached
+        var testBuilder = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+
+        foreach (var interceptor in interceptors)
+        {
+            testBuilder.AddInterceptors(interceptor);
+        }
+
+        var db = new LacDbContext(testBuilder.Options);
+        var adminUser = await db.AppUsers.FirstAsync(u => u.DisplayName == "Admin G22");
+        var targetDesk = await db.OfficeDesks.FirstAsync();
+        var targetUser = await db.AppUsers.FirstAsync(u => u.DisplayName == "Target G22");
+
+        return (db, adminUser, targetDesk, targetUser);
+    }
 }
 
 public sealed class TestInMemoryDocumentStorage : IDocumentStorage
@@ -1293,6 +1680,89 @@ public sealed class FailingSaveChangesInterceptor : Microsoft.EntityFrameworkCor
         if (FailOnSave)
             throw new DbUpdateException("Simulated failure inside execution strategy transaction");
         return base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+}
+
+public sealed class TrackingSaveChangesInterceptor : Microsoft.EntityFrameworkCore.Diagnostics.SaveChangesInterceptor
+{
+    public int FailTimes { get; set; }
+    public int SaveCalls { get; private set; }
+    public readonly List<Guid> AttemptDakIds = new();
+    public readonly List<Guid> AttemptMovementIds = new();
+
+    public override ValueTask<Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int>> SavingChangesAsync(
+        Microsoft.EntityFrameworkCore.Diagnostics.DbContextEventData eventData,
+        Microsoft.EntityFrameworkCore.Diagnostics.InterceptionResult<int> result,
+        CancellationToken cancellationToken = default)
+    {
+        SaveCalls++;
+        if (eventData.Context != null)
+        {
+            var dak = eventData.Context.ChangeTracker.Entries<Dak>().FirstOrDefault()?.Entity;
+            if (dak != null) AttemptDakIds.Add(dak.Id);
+            var mov = eventData.Context.ChangeTracker.Entries<DakMovement>().FirstOrDefault()?.Entity;
+            if (mov != null) AttemptMovementIds.Add(mov.Id);
+        }
+
+        if (FailTimes > 0 && SaveCalls <= FailTimes)
+        {
+            throw new DbUpdateException("Simulated transient DB failure on SaveChangesAsync");
+        }
+        return base.SavingChangesAsync(eventData, result, cancellationToken);
+    }
+}
+
+public sealed class TestCommitAmbiguityExecutionStrategy(
+    LacDbContext db,
+    bool simulateCommitAmbiguity = true,
+    int maxRetries = 2) : Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy
+{
+    public bool RetriesOnFailure => true;
+    public int AttemptCount { get; private set; }
+    public int VerifyCount { get; private set; }
+
+    public TResult Execute<TState, TResult>(
+        TState state,
+        Func<DbContext, TState, TResult> operation,
+        Func<DbContext, TState, Microsoft.EntityFrameworkCore.Storage.ExecutionResult<TResult>>? verifySucceeded)
+        => throw new NotImplementedException();
+
+    public async Task<TResult> ExecuteAsync<TState, TResult>(
+        TState state,
+        Func<DbContext, TState, CancellationToken, Task<TResult>> operation,
+        Func<DbContext, TState, CancellationToken, Task<Microsoft.EntityFrameworkCore.Storage.ExecutionResult<TResult>>>? verifySucceeded,
+        CancellationToken cancellationToken = default)
+    {
+        while (true)
+        {
+            AttemptCount++;
+            try
+            {
+                var result = await operation(db, state, cancellationToken);
+                if (simulateCommitAmbiguity && AttemptCount == 1)
+                {
+                    throw new DbUpdateException("Simulated network timeout during transaction commit");
+                }
+                return result;
+            }
+            catch (DbUpdateException)
+            {
+                if (verifySucceeded != null)
+                {
+                    VerifyCount++;
+                    var verification = await verifySucceeded(db, state, cancellationToken);
+                    if (verification.IsSuccessful)
+                    {
+                        return verification.Result;
+                    }
+                }
+
+                if (AttemptCount > maxRetries)
+                {
+                    throw;
+                }
+            }
+        }
     }
 }
 
