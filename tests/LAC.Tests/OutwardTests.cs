@@ -2676,6 +2676,601 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         Assert.Equal(1, evCount);
     }
 
+    // --- Category I: Additional Ambiguous-Commit Verification Hardening (Tests 87-93) ---
+
+    [Fact]
+    public async Task Test87_Register_CommitAmbiguity_SucceedsEvenIfMainDocReplacedBeforeVerification()
+    {
+        var dbName = $"out-race-reg-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        var docBId = Guid.NewGuid();
+        Func<Task> onBeforeVerify = async () =>
+        {
+            var options = new DbContextOptionsBuilder<LacDbContext>()
+                .UseInMemoryDatabase(dbName)
+                .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+                .Options;
+            using var separateDb = new LacDbContext(options);
+
+            var outwardRecord = await separateDb.Outwards.SingleAsync();
+
+            var docB = new Document
+            {
+                Id = docBId,
+                OriginalFileName = "doc_b.pdf",
+                StoragePath = "documents/doc_b.pdf",
+                MimeType = "application/pdf",
+                FileSize = 2048,
+                Sha256Hash = "hashDocB",
+                RecordStatus = RecordStatus.Active,
+                UploadedAt = DateTimeOffset.UtcNow
+            };
+            separateDb.Documents.Add(docB);
+
+            // Advance projection to Document B before registration verification executes
+            outwardRecord.MainDocumentId = docB.Id;
+            outwardRecord.Revision++;
+
+            var maxSeq = await separateDb.OutwardEvents
+                .Where(e => e.OutwardId == outwardRecord.Id)
+                .MaxAsync(e => (int?)e.SequenceNumber);
+
+            var changeDocEvent = new OutwardEvent
+            {
+                Id = Guid.NewGuid(),
+                OutwardId = outwardRecord.Id,
+                SequenceNumber = (maxSeq ?? 0) + 1,
+                Action = OutwardEventAction.MainDocumentChanged,
+                ActionByUserId = adminUser.Id,
+                ActionByDisplayNameSnapshot = adminUser.DisplayName,
+                ActionAt = DateTimeOffset.UtcNow,
+                DocumentId = docB.Id
+            };
+            separateDb.OutwardEvents.Add(changeDocEvent);
+
+            await separateDb.SaveChangesAsync();
+        };
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2, onBeforeVerify: onBeforeVerify);
+
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var cmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_RACE_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Race Condition MainDoc Replacement",
+            RecipientName: "Race Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "doc_a.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var outward = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        // Registration returns success
+        Assert.NotNull(outward);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // One Outward exists
+        Assert.Equal(1, await db.Outwards.CountAsync());
+
+        // One Registered event exists
+        var regEvents = await db.OutwardEvents.Where(e => e.Action == OutwardEventAction.Registered).ToListAsync();
+        Assert.Single(regEvents);
+
+        // Registered event.DocumentId == Document A
+        var docA = await db.Documents.SingleAsync(d => d.OriginalFileName == "doc_a.pdf");
+        Assert.Equal(docA.Id, regEvents[0].DocumentId);
+
+        // Current Outward.MainDocumentId == Document B
+        var currentOutward = await db.Outwards.SingleAsync();
+        Assert.Equal(docBId, currentOutward.MainDocumentId);
+
+        // Verification succeeds despite current pointer changing (proven by success above and VerifyCount == 1)
+
+        // Document A remains present
+        var docAPresent = await db.Documents.AnyAsync(d => d.Id == docA.Id);
+        Assert.True(docAPresent);
+
+        // Registration file A was NOT compensation-deleted
+        Assert.Equal(1, storage.SaveCount);
+        Assert.Equal(0, storage.DeleteCount);
+        Assert.Single(storage.Files);
+    }
+
+    [Fact]
+    public async Task Test88_Register_WithPrimaryDakLink_CommitAmbiguity_VerifiedIdempotently()
+    {
+        var dbName = $"out-retry-dakreg-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        var dak = new Dak
+        {
+            Id = Guid.NewGuid(),
+            DiaryNumber = $"DAK_PRI_{Guid.NewGuid():N}"[..14],
+            ReceivedDate = new DateOnly(2026, 9, 19),
+            Subject = "Primary Dak Inward",
+            SenderName = "Principal Registry",
+            InwardMode = "Physical",
+            Priority = DakPriority.Routine,
+            Status = DakStatus.Registered,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Daks.Add(dak);
+        await db.SaveChangesAsync();
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var cmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_PRIDAK_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Primary Dak Link Registration",
+            RecipientName: "Recipient PriDak",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: dak.Id,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "dak_linked.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var outward = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(outward);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // One Outward
+        Assert.Equal(1, await db.Outwards.CountAsync());
+
+        // One Registered event
+        var regEvents = await db.OutwardEvents.Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.Registered).ToListAsync();
+        Assert.Single(regEvents);
+
+        // One active OutwardDakLink, link is Primary, RelationshipType == PrimaryReply
+        var links = await db.OutwardDakLinks.Where(l => l.OutwardId == outward.Id && l.RecordStatus == RecordStatus.Active).ToListAsync();
+        Assert.Single(links);
+        Assert.True(links[0].IsPrimary);
+        Assert.Equal("PrimaryReply", links[0].RelationshipType);
+        Assert.Equal(dak.Id, links[0].DakId);
+
+        // No duplicate link
+        Assert.Equal(1, await db.OutwardDakLinks.CountAsync(l => l.OutwardId == outward.Id));
+    }
+
+    [Fact]
+    public async Task Test89_UpdateMetadata_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-meta-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register without ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_META_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "meta_init.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+        Assert.Equal(0, outward.Revision);
+
+        // 2. Update metadata with simulated commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var updateCmd = new UpdateOutwardMetadataCommand(
+            Subject: "Updated Subject Ambiguity",
+            RecipientName: "Updated Recipient Name",
+            RecipientDesignation: "Joint Secretary",
+            RecipientDepartment: "Revenue Department",
+            RecipientAddress: "Secretariat, Sector 1",
+            RecipientEmail: "officer@revenue.gov.in",
+            RecipientPhone: "9876543210",
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: "REF-META-001",
+            Remarks: "Updated in ambiguity test",
+            ExpectedRevision: 0
+        );
+
+        var updated = await workflow.UpdateMetadataAsync(outward.Id, updateCmd, adminUser.Id);
+
+        // Operation reports success
+        Assert.NotNull(updated);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // One MetadataUpdated event for that operation
+        var metaEvents = await db.OutwardEvents
+            .Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.MetadataUpdated)
+            .ToListAsync();
+        Assert.Single(metaEvents);
+
+        // Revision increment occurs once
+        var freshOutward = await db.Outwards.SingleAsync(o => o.Id == outward.Id);
+        Assert.Equal(1, freshOutward.Revision);
+        Assert.Equal("Updated Subject Ambiguity", freshOutward.Subject);
+
+        // No duplicate events (total events: 1 Registered + 1 MetadataUpdated = 2)
+        var allEvents = await db.OutwardEvents.Where(e => e.OutwardId == outward.Id).ToListAsync();
+        Assert.Equal(2, allEvents.Count);
+    }
+
+    [Fact]
+    public async Task Test90_AddDakLink_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-adddak-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // Create authorized Dak
+        var dak = new Dak
+        {
+            Id = Guid.NewGuid(),
+            DiaryNumber = $"DAK_ADD_{Guid.NewGuid():N}"[..14],
+            ReceivedDate = new DateOnly(2026, 9, 19),
+            Subject = "Inward Dak For Link",
+            SenderName = "Judicial Section",
+            InwardMode = "Physical",
+            Priority = DakPriority.Routine,
+            Status = DakStatus.Registered,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Daks.Add(dak);
+        await db.SaveChangesAsync();
+
+        // 1. Initial register without ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_ADDAK_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+        Assert.Equal(0, outward.Revision);
+
+        // 2. Add Dak link with simulated commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var addCmd = new AddDakCommandWrapper(
+            DakId: dak.Id,
+            IsPrimary: false,
+            RelationshipType: "RelatedPetition",
+            ExpectedRevision: 0
+        );
+
+        var link = await workflow.AddDakLinkAsync(outward.Id, addCmd, adminUser.Id);
+
+        Assert.NotNull(link);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // One active link only
+        var activeLinks = await db.OutwardDakLinks
+            .Where(l => l.OutwardId == outward.Id && l.RecordStatus == RecordStatus.Active)
+            .ToListAsync();
+        Assert.Single(activeLinks);
+        Assert.Equal(dak.Id, activeLinks[0].DakId);
+
+        // One DakLinkAdded event only
+        var linkEvents = await db.OutwardEvents
+            .Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.DakLinkAdded)
+            .ToListAsync();
+        Assert.Single(linkEvents);
+        Assert.Equal(dak.Id, linkEvents[0].DakId);
+
+        // Revision increment once
+        var freshOutward = await db.Outwards.SingleAsync(o => o.Id == outward.Id);
+        Assert.Equal(1, freshOutward.Revision);
+
+        // No duplicate relationship row
+        Assert.Equal(1, await db.OutwardDakLinks.CountAsync(l => l.OutwardId == outward.Id));
+    }
+
+    [Fact]
+    public async Task Test91_RemoveDakLink_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-rmdak-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // Create authorized Dak
+        var dak = new Dak
+        {
+            Id = Guid.NewGuid(),
+            DiaryNumber = $"DAK_RM_{Guid.NewGuid():N}"[..14],
+            ReceivedDate = new DateOnly(2026, 9, 19),
+            Subject = "Inward Dak To Remove",
+            SenderName = "Judicial Section",
+            InwardMode = "Physical",
+            Priority = DakPriority.Routine,
+            Status = DakStatus.Registered,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Daks.Add(dak);
+        await db.SaveChangesAsync();
+
+        // 1. Initial register
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var initMs = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_RMDAK_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Initial Subject",
+            RecipientName: "Initial Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: initMs,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+
+        // 2. Add active Dak link (revision becomes 1)
+        var addCmd = new AddDakCommandWrapper(
+            DakId: dak.Id,
+            IsPrimary: false,
+            RelationshipType: "RelatedPetition",
+            ExpectedRevision: 0
+        );
+        var link = await workflow.AddDakLinkAsync(outward.Id, addCmd, adminUser.Id);
+
+        // 3. Remove Dak link under simulated commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var rmCmd = new RemoveDakLinkCommand(ExpectedRevision: 1);
+
+        var removed = await workflow.RemoveDakLinkAsync(outward.Id, link.Id, rmCmd, adminUser.Id);
+
+        Assert.True(removed);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Link archived once
+        var freshLink = await db.OutwardDakLinks.SingleAsync(l => l.Id == link.Id);
+        Assert.Equal(RecordStatus.Archived, freshLink.RecordStatus);
+
+        // One DakLinkRemoved event
+        var rmEvents = await db.OutwardEvents
+            .Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.DakLinkRemoved)
+            .ToListAsync();
+        Assert.Single(rmEvents);
+        Assert.Equal(dak.Id, rmEvents[0].DakId);
+
+        // Revision increment once (from 1 to 2)
+        var freshOutward = await db.Outwards.SingleAsync(o => o.Id == outward.Id);
+        Assert.Equal(2, freshOutward.Revision);
+    }
+
+    [Fact]
+    public async Task Test92_Dispatch_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-disp-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register WITH valid active main document
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_DISP_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "Dispatch Ambiguity Subject",
+            RecipientName: "Dispatch Recipient",
+            RecipientDesignation: "Officer In-Charge",
+            RecipientDepartment: "Forestry",
+            RecipientAddress: "Camp Office",
+            RecipientEmail: "dispatch@forest.gov.in",
+            RecipientPhone: "9876500000",
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: "OFF-DISP-001",
+            Remarks: "Ready for dispatch",
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "signed_dispatch.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+        Assert.NotNull(outward.MainDocumentId);
+        Assert.Equal(0, outward.Revision);
+
+        // 2. Dispatch under simulated commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var dispCmd = new DispatchOutwardCommand(
+            DispatchDate: new DateOnly(2026, 9, 20),
+            DispatchMode: "SpeedPost",
+            DispatchReferenceNumber: "SP-DISP-9999",
+            ExpectedRevision: 0
+        );
+
+        var dispatched = await workflow.DispatchAsync(outward.Id, dispCmd, adminUser.Id);
+
+        // Operation succeeds
+        Assert.NotNull(dispatched);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Status Dispatched
+        var freshOutward = await db.Outwards.SingleAsync(o => o.Id == outward.Id);
+        Assert.Equal(OutwardStatus.Dispatched, freshOutward.Status);
+        Assert.Equal(new DateOnly(2026, 9, 20), freshOutward.DispatchDate);
+        Assert.Equal("SpeedPost", freshOutward.DispatchMode);
+        Assert.Equal("SP-DISP-9999", freshOutward.DispatchReferenceNumber);
+
+        // Revision increment once
+        Assert.Equal(1, freshOutward.Revision);
+
+        // One immutable Dispatched event
+        var dispEvents = await db.OutwardEvents
+            .Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.Dispatched)
+            .ToListAsync();
+        Assert.Single(dispEvents);
+        Assert.Equal("SpeedPost", dispEvents[0].DispatchMode);
+        Assert.Equal("SP-DISP-9999", dispEvents[0].DispatchReferenceNumber);
+        Assert.Equal(new DateOnly(2026, 9, 20), dispEvents[0].DispatchDate);
+    }
+
+    [Fact]
+    public async Task Test93_Cancel_CommitAmbiguity_VerifiedViaEventIdempotently()
+    {
+        var dbName = $"out-retry-canc-{Guid.NewGuid():N}";
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+
+        // 1. Initial register
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var regCmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_AMB_CANC_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "To Be Cancelled",
+            RecipientName: "Cancel Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "initial.pdf",
+            DocumentContentType: "application/pdf"
+        );
+        var outward = await workflow.RegisterAsync(regCmd, adminUser.Id);
+        Assert.Equal(0, outward.Revision);
+
+        // 2. Cancel under simulated commit ambiguity
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+        var cancCmd = new CancelOutwardCommand(
+            Reason: "Administrative cancellation due to superseding order",
+            ExpectedRevision: 0
+        );
+
+        var cancelled = await workflow.CancelAsync(outward.Id, cancCmd, adminUser.Id);
+
+        // Operation succeeds
+        Assert.NotNull(cancelled);
+        Assert.Equal(1, strategy.AttemptCount);
+        Assert.Equal(1, strategy.VerifyCount);
+
+        // Status Cancelled
+        var freshOutward = await db.Outwards.SingleAsync(o => o.Id == outward.Id);
+        Assert.Equal(OutwardStatus.Cancelled, freshOutward.Status);
+        Assert.Equal("Administrative cancellation due to superseding order", freshOutward.CancellationReason);
+
+        // Revision increment once
+        Assert.Equal(1, freshOutward.Revision);
+
+        // One Cancelled event
+        var cancEvents = await db.OutwardEvents
+            .Where(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.Cancelled)
+            .ToListAsync();
+        Assert.Single(cancEvents);
+        Assert.Equal("Administrative cancellation due to superseding order", cancEvents[0].CancellationReason);
+    }
+
     private static async Task<(LacDbContext db, AppUser adminUser, OfficeDesk targetDesk)> CreateOutwardWorkflowContextAsync(
         string dbName,
         params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
@@ -2715,9 +3310,46 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
                 RecordStatus = RecordStatus.Active
             };
 
+            var dakViewPerm = new Permission
+            {
+                Id = Guid.NewGuid(),
+                Code = PermissionCodes.DakView,
+                Name = "Dak View",
+                Category = "Dak"
+            };
+            var role = new Role
+            {
+                Id = Guid.NewGuid(),
+                Code = $"ROLE_ADMIN_{Guid.NewGuid():N}"[..15],
+                Name = "Admin Role",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            var rolePerm = new RolePermission
+            {
+                Id = Guid.NewGuid(),
+                RoleId = role.Id,
+                Role = role,
+                PermissionId = dakViewPerm.Id,
+                Permission = dakViewPerm,
+                ScopeMode = ScopeMode.All
+            };
+            var userRole = new UserRole
+            {
+                Id = Guid.NewGuid(),
+                UserId = admin.Id,
+                User = admin,
+                RoleId = role.Id,
+                Role = role
+            };
+
             seedDb.AppUsers.Add(admin);
             seedDb.OfficeDesks.Add(desk);
             seedDb.UserDeskMemberships.Add(membership);
+            seedDb.Permissions.Add(dakViewPerm);
+            seedDb.Roles.Add(role);
+            seedDb.RolePermissions.Add(rolePerm);
+            seedDb.UserRoles.Add(userRole);
             await seedDb.SaveChangesAsync();
         }
 
