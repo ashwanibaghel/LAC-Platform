@@ -573,32 +573,32 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         using var admin = await CreateAdminClientAsync();
         var desk = await CreateDeskAsync($"D_REUSE_{Guid.NewGuid():N}"[..10], "Desk Reuse");
 
-        // First outward with new file
+        // Create a Dak that owns the source document (authorized provenance)
+        var diaryNo = $"DAK_REUSE_{Guid.NewGuid():N}"[..14];
+        var (dakId, docId) = await CreateSampleDakWithDocumentAsync(admin, diaryNo);
+
+        // Register outward1 referencing the document through Dak provenance
         var num1 = $"OUT_ORIG_{Guid.NewGuid():N}"[..14];
-        using var form1 = CreateRegisterForm(num1, desk.Id, fileBytes: SamplePdfBytes, fileName: "original.pdf");
+        using var form1 = CreateRegisterForm(num1, desk.Id, existingDocumentId: docId, primaryDakId: dakId);
         var res1 = await admin.PostAsync("/api/outward", form1);
         Assert.Equal(HttpStatusCode.Created, res1.StatusCode);
         var out1 = (await res1.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
-        Guid existingDocId;
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            existingDocId = (await db.Outwards.SingleAsync(o => o.Id == out1)).MainDocumentId!.Value;
-        }
-
-        // Second outward reusing existingDocId
+        // Register outward2 referencing the SAME document through the SAME Dak — zero physical copy
         var num2 = $"OUT_REUSE_{Guid.NewGuid():N}"[..14];
-        using var form2 = CreateRegisterForm(num2, desk.Id, existingDocumentId: existingDocId);
+        using var form2 = CreateRegisterForm(num2, desk.Id, existingDocumentId: docId, primaryDakId: dakId);
         var res2 = await admin.PostAsync("/api/outward", form2);
         Assert.Equal(HttpStatusCode.Created, res2.StatusCode);
         var out2 = (await res2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
+        // Both outwards share the same Document entity (no physical copy made)
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var o1 = await db.Outwards.SingleAsync(o => o.Id == out1);
             var o2 = await db.Outwards.SingleAsync(o => o.Id == out2);
-            Assert.Equal(existingDocId, o2.MainDocumentId);
+            Assert.Equal(docId, o1.MainDocumentId);
+            Assert.Equal(docId, o2.MainDocumentId);
         }
     }
 
@@ -689,24 +689,35 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         using var admin = await CreateAdminClientAsync();
         var desk = await CreateDeskAsync($"D_EXAUTH_{Guid.NewGuid():N}"[..10], "Desk ExAuth");
 
-        var num1 = $"OUT_EX1_{Guid.NewGuid():N}"[..14];
-        using var form1 = CreateRegisterForm(num1, desk.Id, fileBytes: SamplePdfBytes, fileName: "auth_doc.pdf");
-        var res1 = await admin.PostAsync("/api/outward", form1);
-        var out1 = (await res1.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        // Create a Dak that owns the document (authorized provenance source)
+        var diaryNo = $"DAK_AUTH_{Guid.NewGuid():N}"[..13];
+        var (dakId, docId) = await CreateSampleDakWithDocumentAsync(admin, diaryNo);
 
-        Guid docId;
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            docId = (await db.Outwards.SingleAsync(o => o.Id == out1)).MainDocumentId!.Value;
-        }
-
-        // Valid reuse via JSON payload
+        // Register outward2 without a document
         var num2 = $"OUT_EX2_{Guid.NewGuid():N}"[..14];
         using var form2 = CreateRegisterForm(num2, desk.Id);
         var res2 = await admin.PostAsync("/api/outward", form2);
         var out2 = (await res2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
+        // Link the Dak to outward2 so VerifyDocumentProvenanceForExistingOutwardAsync can prove access
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.OutwardDakLinks.Add(new OutwardDakLink
+            {
+                Id = Guid.NewGuid(),
+                OutwardId = out2,
+                DakId = dakId,
+                IsPrimary = true,
+                RelationshipType = "RelatedPetition",
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Reuse document via PUT /document with existingDocumentId — provenance proven through linked Dak
         var reuseReq = new { existingDocumentId = docId, expectedRevision = 0 };
         var putRes = await admin.PutAsJsonAsync($"/api/outward/{out2}/document", reuseReq);
         Assert.Equal(HttpStatusCode.OK, putRes.StatusCode);
@@ -876,23 +887,35 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         using var admin = await CreateAdminClientAsync();
         var desk = await CreateDeskAsync($"D_ATTEX_{Guid.NewGuid():N}"[..10], "Desk AttEx");
 
-        var num1 = $"OUT_ATTEX1_{Guid.NewGuid():N}"[..14];
-        using var form1 = CreateRegisterForm(num1, desk.Id, fileBytes: SamplePdfBytes, fileName: "shared_evidence.pdf");
-        var res1 = await admin.PostAsync("/api/outward", form1);
-        var out1 = (await res1.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        // Create a Dak that owns the document (authorized provenance source)
+        var diaryNo = $"DAK_ATTEX_{Guid.NewGuid():N}"[..14];
+        var (dakId, docId) = await CreateSampleDakWithDocumentAsync(admin, diaryNo);
 
-        Guid docId;
-        using (var scope = _factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            docId = (await db.Outwards.SingleAsync(o => o.Id == out1)).MainDocumentId!.Value;
-        }
-
+        // Register outward2 without a document
         var num2 = $"OUT_ATTEX2_{Guid.NewGuid():N}"[..14];
         using var form2 = CreateRegisterForm(num2, desk.Id);
         var res2 = await admin.PostAsync("/api/outward", form2);
         var out2 = (await res2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
+        // Link the Dak to outward2 so VerifyDocumentProvenanceForExistingOutwardAsync can prove access
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.OutwardDakLinks.Add(new OutwardDakLink
+            {
+                Id = Guid.NewGuid(),
+                OutwardId = out2,
+                DakId = dakId,
+                IsPrimary = true,
+                RelationshipType = "RelatedPetition",
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Add attachment using the Dak's document — no new physical file stored (zero physical copy)
         var req = new
         {
             existingDocumentId = docId,
@@ -2541,6 +2564,116 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         Assert.Equal("Cancellation reason for test 84 audit record", ev.CancellationReason);
         Assert.NotEqual(Guid.Empty, ev.ActionByUserId);
         Assert.False(string.IsNullOrWhiteSpace(ev.ActionByDisplayNameSnapshot));
+    }
+
+    // --- Category G: Cross-Outward Provenance Rejection (Test 85) ---
+
+    [Fact]
+    public async Task Test85_DocumentFromUnrelatedOutward_CannotBeReused_Returns403()
+    {
+        // A document's GUID being known is NOT authorization.
+        // Without an authorized Dak or Matter link, all three document operations must return 403.
+
+        using var admin = await CreateAdminClientAsync();
+        var desk = await CreateDeskAsync($"D_NEG85_{Guid.NewGuid():N}"[..10], "Desk Neg85");
+
+        // Source outward uploads a file → creates loneDocId (no Dak, no Matter attached)
+        var srcNum = $"OUT_SRC85_{Guid.NewGuid():N}"[..13];
+        using var srcForm = CreateRegisterForm(srcNum, desk.Id, fileBytes: SamplePdfBytes, fileName: "source_evidence.pdf");
+        var srcRes = await admin.PostAsync("/api/outward", srcForm);
+        Assert.Equal(HttpStatusCode.Created, srcRes.StatusCode);
+        var srcId = (await srcRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        Guid loneDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            loneDocId = (await db.Outwards.SingleAsync(o => o.Id == srcId)).MainDocumentId!.Value;
+        }
+
+        // Case 1: Try to register a NEW outward with loneDocId (no primaryDakId, no matterId) → 403
+        var negNum1 = $"OUT_NEG1_{Guid.NewGuid():N}"[..13];
+        using var negForm1 = CreateRegisterForm(negNum1, desk.Id, existingDocumentId: loneDocId);
+        var reg403 = await admin.PostAsync("/api/outward", negForm1);
+        Assert.Equal(HttpStatusCode.Forbidden, reg403.StatusCode);
+
+        // Case 2: Register a clean outward, then try PUT /document with loneDocId (no linked Dak) → 403
+        var negNum2 = $"OUT_NEG2_{Guid.NewGuid():N}"[..13];
+        using var negForm2 = CreateRegisterForm(negNum2, desk.Id);
+        var negRes2 = await admin.PostAsync("/api/outward", negForm2);
+        var out2 = (await negRes2.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        var putBody = new { existingDocumentId = loneDocId, expectedRevision = 0 };
+        var put403 = await admin.PutAsJsonAsync($"/api/outward/{out2}/document", putBody);
+        Assert.Equal(HttpStatusCode.Forbidden, put403.StatusCode);
+
+        // Case 3: Try POST /attachments to out2 with loneDocId (no linked Dak) → 403
+        var attBody = new { existingDocumentId = loneDocId, title = "Stolen Doc", attachmentType = "Annexure", expectedRevision = 0 };
+        var att403 = await admin.PostAsJsonAsync($"/api/outward/{out2}/attachments", attBody);
+        Assert.Equal(HttpStatusCode.Forbidden, att403.StatusCode);
+    }
+
+    // --- Category H: True Transient-Failure Retry — AttemptCount > 1 (Test 86) ---
+
+    [Fact]
+    public async Task Test86_Register_TransientSaveFailure_ForcesRetry_AttemptCountGt1()
+    {
+        // TrackingOutwardSaveChangesInterceptor with FailTimes=1 causes the first SaveChangesAsync
+        // to throw DbUpdateException. verifySucceeded finds nothing (data was NOT committed),
+        // so the strategy retries. Attempt 2 saves successfully.
+        // This proves AttemptCount == 2 (> 1) — a genuine rollback/retry cycle.
+
+        var dbName = $"out-true-retry-{Guid.NewGuid():N}";
+        var interceptor = new TrackingOutwardSaveChangesInterceptor { FailTimes = 1 };
+        var (db, adminUser, desk) = await CreateOutwardWorkflowContextAsync(dbName, interceptor);
+
+        var storage = new TestInMemoryDocumentStorage();
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var accessControl = new TestOutwardAccessControlService();
+        var dakAuth = new DakAuthorizationService(db);
+        var workflow = new OutwardWorkflowService(db, storage, dakAuth, accessControl, () => strategy!);
+        // simulateCommitAmbiguity=false: no artificial post-commit exception;
+        // the interceptor is what causes the transient failure (before the data is committed).
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 3);
+
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var cmd = new RegisterOutwardCommand(
+            OutwardNumber: $"OUT_RETRY86_{Guid.NewGuid():N}"[..14],
+            OutwardDate: new DateOnly(2026, 9, 19),
+            Subject: "True Retry Registration",
+            RecipientName: "Retry Recipient",
+            RecipientDesignation: null,
+            RecipientDepartment: null,
+            RecipientAddress: null,
+            RecipientEmail: null,
+            RecipientPhone: null,
+            IssuingDeskId: desk.Id,
+            WorkstreamId: null,
+            OfficeReferenceNumber: null,
+            Remarks: null,
+            PrimaryDakId: null,
+            MatterId: null,
+            ExistingDocumentId: null,
+            DocumentStream: ms,
+            DocumentFileName: "retry_reg.pdf",
+            DocumentContentType: "application/pdf"
+        );
+
+        var outward = await workflow.RegisterAsync(cmd, adminUser.Id);
+
+        Assert.NotNull(outward);
+        Assert.Equal(OutwardStatus.Registered, outward.Status);
+
+        // Genuine retry: attempt 1 interceptor throws before commit, verifySucceeded finds nothing,
+        // attempt 2 commits successfully → AttemptCount == 2 which is > 1
+        Assert.True(strategy.AttemptCount > 1, $"Expected AttemptCount > 1 but got {strategy.AttemptCount}");
+        Assert.Equal(2, strategy.AttemptCount);
+
+        // Physical file must have been uploaded exactly once (outside the retry loop — before the transaction)
+        Assert.Equal(1, storage.SaveCount);
+
+        var evCount = await db.OutwardEvents.CountAsync(e => e.OutwardId == outward.Id && e.Action == OutwardEventAction.Registered);
+        Assert.Equal(1, evCount);
     }
 
     private static async Task<(LacDbContext db, AppUser adminUser, OfficeDesk targetDesk)> CreateOutwardWorkflowContextAsync(

@@ -213,22 +213,6 @@ public sealed class OutwardWorkflowService(
             }
         }
 
-        // 3. Document already in the outward system (cross-outward reuse)
-        // A document that was previously uploaded to any active outward is considered proven —
-        // the caller demonstrated access when they first uploaded or referenced it.
-        if (!proven)
-        {
-            var onAnyActiveOutward = await db.Outwards.AsNoTracking()
-                .AnyAsync(o => o.RecordStatus == RecordStatus.Active && o.MainDocumentId == documentId, ct);
-            if (!onAnyActiveOutward)
-            {
-                onAnyActiveOutward = await db.OutwardAttachments.AsNoTracking()
-                    .AnyAsync(a => a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
-            }
-            if (onAnyActiveOutward)
-                proven = true;
-        }
-
         if (!proven)
             throw new OutwardWorkflowException("You do not have permission to access the specified document.", 403);
     }
@@ -294,20 +278,6 @@ public sealed class OutwardWorkflowService(
                     proven = true;
                 }
             }
-        }
-
-        // 4. Document already in the outward system on any OTHER active outward (cross-outward reuse)
-        if (!proven)
-        {
-            var onAnotherOutward = await db.Outwards.AsNoTracking()
-                .AnyAsync(o => o.RecordStatus == RecordStatus.Active && o.MainDocumentId == documentId, ct);
-            if (!onAnotherOutward)
-            {
-                onAnotherOutward = await db.OutwardAttachments.AsNoTracking()
-                    .AnyAsync(a => a.DocumentId == documentId && a.RecordStatus == RecordStatus.Active, ct);
-            }
-            if (onAnotherOutward)
-                proven = true;
         }
 
         if (!proven)
