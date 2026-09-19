@@ -22,6 +22,7 @@ import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
 import { DakDirectory } from "./dak/DakDirectory";
 import { DakRegistration } from "./dak/DakRegistration";
 import { DakDetailWorkspace } from "./dak/DakDetailWorkspace";
+import { MyDesk } from "./dak/MyDesk";
 import "./index.css";
 import "./sidebar.css";
 import "./dak/dak.css";
@@ -442,6 +443,9 @@ function Shell({ children }: { children: ReactNode }) {
     ["Awards", "/awards", "⌑"],
     ["Search", "/search", "⌕"],
   ];
+  if (hasPermission("Dak.View")) {
+    links.push(["My Desk", "/my-desk", "🗂"]);
+  }
   if (hasPermission("Dak.View") || hasPermission("Dak.Register")) {
     links.push(["Dak / Inward", "/dak", "📥"]);
   }
@@ -3106,6 +3110,7 @@ function AuthenticatedApp() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/imports/lr" element={<LrWorkspace />} />
         <Route path="/imports/lr/review" element={<LrReview />} />
+        <Route path="/my-desk" element={<MyDesk />} />
         <Route path="/dak" element={<DakDirectory />} />
         <Route path="/dak/register" element={<DakRegistration />} />
         <Route path="/dak/:id" element={<DakDetailWorkspace />} />

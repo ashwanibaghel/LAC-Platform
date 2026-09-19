@@ -247,3 +247,176 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* My Desk Operational Queue */
+.my-desk-page {
+  padding: 24px;
+}
+
+.my-desk-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.summary-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 16px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.summary-card:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.summary-card.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.summary-card .card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.summary-card .card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #64748b;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.summary-card.card-immediate.active {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+.summary-card.card-immediate .card-value {
+  color: #dc2626;
+}
+
+.summary-card.card-urgent.active {
+  border-color: #ea580c;
+  background: #fff7ed;
+}
+.summary-card.card-urgent .card-value {
+  color: #ea580c;
+}
+
+.summary-card.card-overdue.active {
+  border-color: #b91c1c;
+  background: #fef2f2;
+}
+.summary-card.card-overdue .card-value {
+  color: #b91c1c;
+}
+
+.summary-card.card-today.active {
+  border-color: #d97706;
+  background: #fffbeb;
+}
+.summary-card.card-today .card-value {
+  color: #d97706;
+}
+
+.summary-card.card-me.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.summary-card.card-me .card-value {
+  color: #2563eb;
+}
+
+.summary-card.card-unallocated.active {
+  border-color: #64748b;
+  background: #f8fafc;
+}
+.summary-card.card-unallocated .card-value {
+  color: #475569;
+}
+
+.my-desk-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.my-desk-filter-bar .filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.my-desk-filter-bar select {
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #ffffff;
+}
+
+.handler-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.handler-badge.handler-me {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.handler-badge.handler-unallocated {
+  background: #f1f5f9;
+  color: #64748b;
+  border: 1px dashed #cbd5e1;
+}
+
+.handler-badge.handler-other {
+  background: #f3e8ff;
+  color: #6b21a8;
+}
+
+.desk-code-badge {
+  font-weight: 600;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.desk-name-subtext {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: #f8fafc;
+}
+
+.diary-num-link {
+  color: #2563eb;
+}
+

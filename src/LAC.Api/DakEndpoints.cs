@@ -292,6 +292,236 @@ public static class DakEndpoints
             return Results.Ok(new { items, totalCount, page = p, pageSize = ps });
         }).RequirePermission(PermissionCodes.DakView);
 
+        // 2b. My Desk Operational Queue
+        dak.MapGet("/my-desk", async (
+            int? page,
+            int? pageSize,
+            string? q,
+            Guid? deskId,
+            string? priority,
+            string? due,
+            string? handler,
+            LacDbContext db,
+            IDakAuthorizationService dakAuth,
+            ICurrentUserContext currentUser,
+            IOfficeClock officeClock,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            // Step A: Resolve live active desk memberships directly from DB
+            var activeDesks = await db.UserDeskMemberships.AsNoTracking()
+                .Where(m => m.UserId == userId
+                         && m.IsActive
+                         && m.RemovedAt == null
+                         && m.RecordStatus == RecordStatus.Active
+                         && m.OfficeDesk.IsActive
+                         && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+                .OrderBy(m => m.OfficeDesk.Name)
+                .Select(m => new MyDeskUserDeskDto(
+                    m.OfficeDeskId,
+                    m.OfficeDesk.Code,
+                    m.OfficeDesk.Name,
+                    m.IsPrimary
+                ))
+                .ToListAsync(ct);
+
+            // Validate pagination parameters
+            var p = Math.Max(0, page ?? 0);
+            var ps = Math.Clamp(pageSize ?? 25, 1, 100);
+
+            // Validate priority
+            DakPriority? priorityFilter = null;
+            if (!string.IsNullOrWhiteSpace(priority) && !string.Equals(priority, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                if (Enum.TryParse<DakPriority>(priority, true, out var parsedPriority))
+                {
+                    priorityFilter = parsedPriority;
+                }
+                else
+                {
+                    return Results.BadRequest(new { message = "Invalid priority filter. Valid values are: all, routine, urgent, immediate." });
+                }
+            }
+
+            // Validate due
+            var dueFilter = (due ?? "all").Trim().ToLowerInvariant();
+            if (dueFilter != "all" && dueFilter != "overdue" && dueFilter != "today" && dueFilter != "upcoming" && dueFilter != "none")
+            {
+                return Results.BadRequest(new { message = "Invalid due filter. Valid values are: all, overdue, today, upcoming, none." });
+            }
+
+            // Validate handler
+            var handlerFilter = (handler ?? "all").Trim().ToLowerInvariant();
+            if (handlerFilter != "all" && handlerFilter != "me" && handlerFilter != "unallocated" && handlerFilter != "others")
+            {
+                return Results.BadRequest(new { message = "Invalid handler filter. Valid values are: all, me, unallocated, others." });
+            }
+
+            // Validate deskId: must belong to the caller's live active desk memberships
+            if (deskId.HasValue)
+            {
+                if (!activeDesks.Any(d => d.Id == deskId.Value))
+                {
+                    return Results.BadRequest(new { message = "Invalid My Desk desk filter." });
+                }
+            }
+
+            // If caller has no active desks, return empty response immediately
+            if (activeDesks.Count == 0)
+            {
+                return Results.Ok(new MyDeskResponseDto(
+                    new MyDeskSummaryDto(0, 0, 0, 0, 0, 0, 0),
+                    activeDesks,
+                    [],
+                    0,
+                    p,
+                    ps
+                ));
+            }
+
+            var activeDeskIds = activeDesks.Select(d => d.Id).ToList();
+
+            // Step B: Build custody base query
+            var custodyBaseQuery = db.Daks.AsNoTracking()
+                .Where(d => d.RecordStatus == RecordStatus.Active
+                         && d.CurrentAssignment != null
+                         && d.CurrentAssignment.RecordStatus == RecordStatus.Active
+                         && d.CurrentAssignment.IsActive
+                         && activeDeskIds.Contains(d.CurrentAssignment.OfficeDeskId)
+                         && d.CurrentAssignment.OfficeDesk.IsActive
+                         && d.CurrentAssignment.OfficeDesk.RecordStatus == RecordStatus.Active);
+
+            // Step C: Intersect with existing Dak.View authorization
+            var authResult = await dakAuth.AuthorizeListQueryAsync(custodyBaseQuery, PermissionCodes.DakView, userId, ct);
+            if (!authResult.HasPermission)
+                return Results.Forbid();
+
+            var authorizedQuery = authResult.Query;
+
+            // Filter application order:
+            // custody base -> Dak.View authorization -> requested desk filter -> search -> priority -> due -> handler
+            var filteredQuery = authorizedQuery;
+
+            if (deskId.HasValue)
+            {
+                filteredQuery = filteredQuery.Where(d => d.CurrentAssignment != null && d.CurrentAssignment.OfficeDeskId == deskId.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(q))
+            {
+                var term = q.Trim().ToLower();
+                filteredQuery = filteredQuery.Where(d => d.DiaryNumber.ToLower().Contains(term)
+                                                      || d.Subject.ToLower().Contains(term)
+                                                      || d.SenderName.ToLower().Contains(term)
+                                                      || (d.SenderReferenceNumber != null && d.SenderReferenceNumber.ToLower().Contains(term)));
+            }
+
+            if (priorityFilter.HasValue)
+            {
+                filteredQuery = filteredQuery.Where(d => d.Priority == priorityFilter.Value);
+            }
+
+            var officeToday = officeClock.GetCurrentDate();
+            if (dueFilter == "overdue")
+            {
+                filteredQuery = filteredQuery.Where(d => d.DueDate != null && d.DueDate.Value < officeToday);
+            }
+            else if (dueFilter == "today")
+            {
+                filteredQuery = filteredQuery.Where(d => d.DueDate != null && d.DueDate.Value == officeToday);
+            }
+            else if (dueFilter == "upcoming")
+            {
+                filteredQuery = filteredQuery.Where(d => d.DueDate != null && d.DueDate.Value > officeToday);
+            }
+            else if (dueFilter == "none")
+            {
+                filteredQuery = filteredQuery.Where(d => d.DueDate == null);
+            }
+
+            if (handlerFilter == "me")
+            {
+                filteredQuery = filteredQuery.Where(d => d.CurrentAssignment != null && d.CurrentAssignment.AssignedUserId == userId);
+            }
+            else if (handlerFilter == "unallocated")
+            {
+                filteredQuery = filteredQuery.Where(d => d.CurrentAssignment != null && d.CurrentAssignment.AssignedUserId == null);
+            }
+            else if (handlerFilter == "others")
+            {
+                filteredQuery = filteredQuery.Where(d => d.CurrentAssignment != null && d.CurrentAssignment.AssignedUserId != null && d.CurrentAssignment.AssignedUserId != userId);
+            }
+
+            // Summary calculation and total count across filteredQuery BEFORE pagination
+            var totalCount = await filteredQuery.CountAsync(ct);
+            MyDeskSummaryDto summary;
+            if (totalCount == 0)
+            {
+                summary = new MyDeskSummaryDto(0, 0, 0, 0, 0, 0, 0);
+            }
+            else
+            {
+                summary = await filteredQuery
+                    .GroupBy(_ => 1)
+                    .Select(g => new MyDeskSummaryDto(
+                        g.Count(),
+                        g.Count(d => d.Priority == DakPriority.Immediate),
+                        g.Count(d => d.Priority == DakPriority.Urgent),
+                        g.Count(d => d.DueDate != null && d.DueDate.Value < officeToday),
+                        g.Count(d => d.DueDate != null && d.DueDate.Value == officeToday),
+                        g.Count(d => d.CurrentAssignment != null && d.CurrentAssignment.AssignedUserId == userId),
+                        g.Count(d => d.CurrentAssignment != null && d.CurrentAssignment.AssignedUserId == null)
+                    ))
+                    .FirstOrDefaultAsync(ct) ?? new MyDeskSummaryDto(totalCount, 0, 0, 0, 0, 0, 0);
+            }
+
+            // Sorting: CurrentAssignment.AssignedAt DESC, Dak.CreatedAt DESC, Dak.Id
+            var items = await filteredQuery
+                .OrderByDescending(d => d.CurrentAssignment!.AssignedAt)
+                .ThenByDescending(d => d.CreatedAt)
+                .ThenByDescending(d => d.Id)
+                .Skip(p * ps)
+                .Take(ps)
+                .Select(d => new MyDeskItemDto(
+                    d.Id,
+                    d.DiaryNumber,
+                    d.ReceivedDate,
+                    d.Subject,
+                    d.SenderName,
+                    d.SenderDepartment,
+                    d.Priority.ToString(),
+                    d.DueDate,
+                    d.Workstream != null ? d.Workstream.Name : null,
+                    d.Status.ToString(),
+                    d.Revision,
+                    new MyDeskAssignmentDto(
+                        d.CurrentAssignment!.OfficeDeskId,
+                        d.CurrentAssignment.OfficeDesk!.Code,
+                        d.CurrentAssignment.OfficeDesk.Name,
+                        d.CurrentAssignment.AssignedUserId,
+                        d.CurrentAssignment.AssignedUser != null ? d.CurrentAssignment.AssignedUser.DisplayName : null,
+                        d.CurrentAssignment.AssignedAt,
+                        d.CurrentAssignment.AssignedUserId == null
+                            ? "Unallocated"
+                            : d.CurrentAssignment.AssignedUserId == userId
+                                ? "AssignedToMe"
+                                : "AssignedToOther"
+                    )
+                ))
+                .ToListAsync(ct);
+
+            return Results.Ok(new MyDeskResponseDto(
+                summary,
+                activeDesks,
+                items,
+                totalCount,
+                p,
+                ps
+            ));
+        }).RequirePermission(PermissionCodes.DakView);
+
         // 3. Get Dak Details
         dak.MapGet("/{id:guid}", async (
             Guid id,
@@ -1368,3 +1598,55 @@ public sealed record DakCategoryDto(
     string? DefaultWorkstreamName,
     bool IsActive
 );
+
+public sealed record MyDeskSummaryDto(
+    int Total,
+    int Immediate,
+    int Urgent,
+    int Overdue,
+    int DueToday,
+    int AssignedToMe,
+    int Unallocated
+);
+
+public sealed record MyDeskUserDeskDto(
+    Guid Id,
+    string Code,
+    string Name,
+    bool IsPrimary
+);
+
+public sealed record MyDeskAssignmentDto(
+    Guid DeskId,
+    string DeskCode,
+    string DeskName,
+    Guid? AssignedUserId,
+    string? AssignedUserDisplayName,
+    DateTimeOffset AssignedAt,
+    string HandlerState
+);
+
+public sealed record MyDeskItemDto(
+    Guid Id,
+    string DiaryNumber,
+    DateOnly ReceivedDate,
+    string Subject,
+    string SenderName,
+    string? SenderDepartment,
+    string Priority,
+    DateOnly? DueDate,
+    string? WorkstreamName,
+    string Status,
+    int Revision,
+    MyDeskAssignmentDto Assignment
+);
+
+public sealed record MyDeskResponseDto(
+    MyDeskSummaryDto Summary,
+    IReadOnlyList<MyDeskUserDeskDto> Desks,
+    IReadOnlyList<MyDeskItemDto> Items,
+    int TotalCount,
+    int Page,
+    int PageSize
+);
+

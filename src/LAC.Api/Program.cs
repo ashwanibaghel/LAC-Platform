@@ -59,6 +59,8 @@ builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
 builder.Services.AddScoped<IDakAuthorizationService, DakAuthorizationService>();
 builder.Services.AddScoped<DakWorkflowService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();

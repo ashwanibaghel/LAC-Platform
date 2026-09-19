@@ -116,3 +116,55 @@ export interface DakCategory {
   defaultWorkstreamName?: string;
   isActive: boolean;
 }
+
+export interface MyDeskSummary {
+  total: number;
+  immediate: number;
+  urgent: number;
+  overdue: number;
+  dueToday: number;
+  assignedToMe: number;
+  unallocated: number;
+}
+
+export interface MyDeskDesk {
+  id: string;
+  code: string;
+  name: string;
+  isPrimary: boolean;
+}
+
+export interface MyDeskAssignment {
+  deskId: string;
+  deskCode: string;
+  deskName: string;
+  assignedUserId?: string;
+  assignedUserDisplayName?: string;
+  assignedAt: string;
+  handlerState: "Unallocated" | "AssignedToMe" | "AssignedToOther";
+}
+
+export interface MyDeskItem {
+  id: string;
+  diaryNumber: string;
+  receivedDate: string;
+  subject: string;
+  senderName: string;
+  senderDepartment?: string;
+  priority: "Routine" | "Urgent" | "Immediate";
+  dueDate?: string;
+  workstreamName?: string;
+  status: "Registered" | "InProcess" | "Disposed" | "Cancelled";
+  revision: number;
+  assignment: MyDeskAssignment;
+}
+
+export interface MyDeskResponse {
+  summary: MyDeskSummary;
+  desks: MyDeskDesk[];
+  items: MyDeskItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
