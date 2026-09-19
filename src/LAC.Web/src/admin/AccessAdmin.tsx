@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import type { Designation, Workstream } from "../auth/types";
+import { DakCategoryAdmin } from "../dak/DakCategoryAdmin";
 
 interface PermissionItem {
   id: string;
@@ -41,7 +42,7 @@ interface DeskListItem {
 }
 
 export const AccessAdmin: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<"roles" | "designations" | "workstreams" | "desks">("roles");
+  const [activeTab, setActiveTab] = useState<"roles" | "designations" | "workstreams" | "desks" | "dak-categories">("roles");
   const [roles, setRoles] = useState<RoleDetail[]>([]);
   const [permissions, setPermissions] = useState<PermissionItem[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
@@ -284,6 +285,12 @@ export const AccessAdmin: React.FC = () => {
         >
           Workstreams ({workstreams.length})
         </button>
+        <button
+          className={`secondary-button ${activeTab === "dak-categories" ? "active" : ""}`}
+          onClick={() => setActiveTab("dak-categories")}
+        >
+          Dak Categories
+        </button>
       </div>
 
       {activeTab === "roles" && (
@@ -444,6 +451,8 @@ export const AccessAdmin: React.FC = () => {
           </table>
         </div>
       )}
+
+      {activeTab === "dak-categories" && <DakCategoryAdmin />}
 
       {/* Role Edit/Create Modal */}
       {showRoleModal && (

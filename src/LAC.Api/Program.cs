@@ -57,6 +57,8 @@ builder.Services.AddSingleton<StrictAreaParser>();
 builder.Services.AddSingleton<AwardExtractionRuleEngine>();
 builder.Services.AddScoped<AwardPdfExtractionService>();
 builder.Services.AddScoped<AwardPdfJobRunner>();
+builder.Services.AddScoped<IDakAuthorizationService, DakAuthorizationService>();
+builder.Services.AddScoped<DakWorkflowService>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
@@ -108,6 +110,7 @@ using (var scope = app.Services.CreateScope())
 
 var api = app.MapGroup("/api");
 api.MapRbacEndpoints();
+api.MapDakEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";

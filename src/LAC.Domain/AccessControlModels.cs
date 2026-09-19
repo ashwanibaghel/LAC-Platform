@@ -4,7 +4,8 @@ public sealed record AccessResourceContext(
     Guid? WorkstreamId = null,
     string? WorkstreamCode = null,
     Guid? OwnerUserId = null,
-    Guid? AssignedUserId = null
+    Guid? AssignedUserId = null,
+    Guid? AssignedDeskId = null
 );
 
 public interface IAccessControlService

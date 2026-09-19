@@ -23,6 +23,12 @@ public static class PermissionCodes
     public const string UsersManage = "Users.Manage";
     public const string AccessManage = "Access.Manage";
     public const string AuditView = "Audit.View";
+    public const string DakView = "Dak.View";
+    public const string DakRegister = "Dak.Register";
+    public const string DakEdit = "Dak.Edit";
+    public const string DakMove = "Dak.Move";
+    public const string DakDispose = "Dak.Dispose";
+    public const string DakCancel = "Dak.Cancel";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -47,6 +53,12 @@ public static class PermissionCodes
         new(UsersManage, "Manage Users", "Create and manage system user accounts and credentials", "Administration"),
         new(AccessManage, "Manage Access & Roles", "Manage roles, permissions, workstreams, and designations", "Administration"),
         new(AuditView, "View Audit Logs", "View system audit trail and activity history", "Administration"),
+        new(DakView, "View Dak", "View inward correspondence, movement history, and attached documents", "Dak"),
+        new(DakRegister, "Register Dak", "Register new inward correspondence in the official register", "Dak"),
+        new(DakEdit, "Edit Dak", "Edit Dak metadata, classification, attachments, and domain links", "Dak"),
+        new(DakMove, "Move Dak", "Mark, forward, or return Dak across desks and officers", "Dak"),
+        new(DakDispose, "Dispose Dak", "Mark Dak as completed or disposed and close active custody", "Dak"),
+        new(DakCancel, "Cancel Dak", "Void errant Dak registration with mandatory audit justification", "Dak"),
     ];
 }
 

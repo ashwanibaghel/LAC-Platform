@@ -1,0 +1,249 @@
+/* Dak Workflow Styling */
+
+.dak-custody-card {
+  background: #fff;
+  border: 1px solid #d4dde5;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.dak-custody-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dak-custody-title {
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #55697d;
+}
+
+.dak-custody-desk {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e3a58;
+}
+
+.dak-custody-user {
+  font-size: 13px;
+  color: #4a5c6d;
+}
+
+.dak-custody-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Health / Attention Warning Banner */
+.dak-attention-banner {
+  background: #fff8e6;
+  border: 1px solid #f0b429;
+  border-left: 5px solid #d97706;
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dak-attention-banner strong {
+  font-size: 14px;
+}
+
+/* Status & Priority Pills */
+.priority-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.priority-routine {
+  background: #e9f0f8;
+  color: #2b5680;
+  border: 1px solid #c4d7ec;
+}
+
+.priority-urgent {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.priority-immediate {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-registered {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+}
+
+.status-inprocess {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.status-disposed {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.status-cancelled {
+  background: #fdf2f8;
+  color: #9d174d;
+  border: 1px solid #fbcfe8;
+}
+
+/* Timeline Components */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 16px 0;
+  position: relative;
+  padding-left: 28px;
+}
+
+.timeline::before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 11px;
+  width: 2px;
+  background: #e2e8f0;
+}
+
+.timeline-item {
+  position: relative;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.timeline-badge {
+  position: absolute;
+  left: -28px;
+  top: 14px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #1e609e;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 3px #fff;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.timeline-date {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.timeline-routing {
+  display: flex;
+  gap: 18px;
+  font-size: 13px;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.timeline-actor {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.timeline-instructions, .timeline-remarks {
+  margin-top: 6px;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+}
+
+.timeline-instructions {
+  border-left-color: #3b82f6;
+}
+
+/* Links & Badges */
+.dak-link-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  margin-right: 8px;
+  margin-bottom: 8px;
+}
+
+.dak-link-remove {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dak-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .dak-grid-2col {
+    grid-template-columns: 1fr;
+  }
+}

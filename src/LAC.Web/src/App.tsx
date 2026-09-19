@@ -19,8 +19,12 @@ import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
 import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
+import { DakDirectory } from "./dak/DakDirectory";
+import { DakRegistration } from "./dak/DakRegistration";
+import { DakDetailWorkspace } from "./dak/DakDetailWorkspace";
 import "./index.css";
 import "./sidebar.css";
+import "./dak/dak.css";
 import "./verification.css";
 import "./awardPdfUpload.css";
 import "./supplementaryAward.css";
@@ -438,6 +442,9 @@ function Shell({ children }: { children: ReactNode }) {
     ["Awards", "/awards", "⌑"],
     ["Search", "/search", "⌕"],
   ];
+  if (hasPermission("Dak.View") || hasPermission("Dak.Register")) {
+    links.push(["Dak / Inward", "/dak", "📥"]);
+  }
   if (hasPermission("Users.Manage")) {
     links.push(["Users", "/admin/users", "👥"]);
   }
@@ -3099,6 +3106,9 @@ function AuthenticatedApp() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/imports/lr" element={<LrWorkspace />} />
         <Route path="/imports/lr/review" element={<LrReview />} />
+        <Route path="/dak" element={<DakDirectory />} />
+        <Route path="/dak/register" element={<DakRegistration />} />
+        <Route path="/dak/:id" element={<DakDetailWorkspace />} />
         <Route path="/admin/users" element={<UsersAdmin />} />
         <Route path="/admin/access" element={<AccessAdmin />} />
         <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />

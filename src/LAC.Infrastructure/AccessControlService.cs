@@ -62,14 +62,45 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
         }
 
         // 3. Own scope: grants access if resource was created / owned by the current user
+        // Note: Dak permissions fail closed for ScopeMode.Own because official correspondence belongs to the office.
         if (rolePermissions.Any(rp => rp.ScopeMode == ScopeMode.Own))
         {
-            if (resourceContext?.OwnerUserId.HasValue == true && resourceContext.OwnerUserId.Value == userId)
-                return true;
+            if (!permissionCode.StartsWith("Dak.", StringComparison.OrdinalIgnoreCase))
+            {
+                if (resourceContext?.OwnerUserId.HasValue == true && resourceContext.OwnerUserId.Value == userId)
+                    return true;
+            }
         }
 
-        // 4. Assigned scope: Phase 1 intentionally fails closed because Task/Dak assignments are in a later phase.
-        // Falls through to return false.
+        // 4. Assigned scope: grants access if resource is currently assigned to an active desk of which the user is an active member
+        if (rolePermissions.Any(rp => rp.ScopeMode == ScopeMode.Assigned))
+        {
+            if (resourceContext?.AssignedDeskId.HasValue == true)
+            {
+                var deskId = resourceContext.AssignedDeskId.Value;
+                var isEligibleDeskMember = await db.UserDeskMemberships
+                    .AsNoTracking()
+                    .AnyAsync(m => m.UserId == userId
+                                && m.OfficeDeskId == deskId
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.OfficeDesk.IsActive
+                                && m.OfficeDesk.RecordStatus == RecordStatus.Active, cancellationToken);
+
+                if (isEligibleDeskMember)
+                    return true;
+            }
+        }
+
+        // 5. Coarse-grained check for Dak collection-level queries:
+        // When no specific resource is evaluated (resourceContext is null), holding Dak permissions
+        // in ScopeMode.Workstream or ScopeMode.Assigned permits entry to the endpoint, where
+        // collection-level union-of-scopes filtering is enforced by IDakAuthorizationService.
+        if (resourceContext is null && permissionCode.StartsWith("Dak.", StringComparison.OrdinalIgnoreCase))
+        {
+            if (rolePermissions.Any(rp => rp.ScopeMode == ScopeMode.Workstream || rp.ScopeMode == ScopeMode.Assigned))
+                return true;
+        }
 
         return false;
     }
