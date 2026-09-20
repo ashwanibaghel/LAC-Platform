@@ -194,7 +194,8 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             PrimaryWorkstreamId: workstreamId
         );
         var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", createReq);
-        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var createBody = await createRes.Content.ReadAsStringAsync();
+        Assert.True(createRes.StatusCode == HttpStatusCode.Created, $"Expected 201 Created but received {(int)createRes.StatusCode} {createRes.StatusCode}. Body: {createBody}");
         var userId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         if (deskId.HasValue)
@@ -280,7 +281,8 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             PrimaryWorkstreamId: workstreamId
         );
         var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", createReq);
-        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var createBody = await createRes.Content.ReadAsStringAsync();
+        Assert.True(createRes.StatusCode == HttpStatusCode.Created, $"Expected 201 Created but received {(int)createRes.StatusCode} {createRes.StatusCode}. Body: {createBody}");
         var userId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         if (deskId.HasValue)
@@ -3845,5 +3847,55 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var res = await client.GetAsync("/api/work-items/branch-pulse?q=PHASE2FC-ATTN&attention=open&staleDays=7&pageSize=1"); Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         using var json = JsonDocument.Parse(await res.Content.ReadAsStringAsync()); var summary = json.RootElement.GetProperty("summary"); Assert.Equal(2, summary.GetProperty("open").GetInt32()); Assert.Equal(1, summary.GetProperty("overdue").GetInt32()); Assert.Equal(1, summary.GetProperty("stale").GetInt32()); Assert.Equal(2, json.RootElement.GetProperty("totalCount").GetInt32()); Assert.Single(json.RootElement.GetProperty("items").EnumerateArray());
     }
+
+    private async Task<Guid> SeedPhase2FCPulseItemAsync(Workstream ws, OfficeDesk desk, string title, Guid requester)
+    {
+        using var scope = _factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = title, Status = WorkItemStatus.Assigned, RequestedByUserId = requester, RequestedByDisplayNameSnapshot = "Other", Revision = 1, LastActivityAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active };
+        db.Add(item); db.Add(new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = desk.Id, IsActive = true, AssignedAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }); await db.SaveChangesAsync(); return item.Id;
+    }
+
+    private static async Task<HashSet<Guid>> PulseIdsAsync(HttpClient client, string prefix)
+    { using var doc = JsonDocument.Parse(await (await client.GetAsync("/api/work-items/branch-pulse?q=" + prefix)).Content.ReadAsStringAsync()); return doc.RootElement.GetProperty("items").EnumerateArray().Select(x => x.GetProperty("workItemId").GetGuid()).ToHashSet(); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_AllScope_DoesNotRequire_MyWorkParticipation()
+    { var ws = await CreateWorkstreamAsync("PA-" + Guid.NewGuid().ToString("N")[..6], "All"); var desk = await CreateDeskAsync("PA-D" + Guid.NewGuid().ToString("N")[..6], "Other", ws.Id, assignAdmin:false); var (client, user) = await CreateCustomUserClientAsync("pulseall" + Guid.NewGuid().ToString("N")[..6], "pulse-all-" + Guid.NewGuid().ToString("N")[..6], ScopeMode.All, [PermissionCodes.WorkItemView]); var id = await SeedPhase2FCPulseItemAsync(ws, desk, "P2FC-ALL", SeedData.BootstrapAdminId); Assert.Contains(id, await PulseIdsAsync(client, "P2FC-ALL")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_WorkstreamScope_Uses_LiveMembership()
+    { var a=await CreateWorkstreamAsync("PW-A"+Guid.NewGuid().ToString("N")[..5],"A");var b=await CreateWorkstreamAsync("PW-B"+Guid.NewGuid().ToString("N")[..5],"B");var da=await CreateDeskAsync("PWDA"+Guid.NewGuid().ToString("N")[..5],"A",a.Id,false);var db=await CreateDeskAsync("PWDB"+Guid.NewGuid().ToString("N")[..5],"B",b.Id,false);var (client,user)=await CreateCustomUserClientAsync("pulsews"+Guid.NewGuid().ToString("N")[..6],"pulse-ws-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Workstream,[PermissionCodes.WorkItemView],workstreamId:a.Id);var ai=await SeedPhase2FCPulseItemAsync(a,da,"P2FC-WS-A",SeedData.BootstrapAdminId);var bi=await SeedPhase2FCPulseItemAsync(b,db,"P2FC-WS-B",SeedData.BootstrapAdminId);var ids=await PulseIdsAsync(client,"P2FC-WS");Assert.Contains(ai,ids);Assert.DoesNotContain(bi,ids);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();(await x.UserWorkstreamMemberships.FirstAsync(m=>m.UserId==user&&m.WorkstreamId==a.Id)).IsActive=false;await x.SaveChangesAsync();}Assert.DoesNotContain(ai,await PulseIdsAsync(client,"P2FC-WS-A")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_AssignedScope_Uses_CurrentResponsibleDesk()
+    { var ws=await CreateWorkstreamAsync("PAD"+Guid.NewGuid().ToString("N")[..5],"Assigned");var old=await CreateDeskAsync("PADO"+Guid.NewGuid().ToString("N")[..5],"Old",ws.Id,assignAdmin:false);var next=await CreateDeskAsync("PADN"+Guid.NewGuid().ToString("N")[..5],"New",ws.Id,assignAdmin:false);var(client,user)=await CreateScopedUserClientAsync("pulsead"+Guid.NewGuid().ToString("N")[..6],"pulse-ad-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Assigned,deskId:old.Id,workstreamId:ws.Id);var id=await SeedPhase2FCPulseItemAsync(ws,old,"P2FC-ASSIGNED",SeedData.BootstrapAdminId);Assert.Contains(id,await PulseIdsAsync(client,"P2FC-ASSIGNED"));using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();var a=await x.WorkItemAssignments.SingleAsync(z=>z.WorkItemId==id);a.IsActive=false;a.ClosedAt=DateTimeOffset.UtcNow;x.Add(new WorkItemAssignment{Id=Guid.NewGuid(),WorkItemId=id,OfficeDeskId=next.Id,IsActive=true,AssignedAt=DateTimeOffset.UtcNow,RecordStatus=RecordStatus.Active});await x.SaveChangesAsync();}Assert.DoesNotContain(id,await PulseIdsAsync(client,"P2FC-ASSIGNED")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_AssignedScope_Requires_ActiveDesk()
+    { var ws=await CreateWorkstreamAsync("PIA"+Guid.NewGuid().ToString("N")[..5],"Inactive");var desk=await CreateDeskAsync("PIAD"+Guid.NewGuid().ToString("N")[..5],"Desk",ws.Id,assignAdmin:false);var(client,_)=await CreateScopedUserClientAsync("pulsein"+Guid.NewGuid().ToString("N")[..6],"pulse-in-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Assigned,deskId:desk.Id,workstreamId:ws.Id);var id=await SeedPhase2FCPulseItemAsync(ws,desk,"P2FC-INACTIVE",SeedData.BootstrapAdminId);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();(await x.OfficeDesks.FindAsync(desk.Id))!.IsActive=false;await x.SaveChangesAsync();}Assert.DoesNotContain(id,await PulseIdsAsync(client,"P2FC-INACTIVE")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_AssignedScope_Requires_LiveDeskMembership()
+    { var ws=await CreateWorkstreamAsync("PLM"+Guid.NewGuid().ToString("N")[..5],"Live");var desk=await CreateDeskAsync("PLD"+Guid.NewGuid().ToString("N")[..5],"Desk",ws.Id,assignAdmin:false);var(client,user)=await CreateScopedUserClientAsync("pulselm"+Guid.NewGuid().ToString("N")[..6],"pulse-lm-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Assigned,deskId:desk.Id,workstreamId:ws.Id);var id=await SeedPhase2FCPulseItemAsync(ws,desk,"P2FC-LIVE-MEMBER",SeedData.BootstrapAdminId);Assert.Contains(id,await PulseIdsAsync(client,"P2FC-LIVE-MEMBER"));using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();var m=await x.UserDeskMemberships.SingleAsync(m=>m.UserId==user&&m.OfficeDeskId==desk.Id);m.IsActive=false;m.RemovedAt=DateTimeOffset.UtcNow;await x.SaveChangesAsync();}Assert.DoesNotContain(id,await PulseIdsAsync(client,"P2FC-LIVE-MEMBER")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_ViewScopes_Union_Workstream_And_Assigned()
+    { var a=await CreateWorkstreamAsync("PUA"+Guid.NewGuid().ToString("N")[..5],"A");var b=await CreateWorkstreamAsync("PUB"+Guid.NewGuid().ToString("N")[..5],"B");var deskA=await CreateDeskAsync("PUDA"+Guid.NewGuid().ToString("N")[..5],"Other",a.Id,assignAdmin:false);var deskB=await CreateDeskAsync("PUDB"+Guid.NewGuid().ToString("N")[..5],"Assigned",b.Id,assignAdmin:false);var(client,user)=await CreateCustomUserClientAsync("pulseun"+Guid.NewGuid().ToString("N")[..6],"pulse-un-ws-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Workstream,[PermissionCodes.WorkItemView],deskId:deskB.Id,workstreamId:a.Id);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();var p=await x.Permissions.SingleAsync(p=>p.Code==PermissionCodes.WorkItemView);var role=new Role{Code="PULSEUN"+Guid.NewGuid().ToString("N")[..6],Name="Assigned",IsActive=true,RecordStatus=RecordStatus.Active};x.Add(role);x.Add(new RolePermission{RoleId=role.Id,PermissionId=p.Id,ScopeMode=ScopeMode.Assigned});x.Add(new UserRole{UserId=user,RoleId=role.Id});await x.SaveChangesAsync();}var ia=await SeedPhase2FCPulseItemAsync(a,deskA,"P2FC-UNION-A",SeedData.BootstrapAdminId);var ib=await SeedPhase2FCPulseItemAsync(b,deskB,"P2FC-UNION-B",SeedData.BootstrapAdminId);var ids=await PulseIdsAsync(client,"P2FC-UNION");Assert.Contains(ia,ids);Assert.Contains(ib,ids); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_ContributorRelation_DoesNotGrantPulseScope()
+    { var ws=await CreateWorkstreamAsync("PCO"+Guid.NewGuid().ToString("N")[..5],"Contributor");var desk=await CreateDeskAsync("PCD"+Guid.NewGuid().ToString("N")[..5],"Desk",ws.Id,assignAdmin:false);var(client,user)=await CreateScopedUserClientAsync("pulseco"+Guid.NewGuid().ToString("N")[..6],"pulse-co-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Assigned,workstreamId:ws.Id);var id=await SeedPhase2FCPulseItemAsync(ws,desk,"P2FC-CONTRIB",SeedData.BootstrapAdminId);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();x.Add(new WorkItemContributor{Id=Guid.NewGuid(),WorkItemId=id,UserId=user,AddedByUserId=SeedData.BootstrapAdminId,AddedAt=DateTimeOffset.UtcNow,Status=WorkItemContributorStatus.Active,IsActive=true,RecordStatus=RecordStatus.Active});await x.SaveChangesAsync();}Assert.DoesNotContain(id,await PulseIdsAsync(client,"P2FC-CONTRIB")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_RequesterRelation_DoesNotGrantPulseScope()
+    { var ws=await CreateWorkstreamAsync("PRQ"+Guid.NewGuid().ToString("N")[..5],"Requester");var desk=await CreateDeskAsync("PRD"+Guid.NewGuid().ToString("N")[..5],"Desk",ws.Id,assignAdmin:false);var(client,user)=await CreateScopedUserClientAsync("pulserq"+Guid.NewGuid().ToString("N")[..6],"pulse-rq-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Assigned,workstreamId:ws.Id);var id=await SeedPhase2FCPulseItemAsync(ws,desk,"P2FC-REQUESTER",user);Assert.DoesNotContain(id,await PulseIdsAsync(client,"P2FC-REQUESTER")); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_OwnScope_FailsClosed()
+    { var(client,_)=await CreateCustomUserClientAsync("pulseown"+Guid.NewGuid().ToString("N")[..6],"pulse-own-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Own,[PermissionCodes.WorkItemView]);Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync("/api/work-items/branch-pulse")).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_InactiveUser_IsForbidden()
+    { var ws=await CreateWorkstreamAsync("PIF"+Guid.NewGuid().ToString("N")[..5],"Inactive user");var(client,user)=await CreateScopedUserClientAsync("pulseif"+Guid.NewGuid().ToString("N")[..6],"pulse-if-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Workstream,workstreamId:ws.Id);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();(await x.AppUsers.FindAsync(user))!.IsActive=false;await x.SaveChangesAsync();}Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync("/api/work-items/branch-pulse")).StatusCode); }
 }
 
