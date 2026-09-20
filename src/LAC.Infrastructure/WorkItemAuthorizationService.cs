@@ -43,6 +43,11 @@ public interface IWorkItemAuthorizationService
         Guid userId,
         CancellationToken ct = default);
 
+    Task<(bool Allowed, int StatusCode, string? ErrorMessage, IReadOnlyList<WorkItemDeskOptionDto> Desks)> GetAssignmentOptionsForWorkstreamAsync(
+        Guid workstreamId,
+        Guid userId,
+        CancellationToken ct = default);
+
     Task<bool> CanAccessAttachmentContentAsync(
         Guid workItemId,
         Guid attachmentId,
@@ -282,15 +287,22 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             .ToListAsync(ct);
     }
 
-    public async Task<IReadOnlyList<WorkItemDeskOptionDto>> GetAssignmentOptionsAsync(
-        Guid? workstreamId,
+    public async Task<(bool Allowed, int StatusCode, string? ErrorMessage, IReadOnlyList<WorkItemDeskOptionDto> Desks)> GetAssignmentOptionsForWorkstreamAsync(
+        Guid workstreamId,
         Guid userId,
         CancellationToken ct = default)
     {
         var isCallerActive = await db.AppUsers.AsNoTracking()
             .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
 
-        if (!isCallerActive) return [];
+        if (!isCallerActive)
+            return (false, 403, "Caller is not active.", []);
+
+        var targetWs = await db.Workstreams.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Id == workstreamId, ct);
+
+        if (targetWs is null || !targetWs.IsActive || targetWs.RecordStatus != RecordStatus.Active)
+            return (false, 400, "Target workstream is inactive or does not exist.", []);
 
         var assignScopes = await (
             from ur in db.UserRoles
@@ -303,51 +315,32 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             select rp.ScopeMode
         ).Distinct().ToListAsync(ct);
 
-        if (assignScopes.Count == 0) return [];
+        if (assignScopes.Count == 0)
+            return (false, 403, "Caller lacks WorkItem.Assign permission.", []);
 
         if (!assignScopes.Contains(ScopeMode.All))
         {
             if (assignScopes.Contains(ScopeMode.Workstream))
             {
-                if (workstreamId.HasValue)
-                {
-                    var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
-                        .AnyAsync(m => m.UserId == userId
-                                    && m.WorkstreamId == workstreamId.Value
-                                    && m.IsActive
-                                    && m.Workstream.IsActive
-                                    && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+                var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == userId
+                                && m.WorkstreamId == workstreamId
+                                && m.IsActive
+                                && m.Workstream.IsActive
+                                && m.Workstream.RecordStatus == RecordStatus.Active, ct);
 
-                    if (!isMember) return [];
-                }
-                else
-                {
-                    var callerWorkstreamIds = await db.UserWorkstreamMemberships.AsNoTracking()
-                        .Where(m => m.UserId == userId
-                                 && m.IsActive
-                                 && m.Workstream.IsActive
-                                 && m.Workstream.RecordStatus == RecordStatus.Active)
-                        .Select(m => m.WorkstreamId)
-                        .ToListAsync(ct);
-
-                    if (callerWorkstreamIds.Count == 0) return [];
-                }
+                if (!isMember)
+                    return (false, 403, "Caller is not an active member of target workstream.", []);
             }
             else
             {
-                return [];
+                return (false, 403, "Insufficient scope for assignment options.", []);
             }
         }
 
-        var desksQuery = db.OfficeDesks.AsNoTracking()
-            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active);
-
-        if (workstreamId.HasValue)
-        {
-            desksQuery = desksQuery.Where(d => d.WorkstreamId == workstreamId.Value || d.WorkstreamId == null);
-        }
-
-        var desks = await desksQuery
+        var desks = await db.OfficeDesks.AsNoTracking()
+            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
+                     && (d.WorkstreamId == workstreamId || d.WorkstreamId == null))
             .OrderBy(d => d.Name)
             .ToListAsync(ct);
 
@@ -376,7 +369,8 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         {
             var deskMembers = memberships
                 .Where(m => m.OfficeDeskId == desk.Id)
-                .OrderBy(m => m.DisplayName)
+                .OrderByDescending(m => m.IsPrimary)
+                .ThenBy(m => m.DisplayName)
                 .Select(m => new WorkItemDeskMemberOptionDto(
                     m.UserId,
                     m.Username,
@@ -395,7 +389,17 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             ));
         }
 
-        return result;
+        return (true, 200, null, result);
+    }
+
+    public async Task<IReadOnlyList<WorkItemDeskOptionDto>> GetAssignmentOptionsAsync(
+        Guid? workstreamId,
+        Guid userId,
+        CancellationToken ct = default)
+    {
+        if (!workstreamId.HasValue) return [];
+        var res = await GetAssignmentOptionsForWorkstreamAsync(workstreamId.Value, userId, ct);
+        return res.Allowed ? res.Desks : [];
     }
 
     public async Task<bool> CanAccessAttachmentContentAsync(
@@ -404,19 +408,6 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         Guid userId,
         CancellationToken ct = default)
     {
-        var canViewWorkItem = await CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemView, userId, ct);
-        if (!canViewWorkItem) return false;
-
-        var attachment = await db.WorkItemAttachments.AsNoTracking()
-            .Include(a => a.Document)
-            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.WorkItemId == workItemId, ct);
-
-        if (attachment is null || attachment.RecordStatus != RecordStatus.Active)
-            return false;
-
-        if (attachment.Document is null || attachment.Document.RecordStatus != RecordStatus.Active || attachment.Document.Status != "Active")
-            return false;
-
-        return true;
+        return await CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemView, userId, ct);
     }
 }

@@ -69,11 +69,31 @@ export function WorkItemWorkspace({ currentUserPermissions }: WorkItemWorkspaceP
         setTimeline(timelineJson);
       }
 
-      // Mark seen silently
-      fetch(`/api/work-items/${id}/seen`, {
-        method: 'POST',
-        credentials: 'include'
-      }).catch(() => {});
+      // Mark seen and refresh detail/timeline on first open so FirstSeen badge/event is live immediately
+      if (detailJson.currentAssignment && !detailJson.currentAssignment.firstSeenAt) {
+        try {
+          const seenRes = await fetch(`/api/work-items/${id}/seen`, {
+            method: 'POST',
+            credentials: 'include'
+          });
+          if (seenRes.ok) {
+            const [freshDetailRes, freshTimelineRes] = await Promise.all([
+              fetch(`/api/work-items/${id}`, { credentials: 'include' }),
+              fetch(`/api/work-items/${id}/timeline`, { credentials: 'include' })
+            ]);
+            if (freshDetailRes.ok) {
+              const freshDetail: WorkItemDetail = await freshDetailRes.json();
+              setItem(freshDetail);
+            }
+            if (freshTimelineRes.ok) {
+              const freshTimeline: WorkItemEvent[] = await freshTimelineRes.json();
+              setTimeline(freshTimeline);
+            }
+          }
+        } catch {
+          // ignore mark seen failure
+        }
+      }
     } catch (err: any) {
       setError(err.message || 'Error loading work item.');
     } finally {
@@ -183,7 +203,7 @@ export function WorkItemWorkspace({ currentUserPermissions }: WorkItemWorkspaceP
     if (!item || !confirm('Are you sure you want to remove this attachment from the work item?')) return;
 
     try {
-      const res = await fetch(`/api/work-items/${item.id}/attachments/${attachmentId}`, {
+      const res = await fetch(`/api/work-items/${item.id}/attachments/${attachmentId}?expectedRevision=${item.revision}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

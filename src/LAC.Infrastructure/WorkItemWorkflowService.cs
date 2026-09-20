@@ -849,8 +849,11 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision >= 0 && item.Revision != command.ExpectedRevision)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot remove attachments from a {item.Status} work item.", 400);
 
             var attachment = await db.WorkItemAttachments
                 .FirstOrDefaultAsync(a => a.Id == attachmentId && a.WorkItemId == workItemId && a.RecordStatus == RecordStatus.Active, c);

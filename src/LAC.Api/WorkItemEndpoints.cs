@@ -20,9 +20,9 @@ public sealed record CreateWorkItemApiRequest(
     Guid? DakId = null
 );
 
-public sealed record StartWorkApiRequest(int ExpectedRevision);
-public sealed record AddUpdateApiRequest(string Message, int ExpectedRevision);
-public sealed record RemoveAttachmentApiRequest(int ExpectedRevision);
+public sealed record StartWorkApiRequest(int? ExpectedRevision);
+public sealed record AddUpdateApiRequest(string Message, int? ExpectedRevision);
+public sealed record RemoveAttachmentApiRequest(int? ExpectedRevision);
 
 public sealed record MyWorkSummaryDto(
     int TotalOpen,
@@ -808,9 +808,12 @@ public static class WorkItemEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
             try
             {
-                var newRevision = await workflow.StartWorkAsync(id, new StartWorkCommand(request.ExpectedRevision), userId, ct);
+                var newRevision = await workflow.StartWorkAsync(id, new StartWorkCommand(request.ExpectedRevision.Value), userId, ct);
                 return Results.Ok(new { revision = newRevision, status = "InProgress" });
             }
             catch (WorkItemWorkflowException ex)
@@ -832,9 +835,12 @@ public static class WorkItemEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
             try
             {
-                var newRevision = await workflow.AddUpdateAsync(id, new AddWorkItemUpdateCommand(request.Message, request.ExpectedRevision), userId, ct);
+                var newRevision = await workflow.AddUpdateAsync(id, new AddWorkItemUpdateCommand(request.Message, request.ExpectedRevision.Value), userId, ct);
                 return Results.Ok(new { revision = newRevision });
             }
             catch (WorkItemWorkflowException ex)
@@ -866,9 +872,8 @@ public static class WorkItemEndpoints
 
             var title = form["title"].ToString();
             var attachmentType = form["attachmentType"].ToString();
-            int expectedRevision = 0;
-            if (form.ContainsKey("expectedRevision") && !int.TryParse(form["expectedRevision"].ToString(), out expectedRevision))
-                return Results.BadRequest(new { message = "Valid expectedRevision is required." });
+            if (!form.ContainsKey("expectedRevision") || !int.TryParse(form["expectedRevision"].ToString(), out var expectedRevision))
+                return Results.BadRequest(new { message = "expectedRevision is required." });
 
             try
             {
@@ -918,6 +923,9 @@ public static class WorkItemEndpoints
                 return Results.NotFound();
 
             var doc = attachment.Document;
+            if (attachment.RecordStatus != RecordStatus.Active || doc.RecordStatus != RecordStatus.Active || doc.Status != "Active")
+                return Results.NotFound(new { message = "Document is not in an active state." });
+
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null)
                 return Results.NotFound(new { message = "Document file not found on storage." });
@@ -933,6 +941,7 @@ public static class WorkItemEndpoints
             Guid id,
             Guid attachmentId,
             [Microsoft.AspNetCore.Mvc.FromQuery] int? expectedRevision,
+            HttpContext httpContext,
             WorkItemWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -940,10 +949,23 @@ public static class WorkItemEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            var rev = expectedRevision ?? -1;
+            int? rev = expectedRevision;
+            if (!rev.HasValue && httpContext.Request.HasJsonContentType())
+            {
+                try
+                {
+                    var body = await httpContext.Request.ReadFromJsonAsync<RemoveAttachmentApiRequest>(ct);
+                    if (body != null) rev = body.ExpectedRevision;
+                }
+                catch { }
+            }
+
+            if (!rev.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
             try
             {
-                var newRevision = await workflow.RemoveAttachmentAsync(id, attachmentId, new RemoveWorkItemAttachmentCommand(rev), userId, ct);
+                var newRevision = await workflow.RemoveAttachmentAsync(id, attachmentId, new RemoveWorkItemAttachmentCommand(rev.Value), userId, ct);
                 return Results.Ok(new { revision = newRevision });
             }
             catch (WorkItemWorkflowException ex)
@@ -972,7 +994,7 @@ public static class WorkItemEndpoints
         // 12. ASSIGNMENT OPTIONS
         // ====================================================================
         group.MapGet("/assignment-options", async (
-            Guid? workstreamId,
+            [Microsoft.AspNetCore.Mvc.FromQuery] Guid? workstreamId,
             IWorkItemAuthorizationService workItemAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -980,7 +1002,16 @@ public static class WorkItemEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            var desks = await workItemAuth.GetAssignmentOptionsAsync(workstreamId, userId, ct);
+            if (!workstreamId.HasValue || workstreamId.Value == Guid.Empty)
+                return Results.BadRequest(new { message = "workstreamId is required." });
+
+            var (allowed, statusCode, errorMessage, desks) = await workItemAuth.GetAssignmentOptionsForWorkstreamAsync(workstreamId.Value, userId, ct);
+            if (!allowed)
+            {
+                if (statusCode == 400) return Results.BadRequest(new { message = errorMessage });
+                return Results.Forbid();
+            }
+
             return Results.Ok(new { desks });
         });
 
