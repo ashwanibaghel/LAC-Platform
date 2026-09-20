@@ -3839,10 +3839,10 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             foreach (var spec in new[] { ("Overdue", WorkItemStatus.Assigned, now.AddHours(-1), now.AddDays(-8)), ("Fresh", WorkItemStatus.InProgress, (DateTimeOffset?)null, now), ("Done", WorkItemStatus.Completed, now.AddHours(-1), now.AddDays(-8)) })
-            { var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = spec.Item1, Status = spec.Item2, DueAt = spec.Item3, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 1, LastActivityAt = spec.Item4, RecordStatus = RecordStatus.Active }; db.Add(item); db.Add(new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = desk.Id, IsActive = true, AssignedAt = now, RecordStatus = RecordStatus.Active }); }
+            { var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = "PHASE2FC-ATTN-" + spec.Item1, Status = spec.Item2, DueAt = spec.Item3, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 1, LastActivityAt = spec.Item4, RecordStatus = RecordStatus.Active }; db.Add(item); db.Add(new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = desk.Id, IsActive = true, AssignedAt = now, RecordStatus = RecordStatus.Active }); }
             await db.SaveChangesAsync();
         }
-        var res = await client.GetAsync("/api/work-items/branch-pulse?attention=open&staleDays=7&pageSize=1"); Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var res = await client.GetAsync("/api/work-items/branch-pulse?q=PHASE2FC-ATTN&attention=open&staleDays=7&pageSize=1"); Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         using var json = JsonDocument.Parse(await res.Content.ReadAsStringAsync()); var summary = json.RootElement.GetProperty("summary"); Assert.Equal(2, summary.GetProperty("open").GetInt32()); Assert.Equal(1, summary.GetProperty("overdue").GetInt32()); Assert.Equal(1, summary.GetProperty("stale").GetInt32()); Assert.Equal(2, json.RootElement.GetProperty("totalCount").GetInt32()); Assert.Single(json.RootElement.GetProperty("items").EnumerateArray());
     }
 }
