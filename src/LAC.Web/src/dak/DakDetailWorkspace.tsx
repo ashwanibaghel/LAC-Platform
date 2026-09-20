@@ -247,6 +247,7 @@ export const DakDetailWorkspace: React.FC = () => {
   if (error || !dak) return <div className="state error"><strong>Error:</strong> {error || "Dak not found."}</div>;
 
   const isTerminal = dak.status === "Disposed" || dak.status === "Cancelled";
+  const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
   const canMove = hasPermission("Dak.Move") && !isTerminal;
   const canDispose = hasPermission("Dak.Dispose") && !isTerminal;
   const canCancel = hasPermission("Dak.Cancel") && !isTerminal;
@@ -316,6 +317,23 @@ export const DakDetailWorkspace: React.FC = () => {
         </div>
 
         <div className="dak-custody-actions">
+          {canAssignWork && (
+            <Link
+              to={`/work/new?dakId=${dak.id}`}
+              className="primary-button"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                textDecoration: "none",
+                fontWeight: 500,
+                background: "#0284c7",
+              }}
+            >
+              + Assign Work
+            </Link>
+          )}
+
           {canMove && (
             <button
               className="primary-button"

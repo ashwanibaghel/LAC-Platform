@@ -35,6 +35,14 @@ public static class PermissionCodes
     public const string OutwardEdit = "Outward.Edit";
     public const string OutwardDispatch = "Outward.Dispatch";
     public const string OutwardCancel = "Outward.Cancel";
+    public const string WorkItemView = "WorkItem.View";
+    public const string WorkItemCreate = "WorkItem.Create";
+    public const string WorkItemAssign = "WorkItem.Assign";
+    public const string WorkItemUpdate = "WorkItem.Update";
+    public const string WorkItemContribute = "WorkItem.Contribute";
+    public const string WorkItemReview = "WorkItem.Review";
+    public const string WorkItemComplete = "WorkItem.Complete";
+    public const string WorkItemCancel = "WorkItem.Cancel";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -71,6 +79,14 @@ public static class PermissionCodes
         new(OutwardEdit, "Edit Outward", "Edit metadata, enclosures, and cross-references of registered outward correspondence", "Outward"),
         new(OutwardDispatch, "Dispatch Outward", "Record official dispatch of outward correspondence with mode and date", "Outward"),
         new(OutwardCancel, "Cancel Outward", "Void registered outward correspondence with mandatory justification", "Outward"),
+        new(WorkItemView, "View Work Items", "View official work items, assignments, updates, and timelines", "Work Management"),
+        new(WorkItemCreate, "Create Work Items", "Create new actionable work items within authorized workstreams", "Work Management"),
+        new(WorkItemAssign, "Assign Work Items", "Assign and reassign work items to active desks and officers", "Work Management"),
+        new(WorkItemUpdate, "Update Work Items", "Record progress updates, start work, and attach working files", "Work Management"),
+        new(WorkItemContribute, "Contribute to Work Items", "Contribute supporting material and draft preparations", "Work Management"),
+        new(WorkItemReview, "Review Work Items", "Review work submissions and return or accept preparations", "Work Management"),
+        new(WorkItemComplete, "Complete Work Items", "Mark assigned work items as completed with final disposition", "Work Management"),
+        new(WorkItemCancel, "Cancel Work Items", "Void errant or superseded work items with audit justification", "Work Management"),
     ];
 }
 

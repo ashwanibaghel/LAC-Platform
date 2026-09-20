@@ -28,6 +28,10 @@ import { OutwardRegistration } from "./outward/OutwardRegistration";
 import { OutwardDetailWorkspace } from "./outward/OutwardDetailWorkspace";
 import { MatterDirectory } from "./matter/MatterDirectory";
 import { MatterWorkspace } from "./matter/MatterWorkspace";
+import { MyWork } from "./work/MyWork";
+import { WorkItemCreate } from "./work/WorkItemCreate";
+import { WorkItemWorkspace } from "./work/WorkItemWorkspace";
+import "./work/work.css";
 import "./matter/matter.css";
 import "./index.css";
 import "./sidebar.css";
@@ -453,6 +457,9 @@ function Shell({ children }: { children: ReactNode }) {
   ];
   if (hasPermission("Dak.View")) {
     links.push(["My Desk", "/my-desk", "🗂"]);
+  }
+  if (hasPermission("WorkItem.View") || hasPermission("WorkItem.Create")) {
+    links.push(["My Work", "/my-work", "📋"]);
   }
   if (hasPermission("Dak.View") || hasPermission("Dak.Register")) {
     links.push(["Dak / Inward", "/dak", "📥"]);
@@ -3277,6 +3284,9 @@ function AuthenticatedApp() {
         <Route path="/imports/lr" element={<LrWorkspace />} />
         <Route path="/imports/lr/review" element={<LrReview />} />
         <Route path="/my-desk" element={<MyDesk />} />
+        <Route path="/my-work" element={<MyWork />} />
+        <Route path="/work/new" element={<WorkItemCreate />} />
+        <Route path="/work/:id" element={<WorkItemWorkspace />} />
         <Route path="/dak" element={<DakDirectory />} />
         <Route path="/dak/register" element={<DakRegistration />} />
         <Route path="/dak/:id" element={<DakDetailWorkspace />} />

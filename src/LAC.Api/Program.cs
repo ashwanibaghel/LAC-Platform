@@ -63,6 +63,8 @@ builder.Services.AddScoped<IOutwardAuthorizationService, OutwardAuthorizationSer
 builder.Services.AddScoped<OutwardWorkflowService>();
 builder.Services.AddScoped<IMatterAuthorizationService, MatterAuthorizationService>();
 builder.Services.AddScoped<MatterWorkflowService>();
+builder.Services.AddScoped<IWorkItemAuthorizationService, WorkItemAuthorizationService>();
+builder.Services.AddScoped<WorkItemWorkflowService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -120,6 +122,7 @@ api.MapDakEndpoints();
 api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
+api.MapWorkItemEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";

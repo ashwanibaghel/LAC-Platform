@@ -401,6 +401,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   if (error || !matter) return <div className="state error">{error || "Matter not found."}</div>;
 
   const isArchived = matter.status === "Archived";
+  const canAssignWork = !isArchived && hasPermission("WorkItem.Create");
   const canEdit = !isArchived && hasPermission("Matter.Edit");
   const canManageDocs = !isArchived && hasPermission("Matter.Document.Manage");
   const canArchive = !isArchived && hasPermission("Matter.Archive");
@@ -450,6 +451,26 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         {/* Action Controls */}
         {!isArchived && (
           <div className="matter-actions-strip">
+            {canAssignWork && (
+              <Link
+                to={`/work/new?matterId=${matter.id}`}
+                className="button-link"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 12px",
+                  background: "#1d4ed8",
+                  color: "#fff",
+                  borderRadius: 4,
+                  textDecoration: "none",
+                  fontWeight: 500,
+                  fontSize: "0.875rem",
+                }}
+              >
+                + Assign Work
+              </Link>
+            )}
             {canEdit && (
               <>
                 <button onClick={() => {
