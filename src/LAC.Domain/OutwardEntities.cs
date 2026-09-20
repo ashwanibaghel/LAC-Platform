@@ -90,6 +90,9 @@ public sealed class OutwardEvent
     public string? DispatchMode { get; set; }
     public string? DispatchReferenceNumber { get; set; }
     public string? CancellationReason { get; set; }
+
+    public Guid? IssuingDeskIdSnapshot { get; set; }
+    public Guid? WorkstreamIdSnapshot { get; set; }
 }
 
 public sealed class OutwardAttachment : OfficialRecord

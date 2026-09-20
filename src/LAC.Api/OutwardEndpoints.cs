@@ -937,6 +937,7 @@ public static class OutwardEndpoints
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             HttpResponse response,
             CancellationToken ct) =>
         {
@@ -957,6 +958,15 @@ public static class OutwardEndpoints
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
 
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: doc.Id,
+                ContextEntityType: "Outward",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: doc.OriginalFileName
+            ), ct);
+
             response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
         });
@@ -968,6 +978,7 @@ public static class OutwardEndpoints
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             HttpResponse response,
             CancellationToken ct) =>
         {
@@ -988,6 +999,15 @@ public static class OutwardEndpoints
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
 
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: doc.Id,
+                ContextEntityType: "Outward",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: doc.OriginalFileName
+            ), ct);
+
             response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
         });
@@ -999,6 +1019,7 @@ public static class OutwardEndpoints
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             HttpResponse response,
             CancellationToken ct) =>
         {
@@ -1015,6 +1036,15 @@ public static class OutwardEndpoints
 
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
+
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: doc.Id,
+                ContextEntityType: "Outward",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: doc.OriginalFileName
+            ), ct);
 
             response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.Stream(stream, doc.MimeType ?? "application/octet-stream", doc.OriginalFileName, enableRangeProcessing: true);

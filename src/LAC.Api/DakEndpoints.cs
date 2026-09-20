@@ -1195,6 +1195,7 @@ public static class DakEndpoints
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -1212,6 +1213,15 @@ public static class DakEndpoints
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
 
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: document.Id,
+                ContextEntityType: "Dak",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: document.OriginalFileName
+            ), ct);
+
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
@@ -1225,6 +1235,7 @@ public static class DakEndpoints
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -1242,6 +1253,15 @@ public static class DakEndpoints
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
 
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: document.Id,
+                ContextEntityType: "Dak",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: document.OriginalFileName
+            ), ct);
+
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
@@ -1255,6 +1275,7 @@ public static class DakEndpoints
             IDocumentStorage storage,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -1268,6 +1289,15 @@ public static class DakEndpoints
 
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
+
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: document.Id,
+                ContextEntityType: "Dak",
+                ContextEntityId: id,
+                DocumentTitleSnapshot: document.OriginalFileName
+            ), ct);
 
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);

@@ -65,6 +65,8 @@ builder.Services.AddScoped<IMatterAuthorizationService, MatterAuthorizationServi
 builder.Services.AddScoped<MatterWorkflowService>();
 builder.Services.AddScoped<IWorkItemAuthorizationService, WorkItemAuthorizationService>();
 builder.Services.AddScoped<WorkItemWorkflowService>();
+builder.Services.AddScoped<IRecordAccessLogger, RecordAccessLogger>();
+builder.Services.AddScoped<IActivityProjectionService, ActivityProjectionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -123,6 +125,7 @@ api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
 api.MapWorkItemEndpoints();
+api.MapActivityEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";
@@ -416,7 +419,7 @@ api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, Cancell
         .Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status));
     return Results.Ok(await ToPageAsync(query, page, pageSize, ct));
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, IRecordAccessLogger accessLogger, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking()
         .Where(x => x.Id == id && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
@@ -438,7 +441,19 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
     }
     if (document is null) return Results.NotFound();
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
-    return stream is null ? Results.NotFound() : Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
+    if (stream is null) return Results.NotFound();
+
+    if (currentUser.UserId.HasValue)
+    {
+        await accessLogger.LogAccessAsync(new RecordAccessCommand(
+            ActorUserId: currentUser.UserId.Value,
+            Action: RecordAccessAction.Opened,
+            DocumentId: document.Id,
+            DocumentTitleSnapshot: document.OriginalFileName
+        ), ct);
+    }
+
+    return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {

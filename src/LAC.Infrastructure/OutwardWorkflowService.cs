@@ -511,7 +511,9 @@ public sealed class OutwardWorkflowService(
                         ActionByUserId = currentUserId,
                         ActionByDisplayNameSnapshot = actionUser.DisplayName,
                         ActionAt = DateTimeOffset.UtcNow,
-                        DocumentId = initialDocumentId
+                        DocumentId = initialDocumentId,
+                        IssuingDeskIdSnapshot = cmd.IssuingDeskId,
+                        WorkstreamIdSnapshot = cmd.WorkstreamId
                     };
                     db.OutwardEvents.Add(regEvent);
 
@@ -664,7 +666,9 @@ public sealed class OutwardWorkflowService(
                     Action = OutwardEventAction.MetadataUpdated,
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                    ActionAt = DateTimeOffset.UtcNow
+                    ActionAt = DateTimeOffset.UtcNow,
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -762,7 +766,9 @@ public sealed class OutwardWorkflowService(
                         ActionByUserId = currentUserId,
                         ActionByDisplayNameSnapshot = actionUser.DisplayName,
                         ActionAt = DateTimeOffset.UtcNow,
-                        DocumentId = newDocumentId
+                        DocumentId = newDocumentId,
+                        IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                        WorkstreamIdSnapshot = outward.WorkstreamId
                     };
                     db.OutwardEvents.Add(evt);
 
@@ -888,7 +894,9 @@ public sealed class OutwardWorkflowService(
                         ActionByDisplayNameSnapshot = actionUser.DisplayName,
                         ActionAt = DateTimeOffset.UtcNow,
                         AttachmentId = attachmentId,
-                        DocumentId = documentId
+                        DocumentId = documentId,
+                        IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                        WorkstreamIdSnapshot = outward.WorkstreamId
                     };
                     db.OutwardEvents.Add(evt);
 
@@ -961,7 +969,9 @@ public sealed class OutwardWorkflowService(
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
                     AttachmentId = attachmentId,
-                    DocumentId = attachment.DocumentId
+                    DocumentId = attachment.DocumentId,
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1048,7 +1058,9 @@ public sealed class OutwardWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
-                    DakId = cmd.DakId
+                    DakId = cmd.DakId,
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1111,7 +1123,9 @@ public sealed class OutwardWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
-                    DakId = link.DakId
+                    DakId = link.DakId,
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1186,7 +1200,9 @@ public sealed class OutwardWorkflowService(
                     ActionAt = now,
                     DispatchDate = cmd.DispatchDate,
                     DispatchMode = mode,
-                    DispatchReferenceNumber = cmd.DispatchReferenceNumber?.Trim()
+                    DispatchReferenceNumber = cmd.DispatchReferenceNumber?.Trim(),
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1250,7 +1266,9 @@ public sealed class OutwardWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = now,
-                    CancellationReason = cmd.Reason.Trim()
+                    CancellationReason = cmd.Reason.Trim(),
+                    IssuingDeskIdSnapshot = outward.IssuingDeskId,
+                    WorkstreamIdSnapshot = outward.WorkstreamId
                 };
                 db.OutwardEvents.Add(evt);
 

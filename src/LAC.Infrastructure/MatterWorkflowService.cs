@@ -224,7 +224,8 @@ public sealed class MatterWorkflowService(
                     Action = MatterEventAction.Created,
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                    ActionAt = now
+                    ActionAt = now,
+                    WorkstreamIdSnapshot = cmd.WorkstreamId
                 };
                 db.MatterEvents.Add(createdEvent);
 
@@ -311,7 +312,8 @@ public sealed class MatterWorkflowService(
                     Action = MatterEventAction.MetadataUpdated,
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                    ActionAt = DateTimeOffset.UtcNow
+                    ActionAt = DateTimeOffset.UtcNow,
+                    WorkstreamIdSnapshot = matter.WorkstreamId
                 };
                 db.MatterEvents.Add(ev);
 
@@ -371,6 +373,7 @@ public sealed class MatterWorkflowService(
                     .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
                 var seq = maxSeq + 1;
 
+                var sourceWorkstreamId = matter.WorkstreamId;
                 matter.WorkstreamId = cmd.TargetWorkstreamId;
                 matter.Revision++;
                 matter.UpdatedBy = actionUser.DisplayName;
@@ -385,7 +388,9 @@ public sealed class MatterWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
-                    TargetWorkstreamId = cmd.TargetWorkstreamId
+                    SourceWorkstreamId = sourceWorkstreamId,
+                    TargetWorkstreamId = cmd.TargetWorkstreamId,
+                    WorkstreamIdSnapshot = cmd.TargetWorkstreamId
                 };
                 db.MatterEvents.Add(ev);
 
@@ -492,7 +497,8 @@ public sealed class MatterWorkflowService(
                         ActionByDisplayNameSnapshot = actionUser.DisplayName,
                         ActionAt = DateTimeOffset.UtcNow,
                         DocumentId = documentId,
-                        MatterDocumentId = matterDocId
+                        MatterDocumentId = matterDocId,
+                        WorkstreamIdSnapshot = matter.WorkstreamId
                     };
                     db.MatterEvents.Add(ev);
 
@@ -600,7 +606,8 @@ public sealed class MatterWorkflowService(
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
                     DocumentId = cmd.DocumentId,
-                    MatterDocumentId = matterDocId
+                    MatterDocumentId = matterDocId,
+                    WorkstreamIdSnapshot = matter.WorkstreamId
                 };
                 db.MatterEvents.Add(ev);
 
@@ -672,7 +679,8 @@ public sealed class MatterWorkflowService(
                     Action = MatterEventAction.Archived,
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
-                    ActionAt = DateTimeOffset.UtcNow
+                    ActionAt = DateTimeOffset.UtcNow,
+                    WorkstreamIdSnapshot = matter.WorkstreamId
                 };
                 db.MatterEvents.Add(ev);
 

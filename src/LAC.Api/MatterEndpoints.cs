@@ -606,6 +606,7 @@ public static class MatterEndpoints
             IDocumentStorage storage,
             IMatterAuthorizationService matterAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -652,6 +653,15 @@ public static class MatterEndpoints
                             ?? throw new InvalidOperationException("A selected document is unavailable.");
                         await using var output = entry.Open();
                         await input.CopyToAsync(output, ct);
+
+                        await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                            ActorUserId: userId,
+                            Action: RecordAccessAction.Downloaded,
+                            DocumentId: document.Id,
+                            ContextEntityType: "Matter",
+                            ContextEntityId: id,
+                            DocumentTitleSnapshot: document.OriginalFileName
+                        ), ct);
                     }
                 }
                 zipStream.Position = 0;
@@ -672,6 +682,7 @@ public static class MatterEndpoints
             IDocumentStorage storage,
             IMatterAuthorizationService matterAuth,
             ICurrentUserContext currentUser,
+            IRecordAccessLogger accessLogger,
             HttpResponse response,
             CancellationToken ct) =>
         {
@@ -691,6 +702,16 @@ public static class MatterEndpoints
             response.Headers.Append("X-Content-Type-Options", "nosniff");
             var ext = Path.GetExtension(doc.OriginalFileName);
             var mime = doc.MimeType ?? MatterDocumentValidation.GetServerDerivedMimeType(ext);
+
+            var action = MatterDocumentValidation.IsInlineDisposition(ext) ? RecordAccessAction.Previewed : RecordAccessAction.Downloaded;
+            await accessLogger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: action,
+                DocumentId: documentId,
+                ContextEntityType: "Matter",
+                ContextEntityId: matterId,
+                DocumentTitleSnapshot: doc.OriginalFileName
+            ), ct);
 
             if (MatterDocumentValidation.IsInlineDisposition(ext))
             {
