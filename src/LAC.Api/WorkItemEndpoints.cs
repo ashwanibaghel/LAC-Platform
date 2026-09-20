@@ -344,43 +344,35 @@ public static class WorkItemEndpoints
                 select rp.ScopeMode
             ).Distinct().ToListAsync(ct);
 
-            // Step 1: Base query representing operational participation
+            // Step 1: Base query representing WorkItem.View projection
             var baseQuery = db.WorkItems.AsNoTracking()
                 .Where(w => w.RecordStatus == RecordStatus.Active);
 
-            // Intersect with operational participation criteria:
-            // - Desk responsibility (user must have live active membership in the assigned desk, regardless of optional named handler)
-            // - Requested by caller and not completed/cancelled
-            // - Contributor participation (Active, Submitted, Returned)
-            baseQuery = baseQuery.Where(w =>
-                (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
-                (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
-                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
-                    (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
-            );
-
-            // Step 2: Intersect with WorkItem.View authorization scopes
+            // Step 2: Intersect with WorkItem.View authorization scopes (UNION):
+            // All
+            // OR Workstream-authorized rows (active workstream memberships)
+            // OR Assigned-authorized rows (assigned desk, requested by caller, or active/submitted/returned contributor)
             if (!viewScopes.Contains(ScopeMode.All))
             {
-                if (viewScopes.Contains(ScopeMode.Workstream))
-                {
-                    baseQuery = baseQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
-                }
-                else if (viewScopes.Contains(ScopeMode.Assigned))
-                {
-                    // ScopeMode.Assigned allows only items where caller is a live desk member of the assigned desk or active/submitted/returned contributor
-                    baseQuery = baseQuery.Where(w =>
-                        (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                            activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
-                        w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
-                            (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
-                    );
-                }
-                else
+                var hasWorkstreamScope = viewScopes.Contains(ScopeMode.Workstream);
+                var hasAssignedScope = viewScopes.Contains(ScopeMode.Assigned);
+
+                if (!hasWorkstreamScope && !hasAssignedScope)
                 {
                     return Results.Forbid();
                 }
+
+                // Scope union: All authorized rows from Workstream scope and Assigned scope must be unioned
+                baseQuery = baseQuery.Where(w =>
+                    (hasWorkstreamScope && userWorkstreamIds.Contains(w.WorkstreamId)) ||
+                    (hasAssignedScope && (
+                        (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
+                            activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
+                        (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
+                        w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                            (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
+                    ))
+                );
             }
 
             // Step 3: Compute Delhi office date boundaries
@@ -415,27 +407,30 @@ public static class WorkItemEndpoints
                 w.Status != WorkItemStatus.Cancelled &&
                 w.DueAt != null && w.DueAt.Value >= todayStartUtc && w.DueAt.Value < weekEndUtc, ct);
 
-            // NeedsReview: Count open work items where at least one contributor is Submitted (or item is SubmittedForReview) and caller has review authority
+            // NeedsReview: Count open work items where at least one active contributor is Submitted and caller has review authority
             var summaryNeedsReview = 0;
             if (reviewScopes.Count > 0)
             {
                 var reviewQuery = baseQuery.Where(w => w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled &&
-                    (w.Status == WorkItemStatus.SubmittedForReview ||
-                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted)));
+                    w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted));
 
                 if (!reviewScopes.Contains(ScopeMode.All))
                 {
-                    if (reviewScopes.Contains(ScopeMode.Workstream))
+                    var hasWsReview = reviewScopes.Contains(ScopeMode.Workstream);
+                    var hasAssignedReview = reviewScopes.Contains(ScopeMode.Assigned);
+
+                    if (!hasWsReview && !hasAssignedReview)
                     {
-                        reviewQuery = reviewQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
-                    }
-                    else if (reviewScopes.Contains(ScopeMode.Assigned))
-                    {
-                        reviewQuery = reviewQuery.Where(w => w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId));
+                        reviewQuery = reviewQuery.Where(w => false);
                     }
                     else
                     {
-                        reviewQuery = reviewQuery.Where(w => false);
+                        // Scope union: Workstream-authorized OR responsible-Desk Assigned rows.
+                        // Contributor relation must NEVER satisfy Review.
+                        reviewQuery = reviewQuery.Where(w =>
+                            (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
+                            (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                        );
                     }
                 }
                 summaryNeedsReview = await reviewQuery.CountAsync(ct);
@@ -541,22 +536,25 @@ public static class WorkItemEndpoints
             else if (relFilter == "review")
             {
                 filteredQuery = filteredQuery.Where(w =>
-                    w.Status == WorkItemStatus.SubmittedForReview ||
                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted));
 
                 if (!reviewScopes.Contains(ScopeMode.All))
                 {
-                    if (reviewScopes.Contains(ScopeMode.Workstream))
+                    var hasWsReview = reviewScopes.Contains(ScopeMode.Workstream);
+                    var hasAssignedReview = reviewScopes.Contains(ScopeMode.Assigned);
+
+                    if (!hasWsReview && !hasAssignedReview)
                     {
-                        filteredQuery = filteredQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
-                    }
-                    else if (reviewScopes.Contains(ScopeMode.Assigned))
-                    {
-                        filteredQuery = filteredQuery.Where(w => w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId));
+                        filteredQuery = filteredQuery.Where(w => false);
                     }
                     else
                     {
-                        filteredQuery = filteredQuery.Where(w => false);
+                        // Scope union: Workstream-authorized OR responsible-Desk Assigned rows.
+                        // Contributor relation must NEVER satisfy Review.
+                        filteredQuery = filteredQuery.Where(w =>
+                            (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
+                            (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                        );
                     }
                 }
             }

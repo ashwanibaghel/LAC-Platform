@@ -2116,11 +2116,11 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var desk1 = await CreateDeskAsync("DSK-RESP-1", "Responsible Desk 1", ws.Id, assignAdmin: true);
         var desk2 = await CreateDeskAsync("DSK-HELP-1", "Helper Desk 1", ws.Id, assignAdmin: false);
 
-        // Helper user has Workstream scope on View and Contribute
+        // Contributor-only helper user has ScopeMode.Assigned on non-responsible desk2
         var (helperClient, helperId) = await CreateCustomUserClientAsync(
             "helper_user_1",
             "ROLE_HELPER_1",
-            ScopeMode.Workstream,
+            ScopeMode.Assigned,
             [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
             deskId: desk2.Id,
             workstreamId: ws.Id
@@ -2355,6 +2355,16 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             workstreamId: ws.Id
         );
 
+        // User with View + Update but NO WorkItem.Contribute (ineligible because SubmitContribution requires WorkItem.Contribute)
+        var (_, updateOnlyId) = await CreateCustomUserClientAsync(
+            "update_only_user",
+            "ROLE_UPDATE_ONLY",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
         // User with ScopeMode.Own only
         var (_, ownScopeId) = await CreateCustomUserClientAsync(
             "own_scope_user",
@@ -2398,6 +2408,14 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         ));
         Assert.Equal(HttpStatusCode.BadRequest, resAddViewOnly.StatusCode);
 
+        // 1b. Ineligible: View + Update but NO WorkItem.Contribute -> 400
+        var resAddUpdateOnly = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: updateOnlyId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, resAddUpdateOnly.StatusCode);
+
         // 2. Ineligible: ScopeMode.Own -> 400
         var resAddOwn = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
             UserId: ownScopeId,
@@ -2406,13 +2424,14 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         ));
         Assert.Equal(HttpStatusCode.BadRequest, resAddOwn.StatusCode);
 
-        // 3. Query contributor options -> includes eligible user, excludes view-only and own-scope
+        // 3. Query contributor options -> includes eligible user, excludes view-only, update-only, and own-scope
         var resOptions = await adminClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
         Assert.Equal(HttpStatusCode.OK, resOptions.StatusCode);
         var optionsJson = await resOptions.Content.ReadFromJsonAsync<JsonElement>();
         var options = optionsJson.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()).ToList();
         Assert.Contains(eligibleUserId, options);
         Assert.DoesNotContain(viewOnlyId, options);
+        Assert.DoesNotContain(updateOnlyId, options);
         Assert.DoesNotContain(ownScopeId, options);
 
         // 4. Add eligible user -> 200 OK
@@ -2449,7 +2468,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var (helperClient, helperId) = await CreateCustomUserClientAsync(
             "helper_removable",
             "ROLE_REMOVABLE",
-            ScopeMode.Workstream,
+            ScopeMode.Assigned,
             [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
             deskId: desk2.Id,
             workstreamId: ws.Id
@@ -2570,7 +2589,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var (helper1Client, helper1Id) = await CreateCustomUserClientAsync(
             "multi_helper_1",
             "ROLE_MULTI_1",
-            ScopeMode.Workstream,
+            ScopeMode.Assigned,
             [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
             deskId: desk2.Id,
             workstreamId: ws.Id
@@ -2579,7 +2598,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var (helper2Client, helper2Id) = await CreateCustomUserClientAsync(
             "multi_helper_2",
             "ROLE_MULTI_2",
-            ScopeMode.Workstream,
+            ScopeMode.Assigned,
             [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
             deskId: desk3.Id,
             workstreamId: ws.Id
@@ -2729,6 +2748,609 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var resMwHelperAfterReturn = await helperClient.GetAsync("/api/work-items/my-work");
         var mwHelperAfterReturn = await resMwHelperAfterReturn.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
         Assert.True(mwHelperAfterReturn!.Summary.ReturnedToMe >= 1);
+    }
+
+    // ========================================================================
+    // AUDIT 2F-B HARDENING: INDEPENDENT AUTHORITY SURVIVES CONTRIBUTOR STATE
+    // ========================================================================
+    [Fact]
+    public async Task WorkItem_Contributor_IndependentWorkstreamAuth_Survives_SubmittedStatus()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-INDEP-1", "Independent WS 1");
+        var desk1 = await CreateDeskAsync("DSK-RESP-I1", "Responsible Desk I1", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-I1", "Helper Desk I1", ws.Id, assignAdmin: false);
+
+        // User has independent Workstream scope for View, Contribute, and Update
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "ws_officer_submitted",
+            "ROLE_WS_OFFICER_1",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Independent WS Auth Survives Submitted Test",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // Add officer as contributor
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Officer submits contribution -> contributor status is now Submitted
+        var resSubmit = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Submitted for review"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit.StatusCode);
+
+        // Officer makes an update -> Independent Workstream authority survives! (200 OK, NOT 403)
+        var resUpdate = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Independent update through Workstream authority",
+            ExpectedRevision: 2
+        ));
+        Assert.Equal(HttpStatusCode.OK, resUpdate.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_IndependentWorkstreamAuth_Survives_RemovedStatus()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-INDEP-2", "Independent WS 2");
+        var desk1 = await CreateDeskAsync("DSK-RESP-I2", "Responsible Desk I2", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-I2", "Helper Desk I2", ws.Id, assignAdmin: false);
+
+        // User has independent Workstream scope for View, Contribute, and Update
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "ws_officer_removed",
+            "ROLE_WS_OFFICER_2",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Independent WS Auth Survives Removed Test",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // Add officer as contributor
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Admin removes contributor -> status = Removed, IsActive = false
+        var resRemove = await adminClient.DeleteAsync($"/api/work-items/{workItemId}/contributors/{cId}?expectedRevision=1&reason=NoLongerNeeded");
+        Assert.Equal(HttpStatusCode.OK, resRemove.StatusCode);
+
+        // Officer calls GET /work-items/{id} -> Independent Workstream View survives! (200 OK, NOT 403)
+        var resGet = await helperClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resGet.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_ResponsibleDeskOfficer_Auth_Not_Affected_By_ContributorStatus()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-INDEP-3", "Independent WS 3");
+        var desk1 = await CreateDeskAsync("DSK-RESP-I3", "Responsible Desk I3", ws.Id, assignAdmin: false);
+
+        // Officer is on the responsible desk (desk1) with ScopeMode.Assigned
+        var (officerClient, officerId) = await CreateCustomUserClientAsync(
+            "desk_officer_contrib",
+            "ROLE_DESK_OFFICER",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk1.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Responsible Desk Officer Contributor Auth Test",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: officerId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // Add desk officer as contributor too
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: officerId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Desk officer submits contribution -> contributor status is Submitted
+        var resSubmit = await officerClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Ready"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit.StatusCode);
+
+        // Desk officer can still post updates via responsible desk authority!
+        var resUpdate = await officerClient.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Responsible desk update survives contributor Submitted state",
+            ExpectedRevision: 2
+        ));
+        Assert.Equal(HttpStatusCode.OK, resUpdate.StatusCode);
+    }
+
+    // ========================================================================
+    // AUDIT 2F-B HARDENING: MISSING EXPECTED REVISION RETURNS 400
+    // ========================================================================
+    [Fact]
+    public async Task WorkItem_Contributor_MissingExpectedRevision_Returns_400()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-REV-400", "Revision 400 WS");
+        var desk1 = await CreateDeskAsync("DSK-REV-400A", "Revision Desk 400A", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-REV-400B", "Revision Desk 400B", ws.Id, assignAdmin: false);
+
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "helper_rev_400",
+            "ROLE_REV_400",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Revision 400 Regression Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // 1. POST /contributors without expectedRevision -> 400
+        var resNoRevAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new
+        {
+            userId = helperId,
+            instructions = "test"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, resNoRevAdd.StatusCode);
+
+        // Add validly
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // 2. POST /submit without expectedRevision -> 400
+        var resNoRevSubmit = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new
+        {
+            note = "missing rev"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, resNoRevSubmit.StatusCode);
+
+        // Submit validly
+        await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "ready"
+        ));
+
+        // 3. POST /return without expectedRevision -> 400
+        var resNoRevReturn = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/return", new
+        {
+            remarks = "needs work"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, resNoRevReturn.StatusCode);
+
+        // 4. POST /accept without expectedRevision -> 400
+        var resNoRevAccept = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/accept", new
+        {
+            remarks = "ok"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, resNoRevAccept.StatusCode);
+
+        // 5. DELETE without expectedRevision -> 400
+        var resNoRevDelete = await adminClient.DeleteAsync($"/api/work-items/{workItemId}/contributors/{cId}");
+        Assert.Equal(HttpStatusCode.BadRequest, resNoRevDelete.StatusCode);
+    }
+
+    // ========================================================================
+    // AUDIT 2F-B HARDENING: RETRY & COMMIT AMBIGUITY PROOFS FOR CONTRIBUTORS
+    // ========================================================================
+    [Fact]
+    public async Task WorkItem_Contributor_AddContributor_PreCommit_Retry_Proof()
+    {
+        var dbName = $"wi-contrib-retry-precommit-{Guid.NewGuid():N}";
+        var interceptor = new TrackingSaveChangesInterceptor();
+        var options = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .AddInterceptors(interceptor)
+            .Options;
+
+        using var db = new LacDbContext(options);
+        var storage = new TestInMemoryDocumentStorage();
+        var workItemAuth = new WorkItemAuthorizationService(db);
+        var matterAuth = new MatterAuthorizationService(db);
+        var dakAuth = new DakAuthorizationService(db);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new WorkItemWorkflowService(
+            db,
+            storage,
+            workItemAuth,
+            matterAuth,
+            dakAuth,
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+
+        var ws = new Workstream { Id = Guid.NewGuid(), Code = "WS-RETRY-C", Name = "Retry Contrib WS", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var desk1 = new OfficeDesk { Id = Guid.NewGuid(), Code = "DSK-R1", Name = "Desk R1", WorkstreamId = ws.Id, IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var desk2 = new OfficeDesk { Id = Guid.NewGuid(), Code = "DSK-R2", Name = "Desk R2", WorkstreamId = ws.Id, IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var adminUser = new AppUser { Id = Guid.NewGuid(), Username = "user_admin_c", DisplayName = "Admin C", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var helperUser = new AppUser { Id = Guid.NewGuid(), Username = "user_helper_c", DisplayName = "Helper C", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+
+        var wi = new WorkItem
+        {
+            Id = Guid.NewGuid(),
+            WorkstreamId = ws.Id,
+            Title = "AddContributor PreCommit Retry Test",
+            Priority = WorkItemPriority.Routine,
+            Status = WorkItemStatus.InProgress,
+            Origin = WorkItemOrigin.Manual,
+            RequestedByUserId = adminUser.Id,
+            RequestedByDisplayNameSnapshot = adminUser.DisplayName,
+            Revision = 0,
+            LastActivityAt = DateTimeOffset.UtcNow,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        var assignment = new WorkItemAssignment
+        {
+            Id = Guid.NewGuid(),
+            WorkItemId = wi.Id,
+            OfficeDeskId = desk1.Id,
+            AssignedUserId = adminUser.Id,
+            IsActive = true,
+            AssignedAt = DateTimeOffset.UtcNow,
+            RecordStatus = RecordStatus.Active
+        };
+
+        // Admin role has WorkItemAssign (ScopeMode.All)
+        var adminRole = new Role { Id = Guid.NewGuid(), Code = "ROLE_ADMIN_C", Name = "Admin Role", IsSystemRole = false };
+        var permAssign = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemAssign)
+                         ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemAssign, Name = "Assign" };
+        if (permAssign.Id == Guid.Empty) permAssign.Id = Guid.NewGuid();
+
+        // Helper role has WorkItemView and WorkItemContribute (ScopeMode.Workstream)
+        var helperRole = new Role { Id = Guid.NewGuid(), Code = "ROLE_HELPER_C", Name = "Helper Role", IsSystemRole = false };
+        var permView = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemView)
+                       ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemView, Name = "View" };
+        if (permView.Id == Guid.Empty) permView.Id = Guid.NewGuid();
+        var permContribute = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemContribute)
+                             ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemContribute, Name = "Contribute" };
+        if (permContribute.Id == Guid.Empty) permContribute.Id = Guid.NewGuid();
+
+        db.Workstreams.Add(ws);
+        db.OfficeDesks.AddRange(desk1, desk2);
+        db.AppUsers.AddRange(adminUser, helperUser);
+        db.WorkItems.Add(wi);
+        db.WorkItemAssignments.Add(assignment);
+        db.Roles.AddRange(adminRole, helperRole);
+        db.Permissions.AddRange(permAssign, permView, permContribute);
+        db.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = adminUser.Id, RoleId = adminRole.Id });
+        db.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = helperUser.Id, RoleId = helperRole.Id });
+        db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = adminRole.Id, PermissionId = permAssign.Id, ScopeMode = ScopeMode.All });
+        db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = helperRole.Id, PermissionId = permView.Id, ScopeMode = ScopeMode.Workstream });
+        db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = helperRole.Id, PermissionId = permContribute.Id, ScopeMode = ScopeMode.Workstream });
+        db.UserWorkstreamMemberships.Add(new UserWorkstreamMembership { Id = Guid.NewGuid(), UserId = helperUser.Id, WorkstreamId = ws.Id, IsActive = true });
+        await db.SaveChangesAsync();
+
+        // Arm interceptor to fail exactly once on the first async SaveChanges call (before commit)
+        interceptor.FailTimes = interceptor.SaveCalls + 1;
+
+        var cmd = new AddContributorCommand(helperUser.Id, "Instructions for precommit retry", 0);
+        var result = await workflow.AddContributorAsync(wi.Id, cmd, adminUser.Id);
+
+        Assert.NotEqual(Guid.Empty, result.ContributorId);
+        Assert.Equal(1, result.Revision);
+
+        // Verification of pre-commit failure:
+        // AttemptCount == 2
+        Assert.Equal(2, strategy.AttemptCount);
+        // Item revision increments once from 0 to 1
+        var itemAfter = await db.WorkItems.FindAsync(wi.Id);
+        Assert.Equal(1, itemAfter!.Revision);
+        // Exactly one contributor row with matching identity
+        var contribs = await db.WorkItemContributors.Where(c => c.WorkItemId == wi.Id).ToListAsync();
+        Assert.Single(contribs);
+        Assert.Equal(result.ContributorId, contribs[0].Id);
+        Assert.Equal(helperUser.Id, contribs[0].UserId);
+        Assert.Equal(WorkItemContributorStatus.Active, contribs[0].Status);
+        // Exactly one WorkItemEvent row for ContributorAdded with matching identity
+        var events = await db.WorkItemEvents.Where(e => e.WorkItemId == wi.Id && e.Action == WorkItemEventAction.ContributorAdded).ToListAsync();
+        Assert.Single(events);
+        Assert.Equal(result.ContributorId, events[0].ContributorId);
+        Assert.Equal(helperUser.Id, events[0].TargetUserId);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_SubmitContribution_PostCommit_Ambiguity_Proof()
+    {
+        var dbName = $"wi-contrib-postcommit-ambig-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        using var db = new LacDbContext(options);
+        var storage = new TestInMemoryDocumentStorage();
+        var workItemAuth = new WorkItemAuthorizationService(db);
+        var matterAuth = new MatterAuthorizationService(db);
+        var dakAuth = new DakAuthorizationService(db);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new WorkItemWorkflowService(
+            db,
+            storage,
+            workItemAuth,
+            matterAuth,
+            dakAuth,
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var ws = new Workstream { Id = Guid.NewGuid(), Code = "WS-AMB-C", Name = "Ambiguity Contrib WS", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var desk = new OfficeDesk { Id = Guid.NewGuid(), Code = "DSK-AMB-C", Name = "Ambiguity Desk", WorkstreamId = ws.Id, IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var helperUser = new AppUser { Id = Guid.NewGuid(), Username = "user_helper_amb", DisplayName = "Ambiguity Helper", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+
+        var wi = new WorkItem
+        {
+            Id = Guid.NewGuid(),
+            WorkstreamId = ws.Id,
+            Title = "SubmitContribution PostCommit Ambiguity Test",
+            Priority = WorkItemPriority.Routine,
+            Status = WorkItemStatus.InProgress,
+            Origin = WorkItemOrigin.Manual,
+            RequestedByUserId = helperUser.Id,
+            RequestedByDisplayNameSnapshot = helperUser.DisplayName,
+            Revision = 0,
+            LastActivityAt = DateTimeOffset.UtcNow,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        var contributor = new WorkItemContributor
+        {
+            Id = Guid.NewGuid(),
+            WorkItemId = wi.Id,
+            UserId = helperUser.Id,
+            AddedByUserId = helperUser.Id,
+            AddedAt = DateTimeOffset.UtcNow,
+            Instructions = "Pre-existing active contributor",
+            Status = WorkItemContributorStatus.Active,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        var role = new Role { Id = Guid.NewGuid(), Code = "ROLE_AMB_HELPER", Name = "Amb Helper Role", IsSystemRole = false };
+        var permView = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemView)
+                       ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemView, Name = "View" };
+        if (permView.Id == Guid.Empty) permView.Id = Guid.NewGuid();
+        var permContribute = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemContribute)
+                             ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemContribute, Name = "Contribute" };
+        if (permContribute.Id == Guid.Empty) permContribute.Id = Guid.NewGuid();
+
+        db.Workstreams.Add(ws);
+        db.OfficeDesks.Add(desk);
+        db.AppUsers.Add(helperUser);
+        db.WorkItems.Add(wi);
+        db.WorkItemContributors.Add(contributor);
+        db.Roles.Add(role);
+        db.Permissions.AddRange(permView, permContribute);
+        db.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = helperUser.Id, RoleId = role.Id });
+        db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permView.Id, ScopeMode = ScopeMode.Assigned });
+        db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permContribute.Id, ScopeMode = ScopeMode.Assigned });
+        await db.SaveChangesAsync();
+
+        // SubmitContribution triggers commit ambiguity on attempt 1:
+        // Commit succeeds, simulated timeout throws, verifier detects stable event with matching snapshots
+        var cmd = new SubmitContributionCommand(0, "Note for postcommit ambiguity");
+        var result = await workflow.SubmitContributionAsync(wi.Id, contributor.Id, cmd, helperUser.Id);
+
+        Assert.Equal(1, result.Revision);
+        Assert.True(strategy.VerifyCount >= 1, $"Expected VerifyCount >= 1 but got {strategy.VerifyCount}");
+
+        // Revision increments once
+        var itemAfter = await db.WorkItems.FindAsync(wi.Id);
+        Assert.Equal(1, itemAfter!.Revision);
+
+        // Contributor is now Submitted
+        var contribAfter = await db.WorkItemContributors.FindAsync(contributor.Id);
+        Assert.Equal(WorkItemContributorStatus.Submitted, contribAfter!.Status);
+
+        // Exactly one ContributorSubmitted event with exact snapshot matching
+        var submitEvents = await db.WorkItemEvents.Where(e => e.WorkItemId == wi.Id && e.Action == WorkItemEventAction.ContributorSubmitted).ToListAsync();
+        Assert.Single(submitEvents);
+        Assert.Equal(contributor.Id, submitEvents[0].ContributorId);
+        Assert.Equal(helperUser.Id, submitEvents[0].TargetUserId);
+    }
+
+    // ========================================================================
+    // AUDIT 2F-B HARDENING: DUAL SCOPE UNION IN MY WORK / REVIEW PROJECTION
+    // ========================================================================
+    [Fact]
+    public async Task WorkItem_MyWork_DualScope_Union_Includes_Both_Paths()
+    {
+        var adminClient = await CreateAdminClientAsync();
+
+        // Workstream A & B
+        var wsA = await CreateWorkstreamAsync("WS-UNION-A", "Union Workstream A");
+        var wsB = await CreateWorkstreamAsync("WS-UNION-B", "Union Workstream B");
+
+        var deskA = await CreateDeskAsync("DSK-UA", "Desk UA", wsA.Id, assignAdmin: true);
+        var deskB = await CreateDeskAsync("DSK-UB", "Desk UB", wsB.Id, assignAdmin: false);
+
+        // Create dual-scoped officer:
+        // Has Role A: WorkItemView + WorkItemReview under ScopeMode.Workstream in WS A
+        // Has Role B: WorkItemView + WorkItemReview under ScopeMode.Assigned on Desk B (in WS B)
+        string officerUsername = "dual_scope_officer";
+        string officerPass = "DualScopePass!123";
+        Guid officerId;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            var roleA = new Role { Id = Guid.NewGuid(), Code = "ROLE_UNION_WS_A", Name = "Role Union WS A", IsSystemRole = false };
+            var roleB = new Role { Id = Guid.NewGuid(), Code = "ROLE_UNION_ASSIGNED_B", Name = "Role Union Assigned B", IsSystemRole = false };
+            db.Roles.AddRange(roleA, roleB);
+
+            var pView = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.WorkItemView);
+            var pReview = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.WorkItemReview);
+
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleA.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.Workstream });
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleA.Id, PermissionId = pReview.Id, ScopeMode = ScopeMode.Workstream });
+
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleB.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.Assigned });
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleB.Id, PermissionId = pReview.Id, ScopeMode = ScopeMode.Assigned });
+
+            await db.SaveChangesAsync();
+
+            var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
+                Username: officerUsername,
+                DisplayName: "Dual Scope Officer",
+                Password: officerPass,
+                DesignationId: null,
+                RoleIds: [roleA.Id, roleB.Id],
+                WorkstreamIds: [wsA.Id],
+                PrimaryWorkstreamId: wsA.Id
+            ));
+            officerId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+            // Assign officer to Desk B (responsible desk for WS B)
+            await adminClient.PostAsJsonAsync($"/api/admin/users/{officerId}/desks", new AssignDeskRequest(deskB.Id, IsPrimary: true));
+        }
+
+        var officerClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var loginRes = await officerClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(officerUsername, officerPass));
+        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+
+        // Helper user to submit contributions
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "union_helper_user",
+            "ROLE_UNION_HELPER",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: deskA.Id,
+            workstreamId: wsA.Id
+        );
+
+        // Work Item 1: in Workstream A (assigned to Desk A). Officer authorizes review via Workstream scope.
+        var resCreate1 = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Work Item in WS A for Union Test",
+            Instructions: null,
+            WorkstreamId: wsA.Id,
+            OfficeDeskId: deskA.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var item1Id = (await resCreate1.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        var resAdd1 = await adminClient.PostAsJsonAsync($"/api/work-items/{item1Id}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var c1Id = (await resAdd1.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        await helperClient.PostAsJsonAsync($"/api/work-items/{item1Id}/contributors/{c1Id}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Ready in WS A"
+        ));
+
+        // Work Item 2: in Workstream B (assigned to Desk B). Officer authorizes review via Assigned responsible desk scope.
+        var resCreate2 = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Work Item in WS B for Union Test",
+            Instructions: null,
+            WorkstreamId: wsB.Id,
+            OfficeDeskId: deskB.Id,
+            AssignedUserId: officerId,
+            Priority: "Urgent",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var item2Id = (await resCreate2.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        var resAdd2 = await adminClient.PostAsJsonAsync($"/api/work-items/{item2Id}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var c2Id = (await resAdd2.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        await helperClient.PostAsJsonAsync($"/api/work-items/{item2Id}/contributors/{c2Id}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Ready in WS B"
+        ));
+
+        // Officer queries My Work with relationship=review:
+        // Must contain BOTH items from the union of Workstream scope and Assigned desk scope!
+        var resReview = await officerClient.GetAsync("/api/work-items/my-work?relationship=review");
+        Assert.Equal(HttpStatusCode.OK, resReview.StatusCode);
+        var reviewData = await resReview.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+
+        Assert.NotNull(reviewData);
+        Assert.True(reviewData.Summary.NeedsReview >= 2, $"Expected NeedsReview >= 2, got {reviewData.Summary.NeedsReview}");
+        Assert.Contains(reviewData.Items, i => i.Id == item1Id);
+        Assert.Contains(reviewData.Items, i => i.Id == item2Id);
     }
 }
 

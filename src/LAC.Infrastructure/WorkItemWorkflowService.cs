@@ -55,7 +55,7 @@ public sealed record RemoveWorkItemAttachmentCommand(
 public sealed record AddContributorCommand(
     Guid UserId,
     string? Instructions,
-    int? ExpectedRevision
+    int ExpectedRevision
 );
 
 public sealed record AddContributorResult(
@@ -64,7 +64,7 @@ public sealed record AddContributorResult(
 );
 
 public sealed record SubmitContributionCommand(
-    int? ExpectedRevision,
+    int ExpectedRevision,
     string? Note
 );
 
@@ -73,7 +73,7 @@ public sealed record SubmitContributionResult(
 );
 
 public sealed record ReturnContributionCommand(
-    int? ExpectedRevision,
+    int ExpectedRevision,
     string Remarks
 );
 
@@ -82,7 +82,7 @@ public sealed record ReturnContributionResult(
 );
 
 public sealed record AcceptContributionCommand(
-    int? ExpectedRevision,
+    int ExpectedRevision,
     string? Remarks
 );
 
@@ -91,7 +91,7 @@ public sealed record AcceptContributionResult(
 );
 
 public sealed record RemoveContributorCommand(
-    int? ExpectedRevision,
+    int ExpectedRevision,
     string? Reason
 );
 
@@ -1061,14 +1061,26 @@ public sealed class WorkItemWorkflowService(
         var stableContributorId = Guid.NewGuid();
         var stableEventId = Guid.NewGuid();
 
+        // Immutable event as the stable commit marker — stronger than mutable contributor row.
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-            await db.WorkItemContributors.AsNoTracking().AnyAsync(x => x.Id == stableContributorId, c);
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == stableEventId
+                && e.WorkItemId == workItemId
+                && e.Action == WorkItemEventAction.ContributorAdded
+                && e.ContributorId == stableContributorId
+                && e.TargetUserId == command.UserId, c)
+            && await db.WorkItemContributors.AsNoTracking().AnyAsync(x =>
+                x.Id == stableContributorId
+                && x.WorkItemId == workItemId
+                && x.UserId == command.UserId, c);
 
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
 
-            if (await db.WorkItemContributors.AsNoTracking().AnyAsync(x => x.Id == stableContributorId, c))
+            // Idempotency: if the stable event and contributor row already exist, the operation committed successfully
+            // on a previous attempt. Return the stored revision without mutating again.
+            if (await verifySucceeded(c))
             {
                 var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                 return new AddContributorResult(stableContributorId, existingItem?.Revision ?? 0);
@@ -1076,7 +1088,7 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
 
             if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
@@ -1160,13 +1172,18 @@ public sealed class WorkItemWorkflowService(
         var stableEventId = Guid.NewGuid();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorSubmitted, c);
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == stableEventId
+                && e.WorkItemId == workItemId
+                && e.Action == WorkItemEventAction.ContributorSubmitted
+                && e.ContributorId == contributorId
+                && e.TargetUserId == callerUserId, c);
 
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
 
-            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            if (await verifySucceeded(c))
             {
                 var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                 return new SubmitContributionResult(existingItem?.Revision ?? 0);
@@ -1174,7 +1191,7 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
 
             if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
@@ -1245,16 +1262,27 @@ public sealed class WorkItemWorkflowService(
             throw new WorkItemWorkflowException("You do not have permission to review contributions on this work item.", 403);
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var targetContributor = await db.WorkItemContributors.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, ct);
+        if (targetContributor is null)
+            throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+        var targetUserId = targetContributor.UserId;
+
         var stableEventId = Guid.NewGuid();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorReturned, c);
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == stableEventId
+                && e.WorkItemId == workItemId
+                && e.Action == WorkItemEventAction.ContributorReturned
+                && e.ContributorId == contributorId
+                && e.TargetUserId == targetUserId, c);
 
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
 
-            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            if (await verifySucceeded(c))
             {
                 var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                 return new ReturnContributionResult(existingItem?.Revision ?? 0);
@@ -1262,7 +1290,7 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
 
             if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
@@ -1327,16 +1355,27 @@ public sealed class WorkItemWorkflowService(
             throw new WorkItemWorkflowException("You do not have permission to review contributions on this work item.", 403);
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var targetContributor = await db.WorkItemContributors.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, ct);
+        if (targetContributor is null)
+            throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+        var targetUserId = targetContributor.UserId;
+
         var stableEventId = Guid.NewGuid();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorAccepted, c);
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == stableEventId
+                && e.WorkItemId == workItemId
+                && e.Action == WorkItemEventAction.ContributorAccepted
+                && e.ContributorId == contributorId
+                && e.TargetUserId == targetUserId, c);
 
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
 
-            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            if (await verifySucceeded(c))
             {
                 var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                 return new AcceptContributionResult(existingItem?.Revision ?? 0);
@@ -1344,7 +1383,7 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
 
             if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
@@ -1409,16 +1448,27 @@ public sealed class WorkItemWorkflowService(
             throw new WorkItemWorkflowException("You do not have permission to remove contributors from this work item.", 403);
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var targetContributor = await db.WorkItemContributors.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, ct);
+        if (targetContributor is null)
+            throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+        var targetUserId = targetContributor.UserId;
+
         var stableEventId = Guid.NewGuid();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorRemoved, c);
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == stableEventId
+                && e.WorkItemId == workItemId
+                && e.Action == WorkItemEventAction.ContributorRemoved
+                && e.ContributorId == contributorId
+                && e.TargetUserId == targetUserId, c);
 
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
 
-            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            if (await verifySucceeded(c))
             {
                 var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                 return new RemoveContributorResult(existingItem?.Revision ?? 0);
@@ -1426,8 +1476,9 @@ public sealed class WorkItemWorkflowService(
 
             var item = await LockWorkItemAsync(workItemId, c);
 
-            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+            if (item.Revision != command.ExpectedRevision)
                 throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
 
             if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
                 throw new WorkItemWorkflowException($"Cannot remove contributors from a {item.Status} work item.", 400);

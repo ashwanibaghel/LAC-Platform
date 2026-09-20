@@ -130,3 +130,54 @@ stateDiagram-v2
   - Full collaborative contributor lifecycle (`WorkItemContributor` acceptance, review submission, return, and accept).
   - Multi-desk forwarding and custody transfers.
   - Automated SLA tracking and escalation notifications.
+
+---
+
+## 8. Phase 2F-B: Delegated Assistance, Contribution and Review Workflow
+
+Phase 2F-B establishes the formal delegation, contribution, and review model for work items.
+
+### 8.1 Responsible Officer ≠ Contributor
+- **Institutional Custody vs. Delegated Assistance**: `OfficeDesk` and `AssignedUserId` hold official institutional custody and accountability for completing the work item. A **Contributor** (`WorkItemContributor`) is an invited assistant/collaborator who provides specialized preparation, notes, or evidence without assuming institutional responsibility.
+- **FirstAction Separation**: Contributor activity (adding notes, uploading attachments, submitting work) **must never populate** `FirstActionAt` or `FirstActionByUserId`. The initial official response remains strictly with the assigned desk/handler.
+
+### 8.2 Bounded Positive Grant — Never a Deny ACL
+- **RBAC Union Semantics**: The `WorkItemContributor` relationship is a **bounded positive grant**, not a negative ACL.
+  $$\text{Effective Authority} = \text{Independent Authority (All / Workstream / Desk)} \cup \text{Contributor-Derived Authority}$$
+- **Survival of Independent Authority**: If an officer possesses independent authority via `ScopeMode.All`, `ScopeMode.Workstream` (with live workstream membership), or `ScopeMode.Assigned` (via live responsible desk membership), that authority remains fully active regardless of whether that user also has a contributor record in `Submitted`, `Accepted`, or `Removed` status.
+- **Contributor-Derived Scope**: For users whose sole access to a work item is derived from their contributor record:
+  - **Active / Returned**: Grants `WorkItem.View`, `WorkItem.Update`, and `WorkItem.Contribute` for that exact work item.
+  - **Submitted**: Grants `WorkItem.View` only. Contributor-derived mutation (`Update`, `Contribute`) is locked while pending review.
+  - **Accepted / Removed**: Contributor-derived authority ends entirely (`IsActive = false`).
+
+### 8.3 Contributor State Machine & Independent Lifecycle
+- **Contributor States**: `Active (0)` $\rightarrow$ `Submitted (1)` $\rightleftharpoons$ `Returned (2)` $\rightarrow$ `Accepted (3)` or `Removed (4)`.
+- **Multiple Independent Contributors**: A work item can have multiple contributors working concurrently in independent lifecycles without interfering with one another's revision or review states.
+- **Submission Decoupling**: Contributor submission (`SubmitContribution`) does **not** mutate global `WorkItem.Status`. Global status transitions (such as `SubmittedForReview`) are reserved for whole-item supervisory review.
+- **Acceptance Decoupling**: Accepting a contribution (`AcceptContribution`) marks the contributor as accepted and inactive (`IsActive = false`), but does **not** complete the work item (`WorkItem.Status` remains `InProgress` or `Assigned`).
+- **Strict Actor Rule**: Only the exact assigned contributor (`c.UserId == callerUserId`) can execute `SubmitContributionAsync`. No submit-on-behalf is allowed.
+- **Exact Review Authority**: Returning or accepting a contribution requires explicit `WorkItem.Review` authority. The return operation mandates non-empty remarks explaining required corrections.
+
+### 8.4 Contributor Eligibility
+- Eligible contributors must already possess active RBAC capability for **both** `WorkItem.View` and `WorkItem.Contribute` under qualifying scope (`All`, `Workstream`, or `Assigned`).
+- `WorkItem.Update` alone is insufficient because contribution submission strictly checks `WorkItem.Contribute`.
+
+### 8.5 Immutable Contributor Events & Audit
+- All contributor mutations emit dedicated, immutable `WorkItemEvent` rows:
+  - `ContributorAdded`
+  - `ContributorSubmitted`
+  - `ContributorReturned`
+  - `ContributorAccepted`
+  - `ContributorRemoved`
+- Contributor updates and attachments are attributed in event snapshots with `ContributorId`, preserving full historical context even if the contributor is subsequently removed.
+- Retry resilience and ambiguity verifiers verify exact event snapshots (`Id`, `WorkItemId`, `Action`, `ContributorId`, `TargetUserId`) as immutable proofs of commit.
+
+### 8.6 My Work Metrics & Filtering Semantics
+- **Needs Review**: Work items where at least one active contributor is in `Submitted` status, and the caller possesses `WorkItem.Review` authority (unioned across `All`, `Workstream`, and responsible-Desk `Assigned`).
+- **Returned to Me**: Work items where the caller is an active contributor in `Returned` status.
+- **Helping**: Work items where the caller is an active contributor in `Active`, `Submitted`, or `Returned` status.
+- **Waiting on Others**: Work items where the caller is a responsible desk officer or requester, and at least one contributor is active (`Active`, `Submitted`, or `Returned`).
+
+### 8.7 UI / UX Integration
+- **Help & Contribution Workspace Card**: Displays contributor badges, current statuses, and instructions.
+- **Modal Dialogs**: "Ask for Help", "Submit Contribution", and "Return for Correction" modals guide multi-officer collaboration directly within the work item workspace.

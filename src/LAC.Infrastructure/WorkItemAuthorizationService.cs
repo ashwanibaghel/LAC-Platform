@@ -132,35 +132,10 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
                             && m.Workstream.IsActive
                             && m.Workstream.RecordStatus == RecordStatus.Active, ct);
 
-            if (hasWorkstreamMembership)
-            {
-                // Contributor state overrides broad workstream grant for Update/Contribute/View.
-                // If the caller has an explicit contributor relationship on this specific work item,
-                // their contributor status governs access — not the broader workstream scope.
-
-                // Check for any contributor record (active or inactive) for this user on this item.
-                var contributorRecord = await db.WorkItemContributors.AsNoTracking()
-                    .FirstOrDefaultAsync(c => c.WorkItemId == workItemId
-                                           && c.UserId == userId
-                                           && c.RecordStatus == RecordStatus.Active, ct);
-
-                if (contributorRecord is not null)
-                {
-                    // Removed/Accepted contributor: revoke View, Update, and Contribute access entirely.
-                    if (!contributorRecord.IsActive)
-                        return false;
-
-                    // Submitted contributor: revoke Update and Contribute (read-only while under review).
-                    if (contributorRecord.Status == WorkItemContributorStatus.Submitted
-                        && permissionCode is PermissionCodes.WorkItemUpdate or PermissionCodes.WorkItemContribute)
-                        return false;
-
-                    // Active or Returned contributor: workstream grant applies normally.
-                    return true;
-                }
-
-                return true;
-            }
+            // Workstream membership is an independent positive authority.
+            // Contributor state (Submitted, Accepted, Removed) is NOT a deny override
+            // against independently-held Workstream authority.
+            if (hasWorkstreamMembership) return true;
         }
 
         if (scopes.Contains(ScopeMode.Assigned))
@@ -528,7 +503,9 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
 
         if (!hasViewCapability) return false;
 
-        // Check WorkItem.Contribute (or WorkItem.Update) scopes
+        // Check WorkItem.Contribute scope — WorkItem.Update alone is NOT sufficient.
+        // SubmitContributionAsync requires WorkItem.Contribute; a contributor candidate
+        // who only has Update cannot submit and is therefore not eligible.
         var contributeScopes = await (
             from ur in db.UserRoles
             join r in db.Roles on ur.RoleId equals r.Id
@@ -536,7 +513,7 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             join p in db.Permissions on rp.PermissionId equals p.Id
             where ur.UserId == targetUserId
                && r.IsActive && r.RecordStatus == RecordStatus.Active
-               && (p.Code == PermissionCodes.WorkItemContribute || p.Code == PermissionCodes.WorkItemUpdate)
+               && p.Code == PermissionCodes.WorkItemContribute
             select rp.ScopeMode
         ).Distinct().ToListAsync(ct);
 
