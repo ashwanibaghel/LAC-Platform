@@ -108,12 +108,13 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
 
             if (assignment is not null)
             {
-                // A direct named handler qualifies only while:
+                // OfficeDesk is institutional responsibility.
+                // A caller qualifies under ScopeMode.Assigned if:
                 // - assignment is active
                 // - assigned OfficeDesk is active + RecordStatus.Active
                 // - caller is active (already verified)
                 // - caller still has a live active UserDeskMembership in that exact assigned OfficeDesk
-                // Desk-based unnamed responsibility remains available to any live active member of that desk.
+                // AssignedUserId is an optional named handler metadata/hint, NOT a private ACL.
                 var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
                     .AnyAsync(m => m.UserId == userId
                                 && m.OfficeDeskId == assignment.OfficeDeskId
@@ -123,7 +124,7 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
                                 && m.OfficeDesk.IsActive
                                 && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
 
-                if (isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == userId))
+                if (isDeskMember)
                 {
                     return true;
                 }

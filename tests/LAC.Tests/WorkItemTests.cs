@@ -1952,5 +1952,86 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         Assert.Equal(2, events.Count(e => e.Action == WorkItemEventAction.ContextLinked));
         Assert.Single(events, e => e.Action == WorkItemEventAction.AttachmentAdded);
     }
+
+    [Fact]
+    public async Task WorkItem_OfficeDesk_Is_Institutional_Responsibility_Not_Private_Acl()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-INST", "Workstream Institutional");
+        var desk = await CreateDeskAsync("DSK-INST", "Desk Institutional", ws.Id, assignAdmin: false);
+
+        var (userAClient, userAId) = await CreateScopedUserClientAsync(
+            "user_inst_a",
+            "ROLE_INST_A",
+            ScopeMode.Assigned,
+            deskId: desk.Id,
+            workstreamId: ws.Id
+        );
+
+        var (userBClient, userBId) = await CreateScopedUserClientAsync(
+            "user_inst_b",
+            "ROLE_INST_B",
+            ScopeMode.Assigned,
+            deskId: desk.Id,
+            workstreamId: ws.Id
+        );
+
+        // Create work item assigned to Desk D with AssignedUserId = User A
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Institutional Desk Assignment Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk.Id,
+            AssignedUserId: userAId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        Assert.Equal(HttpStatusCode.Created, resCreate.StatusCode);
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 1. User A can access
+        var resDetailA = await userAClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetailA.StatusCode);
+
+        // 2. User B can also access (Desk D is institutional responsibility)
+        var resDetailB = await userBClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetailB.StatusCode);
+
+        // 3. Both see item in assigned My Work
+        var resMwA = await userAClient.GetAsync("/api/work-items/my-work?relationship=assigned");
+        Assert.Equal(HttpStatusCode.OK, resMwA.StatusCode);
+        var mwA = await resMwA.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwA!.Items, i => i.Id == workItemId);
+
+        var resMwB = await userBClient.GetAsync("/api/work-items/my-work?relationship=assigned");
+        Assert.Equal(HttpStatusCode.OK, resMwB.StatusCode);
+        var mwB = await resMwB.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwB!.Items, i => i.Id == workItemId);
+
+        // 4. Assert AssignedToMe summary includes item for User B
+        Assert.True(mwB.Summary.AssignedToMe >= 1, "AssignedToMe summary must count all items on caller's responsible desks.");
+
+        // 5. Remove User A's desk membership
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var membershipA = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.UserId == userAId && m.OfficeDeskId == desk.Id);
+            Assert.NotNull(membershipA);
+            membershipA.IsActive = false;
+            membershipA.RemovedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        // 6. User A immediately loses Assigned access -> 403
+        var resDetailAAfter = await userAClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.Forbidden, resDetailAAfter.StatusCode);
+
+        // 7. User B remains authorized through live Desk D membership -> 200
+        var resDetailBAfter = await userBClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetailBAfter.StatusCode);
+    }
 }
 
