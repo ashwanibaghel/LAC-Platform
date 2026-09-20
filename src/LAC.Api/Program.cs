@@ -203,7 +203,7 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
     var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
         new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
         x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(),
-        x.DocumentRelationships.Count(link => link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)),
+        x.DocumentRelationships.Count(link => link.Document.RecordStatus == RecordStatus.Active && link.Document.Status == "Active" && (link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId))),
         db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
     return village is null ? NotFound("Village", id) : Results.Ok(village);
 }).RequirePermission(PermissionCodes.VillageView);
@@ -216,13 +216,13 @@ api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, Canc
     var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
         new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
         x.Khasras.Count, x.Khasras.SelectMany(k => k.AwardLinks).Select(link => link.AwardId).Distinct().Count(),
-        x.DocumentRelationships.Count(link => link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId)),
+        x.DocumentRelationships.Count(link => link.Document.RecordStatus == RecordStatus.Active && link.Document.Status == "Active" && (link.Document.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == link.DocumentId) || db.DocumentNotifications.Any(dn => dn.DocumentId == link.DocumentId))),
         db.VillageLRs.Any(lr => lr.VillageId == x.Id))).FirstOrDefaultAsync(ct);
     if (village is null) return NotFound("Village", id);
 
     var awardIds = db.Awards.Where(a => a.VillageLinks.Any(link => link.VillageId == id) || a.KhasraLinks.Any(link => link.Khasra.VillageId == id)).Select(a => a.Id);
     var awards = await db.Awards.AsNoTracking().Where(a => awardIds.Contains(a.Id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
-        .Select(a => new VillageOfficialAwardItem(a.Id, a.AwardNumber, a.AwardDate, a.AwardType, a.Status, a.KhasraLinks.Count(k => k.Khasra.VillageId == id), a.DocumentRelationships.Count)).ToListAsync(ct);
+        .Select(a => new VillageOfficialAwardItem(a.Id, a.AwardNumber, a.AwardDate, a.AwardType, a.Status, a.KhasraLinks.Count(k => k.Khasra.VillageId == id), a.DocumentRelationships.Count(link => link.Document.RecordStatus == RecordStatus.Active && link.Document.Status == "Active"))).ToListAsync(ct);
     var notifications = await db.Notifications.AsNoTracking().Where(n => n.KhasraLinks.Any(link => link.Khasra.VillageId == id) || db.AwardNotifications.Any(link => awardIds.Contains(link.AwardId) && link.NotificationId == n.Id)).OrderByDescending(n => n.NotificationDate)
         .Select(n => new VillageOfficialNotificationItem(n.Id, n.NotificationNumber, n.SectionType, n.NotificationDate)).ToListAsync(ct);
     var awardIdList = awards.Select(a => a.Id).ToList();

@@ -447,7 +447,7 @@ public static class MatterEndpoints
             if (!exists) return Results.NotFound(new { message = "Matter not found." });
 
             var docs = await db.MatterDocuments.AsNoTracking()
-                .Where(x => x.MatterId == id && x.Document.RecordStatus == RecordStatus.Active)
+                .Where(x => x.MatterId == id && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active")
                 .OrderByDescending(x => x.Document.UploadedAt)
                 .Select(x => new
                 {
@@ -529,7 +529,7 @@ public static class MatterEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterView, userId, ct))
+            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterDocumentManage, userId, ct))
                 return Results.Forbid();
 
             var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.RecordStatus == RecordStatus.Active, ct);
@@ -682,7 +682,7 @@ public static class MatterEndpoints
                 return Results.Forbid();
 
             var doc = await db.Documents.AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct);
+                .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && d.Status == "Active", ct);
             if (doc is null) return Results.NotFound(new { message = "Document record not found." });
 
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);

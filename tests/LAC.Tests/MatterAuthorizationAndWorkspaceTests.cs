@@ -1,12 +1,19 @@
 using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
+using SecurityClaim = System.Security.Claims.Claim;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using LAC.Domain;
 using LAC.Infrastructure;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace LAC.Tests;
@@ -26,6 +33,28 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         _client = factory.CreateClient();
     }
 
+    private sealed class DynamicTestAuthHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    {
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+        {
+            var userIdStr = Request.Headers["X-Test-User-Id"].FirstOrDefault();
+            Guid userId = Guid.TryParse(userIdStr, out var parsed) ? parsed : SeedData.BootstrapAdminId;
+
+            var claims = new List<SecurityClaim>
+            {
+                new(ClaimTypes.NameIdentifier, userId.ToString()),
+                new(ClaimTypes.Name, "testuser"),
+                new("username", "testuser"),
+                new("display_name", "Test User")
+            };
+            var identity = new ClaimsIdentity(claims, "DynamicTest");
+            var principal = new ClaimsPrincipal(identity);
+            var ticket = new AuthenticationTicket(principal, "DynamicTest");
+            return Task.FromResult(AuthenticateResult.Success(ticket));
+        }
+    }
+
     private sealed class AllowAllAccessControlService : IAccessControlService
     {
         public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken ct = default) => Task.FromResult(true);
@@ -38,11 +67,16 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
     }
 
-    private static (LacDbContext db, Workstream ws1, Workstream ws2, Village village, AppUser userAll, AppUser userWs1, AppUser userAssigned, AppUser userNone) CreateTestDbContext(string dbName)
+    private static (LacDbContext db, Workstream ws1, Workstream ws2, Village village, AppUser userAll, AppUser userWs1, AppUser userAssigned, AppUser userNone) CreateTestDbContext(string dbName, Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor? interceptor = null)
     {
         var builder = new DbContextOptionsBuilder<LacDbContext>()
             .UseInMemoryDatabase(dbName)
             .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+
+        if (interceptor != null)
+        {
+            builder.AddInterceptors(interceptor);
+        }
 
         var db = new LacDbContext(builder.Options);
 
@@ -1203,4 +1237,364 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         var canAccess = await authService.CanAccessMatterAsync(matterInWs2.Id, PermissionCodes.MatterView, userWs1.Id);
         Assert.False(canAccess);
     }
+
+    // =========================================================================
+    // 14. POST-IMPLEMENTATION HARDENING REGRESSION TESTS
+    // =========================================================================
+
+    [Fact]
+    public async Task MatterWorkflow_UploadDocument_PreCommitFailure_RetriesAndSucceeds_AttemptCountGt1()
+    {
+        var dbName = $"mat-true-retry-upload-{Guid.NewGuid():N}";
+        var interceptor = new TrackingSaveChangesInterceptor();
+        var (db, ws1, _, village, userAll, _, _, _) = CreateTestDbContext(dbName, interceptor);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new MatterAuthorizationService(db);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new MatterWorkflowService(
+            db,
+            storage,
+            authService,
+            new AllowAllAccessControlService(),
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false, maxRetries: 2);
+
+        var matter = new Matter
+        {
+            Id = Guid.NewGuid(),
+            VillageId = village.Id,
+            WorkstreamId = ws1.Id,
+            Revision = 0,
+            Title = "Retry Upload Matter",
+            MatterType = "Court Case",
+            Status = "Open",
+            RecordStatus = RecordStatus.Active
+        };
+        db.Matters.Add(matter);
+        db.SaveChanges();
+
+        // Arm interceptor to fail exactly once on the first async SaveChanges call (before commit)
+        interceptor.FailTimes = 1;
+
+        using var ms = new MemoryStream(ValidPdfBytes);
+        var cmd = new UploadMatterDocumentCommand(ms, "retry_upload.pdf", "application/pdf", "Evidence", "Retry Document", 0);
+
+        var matterDoc = await workflow.UploadDocumentAsync(matter.Id, cmd, userAll.Id);
+
+        Assert.NotNull(matterDoc);
+        Assert.True(strategy.AttemptCount > 1, $"Expected AttemptCount > 1 but got {strategy.AttemptCount}");
+        Assert.Equal(2, strategy.AttemptCount);
+        Assert.Equal(1, storage.SaveCount);
+
+        var updatedMatter = await db.Matters.FirstAsync(m => m.Id == matter.Id);
+        Assert.Equal(1, updatedMatter.Revision);
+
+        var evCount = await db.MatterEvents.CountAsync(e => e.MatterId == matter.Id && e.Action == MatterEventAction.DocumentUploaded);
+        Assert.Equal(1, evCount);
+
+        var matterDocCount = await db.MatterDocuments.CountAsync(md => md.MatterId == matter.Id);
+        Assert.Equal(1, matterDocCount);
+
+        var docCount = await db.Documents.CountAsync(d => d.Id == matterDoc.DocumentId);
+        Assert.Equal(1, docCount);
+    }
+
+    [Fact]
+    public async Task EligibleDocuments_Requires_MatterDocumentManage_ApiRegression()
+    {
+        using var customFactory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                services.AddAuthentication(options =>
+                {
+                    options.DefaultAuthenticateScheme = "DynamicTest";
+                    options.DefaultChallengeScheme = "DynamicTest";
+                }).AddScheme<AuthenticationSchemeOptions, DynamicTestAuthHandler>("DynamicTest", _ => { });
+            });
+        });
+
+        var client = customFactory.CreateClient();
+
+        Guid villageId, workstreamId, matterId, userViewOnlyId, userDocManageId;
+        using (var scope = customFactory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            villageId = village.Id;
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+            workstreamId = ws.Id;
+
+            var matter = new Matter
+            {
+                Id = Guid.NewGuid(),
+                VillageId = villageId,
+                WorkstreamId = workstreamId,
+                Title = "Eligible Docs Matter",
+                MatterType = "Court Case",
+                Status = "Open",
+                RecordStatus = RecordStatus.Active
+            };
+            db.Matters.Add(matter);
+
+            var pView = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.MatterView);
+            var pDocManage = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.MatterDocumentManage);
+
+            var roleViewOnly = new Role { Id = Guid.NewGuid(), Code = $"R_VO_{Guid.NewGuid():N}"[..12], Name = "View Only", IsActive = true, RecordStatus = RecordStatus.Active };
+            roleViewOnly.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleViewOnly.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.All });
+
+            var roleDocManage = new Role { Id = Guid.NewGuid(), Code = $"R_DM_{Guid.NewGuid():N}"[..12], Name = "Doc Manage", IsActive = true, RecordStatus = RecordStatus.Active };
+            roleDocManage.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleDocManage.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.All });
+            roleDocManage.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleDocManage.Id, PermissionId = pDocManage.Id, ScopeMode = ScopeMode.All });
+
+            var userView = new AppUser { Id = Guid.NewGuid(), Username = $"u_vo_{Guid.NewGuid():N}"[..12], NormalizedUsername = "U_VO", DisplayName = "View User", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
+            userView.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userView.Id, RoleId = roleViewOnly.Id });
+
+            var userDoc = new AppUser { Id = Guid.NewGuid(), Username = $"u_dm_{Guid.NewGuid():N}"[..12], NormalizedUsername = "U_DM", DisplayName = "Doc User", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
+            userDoc.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userDoc.Id, RoleId = roleDocManage.Id });
+
+            db.Roles.AddRange(roleViewOnly, roleDocManage);
+            db.AppUsers.AddRange(userView, userDoc);
+            await db.SaveChangesAsync();
+
+            matterId = matter.Id;
+            userViewOnlyId = userView.Id;
+            userDocManageId = userDoc.Id;
+        }
+
+        // 1. User with Matter.View ONLY receives 403 Forbidden on eligible-documents
+        var reqViewOnly = new HttpRequestMessage(HttpMethod.Get, $"/api/matters/{matterId}/eligible-documents");
+        reqViewOnly.Headers.Add("X-Test-User-Id", userViewOnlyId.ToString());
+        var resViewOnly = await client.SendAsync(reqViewOnly);
+        Assert.Equal(HttpStatusCode.Forbidden, resViewOnly.StatusCode);
+
+        // 2. User with Matter.Document.Manage receives 200 OK on eligible-documents
+        var reqDocManage = new HttpRequestMessage(HttpMethod.Get, $"/api/matters/{matterId}/eligible-documents");
+        reqDocManage.Headers.Add("X-Test-User-Id", userDocManageId.ToString());
+        var resDocManage = await client.SendAsync(reqDocManage);
+        Assert.Equal(HttpStatusCode.OK, resDocManage.StatusCode);
+    }
+
+    [Fact]
+    public async Task MatterDocuments_List_ExcludesLogicallyInactiveDocument()
+    {
+        Guid matterId, activeDocId, inactiveDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+
+            var matter = new Matter
+            {
+                Id = Guid.NewGuid(),
+                VillageId = village.Id,
+                WorkstreamId = ws.Id,
+                Title = "Docs Filter Test Matter",
+                MatterType = "Court Case",
+                Status = "Open",
+                RecordStatus = RecordStatus.Active
+            };
+            db.Matters.Add(matter);
+
+            var activeDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "active.pdf",
+                StoragePath = "path1",
+                MimeType = "application/pdf",
+                DocumentType = "MatterDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Active"
+            };
+            var inactiveDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "inactive.pdf",
+                StoragePath = "path2",
+                MimeType = "application/pdf",
+                DocumentType = "MatterDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Inactive"
+            };
+            db.Documents.AddRange(activeDoc, inactiveDoc);
+
+            db.MatterDocuments.Add(new MatterDocument
+            {
+                Id = Guid.NewGuid(),
+                MatterId = matter.Id,
+                DocumentId = activeDoc.Id,
+                DisplayName = "Active Document",
+                DocumentRole = "Other"
+            });
+            db.MatterDocuments.Add(new MatterDocument
+            {
+                Id = Guid.NewGuid(),
+                MatterId = matter.Id,
+                DocumentId = inactiveDoc.Id,
+                DisplayName = "Inactive Document",
+                DocumentRole = "Other"
+            });
+
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+            activeDocId = activeDoc.Id;
+            inactiveDocId = inactiveDoc.Id;
+        }
+
+        var response = await _client.GetAsync($"/api/matters/{matterId}/documents");
+        response.EnsureSuccessStatusCode();
+
+        var docs = await response.Content.ReadFromJsonAsync<List<JsonElement>>();
+        Assert.NotNull(docs);
+        var returnedDocIds = docs.Select(d => d.GetProperty("documentId").GetGuid()).ToList();
+
+        Assert.Contains(activeDocId, returnedDocIds);
+        Assert.DoesNotContain(inactiveDocId, returnedDocIds);
+    }
+
+    [Fact]
+    public async Task MatterDocument_Content_RejectsInactiveBusinessStatusDocument()
+    {
+        Guid matterId, inactiveDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = await db.Villages.FirstAsync();
+            var ws = await db.Workstreams.FirstAsync(w => w.IsActive && w.RecordStatus == RecordStatus.Active);
+
+            var matter = new Matter
+            {
+                Id = Guid.NewGuid(),
+                VillageId = village.Id,
+                WorkstreamId = ws.Id,
+                Title = "Download Inactive Matter",
+                MatterType = "Court Case",
+                Status = "Open",
+                RecordStatus = RecordStatus.Active
+            };
+            db.Matters.Add(matter);
+
+            var inactiveDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "inactive_content.pdf",
+                StoragePath = "path_inact",
+                MimeType = "application/pdf",
+                DocumentType = "MatterDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Inactive"
+            };
+            db.Documents.Add(inactiveDoc);
+
+            db.MatterDocuments.Add(new MatterDocument
+            {
+                Id = Guid.NewGuid(),
+                MatterId = matter.Id,
+                DocumentId = inactiveDoc.Id,
+                DisplayName = "Inactive Download Doc",
+                DocumentRole = "Other"
+            });
+
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+            inactiveDocId = inactiveDoc.Id;
+        }
+
+        var response = await _client.GetAsync($"/api/matters/{matterId}/documents/{inactiveDocId}/content");
+        Assert.True(response.StatusCode == HttpStatusCode.Forbidden || response.StatusCode == HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Village_DocumentsAndCounts_ExcludeInactiveAwardFamilyDocuments()
+    {
+        Guid villageId, activeDocId, inactiveDocId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var v = new Village
+            {
+                Id = Guid.NewGuid(),
+                Name = $"CountTestVillage_{Guid.NewGuid():N}"[..20],
+                SubDivisionId = (await db.SubDivisions.FirstAsync()).Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Villages.Add(v);
+
+            var project = await db.AcquisitionProjects.FirstAsync();
+            var award = new Award
+            {
+                Id = Guid.NewGuid(),
+                AwardNumber = $"AWD_CNT_{Guid.NewGuid():N}"[..12],
+                AcquisitionProjectId = project.Id,
+                Status = "Published",
+                RecordStatus = RecordStatus.Active
+            };
+            db.Awards.Add(award);
+
+            var activeDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "active_award.pdf",
+                StoragePath = "act_path",
+                DocumentType = "AwardDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Active"
+            };
+            var inactiveDoc = new Document
+            {
+                Id = Guid.NewGuid(),
+                OriginalFileName = "inactive_award.pdf",
+                StoragePath = "inact_path",
+                DocumentType = "AwardDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Inactive"
+            };
+            db.Documents.AddRange(activeDoc, inactiveDoc);
+
+            db.DocumentVillages.Add(new DocumentVillage { VillageId = v.Id, DocumentId = activeDoc.Id });
+            db.DocumentVillages.Add(new DocumentVillage { VillageId = v.Id, DocumentId = inactiveDoc.Id });
+
+            db.DocumentAwards.Add(new DocumentAward { AwardId = award.Id, DocumentId = activeDoc.Id });
+            db.DocumentAwards.Add(new DocumentAward { AwardId = award.Id, DocumentId = inactiveDoc.Id });
+
+            db.AwardVillages.Add(new AwardVillage { VillageId = v.Id, AwardId = award.Id });
+
+            await db.SaveChangesAsync();
+            villageId = v.Id;
+            activeDocId = activeDoc.Id;
+            inactiveDocId = inactiveDoc.Id;
+        }
+
+        // 1. GET /api/villages/{id}/documents returns only active document
+        var docsRes = await _client.GetAsync($"/api/villages/{villageId}/documents");
+        docsRes.EnsureSuccessStatusCode();
+        var docs = await docsRes.Content.ReadFromJsonAsync<List<DocumentListItem>>();
+        Assert.NotNull(docs);
+        Assert.Contains(docs, d => d.Id == activeDocId);
+        Assert.DoesNotContain(docs, d => d.Id == inactiveDocId);
+
+        // 2. GET /api/villages/{id} DocumentCount is 1
+        var detailRes = await _client.GetAsync($"/api/villages/{villageId}");
+        detailRes.EnsureSuccessStatusCode();
+        var detail = await detailRes.Content.ReadFromJsonAsync<VillageDetail>();
+        Assert.NotNull(detail);
+        Assert.Equal(1, detail.DocumentCount);
+
+        // 3. GET /api/villages/{id}/overview Village.DocumentCount is 1
+        var overviewRes = await _client.GetAsync($"/api/villages/{villageId}/overview");
+        overviewRes.EnsureSuccessStatusCode();
+        var overview = await overviewRes.Content.ReadFromJsonAsync<VillageOverviewResponse>();
+        Assert.NotNull(overview);
+        Assert.Equal(1, overview.Village.DocumentCount);
+    }
 }
+
