@@ -345,11 +345,16 @@ public sealed class OutwardWorkflowService(
         {
             outward = await db.Outwards
                 .FromSqlInterpolated($"SELECT * FROM \"Outwards\" WHERE \"Id\" = {outwardId} FOR UPDATE")
+                .Include(o => o.IssuingDesk)
+                .Include(o => o.Workstream)
                 .FirstOrDefaultAsync(ct);
         }
         else
         {
-            outward = await db.Outwards.FirstOrDefaultAsync(o => o.Id == outwardId, ct);
+            outward = await db.Outwards
+                .Include(o => o.IssuingDesk)
+                .Include(o => o.Workstream)
+                .FirstOrDefaultAsync(o => o.Id == outwardId, ct);
         }
 
         return outward ?? throw new OutwardWorkflowException("Outward record not found.", 404);
@@ -501,6 +506,20 @@ public sealed class OutwardWorkflowService(
                     };
                     db.Outwards.Add(outward);
 
+                    var deskName = await db.OfficeDesks.AsNoTracking()
+                        .Where(d => d.Id == cmd.IssuingDeskId)
+                        .Select(d => d.Name)
+                        .FirstOrDefaultAsync(opCt);
+
+                    string? wsName = null;
+                    if (cmd.WorkstreamId.HasValue)
+                    {
+                        wsName = await db.Workstreams.AsNoTracking()
+                            .Where(w => w.Id == cmd.WorkstreamId.Value)
+                            .Select(w => w.Name)
+                            .FirstOrDefaultAsync(opCt);
+                    }
+
                     // Sequence 1 Registered Event with initial DocumentId snapshot
                     var regEvent = new OutwardEvent
                     {
@@ -513,7 +532,9 @@ public sealed class OutwardWorkflowService(
                         ActionAt = DateTimeOffset.UtcNow,
                         DocumentId = initialDocumentId,
                         IssuingDeskIdSnapshot = cmd.IssuingDeskId,
-                        WorkstreamIdSnapshot = cmd.WorkstreamId
+                        IssuingDeskNameSnapshot = deskName,
+                        WorkstreamIdSnapshot = cmd.WorkstreamId,
+                        WorkstreamNameSnapshot = wsName
                     };
                     db.OutwardEvents.Add(regEvent);
 
@@ -654,6 +675,18 @@ public sealed class OutwardWorkflowService(
                 outward.MatterId = cmd.MatterId;
                 outward.Revision++;
 
+                string? issuingDeskName = outward.IssuingDesk?.Id == cmd.IssuingDeskId
+                    ? outward.IssuingDesk?.Name
+                    : await db.OfficeDesks.Where(d => d.Id == cmd.IssuingDeskId).Select(d => d.Name).FirstOrDefaultAsync(opCt);
+
+                string? workstreamName = null;
+                if (cmd.WorkstreamId.HasValue)
+                {
+                    workstreamName = outward.Workstream?.Id == cmd.WorkstreamId
+                        ? outward.Workstream?.Name
+                        : await db.Workstreams.Where(w => w.Id == cmd.WorkstreamId.Value).Select(w => w.Name).FirstOrDefaultAsync(opCt);
+                }
+
                 var maxSeq = await db.OutwardEvents
                     .Where(e => e.OutwardId == outwardId)
                     .MaxAsync(e => (int?)e.SequenceNumber, opCt);
@@ -668,7 +701,9 @@ public sealed class OutwardWorkflowService(
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = issuingDeskName,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = workstreamName
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -768,7 +803,9 @@ public sealed class OutwardWorkflowService(
                         ActionAt = DateTimeOffset.UtcNow,
                         DocumentId = newDocumentId,
                         IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                        WorkstreamIdSnapshot = outward.WorkstreamId
+                        IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                        WorkstreamIdSnapshot = outward.WorkstreamId,
+                        WorkstreamNameSnapshot = outward.Workstream?.Name
                     };
                     db.OutwardEvents.Add(evt);
 
@@ -896,7 +933,9 @@ public sealed class OutwardWorkflowService(
                         AttachmentId = attachmentId,
                         DocumentId = documentId,
                         IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                        WorkstreamIdSnapshot = outward.WorkstreamId
+                        IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                        WorkstreamIdSnapshot = outward.WorkstreamId,
+                        WorkstreamNameSnapshot = outward.Workstream?.Name
                     };
                     db.OutwardEvents.Add(evt);
 
@@ -971,7 +1010,9 @@ public sealed class OutwardWorkflowService(
                     AttachmentId = attachmentId,
                     DocumentId = attachment.DocumentId,
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = outward.Workstream?.Name
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1060,7 +1101,9 @@ public sealed class OutwardWorkflowService(
                     ActionAt = DateTimeOffset.UtcNow,
                     DakId = cmd.DakId,
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = outward.Workstream?.Name
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1125,7 +1168,9 @@ public sealed class OutwardWorkflowService(
                     ActionAt = DateTimeOffset.UtcNow,
                     DakId = link.DakId,
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = outward.Workstream?.Name
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1202,7 +1247,9 @@ public sealed class OutwardWorkflowService(
                     DispatchMode = mode,
                     DispatchReferenceNumber = cmd.DispatchReferenceNumber?.Trim(),
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = outward.Workstream?.Name
                 };
                 db.OutwardEvents.Add(evt);
 
@@ -1268,7 +1315,9 @@ public sealed class OutwardWorkflowService(
                     ActionAt = now,
                     CancellationReason = cmd.Reason.Trim(),
                     IssuingDeskIdSnapshot = outward.IssuingDeskId,
-                    WorkstreamIdSnapshot = outward.WorkstreamId
+                    IssuingDeskNameSnapshot = outward.IssuingDesk?.Name,
+                    WorkstreamIdSnapshot = outward.WorkstreamId,
+                    WorkstreamNameSnapshot = outward.Workstream?.Name
                 };
                 db.OutwardEvents.Add(evt);
 

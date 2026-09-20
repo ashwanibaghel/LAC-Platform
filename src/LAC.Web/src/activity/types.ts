@@ -27,3 +27,14 @@ export interface ActivityFeedResult {
   pageSize: number;
   hasMore: boolean;
 }
+
+export interface FilterOptionDto {
+  id: string;
+  name: string;
+}
+
+export interface TeamFilterOptionsDto {
+  workstreams: FilterOptionDto[];
+  desks: FilterOptionDto[];
+  actors: FilterOptionDto[];
+}

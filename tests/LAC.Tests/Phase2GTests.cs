@@ -828,9 +828,20 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
     }
 
     [Fact]
-    public async Task DocumentAccess_OpenAndPreview_DeduplicatedWithin5Minutes()
+    public async Task LogAccess_PublicDirectEndpoint_DoesNotExist()
     {
         var adminClient = await CreateAdminClientAsync();
+        var res = await adminClient.PostAsJsonAsync("/api/activity/log-access", new
+        {
+            documentId = Guid.NewGuid(),
+            action = "Opened"
+        });
+        Assert.True(res.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed);
+    }
+
+    [Fact]
+    public async Task DocumentAccess_OpenAndPreview_DeduplicatedWithin5Minutes()
+    {
         var village = await CreateVillageAsync("Dedup Village");
         Guid docId = Guid.NewGuid();
         Guid matterId = Guid.NewGuid();
@@ -856,23 +867,22 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
             await db.SaveChangesAsync();
         }
 
-        var req = new LogAccessRequest(
-            DocumentId: docId,
+        var cmd = new RecordAccessCommand(
+            ActorUserId: SeedData.BootstrapAdminId,
             Action: RecordAccessAction.Opened,
+            DocumentId: docId,
             ContextEntityType: "matter",
             ContextEntityId: matterId,
-            DocumentTitle: "dedup_test.pdf"
+            DocumentTitleSnapshot: "dedup_test.pdf"
         );
 
-        // First call
-        var res1 = await adminClient.PostAsJsonAsync("/api/activity/log-access", req);
-        Assert.Equal(HttpStatusCode.Accepted, res1.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(cmd);
+            await logger.LogAccessAsync(cmd);
+        }
 
-        // Immediate second call (within 5-min bucket)
-        var res2 = await adminClient.PostAsJsonAsync("/api/activity/log-access", req);
-        Assert.Equal(HttpStatusCode.Accepted, res2.StatusCode);
-
-        // Check database count
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -884,7 +894,6 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
     [Fact]
     public async Task DocumentAccess_Download_NeverDeduplicated()
     {
-        var adminClient = await CreateAdminClientAsync();
         var village = await CreateVillageAsync("DL Village");
         Guid docId = Guid.NewGuid();
         Guid matterId = Guid.NewGuid();
@@ -910,29 +919,603 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
             await db.SaveChangesAsync();
         }
 
-        var req = new LogAccessRequest(
-            DocumentId: docId,
+        var cmd = new RecordAccessCommand(
+            ActorUserId: SeedData.BootstrapAdminId,
             Action: RecordAccessAction.Downloaded,
+            DocumentId: docId,
             ContextEntityType: "matter",
             ContextEntityId: matterId,
-            DocumentTitle: "download_test.pdf"
+            DocumentTitleSnapshot: "download_test.pdf"
         );
 
-        // First call
-        var res1 = await adminClient.PostAsJsonAsync("/api/activity/log-access", req);
-        Assert.Equal(HttpStatusCode.Accepted, res1.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(cmd);
+            await logger.LogAccessAsync(cmd);
+        }
 
-        // Second call
-        var res2 = await adminClient.PostAsJsonAsync("/api/activity/log-access", req);
-        Assert.Equal(HttpStatusCode.Accepted, res2.StatusCode);
-
-        // Check database count: must be exactly 2 because Downloads are never deduplicated
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             var count = await db.RecordAccessEvents.CountAsync(e => e.DocumentId == docId && e.Action == RecordAccessAction.Downloaded);
             Assert.Equal(2, count);
         }
+    }
+
+    [Fact]
+    public async Task TeamActivity_DakAssignedScope_MatchesHistoricalDesks()
+    {
+        var ws = await CreateWorkstreamAsync("WS_DAK_DESKS", "Dak Desks WS");
+        var desk1 = await CreateDeskAsync("DSK_DAK_1", "Desk 1", ws.Id);
+        var desk2 = await CreateDeskAsync("DSK_DAK_2", "Desk 2", ws.Id);
+        var desk3 = await CreateDeskAsync("DSK_DAK_3", "Desk 3", ws.Id);
+
+        var (clientDesk1, _) = await CreateScopedUserClientAsync(
+            "user_dak_desk1", "ROLE_DAK_DSK1", ScopeMode.Assigned, desk1.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.DakView]);
+
+        var (clientDesk2, _) = await CreateScopedUserClientAsync(
+            "user_dak_desk2", "ROLE_DAK_DSK2", ScopeMode.Assigned, desk2.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.DakView]);
+
+        var (clientDesk3, _) = await CreateScopedUserClientAsync(
+            "user_dak_desk3", "ROLE_DAK_DSK3", ScopeMode.Assigned, desk3.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.DakView]);
+
+        Guid dakId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            var dak = new Dak
+            {
+                Id = dakId,
+                DiaryNumber = "DAK-DESK-TEST-01",
+                Subject = "Desk Routing Dak",
+                SenderName = "Sender",
+                Status = DakStatus.Registered,
+                WorkstreamId = ws.Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Daks.Add(dak);
+
+            // Movement from Desk 1 to Desk 2
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dakId,
+                SequenceNumber = 1,
+                Action = DakMovementAction.Marked,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = now.AddMinutes(-5),
+                FromDeskId = desk1.Id,
+                FromDeskNameSnapshot = desk1.Name,
+                ToDeskId = desk2.Id,
+                ToDeskNameSnapshot = desk2.Name,
+                WorkstreamIdSnapshot = ws.Id,
+                WorkstreamNameSnapshot = ws.Name
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // Desk 1 user sees it (matched via FromDeskId)
+        var res1 = await clientDesk1.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+        var feed1 = await res1.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed1);
+        Assert.Contains(feed1.Items, i => i.EntityId == dakId);
+
+        // Desk 2 user sees it (matched via ToDeskId)
+        var res2 = await clientDesk2.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res2.StatusCode);
+        var feed2 = await res2.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed2);
+        Assert.Contains(feed2.Items, i => i.EntityId == dakId);
+
+        // Desk 3 user does NOT see it
+        var res3 = await clientDesk3.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res3.StatusCode);
+        var feed3 = await res3.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed3);
+        Assert.DoesNotContain(feed3.Items, i => i.EntityId == dakId);
+    }
+
+
+    [Fact]
+    public async Task TeamActivity_DakHistoricalWorkstreamContext_AndWorkstreamFiltering()
+    {
+        var wsA = await CreateWorkstreamAsync("WS_DAK_A", "Dak WS A");
+        var wsB = await CreateWorkstreamAsync("WS_DAK_B", "Dak WS B");
+        var deskA = await CreateDeskAsync("DSK_DAK_A", "Desk A", wsA.Id);
+
+        var (clientA, _) = await CreateScopedUserClientAsync(
+            "user_dak_a", "ROLE_DAK_A", ScopeMode.Workstream, null, wsA.Id,
+            [PermissionCodes.AuditView, PermissionCodes.DakView]);
+
+        Guid dak1Id = Guid.NewGuid();
+        Guid dak2Id = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            // Dak 1 with WS A snapshot
+            var dak1 = new Dak
+            {
+                Id = dak1Id,
+                DiaryNumber = "DAK-HIST-WS-01",
+                Subject = "Dak with WS A Snapshot",
+                SenderName = "Sender",
+                Status = DakStatus.Registered,
+                WorkstreamId = wsA.Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Daks.Add(dak1);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dak1Id,
+                SequenceNumber = 1,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = now.AddMinutes(-10),
+                ToDeskId = deskA.Id,
+                WorkstreamIdSnapshot = wsA.Id,
+                WorkstreamNameSnapshot = wsA.Name
+            });
+
+            // Dak 2 (Legacy with null WorkstreamIdSnapshot)
+            var dak2 = new Dak
+            {
+                Id = dak2Id,
+                DiaryNumber = "DAK-HIST-LEGACY-02",
+                Subject = "Legacy Dak Null Snapshot",
+                SenderName = "Sender",
+                Status = DakStatus.Registered,
+                WorkstreamId = wsA.Id, // Mutable current is wsA, but snapshot is null!
+                RecordStatus = RecordStatus.Active
+            };
+            db.Daks.Add(dak2);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dak2Id,
+                SequenceNumber = 1,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = now.AddMinutes(-5),
+                ToDeskId = deskA.Id,
+                WorkstreamIdSnapshot = null, // Must fail closed under Workstream scope
+                WorkstreamNameSnapshot = null
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Scoped user sees Dak 1, but legacy Dak 2 fails closed
+        var res = await clientA.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        Assert.Contains(feed.Items, i => i.EntityId == dak1Id);
+        Assert.DoesNotContain(feed.Items, i => i.EntityId == dak2Id);
+
+        // 2. Query filter with matching workstreamId returns Dak 1
+        var resFiltered = await clientA.GetAsync($"/api/activity/team?workstreamId={wsA.Id}");
+        Assert.Equal(HttpStatusCode.OK, resFiltered.StatusCode);
+        var feedFiltered = await resFiltered.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedFiltered);
+        Assert.Contains(feedFiltered.Items, i => i.EntityId == dak1Id);
+
+        // 3. Query filter with non-matching workstreamId does NOT return Dak 1
+        var resNonMatch = await clientA.GetAsync($"/api/activity/team?workstreamId={wsB.Id}");
+        Assert.Equal(HttpStatusCode.OK, resNonMatch.StatusCode);
+        var feedNonMatch = await resNonMatch.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedNonMatch);
+        Assert.DoesNotContain(feedNonMatch.Items, i => i.EntityId == dak1Id);
+    }
+
+    [Fact]
+    public async Task TeamActivity_WorkItemHistoricalAssignedScope_OldDeskRetainsVisibility_NewDeskDoesNotInheritOldEvents()
+    {
+        var ws = await CreateWorkstreamAsync("WS_WI_HIST", "WI Hist WS");
+        var deskA = await CreateDeskAsync("DSK_WI_A", "Desk A", ws.Id);
+        var deskB = await CreateDeskAsync("DSK_WI_B", "Desk B", ws.Id);
+
+        var (clientA, userAId) = await CreateScopedUserClientAsync(
+            "user_wi_desk_a", "ROLE_WI_DESK_A", ScopeMode.Assigned, deskA.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.WorkItemView]);
+
+        var (clientB, userBId) = await CreateScopedUserClientAsync(
+            "user_wi_desk_b", "ROLE_WI_DESK_B", ScopeMode.Assigned, deskB.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.WorkItemView]);
+
+        Guid workItemId = Guid.NewGuid();
+        var t0 = DateTimeOffset.UtcNow.AddHours(-2);
+        var t1 = t0.AddMinutes(15);
+        var t2 = t0.AddMinutes(30);
+        var t3 = t0.AddMinutes(45);
+
+        Guid event1Id = Guid.NewGuid();
+        Guid reassignedEventId = Guid.NewGuid();
+        Guid event2Id = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            var workItem = new WorkItem
+            {
+                Id = workItemId,
+                Title = "Historical Scope WorkItem",
+                Status = WorkItemStatus.InProgress,
+                WorkstreamId = ws.Id,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = t0,
+                UpdatedAt = t3
+            };
+            db.WorkItems.Add(workItem);
+
+            // Assignment 1: on Desk A from t0 to t2
+            var assignA = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = workItemId,
+                OfficeDeskId = deskA.Id,
+                AssignedByUserId = SeedData.BootstrapAdminId,
+                AssignedAt = t0,
+                ClosedAt = t2,
+                IsActive = false,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItemAssignments.Add(assignA);
+
+            // Assignment 2: on Desk B from t2 onward
+            var assignB = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = workItemId,
+                OfficeDeskId = deskB.Id,
+                AssignedByUserId = SeedData.BootstrapAdminId,
+                AssignedAt = t2,
+                ClosedAt = null,
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItemAssignments.Add(assignB);
+
+            // Event 1 at t1 (while Desk A was responsible)
+            db.WorkItemEvents.Add(new WorkItemEvent
+            {
+                Id = event1Id,
+                WorkItemId = workItemId,
+                SequenceNumber = 1,
+                Action = WorkItemEventAction.UpdateAdded,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = t1,
+                RemarksSnapshot = "Note on Desk A"
+            });
+
+            // Reassigned Event at t2 (Source: Desk A, Target: Desk B)
+            db.WorkItemEvents.Add(new WorkItemEvent
+            {
+                Id = reassignedEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = 2,
+                Action = WorkItemEventAction.Reassigned,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = t2,
+                SourceDeskId = deskA.Id,
+                SourceDeskNameSnapshot = deskA.Name,
+                TargetDeskId = deskB.Id,
+                TargetDeskNameSnapshot = deskB.Name,
+                RemarksSnapshot = "Reassigned to Desk B"
+            });
+
+            // Event 2 at t3 (while Desk B was responsible)
+            db.WorkItemEvents.Add(new WorkItemEvent
+            {
+                Id = event2Id,
+                WorkItemId = workItemId,
+                SequenceNumber = 3,
+                Action = WorkItemEventAction.UpdateAdded,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = t3,
+                RemarksSnapshot = "Note on Desk B"
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        // Desk A user: sees Event 1 and Reassignment, but NOT Event 2
+        var resA = await clientA.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, resA.StatusCode);
+        var feedA = await resA.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedA);
+        Assert.Contains(feedA.Items, i => i.EventId == event1Id);
+        Assert.Contains(feedA.Items, i => i.EventId == reassignedEventId);
+        Assert.DoesNotContain(feedA.Items, i => i.EventId == event2Id);
+
+        // Desk B user: sees Reassignment and Event 2, but NOT Event 1 (does not inherit older events)
+        var resB = await clientB.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, resB.StatusCode);
+        var feedB = await resB.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedB);
+        Assert.DoesNotContain(feedB.Items, i => i.EventId == event1Id);
+        Assert.Contains(feedB.Items, i => i.EventId == reassignedEventId);
+        Assert.Contains(feedB.Items, i => i.EventId == event2Id);
+    }
+
+    [Fact]
+    public async Task TeamActivity_LiveScope_MembershipDeactivation_ImmediatelyCutsOffVisibility()
+    {
+        var ws = await CreateWorkstreamAsync("WS_LIVE_SCOPE", "Live Scope WS");
+        var desk = await CreateDeskAsync("DSK_LIVE_SCOPE", "Live Scope Desk", ws.Id);
+
+        var (client, userId) = await CreateScopedUserClientAsync(
+            "user_live_scope", "ROLE_LIVE_SCOPE", ScopeMode.Assigned, desk.Id, ws.Id,
+            [PermissionCodes.AuditView, PermissionCodes.OutwardView]);
+
+        Guid outwardId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var outward = new Outward
+            {
+                Id = outwardId,
+                OutwardNumber = "OUT-LIVESCOPE-01",
+                Subject = "Live Scope Outward",
+                Status = OutwardStatus.Registered,
+                IssuingDeskId = desk.Id,
+                WorkstreamId = ws.Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Outwards.Add(outward);
+            db.OutwardEvents.Add(new OutwardEvent
+            {
+                OutwardId = outwardId,
+                SequenceNumber = 1,
+                Action = OutwardEventAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                IssuingDeskIdSnapshot = desk.Id,
+                WorkstreamIdSnapshot = ws.Id
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Active membership sees the event
+        var res1 = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res1.StatusCode);
+        var feed1 = await res1.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed1);
+        Assert.Contains(feed1.Items, i => i.EntityId == outwardId);
+
+        // Remove desk membership
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var membership = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.UserId == userId && m.OfficeDeskId == desk.Id);
+            Assert.NotNull(membership);
+            membership.RemovedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        // Inactive membership immediately cuts off visibility
+        var res2 = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res2.StatusCode);
+        var feed2 = await res2.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed2);
+        Assert.DoesNotContain(feed2.Items, i => i.EntityId == outwardId);
+    }
+
+    [Fact]
+    public async Task TeamActivity_ImmutableHistoricalNameSnapshots_PreservedAcrossMetadataChanges()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS_IMMUT_NAME", "Original Workstream Name");
+        var desk = await CreateDeskAsync("DSK_IMMUT_NAME", "Original Desk Name", ws.Id);
+
+        Guid outwardId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var outward = new Outward
+            {
+                Id = outwardId,
+                OutwardNumber = "OUT-IMMUT-01",
+                Subject = "Immutable Name Test",
+                Status = OutwardStatus.Registered,
+                IssuingDeskId = desk.Id,
+                WorkstreamId = ws.Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Outwards.Add(outward);
+            db.OutwardEvents.Add(new OutwardEvent
+            {
+                OutwardId = outwardId,
+                SequenceNumber = 1,
+                Action = OutwardEventAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = DateTimeOffset.UtcNow.AddMinutes(-5),
+                IssuingDeskIdSnapshot = desk.Id,
+                IssuingDeskNameSnapshot = "Original Desk Name",
+                WorkstreamIdSnapshot = ws.Id,
+                WorkstreamNameSnapshot = "Original Workstream Name"
+            });
+
+            // Rename Desk and Workstream in DB
+            desk.Name = "Renamed Mutable Desk";
+            ws.Name = "Renamed Mutable Workstream";
+            await db.SaveChangesAsync();
+        }
+
+        var res = await adminClient.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+
+        var item = feed.Items.FirstOrDefault(i => i.EntityId == outwardId);
+        Assert.NotNull(item);
+
+        // Verify historical snapshot names are returned, NOT mutable renamed names
+        Assert.Equal("Original Desk Name", item.DeskName);
+        Assert.Equal("Original Workstream Name", item.WorkstreamName);
+    }
+
+    [Fact]
+    public async Task TeamActivity_Pagination_BoundedAndDeterministicTieBreak()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS_PAGE_BOUND", "Page Bound WS");
+
+        var baseTime = DateTimeOffset.UtcNow.AddHours(-1);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            for (int i = 0; i < 50; i++)
+            {
+                var id = Guid.NewGuid();
+                db.Matters.Add(new Matter
+                {
+                    Id = id,
+                    ReferenceNumber = $"MAT-PGBOUND-{i:D3}",
+                    Title = $"Matter Bound {i}",
+                    MatterType = "CIVIL",
+                    Status = "Active",
+                    WorkstreamId = ws.Id,
+                    RecordStatus = RecordStatus.Active
+                });
+                db.MatterEvents.Add(new MatterEvent
+                {
+                    MatterId = id,
+                    SequenceNumber = 1,
+                    Action = MatterEventAction.Created,
+                    ActionByUserId = SeedData.BootstrapAdminId,
+                    ActionByDisplayNameSnapshot = "Admin User",
+                    ActionAt = baseTime, // Exact same timestamp to test tie-breaker
+                    WorkstreamIdSnapshot = ws.Id,
+                    WorkstreamNameSnapshot = ws.Name
+                });
+            }
+            await db.SaveChangesAsync();
+        }
+
+        // Test clamping page > 100 to 100
+        var resClampedPage = await adminClient.GetAsync("/api/activity/team?page=999&pageSize=20");
+        Assert.Equal(HttpStatusCode.OK, resClampedPage.StatusCode);
+        var feedClampedPage = await resClampedPage.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedClampedPage);
+        Assert.Equal(100, feedClampedPage.Page);
+
+        // Test clamping pageSize > 100 to 100
+        var resClampedSize = await adminClient.GetAsync("/api/activity/team?page=1&pageSize=500");
+        Assert.Equal(HttpStatusCode.OK, resClampedSize.StatusCode);
+        var feedClampedSize = await resClampedSize.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedClampedSize);
+        Assert.Equal(100, feedClampedSize.PageSize);
+
+        // Test deterministic tie-break across page 1 and page 2
+        var resP1 = await adminClient.GetAsync("/api/activity/team?page=1&pageSize=10");
+        var resP2 = await adminClient.GetAsync("/api/activity/team?page=2&pageSize=10");
+        var feedP1 = await resP1.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        var feedP2 = await resP2.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+
+        Assert.NotNull(feedP1);
+        Assert.NotNull(feedP2);
+        Assert.Equal(10, feedP1.Items.Count);
+        Assert.Equal(10, feedP2.Items.Count);
+
+        // Zero overlap between consecutive pages
+        var idsP1 = feedP1.Items.Select(x => x.EventId).ToHashSet();
+        var idsP2 = feedP2.Items.Select(x => x.EventId).ToHashSet();
+        Assert.Empty(idsP1.Intersect(idsP2));
+    }
+
+    [Fact]
+    public async Task TeamActivity_DateTo_InclusiveWholeDaySemantics()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS_DATETO", "DateTo WS");
+        var today = DateTime.UtcNow.Date;
+        var eventTime = new DateTimeOffset(today.AddHours(15).AddMinutes(30), TimeSpan.Zero);
+
+        Guid matterId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var matter = new Matter
+            {
+                Id = matterId,
+                ReferenceNumber = "MAT-DATE-001",
+                Title = "DateTo Test Matter",
+                MatterType = "CIVIL",
+                Status = "Active",
+                WorkstreamId = ws.Id,
+                RecordStatus = RecordStatus.Active
+            };
+            db.Matters.Add(matter);
+            db.MatterEvents.Add(new MatterEvent
+            {
+                MatterId = matterId,
+                SequenceNumber = 1,
+                Action = MatterEventAction.Created,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin User",
+                ActionAt = eventTime, // 3:30 PM UTC today
+                WorkstreamIdSnapshot = ws.Id,
+                WorkstreamNameSnapshot = ws.Name
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Query with dateTo = today (e.g. "2026-09-20")
+        var dateToStr = today.ToString("yyyy-MM-dd");
+        var res = await adminClient.GetAsync($"/api/activity/team?workstreamId={ws.Id}&dateTo={dateToStr}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+
+        // The 3:30 PM event MUST be included due to inclusive whole-day semantics (< dateTo.Date.AddDays(1))
+        Assert.Contains(feed.Items, i => i.EntityId == matterId);
+    }
+
+    [Fact]
+    public async Task TeamActivity_FilterOptions_ReturnsAuthorizedOptions()
+    {
+        var ws1 = await CreateWorkstreamAsync("WS_FO_1", "Filter WS 1");
+        var ws2 = await CreateWorkstreamAsync("WS_FO_2", "Filter WS 2");
+        var desk1 = await CreateDeskAsync("DSK_FO_1", "Desk 1", ws1.Id);
+        var desk2 = await CreateDeskAsync("DSK_FO_2", "Desk 2", ws2.Id);
+
+        var (client1, _) = await CreateScopedUserClientAsync(
+            "user_fo_1", "ROLE_FO_1", ScopeMode.Workstream, null, ws1.Id,
+            [PermissionCodes.AuditView]);
+
+        var res = await client1.GetAsync("/api/activity/team/filter-options");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var options = await res.Content.ReadFromJsonAsync<TeamFilterOptionsDto>(JsonOpts);
+        Assert.NotNull(options);
+
+        // Must include WS 1 but NOT WS 2
+        Assert.Contains(options.Workstreams, w => w.Id == ws1.Id);
+        Assert.DoesNotContain(options.Workstreams, w => w.Id == ws2.Id);
+
+        // Must include Desk 1 (in WS 1) but NOT Desk 2 (in WS 2)
+        Assert.Contains(options.Desks, d => d.Id == desk1.Id);
+        Assert.DoesNotContain(options.Desks, d => d.Id == desk2.Id);
     }
 
     [Fact]

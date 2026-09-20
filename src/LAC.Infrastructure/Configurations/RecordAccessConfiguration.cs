@@ -14,6 +14,8 @@ public static class RecordAccessConfiguration
             entity.Property(x => x.ActorDisplayNameSnapshot).HasMaxLength(256);
             entity.Property(x => x.ContextEntityType).HasMaxLength(64);
             entity.Property(x => x.DocumentTitleSnapshot).HasMaxLength(512);
+            entity.Property(x => x.WorkstreamNameSnapshot).HasMaxLength(256);
+            entity.Property(x => x.OfficeDeskNameSnapshot).HasMaxLength(256);
             entity.Property(x => x.DeduplicationKey).HasMaxLength(256);
 
             entity.HasIndex(x => x.ActorUserId);

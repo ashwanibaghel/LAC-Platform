@@ -92,7 +92,9 @@ public sealed class OutwardEvent
     public string? CancellationReason { get; set; }
 
     public Guid? IssuingDeskIdSnapshot { get; set; }
+    public string? IssuingDeskNameSnapshot { get; set; }
     public Guid? WorkstreamIdSnapshot { get; set; }
+    public string? WorkstreamNameSnapshot { get; set; }
 }
 
 public sealed class OutwardAttachment : OfficialRecord

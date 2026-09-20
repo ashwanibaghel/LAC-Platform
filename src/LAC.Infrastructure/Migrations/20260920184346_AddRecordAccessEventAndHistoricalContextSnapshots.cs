@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -17,10 +17,22 @@ namespace LAC.Infrastructure.Migrations
                 type: "uuid",
                 nullable: true);
 
+            migrationBuilder.AddColumn<string>(
+                name: "IssuingDeskNameSnapshot",
+                table: "OutwardEvents",
+                type: "text",
+                nullable: true);
+
             migrationBuilder.AddColumn<Guid>(
                 name: "WorkstreamIdSnapshot",
                 table: "OutwardEvents",
                 type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "WorkstreamNameSnapshot",
+                table: "OutwardEvents",
+                type: "text",
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(
@@ -29,10 +41,40 @@ namespace LAC.Infrastructure.Migrations
                 type: "uuid",
                 nullable: true);
 
+            migrationBuilder.AddColumn<string>(
+                name: "SourceWorkstreamNameSnapshot",
+                table: "MatterEvents",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "TargetWorkstreamNameSnapshot",
+                table: "MatterEvents",
+                type: "text",
+                nullable: true);
+
             migrationBuilder.AddColumn<Guid>(
                 name: "WorkstreamIdSnapshot",
                 table: "MatterEvents",
                 type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "WorkstreamNameSnapshot",
+                table: "MatterEvents",
+                type: "text",
+                nullable: true);
+
+            migrationBuilder.AddColumn<Guid>(
+                name: "WorkstreamIdSnapshot",
+                table: "DakMovements",
+                type: "uuid",
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "WorkstreamNameSnapshot",
+                table: "DakMovements",
+                type: "text",
                 nullable: true);
 
             migrationBuilder.CreateTable(
@@ -50,6 +92,8 @@ namespace LAC.Infrastructure.Migrations
                     WorkstreamId = table.Column<Guid>(type: "uuid", nullable: true),
                     OfficeDeskId = table.Column<Guid>(type: "uuid", nullable: true),
                     DocumentTitleSnapshot = table.Column<string>(type: "character varying(512)", maxLength: 512, nullable: true),
+                    WorkstreamNameSnapshot = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    OfficeDeskNameSnapshot = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
                     DeduplicationKey = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true)
                 },
                 constraints: table =>
@@ -112,11 +156,30 @@ namespace LAC.Infrastructure.Migrations
                 name: "IX_RecordAccessEvents_WorkstreamId",
                 table: "RecordAccessEvents",
                 column: "WorkstreamId");
+
+            migrationBuilder.Sql("""
+                CREATE OR REPLACE FUNCTION fn_record_access_events_immutable()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    RAISE EXCEPTION 'Record access events are strictly immutable. Official document access history cannot be modified or deleted.';
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER trg_record_access_events_immutable
+                BEFORE UPDATE OR DELETE ON "RecordAccessEvents"
+                FOR EACH ROW
+                EXECUTE FUNCTION fn_record_access_events_immutable();
+            """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.Sql("""
+                DROP TRIGGER IF EXISTS trg_record_access_events_immutable ON "RecordAccessEvents";
+                DROP FUNCTION IF EXISTS fn_record_access_events_immutable();
+            """);
+
             migrationBuilder.DropTable(
                 name: "RecordAccessEvents");
 
@@ -125,7 +188,15 @@ namespace LAC.Infrastructure.Migrations
                 table: "OutwardEvents");
 
             migrationBuilder.DropColumn(
+                name: "IssuingDeskNameSnapshot",
+                table: "OutwardEvents");
+
+            migrationBuilder.DropColumn(
                 name: "WorkstreamIdSnapshot",
+                table: "OutwardEvents");
+
+            migrationBuilder.DropColumn(
+                name: "WorkstreamNameSnapshot",
                 table: "OutwardEvents");
 
             migrationBuilder.DropColumn(
@@ -133,8 +204,28 @@ namespace LAC.Infrastructure.Migrations
                 table: "MatterEvents");
 
             migrationBuilder.DropColumn(
+                name: "SourceWorkstreamNameSnapshot",
+                table: "MatterEvents");
+
+            migrationBuilder.DropColumn(
+                name: "TargetWorkstreamNameSnapshot",
+                table: "MatterEvents");
+
+            migrationBuilder.DropColumn(
                 name: "WorkstreamIdSnapshot",
                 table: "MatterEvents");
+
+            migrationBuilder.DropColumn(
+                name: "WorkstreamNameSnapshot",
+                table: "MatterEvents");
+
+            migrationBuilder.DropColumn(
+                name: "WorkstreamIdSnapshot",
+                table: "DakMovements");
+
+            migrationBuilder.DropColumn(
+                name: "WorkstreamNameSnapshot",
+                table: "DakMovements");
         }
     }
 }

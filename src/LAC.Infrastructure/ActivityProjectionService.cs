@@ -61,10 +61,19 @@ public sealed record ActivityFeedResult(
     bool HasMore
 );
 
+public sealed record FilterOptionDto(Guid Id, string Name);
+
+public sealed record TeamFilterOptionsDto(
+    IReadOnlyList<FilterOptionDto> Workstreams,
+    IReadOnlyList<FilterOptionDto> Desks,
+    IReadOnlyList<FilterOptionDto> Actors
+);
+
 public interface IActivityProjectionService
 {
     Task<ActivityFeedResult> GetMyHistoryAsync(Guid userId, ActivityQuery query, CancellationToken ct = default);
     Task<ActivityFeedResult> GetTeamActivityAsync(Guid userId, ActivityQuery query, CancellationToken ct = default);
+    Task<TeamFilterOptionsDto> GetTeamFilterOptionsAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class ActivityProjectionService(
@@ -120,7 +129,113 @@ public sealed class ActivityProjectionService(
     }
 
     // ========================================================================
-    // 3. CORE UNIFIED PROJECTION ENGINE
+    // 3. TEAM FILTER OPTIONS
+    // ========================================================================
+    public async Task<TeamFilterOptionsDto> GetTeamFilterOptionsAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await db.AppUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId, ct);
+
+        if (user is null || !user.IsActive || user.RecordStatus != RecordStatus.Active)
+            throw new ActivityAccessException("Inactive or unauthorized account.", 403);
+
+        var scopes = await (from ur in db.UserRoles
+                            join r in db.Roles on ur.RoleId equals r.Id
+                            join rp in db.RolePermissions on r.Id equals rp.RoleId
+                            join p in db.Permissions on rp.PermissionId equals p.Id
+                            where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.AuditView
+                            select rp.ScopeMode).Distinct().ToListAsync(ct);
+
+        if (scopes.Count == 0)
+            throw new ActivityAccessException("Caller lacks Audit.View permission.", 403);
+
+        if (!scopes.Contains(ScopeMode.All) && !scopes.Contains(ScopeMode.Workstream) && !scopes.Contains(ScopeMode.Assigned))
+        {
+            throw new ActivityAccessException("Team Activity requires All, Workstream, or Assigned scope for Audit.View. Own scope fails closed.", 403);
+        }
+
+        var hasAll = scopes.Contains(ScopeMode.All);
+        var hasWorkstream = scopes.Contains(ScopeMode.Workstream);
+        var hasAssigned = scopes.Contains(ScopeMode.Assigned);
+
+        List<FilterOptionDto> workstreams = [];
+        List<FilterOptionDto> desks = [];
+        List<FilterOptionDto> actors = [];
+
+        if (hasAll)
+        {
+            workstreams = await db.Workstreams.AsNoTracking()
+                .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
+                .OrderBy(w => w.Name)
+                .Select(w => new FilterOptionDto(w.Id, w.Name))
+                .ToListAsync(ct);
+
+            desks = await db.OfficeDesks.AsNoTracking()
+                .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
+                .OrderBy(d => d.Name)
+                .Select(d => new FilterOptionDto(d.Id, d.Name))
+                .ToListAsync(ct);
+
+            actors = await db.AppUsers.AsNoTracking()
+                .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active)
+                .OrderBy(u => u.DisplayName)
+                .Select(u => new FilterOptionDto(u.Id, u.DisplayName))
+                .ToListAsync(ct);
+        }
+        else
+        {
+            List<Guid> callerWsIds = [];
+            if (hasWorkstream)
+            {
+                callerWsIds = await db.UserWorkstreamMemberships.AsNoTracking()
+                    .Where(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active)
+                    .Select(m => m.WorkstreamId)
+                    .ToListAsync(ct);
+            }
+
+            List<Guid> callerDeskIds = [];
+            if (hasAssigned)
+            {
+                callerDeskIds = await db.UserDeskMemberships.AsNoTracking()
+                    .Where(m => m.UserId == userId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+                    .Select(m => m.OfficeDeskId)
+                    .ToListAsync(ct);
+            }
+
+            var wsQuery = db.Workstreams.AsNoTracking()
+                .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active
+                         && (callerWsIds.Contains(w.Id) || db.OfficeDesks.Any(d => callerDeskIds.Contains(d.Id) && d.WorkstreamId == w.Id)));
+
+            workstreams = await wsQuery
+                .OrderBy(w => w.Name)
+                .Select(w => new FilterOptionDto(w.Id, w.Name))
+                .ToListAsync(ct);
+
+            var deskQuery = db.OfficeDesks.AsNoTracking()
+                .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
+                         && (callerDeskIds.Contains(d.Id) || (d.WorkstreamId.HasValue && callerWsIds.Contains(d.WorkstreamId.Value))));
+
+            desks = await deskQuery
+                .OrderBy(d => d.Name)
+                .Select(d => new FilterOptionDto(d.Id, d.Name))
+                .ToListAsync(ct);
+
+            var actorQuery = db.AppUsers.AsNoTracking()
+                .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active
+                         && (db.UserWorkstreamMemberships.Any(wm => wm.UserId == u.Id && wm.IsActive && callerWsIds.Contains(wm.WorkstreamId))
+                             || db.UserDeskMemberships.Any(dm => dm.UserId == u.Id && dm.IsActive && dm.RemovedAt == null && dm.RecordStatus == RecordStatus.Active && callerDeskIds.Contains(dm.OfficeDeskId))));
+
+            actors = await actorQuery
+                .OrderBy(u => u.DisplayName)
+                .Select(u => new FilterOptionDto(u.Id, u.DisplayName))
+                .ToListAsync(ct);
+        }
+
+        return new TeamFilterOptionsDto(workstreams, desks, actors);
+    }
+
+    // ========================================================================
+    // 4. CORE UNIFIED PROJECTION ENGINE
     // ========================================================================
     private async Task<ActivityFeedResult> QueryFeedAsync(
         Guid currentUserId,
@@ -129,7 +244,7 @@ public sealed class ActivityProjectionService(
         CancellationToken ct,
         List<ScopeMode>? auditScopes = null)
     {
-        var page = Math.Max(1, query.Page);
+        var page = Math.Clamp(query.Page, 1, 100);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var skip = (page - 1) * pageSize;
         var take = pageSize;
@@ -147,7 +262,10 @@ public sealed class ActivityProjectionService(
             if (hasWorkstreamScope)
             {
                 callerWsIds = await db.UserWorkstreamMemberships.AsNoTracking()
-                    .Where(m => m.UserId == currentUserId && m.IsActive)
+                    .Where(m => m.UserId == currentUserId
+                             && m.IsActive
+                             && m.Workstream.IsActive
+                             && m.Workstream.RecordStatus == RecordStatus.Active)
                     .Select(m => m.WorkstreamId)
                     .ToListAsync(ct);
             }
@@ -155,11 +273,21 @@ public sealed class ActivityProjectionService(
             if (hasAssignedScope)
             {
                 callerDeskIds = await db.UserDeskMemberships.AsNoTracking()
-                    .Where(m => m.UserId == currentUserId && m.IsActive && m.RecordStatus == RecordStatus.Active)
+                    .Where(m => m.UserId == currentUserId
+                             && m.IsActive
+                             && m.RemovedAt == null
+                             && m.RecordStatus == RecordStatus.Active
+                             && m.OfficeDesk.IsActive
+                             && m.OfficeDesk.RecordStatus == RecordStatus.Active)
                     .Select(m => m.OfficeDeskId)
                     .ToListAsync(ct);
             }
         }
+
+        DateTimeOffset? dateFrom = query.DateFrom.HasValue ? query.DateFrom.Value.ToUniversalTime() : null;
+        DateTimeOffset? dateToExclusive = query.DateTo.HasValue
+            ? new DateTimeOffset(query.DateTo.Value.UtcDateTime.Date.AddDays(1), TimeSpan.Zero)
+            : null;
 
         var normalizedEntityType = query.EntityType?.Trim().ToLowerInvariant();
         var shouldIncludeDak = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "dak";
@@ -189,7 +317,20 @@ public sealed class ActivityProjectionService(
 
                 if (!hasAllScope)
                 {
-                    if (hasAssignedScope && callerDeskIds.Count > 0)
+                    var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                    var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                    if (wsMatch && deskMatch)
+                    {
+                        q = q.Where(m => (m.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(m.WorkstreamIdSnapshot.Value))
+                                      || (m.FromDeskId.HasValue && callerDeskIds.Contains(m.FromDeskId.Value))
+                                      || (m.ToDeskId.HasValue && callerDeskIds.Contains(m.ToDeskId.Value)));
+                    }
+                    else if (wsMatch)
+                    {
+                        q = q.Where(m => m.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(m.WorkstreamIdSnapshot.Value));
+                    }
+                    else if (deskMatch)
                     {
                         q = q.Where(m => (m.FromDeskId.HasValue && callerDeskIds.Contains(m.FromDeskId.Value))
                                       || (m.ToDeskId.HasValue && callerDeskIds.Contains(m.ToDeskId.Value)));
@@ -201,8 +342,9 @@ public sealed class ActivityProjectionService(
                 }
             }
 
-            if (query.DateFrom.HasValue) q = q.Where(m => m.ActionAt >= query.DateFrom.Value);
-            if (query.DateTo.HasValue) q = q.Where(m => m.ActionAt <= query.DateTo.Value);
+            if (dateFrom.HasValue) q = q.Where(m => m.ActionAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(m => m.ActionAt < dateToExclusive.Value);
+            if (query.WorkstreamId.HasValue) q = q.Where(m => m.WorkstreamIdSnapshot == query.WorkstreamId.Value);
             if (query.DeskId.HasValue)
             {
                 q = q.Where(m => m.FromDeskId == query.DeskId.Value || m.ToDeskId == query.DeskId.Value);
@@ -241,7 +383,9 @@ public sealed class ActivityProjectionService(
                     m.ToDeskNameSnapshot,
                     m.Remarks,
                     m.Dak.DiaryNumber,
-                    m.Dak.Subject
+                    m.Dak.Subject,
+                    m.WorkstreamIdSnapshot,
+                    m.WorkstreamNameSnapshot
                 })
                 .ToListAsync(ct);
 
@@ -260,11 +404,11 @@ public sealed class ActivityProjectionService(
                     EntityId: m.DakId,
                     EntityTitle: m.Subject,
                     EntityReferenceNumber: m.DiaryNumber,
-                    WorkstreamId: null,
-                    WorkstreamName: null,
+                    WorkstreamId: m.WorkstreamIdSnapshot,
+                    WorkstreamName: m.WorkstreamNameSnapshot,
                     DeskId: m.ToDeskId ?? m.FromDeskId,
                     DeskName: m.ToDeskNameSnapshot ?? m.FromDeskNameSnapshot,
-                    CanOpen: false, // will be evaluated for final page
+                    CanOpen: false,
                     NavigationUrl: null,
                     IsReadEvent: false,
                     Metadata: new { m.Remarks }
@@ -277,7 +421,7 @@ public sealed class ActivityProjectionService(
         // --------------------------------------------------------------------
         if (shouldIncludeMatter)
         {
-            var q = db.MatterEvents.AsNoTracking().Include(e => e.Matter).ThenInclude(m => m.Workstream).AsQueryable();
+            var q = db.MatterEvents.AsNoTracking().Include(e => e.Matter).AsQueryable();
 
             if (!isTeamActivity)
             {
@@ -304,8 +448,8 @@ public sealed class ActivityProjectionService(
                 }
             }
 
-            if (query.DateFrom.HasValue) q = q.Where(e => e.ActionAt >= query.DateFrom.Value);
-            if (query.DateTo.HasValue) q = q.Where(e => e.ActionAt <= query.DateTo.Value);
+            if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
             if (query.WorkstreamId.HasValue)
             {
                 q = q.Where(e => e.WorkstreamIdSnapshot == query.WorkstreamId.Value
@@ -340,18 +484,23 @@ public sealed class ActivityProjectionService(
                     e.ActionByDisplayNameSnapshot,
                     e.ActionAt,
                     e.WorkstreamIdSnapshot,
+                    e.WorkstreamNameSnapshot,
                     e.SourceWorkstreamId,
+                    e.SourceWorkstreamNameSnapshot,
                     e.TargetWorkstreamId,
+                    e.TargetWorkstreamNameSnapshot,
                     e.DocumentId,
                     e.Matter.Title,
-                    e.Matter.ReferenceNumber,
-                    WorkstreamName = e.Matter.Workstream != null ? e.Matter.Workstream.Name : null
+                    e.Matter.ReferenceNumber
                 })
                 .ToListAsync(ct);
 
             foreach (var e in matterEvents)
             {
                 var summary = FormatMatterSummary(e.Action);
+                var wsId = e.WorkstreamIdSnapshot ?? e.TargetWorkstreamId ?? e.SourceWorkstreamId;
+                var wsName = e.WorkstreamNameSnapshot ?? e.TargetWorkstreamNameSnapshot ?? e.SourceWorkstreamNameSnapshot;
+
                 allItems.Add(new ActivityItemDto(
                     EventId: e.Id,
                     SourceType: "Matter",
@@ -364,8 +513,8 @@ public sealed class ActivityProjectionService(
                     EntityId: e.MatterId,
                     EntityTitle: e.Title,
                     EntityReferenceNumber: e.ReferenceNumber,
-                    WorkstreamId: e.WorkstreamIdSnapshot ?? e.TargetWorkstreamId ?? e.SourceWorkstreamId,
-                    WorkstreamName: e.WorkstreamName,
+                    WorkstreamId: wsId,
+                    WorkstreamName: wsName,
                     DeskId: null,
                     DeskName: null,
                     CanOpen: false,
@@ -381,7 +530,7 @@ public sealed class ActivityProjectionService(
         // --------------------------------------------------------------------
         if (shouldIncludeOutward)
         {
-            var q = db.OutwardEvents.AsNoTracking().Include(e => e.Outward).ThenInclude(o => o.IssuingDesk).Include(e => e.Outward).ThenInclude(o => o.Workstream).AsQueryable();
+            var q = db.OutwardEvents.AsNoTracking().Include(e => e.Outward).AsQueryable();
 
             if (!isTeamActivity)
             {
@@ -394,14 +543,31 @@ public sealed class ActivityProjectionService(
 
                 if (!hasAllScope)
                 {
-                    // Match against historical snapshots; fail closed if snapshot is null
-                    q = q.Where(e => (hasAssignedScope && e.IssuingDeskIdSnapshot.HasValue && callerDeskIds.Contains(e.IssuingDeskIdSnapshot.Value))
-                                  || (hasWorkstreamScope && e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value)));
+                    var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                    var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                    if (wsMatch && deskMatch)
+                    {
+                        q = q.Where(e => (e.IssuingDeskIdSnapshot.HasValue && callerDeskIds.Contains(e.IssuingDeskIdSnapshot.Value))
+                                      || (e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value)));
+                    }
+                    else if (deskMatch)
+                    {
+                        q = q.Where(e => e.IssuingDeskIdSnapshot.HasValue && callerDeskIds.Contains(e.IssuingDeskIdSnapshot.Value));
+                    }
+                    else if (wsMatch)
+                    {
+                        q = q.Where(e => e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value));
+                    }
+                    else
+                    {
+                        q = q.Where(_ => false);
+                    }
                 }
             }
 
-            if (query.DateFrom.HasValue) q = q.Where(e => e.ActionAt >= query.DateFrom.Value);
-            if (query.DateTo.HasValue) q = q.Where(e => e.ActionAt <= query.DateTo.Value);
+            if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
             if (query.DeskId.HasValue) q = q.Where(e => e.IssuingDeskIdSnapshot == query.DeskId.Value);
             if (query.WorkstreamId.HasValue) q = q.Where(e => e.WorkstreamIdSnapshot == query.WorkstreamId.Value);
             if (!string.IsNullOrWhiteSpace(query.Action))
@@ -433,13 +599,13 @@ public sealed class ActivityProjectionService(
                     e.ActionByDisplayNameSnapshot,
                     e.ActionAt,
                     e.IssuingDeskIdSnapshot,
+                    e.IssuingDeskNameSnapshot,
                     e.WorkstreamIdSnapshot,
+                    e.WorkstreamNameSnapshot,
                     e.DispatchMode,
                     e.CancellationReason,
                     e.Outward.OutwardNumber,
-                    e.Outward.Subject,
-                    IssuingDeskName = e.Outward.IssuingDesk != null ? e.Outward.IssuingDesk.Name : null,
-                    WorkstreamName = e.Outward.Workstream != null ? e.Outward.Workstream.Name : null
+                    e.Outward.Subject
                 })
                 .ToListAsync(ct);
 
@@ -459,9 +625,9 @@ public sealed class ActivityProjectionService(
                     EntityTitle: e.Subject,
                     EntityReferenceNumber: e.OutwardNumber,
                     WorkstreamId: e.WorkstreamIdSnapshot,
-                    WorkstreamName: e.WorkstreamName,
+                    WorkstreamName: e.WorkstreamNameSnapshot,
                     DeskId: e.IssuingDeskIdSnapshot,
-                    DeskName: e.IssuingDeskName,
+                    DeskName: e.IssuingDeskNameSnapshot,
                     CanOpen: false,
                     NavigationUrl: null,
                     IsReadEvent: false,
@@ -488,20 +654,49 @@ public sealed class ActivityProjectionService(
 
                 if (!hasAllScope)
                 {
-                    q = q.Where(e => (hasWorkstreamScope && callerWsIds.Contains(e.WorkItem.WorkstreamId))
-                                  || (hasAssignedScope && ((e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value))
-                                                        || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
-                                                        || e.WorkItem.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && callerDeskIds.Contains(a.OfficeDeskId)))));
+                    var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                    var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                    if (wsMatch && deskMatch)
+                    {
+                        q = q.Where(e => (callerWsIds.Contains(e.WorkItem.WorkstreamId))
+                                      || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value))
+                                      || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                      || e.WorkItem.Assignments.Any(a => a.RecordStatus == RecordStatus.Active
+                                                                      && a.AssignedAt <= e.ActionAt
+                                                                      && (a.ClosedAt == null || e.ActionAt < a.ClosedAt)
+                                                                      && callerDeskIds.Contains(a.OfficeDeskId)));
+                    }
+                    else if (wsMatch)
+                    {
+                        q = q.Where(e => callerWsIds.Contains(e.WorkItem.WorkstreamId));
+                    }
+                    else if (deskMatch)
+                    {
+                        q = q.Where(e => (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value))
+                                      || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                      || e.WorkItem.Assignments.Any(a => a.RecordStatus == RecordStatus.Active
+                                                                      && a.AssignedAt <= e.ActionAt
+                                                                      && (a.ClosedAt == null || e.ActionAt < a.ClosedAt)
+                                                                      && callerDeskIds.Contains(a.OfficeDeskId)));
+                    }
+                    else
+                    {
+                        q = q.Where(_ => false);
+                    }
                 }
             }
 
-            if (query.DateFrom.HasValue) q = q.Where(e => e.ActionAt >= query.DateFrom.Value);
-            if (query.DateTo.HasValue) q = q.Where(e => e.ActionAt <= query.DateTo.Value);
+            if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
             if (query.DeskId.HasValue)
             {
                 q = q.Where(e => (e.SourceDeskId.HasValue && e.SourceDeskId.Value == query.DeskId.Value)
                               || (e.TargetDeskId.HasValue && e.TargetDeskId.Value == query.DeskId.Value)
-                              || e.WorkItem.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && a.OfficeDeskId == query.DeskId.Value));
+                              || e.WorkItem.Assignments.Any(a => a.RecordStatus == RecordStatus.Active
+                                                              && a.AssignedAt <= e.ActionAt
+                                                              && (a.ClosedAt == null || e.ActionAt < a.ClosedAt)
+                                                              && a.OfficeDeskId == query.DeskId.Value));
             }
             if (query.WorkstreamId.HasValue) q = q.Where(e => e.WorkItem.WorkstreamId == query.WorkstreamId.Value);
             if (!string.IsNullOrWhiteSpace(query.Action))
@@ -535,6 +730,10 @@ public sealed class ActivityProjectionService(
                     e.SourceDeskNameSnapshot,
                     e.TargetDeskId,
                     e.TargetDeskNameSnapshot,
+                    HistoricalDesk = e.WorkItem.Assignments
+                        .Where(a => a.RecordStatus == RecordStatus.Active && a.AssignedAt <= e.ActionAt && (a.ClosedAt == null || e.ActionAt < a.ClosedAt))
+                        .Select(a => new { a.OfficeDeskId, a.OfficeDesk.Name })
+                        .FirstOrDefault(),
                     e.FromStatus,
                     e.ToStatus,
                     e.RemarksSnapshot,
@@ -547,6 +746,9 @@ public sealed class ActivityProjectionService(
             foreach (var e in wiEvents)
             {
                 var summary = FormatWorkItemSummary(e.Action, e.SourceDeskNameSnapshot, e.TargetDeskNameSnapshot, e.FromStatus, e.ToStatus);
+                var deskId = e.TargetDeskId ?? e.SourceDeskId ?? e.HistoricalDesk?.OfficeDeskId;
+                var deskName = e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot ?? e.HistoricalDesk?.Name;
+
                 allItems.Add(new ActivityItemDto(
                     EventId: e.Id,
                     SourceType: "WorkItem",
@@ -561,8 +763,8 @@ public sealed class ActivityProjectionService(
                     EntityReferenceNumber: null,
                     WorkstreamId: e.WorkstreamId,
                     WorkstreamName: e.WorkstreamName,
-                    DeskId: e.TargetDeskId ?? e.SourceDeskId,
-                    DeskName: e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot,
+                    DeskId: deskId,
+                    DeskName: deskName,
                     CanOpen: false,
                     NavigationUrl: null,
                     IsReadEvent: false,
@@ -576,7 +778,7 @@ public sealed class ActivityProjectionService(
         // --------------------------------------------------------------------
         if (shouldIncludeReads)
         {
-            var q = db.RecordAccessEvents.AsNoTracking().Include(e => e.Document).Include(e => e.Workstream).Include(e => e.OfficeDesk).AsQueryable();
+            var q = db.RecordAccessEvents.AsNoTracking().Include(e => e.Document).AsQueryable();
 
             if (!isTeamActivity)
             {
@@ -589,13 +791,31 @@ public sealed class ActivityProjectionService(
 
                 if (!hasAllScope)
                 {
-                    q = q.Where(e => (hasWorkstreamScope && e.WorkstreamId.HasValue && callerWsIds.Contains(e.WorkstreamId.Value))
-                                  || (hasAssignedScope && e.OfficeDeskId.HasValue && callerDeskIds.Contains(e.OfficeDeskId.Value)));
+                    var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                    var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                    if (wsMatch && deskMatch)
+                    {
+                        q = q.Where(e => (e.WorkstreamId.HasValue && callerWsIds.Contains(e.WorkstreamId.Value))
+                                      || (e.OfficeDeskId.HasValue && callerDeskIds.Contains(e.OfficeDeskId.Value)));
+                    }
+                    else if (wsMatch)
+                    {
+                        q = q.Where(e => e.WorkstreamId.HasValue && callerWsIds.Contains(e.WorkstreamId.Value));
+                    }
+                    else if (deskMatch)
+                    {
+                        q = q.Where(e => e.OfficeDeskId.HasValue && callerDeskIds.Contains(e.OfficeDeskId.Value));
+                    }
+                    else
+                    {
+                        q = q.Where(_ => false);
+                    }
                 }
             }
 
-            if (query.DateFrom.HasValue) q = q.Where(e => e.OccurredAt >= query.DateFrom.Value);
-            if (query.DateTo.HasValue) q = q.Where(e => e.OccurredAt <= query.DateTo.Value);
+            if (dateFrom.HasValue) q = q.Where(e => e.OccurredAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(e => e.OccurredAt < dateToExclusive.Value);
             if (query.WorkstreamId.HasValue) q = q.Where(e => e.WorkstreamId == query.WorkstreamId.Value);
             if (query.DeskId.HasValue) q = q.Where(e => e.OfficeDeskId == query.DeskId.Value);
             if (!string.IsNullOrWhiteSpace(query.Action))
@@ -628,9 +848,9 @@ public sealed class ActivityProjectionService(
                     e.ContextEntityType,
                     e.ContextEntityId,
                     e.WorkstreamId,
-                    WorkstreamName = e.Workstream != null ? e.Workstream.Name : null,
+                    e.WorkstreamNameSnapshot,
                     e.OfficeDeskId,
-                    OfficeDeskName = e.OfficeDesk != null ? e.OfficeDesk.Name : null
+                    e.OfficeDeskNameSnapshot
                 })
                 .ToListAsync(ct);
 
@@ -651,9 +871,9 @@ public sealed class ActivityProjectionService(
                     EntityTitle: title,
                     EntityReferenceNumber: null,
                     WorkstreamId: e.WorkstreamId,
-                    WorkstreamName: e.WorkstreamName,
+                    WorkstreamName: e.WorkstreamNameSnapshot,
                     DeskId: e.OfficeDeskId,
-                    DeskName: e.OfficeDeskName,
+                    DeskName: e.OfficeDeskNameSnapshot,
                     CanOpen: false,
                     NavigationUrl: null,
                     IsReadEvent: true,

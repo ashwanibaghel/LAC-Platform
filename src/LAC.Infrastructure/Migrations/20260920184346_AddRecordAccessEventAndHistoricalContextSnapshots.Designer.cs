@@ -12,7 +12,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LAC.Infrastructure.Migrations
 {
     [DbContext(typeof(LacDbContext))]
-    [Migration("20260920181351_AddRecordAccessEventAndHistoricalContextSnapshots")]
+    [Migration("20260920184346_AddRecordAccessEventAndHistoricalContextSnapshots")]
     partial class AddRecordAccessEventAndHistoricalContextSnapshots
     {
         /// <inheritdoc />
@@ -1649,6 +1649,12 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("ToUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WorkstreamIdSnapshot")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkstreamNameSnapshot")
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ActionByUserId");
@@ -2717,11 +2723,20 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("SourceWorkstreamId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SourceWorkstreamNameSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("TargetWorkstreamId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("TargetWorkstreamNameSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("WorkstreamIdSnapshot")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WorkstreamNameSnapshot")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -3914,6 +3929,9 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("IssuingDeskIdSnapshot")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("IssuingDeskNameSnapshot")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("OutwardId")
                         .HasColumnType("uuid");
 
@@ -3922,6 +3940,9 @@ namespace LAC.Infrastructure.Migrations
 
                     b.Property<Guid?>("WorkstreamIdSnapshot")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WorkstreamNameSnapshot")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -4137,8 +4158,16 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("OfficeDeskId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("OfficeDeskNameSnapshot")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<Guid?>("WorkstreamId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("WorkstreamNameSnapshot")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
 

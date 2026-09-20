@@ -130,6 +130,24 @@ public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
             }
         }
 
+        string? workstreamName = null;
+        if (workstreamId.HasValue)
+        {
+            workstreamName = await db.Workstreams.AsNoTracking()
+                .Where(w => w.Id == workstreamId.Value)
+                .Select(w => w.Name)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        string? deskName = null;
+        if (deskId.HasValue)
+        {
+            deskName = await db.OfficeDesks.AsNoTracking()
+                .Where(d => d.Id == deskId.Value)
+                .Select(d => d.Name)
+                .FirstOrDefaultAsync(ct);
+        }
+
         var ev = new RecordAccessEvent
         {
             Id = Guid.NewGuid(),
@@ -141,7 +159,9 @@ public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
             ContextEntityType = cmd.ContextEntityType,
             ContextEntityId = cmd.ContextEntityId,
             WorkstreamId = workstreamId,
+            WorkstreamNameSnapshot = workstreamName,
             OfficeDeskId = deskId,
+            OfficeDeskNameSnapshot = deskName,
             DocumentTitleSnapshot = docTitle,
             DeduplicationKey = deduplicationKey
         };
@@ -153,10 +173,15 @@ public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
         }
         catch (DbUpdateException)
         {
-            // If another concurrent request inserted the same DeduplicationKey in the race window, safe to swallow
             if (deduplicationKey != null)
             {
-                return;
+                db.Entry(ev).State = EntityState.Detached;
+                var exists = await db.RecordAccessEvents.AsNoTracking()
+                    .AnyAsync(e => e.DeduplicationKey == deduplicationKey, CancellationToken.None);
+                if (exists)
+                {
+                    return;
+                }
             }
             throw;
         }

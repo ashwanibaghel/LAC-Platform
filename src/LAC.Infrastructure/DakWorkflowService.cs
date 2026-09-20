@@ -171,6 +171,15 @@ public sealed class DakWorkflowService(
                     };
                     db.Daks.Add(dak);
 
+                    string? wsName = null;
+                    if (cmd.WorkstreamId.HasValue)
+                    {
+                        wsName = await db.Workstreams.AsNoTracking()
+                            .Where(w => w.Id == cmd.WorkstreamId.Value)
+                            .Select(w => w.Name)
+                            .FirstOrDefaultAsync(opCt);
+                    }
+
                     // Sequence 1 movement (Registered) with FromDesk = null, ToDesk = null
                     var movement = new DakMovement
                     {
@@ -185,7 +194,9 @@ public sealed class DakWorkflowService(
                         ActionByUserId = currentUserId,
                         ActionByDisplayNameSnapshot = actionUser.DisplayName,
                         ActionAt = DateTimeOffset.UtcNow,
-                        Remarks = "Registered in official inward correspondence"
+                        Remarks = "Registered in official inward correspondence",
+                        WorkstreamIdSnapshot = cmd.WorkstreamId,
+                        WorkstreamNameSnapshot = wsName
                     };
                     db.DakMovements.Add(movement);
 
@@ -253,6 +264,7 @@ public sealed class DakWorkflowService(
                 {
                     dak = await db.Daks
                         .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -262,6 +274,7 @@ public sealed class DakWorkflowService(
                 else
                 {
                     dak = await db.Daks
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -347,7 +360,9 @@ public sealed class DakWorkflowService(
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
                     Remarks = cmd.Remarks?.Trim(),
-                    InstructionsSnapshot = cmd.Instructions?.Trim()
+                    InstructionsSnapshot = cmd.Instructions?.Trim(),
+                    WorkstreamIdSnapshot = dak.WorkstreamId,
+                    WorkstreamNameSnapshot = dak.Workstream?.Name
                 };
                 db.DakMovements.Add(movement);
 
@@ -416,6 +431,7 @@ public sealed class DakWorkflowService(
                 {
                     dak = await db.Daks
                         .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -425,6 +441,7 @@ public sealed class DakWorkflowService(
                 else
                 {
                     dak = await db.Daks
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -470,7 +487,9 @@ public sealed class DakWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
-                    Remarks = cmd.Remarks.Trim()
+                    Remarks = cmd.Remarks.Trim(),
+                    WorkstreamIdSnapshot = dak.WorkstreamId,
+                    WorkstreamNameSnapshot = dak.Workstream?.Name
                 };
                 db.DakMovements.Add(movement);
 
@@ -516,6 +535,7 @@ public sealed class DakWorkflowService(
                 {
                     dak = await db.Daks
                         .FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {dakId} FOR UPDATE")
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -525,6 +545,7 @@ public sealed class DakWorkflowService(
                 else
                 {
                     dak = await db.Daks
+                        .Include(d => d.Workstream)
                         .Include(d => d.CurrentAssignment)
                             .ThenInclude(a => a!.OfficeDesk)
                         .Include(d => d.CurrentAssignment)
@@ -567,7 +588,9 @@ public sealed class DakWorkflowService(
                     ActionByUserId = currentUserId,
                     ActionByDisplayNameSnapshot = actionUser.DisplayName,
                     ActionAt = DateTimeOffset.UtcNow,
-                    Remarks = cmd.Reason.Trim()
+                    Remarks = cmd.Reason.Trim(),
+                    WorkstreamIdSnapshot = dak.WorkstreamId,
+                    WorkstreamNameSnapshot = dak.Workstream?.Name
                 };
                 db.DakMovements.Add(movement);
 

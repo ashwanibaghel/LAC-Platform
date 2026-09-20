@@ -130,6 +130,8 @@ public sealed class DakMovement
     public string? InstructionsSnapshot { get; set; }
     public Guid? DocumentId { get; set; }
     public Document? Document { get; set; }
+    public Guid? WorkstreamIdSnapshot { get; set; }
+    public string? WorkstreamNameSnapshot { get; set; }
 }
 
 public sealed class DakAttachment : OfficialRecord

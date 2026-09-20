@@ -31,6 +31,8 @@ public sealed class RecordAccessEvent
     public OfficeDesk? OfficeDesk { get; set; }
 
     public string? DocumentTitleSnapshot { get; set; }
+    public string? WorkstreamNameSnapshot { get; set; }
+    public string? OfficeDeskNameSnapshot { get; set; }
 
     /// <summary>
     /// Deduplication key for Open and Preview events within a 5-minute bucket:

@@ -106,42 +106,27 @@ public static class ActivityEndpoints
         });
 
         // ====================================================================
-        // 3. LOG DOCUMENT ACCESS (Frontend / Client Explicit Logging)
+        // 3. TEAM FILTER OPTIONS
         // ====================================================================
-        activity.MapPost("/log-access", async (
-            LogAccessRequest request,
-            IRecordAccessLogger accessLogger,
+        activity.MapGet("/team/filter-options", async (
+            IActivityProjectionService activityService,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue)
                 return Results.Unauthorized();
 
-            var cmd = new RecordAccessCommand(
-                ActorUserId: currentUser.UserId.Value,
-                Action: request.Action,
-                DocumentId: request.DocumentId,
-                ContextEntityType: request.ContextEntityType,
-                ContextEntityId: request.ContextEntityId,
-                WorkstreamId: request.WorkstreamId,
-                OfficeDeskId: request.OfficeDeskId,
-                DocumentTitleSnapshot: request.DocumentTitle
-            );
-
-            await accessLogger.LogAccessAsync(cmd, ct);
-            return Results.Accepted();
+            try
+            {
+                var result = await activityService.GetTeamFilterOptionsAsync(currentUser.UserId.Value, ct);
+                return Results.Ok(result);
+            }
+            catch (ActivityAccessException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: ex.StatusCode);
+            }
         });
 
         return activity;
     }
 }
-
-public sealed record LogAccessRequest(
-    Guid DocumentId,
-    RecordAccessAction Action,
-    string? ContextEntityType = null,
-    Guid? ContextEntityId = null,
-    Guid? WorkstreamId = null,
-    Guid? OfficeDeskId = null,
-    string? DocumentTitle = null
-);
