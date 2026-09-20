@@ -25,6 +25,8 @@ public interface IRecordAccessLogger
 
 public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> KeyLocks = new();
+
     public async Task LogAccessAsync(RecordAccessCommand cmd, CancellationToken ct = default)
     {
         // 1. Resolve Actor Display Name if missing
@@ -121,69 +123,94 @@ public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
         {
             var bucket = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 300; // 5-minute bucket
             deduplicationKey = $"{cmd.ActorUserId}:{cmd.DocumentId}:{cmd.ContextEntityType ?? "None"}:{cmd.ContextEntityId?.ToString() ?? "None"}:{bucket}";
-
-            var alreadyLogged = await db.RecordAccessEvents.AsNoTracking()
-                .AnyAsync(e => e.DeduplicationKey == deduplicationKey, ct);
-            if (alreadyLogged)
-            {
-                return;
-            }
         }
 
-        string? workstreamName = null;
-        if (workstreamId.HasValue)
+        SemaphoreSlim? sem = null;
+        if (deduplicationKey != null)
         {
-            workstreamName = await db.Workstreams.AsNoTracking()
-                .Where(w => w.Id == workstreamId.Value)
-                .Select(w => w.Name)
-                .FirstOrDefaultAsync(ct);
+            sem = KeyLocks.GetOrAdd(deduplicationKey, _ => new SemaphoreSlim(1, 1));
+            await sem.WaitAsync(ct);
         }
 
-        string? deskName = null;
-        if (deskId.HasValue)
-        {
-            deskName = await db.OfficeDesks.AsNoTracking()
-                .Where(d => d.Id == deskId.Value)
-                .Select(d => d.Name)
-                .FirstOrDefaultAsync(ct);
-        }
-
-        var ev = new RecordAccessEvent
-        {
-            Id = Guid.NewGuid(),
-            ActorUserId = cmd.ActorUserId,
-            ActorDisplayNameSnapshot = actorName,
-            OccurredAt = DateTimeOffset.UtcNow,
-            Action = cmd.Action,
-            DocumentId = cmd.DocumentId,
-            ContextEntityType = cmd.ContextEntityType,
-            ContextEntityId = cmd.ContextEntityId,
-            WorkstreamId = workstreamId,
-            WorkstreamNameSnapshot = workstreamName,
-            OfficeDeskId = deskId,
-            OfficeDeskNameSnapshot = deskName,
-            DocumentTitleSnapshot = docTitle,
-            DeduplicationKey = deduplicationKey
-        };
-
-        db.RecordAccessEvents.Add(ev);
         try
-        {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException)
         {
             if (deduplicationKey != null)
             {
-                db.Entry(ev).State = EntityState.Detached;
-                var exists = await db.RecordAccessEvents.AsNoTracking()
-                    .AnyAsync(e => e.DeduplicationKey == deduplicationKey, CancellationToken.None);
-                if (exists)
+                var alreadyLogged = await db.RecordAccessEvents.AsNoTracking()
+                    .AnyAsync(e => e.DeduplicationKey == deduplicationKey, ct);
+                if (alreadyLogged)
                 {
                     return;
                 }
             }
-            throw;
+
+            string? workstreamName = null;
+            if (workstreamId.HasValue)
+            {
+                workstreamName = await db.Workstreams.AsNoTracking()
+                    .Where(w => w.Id == workstreamId.Value)
+                    .Select(w => w.Name)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            string? deskName = null;
+            if (deskId.HasValue)
+            {
+                deskName = await db.OfficeDesks.AsNoTracking()
+                    .Where(d => d.Id == deskId.Value)
+                    .Select(d => d.Name)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            var ev = new RecordAccessEvent
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = cmd.ActorUserId,
+                ActorDisplayNameSnapshot = actorName,
+                OccurredAt = DateTimeOffset.UtcNow,
+                Action = cmd.Action,
+                DocumentId = cmd.DocumentId,
+                ContextEntityType = cmd.ContextEntityType,
+                ContextEntityId = cmd.ContextEntityId,
+                WorkstreamId = workstreamId,
+                WorkstreamNameSnapshot = workstreamName,
+                OfficeDeskId = deskId,
+                OfficeDeskNameSnapshot = deskName,
+                DocumentTitleSnapshot = docTitle,
+                DeduplicationKey = deduplicationKey
+            };
+
+            db.RecordAccessEvents.Add(ev);
+            try
+            {
+                await db.SaveChangesAsync(ct);
+            }
+            catch (DbUpdateException)
+            {
+                if (deduplicationKey != null)
+                {
+                    db.Entry(ev).State = EntityState.Detached;
+                    var exists = await db.RecordAccessEvents.AsNoTracking()
+                        .AnyAsync(e => e.DeduplicationKey == deduplicationKey, CancellationToken.None);
+                    if (exists)
+                    {
+                        return;
+                    }
+                }
+                throw;
+            }
+        }
+        finally
+        {
+            if (sem != null)
+            {
+                sem.Release();
+                if (KeyLocks.Count > 1000)
+                {
+                    KeyLocks.Clear();
+                }
+            }
         }
     }
 }
+

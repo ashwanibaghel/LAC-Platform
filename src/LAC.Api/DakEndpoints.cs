@@ -1190,6 +1190,7 @@ public static class DakEndpoints
         // Primary main document
         dak.MapGet("/{id:guid}/content", async (
             Guid id,
+            bool? download,
             HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
@@ -1213,9 +1214,12 @@ public static class DakEndpoints
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
 
+            var isDownload = download == true;
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Opened;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: document.Id,
                 ContextEntityType: "Dak",
                 ContextEntityId: id,
@@ -1223,6 +1227,10 @@ public static class DakEndpoints
             ), ct);
 
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            if (isDownload)
+            {
+                return Results.File(stream, document.MimeType ?? "application/octet-stream", document.OriginalFileName, enableRangeProcessing: true);
+            }
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 
@@ -1230,6 +1238,7 @@ public static class DakEndpoints
         dak.MapGet("/{id:guid}/attachments/{attachmentId:guid}/content", async (
             Guid id,
             Guid attachmentId,
+            bool? download,
             HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
@@ -1253,9 +1262,13 @@ public static class DakEndpoints
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
 
+            var ext = Path.GetExtension(document.OriginalFileName);
+            var isDownload = download == true || (download == null && !MatterDocumentValidation.IsInlineDisposition(ext));
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Opened;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: document.Id,
                 ContextEntityType: "Dak",
                 ContextEntityId: id,
@@ -1263,6 +1276,10 @@ public static class DakEndpoints
             ), ct);
 
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            if (isDownload)
+            {
+                return Results.File(stream, document.MimeType ?? "application/octet-stream", document.OriginalFileName, enableRangeProcessing: true);
+            }
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 
@@ -1270,6 +1287,7 @@ public static class DakEndpoints
         dak.MapGet("/{id:guid}/documents/{docId:guid}/content", async (
             Guid id,
             Guid docId,
+            bool? download,
             HttpContext httpContext,
             LacDbContext db,
             IDocumentStorage storage,
@@ -1290,9 +1308,13 @@ public static class DakEndpoints
             var stream = await storage.OpenReadAsync(document.StoragePath, ct);
             if (stream is null) return Results.NotFound();
 
+            var ext = Path.GetExtension(document.OriginalFileName);
+            var isDownload = download == true || (download == null && !MatterDocumentValidation.IsInlineDisposition(ext));
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Opened;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: document.Id,
                 ContextEntityType: "Dak",
                 ContextEntityId: id,
@@ -1300,6 +1322,10 @@ public static class DakEndpoints
             ), ct);
 
             httpContext.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+            if (isDownload)
+            {
+                return Results.File(stream, document.MimeType ?? "application/octet-stream", document.OriginalFileName, enableRangeProcessing: true);
+            }
             return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         }).RequirePermission(PermissionCodes.DakView);
 

@@ -1135,6 +1135,7 @@ public static class WorkItemEndpoints
         group.MapGet("/{id:guid}/attachments/{attachmentId:guid}/content", async (
             Guid id,
             Guid attachmentId,
+            bool? download,
             LacDbContext db,
             IDocumentStorage storage,
             IWorkItemAuthorizationService workItemAuth,
@@ -1164,9 +1165,12 @@ public static class WorkItemEndpoints
             if (stream is null)
                 return Results.NotFound(new { message = "Document file not found on storage." });
 
+            var isDownload = download != false;
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Previewed;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Downloaded,
+                Action: action,
                 DocumentId: doc.Id,
                 ContextEntityType: "WorkItem",
                 ContextEntityId: id,
@@ -1174,7 +1178,11 @@ public static class WorkItemEndpoints
             ), ct);
 
             response.Headers.Append("X-Content-Type-Options", "nosniff");
-            return Results.File(stream, doc.MimeType ?? "application/octet-stream", doc.OriginalFileName);
+            if (isDownload)
+            {
+                return Results.File(stream, doc.MimeType ?? "application/octet-stream", doc.OriginalFileName);
+            }
+            return Results.File(stream, doc.MimeType ?? "application/octet-stream");
         });
 
         // ====================================================================

@@ -678,6 +678,7 @@ public static class MatterEndpoints
         matters.MapGet("/{matterId:guid}/documents/{documentId:guid}/content", async (
             Guid matterId,
             Guid documentId,
+            bool? download,
             LacDbContext db,
             IDocumentStorage storage,
             IMatterAuthorizationService matterAuth,
@@ -703,7 +704,8 @@ public static class MatterEndpoints
             var ext = Path.GetExtension(doc.OriginalFileName);
             var mime = doc.MimeType ?? MatterDocumentValidation.GetServerDerivedMimeType(ext);
 
-            var action = MatterDocumentValidation.IsInlineDisposition(ext) ? RecordAccessAction.Previewed : RecordAccessAction.Downloaded;
+            var isDownload = download == true || (download == null && !MatterDocumentValidation.IsInlineDisposition(ext));
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Previewed;
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
                 Action: action,
@@ -713,7 +715,7 @@ public static class MatterEndpoints
                 DocumentTitleSnapshot: doc.OriginalFileName
             ), ct);
 
-            if (MatterDocumentValidation.IsInlineDisposition(ext))
+            if (!isDownload)
             {
                 return Results.Stream(stream, mime, enableRangeProcessing: true);
             }

@@ -17,8 +17,10 @@ public static class ActivityEndpoints
         // 1. MY HISTORY (Actor GUID Match - No Audit.View required)
         // ====================================================================
         activity.MapGet("/my-history", async (
-            DateTimeOffset? dateFrom,
-            DateTimeOffset? dateTo,
+            DateOnly? fromDate,
+            DateOnly? toDate,
+            DateOnly? dateFrom,
+            DateOnly? dateTo,
             string? entityType,
             string? action,
             Guid? workstreamId,
@@ -35,8 +37,8 @@ public static class ActivityEndpoints
                 return Results.Unauthorized();
 
             var query = new ActivityQuery(
-                DateFrom: dateFrom,
-                DateTo: dateTo,
+                FromDate: fromDate ?? dateFrom,
+                ToDate: toDate ?? dateTo,
                 EntityType: entityType,
                 Action: action,
                 WorkstreamId: workstreamId,
@@ -62,8 +64,10 @@ public static class ActivityEndpoints
         // 2. TEAM ACTIVITY (Scoped by Audit.View)
         // ====================================================================
         activity.MapGet("/team", async (
-            DateTimeOffset? dateFrom,
-            DateTimeOffset? dateTo,
+            DateOnly? fromDate,
+            DateOnly? toDate,
+            DateOnly? dateFrom,
+            DateOnly? dateTo,
             string? entityType,
             string? action,
             Guid? workstreamId,
@@ -81,8 +85,8 @@ public static class ActivityEndpoints
                 return Results.Unauthorized();
 
             var query = new ActivityQuery(
-                DateFrom: dateFrom,
-                DateTo: dateTo,
+                FromDate: fromDate ?? dateFrom,
+                ToDate: toDate ?? dateTo,
                 EntityType: entityType,
                 Action: action,
                 WorkstreamId: workstreamId,

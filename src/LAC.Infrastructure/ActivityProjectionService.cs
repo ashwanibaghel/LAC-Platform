@@ -18,8 +18,8 @@ public sealed class ActivityAccessException : Exception
 }
 
 public sealed record ActivityQuery(
-    DateTimeOffset? DateFrom = null,
-    DateTimeOffset? DateTo = null,
+    DateOnly? FromDate = null,
+    DateOnly? ToDate = null,
     string? EntityType = null,
     string? Action = null,
     Guid? WorkstreamId = null,
@@ -284,9 +284,12 @@ public sealed class ActivityProjectionService(
             }
         }
 
-        DateTimeOffset? dateFrom = query.DateFrom.HasValue ? query.DateFrom.Value.ToUniversalTime() : null;
-        DateTimeOffset? dateToExclusive = query.DateTo.HasValue
-            ? new DateTimeOffset(query.DateTo.Value.UtcDateTime.Date.AddDays(1), TimeSpan.Zero)
+        var delhiOffset = TimeSpan.FromHours(5.5);
+        DateTimeOffset? dateFrom = query.FromDate.HasValue
+            ? new DateTimeOffset(query.FromDate.Value.ToDateTime(TimeOnly.MinValue), delhiOffset).ToUniversalTime()
+            : null;
+        DateTimeOffset? dateToExclusive = query.ToDate.HasValue
+            ? new DateTimeOffset(query.ToDate.Value.AddDays(1).ToDateTime(TimeOnly.MinValue), delhiOffset).ToUniversalTime()
             : null;
 
         var normalizedEntityType = query.EntityType?.Trim().ToLowerInvariant();
@@ -732,14 +735,13 @@ public sealed class ActivityProjectionService(
                     e.TargetDeskNameSnapshot,
                     HistoricalDesk = e.WorkItem.Assignments
                         .Where(a => a.RecordStatus == RecordStatus.Active && a.AssignedAt <= e.ActionAt && (a.ClosedAt == null || e.ActionAt < a.ClosedAt))
-                        .Select(a => new { a.OfficeDeskId, a.OfficeDesk.Name })
+                        .Select(a => new { a.OfficeDeskId })
                         .FirstOrDefault(),
                     e.FromStatus,
                     e.ToStatus,
                     e.RemarksSnapshot,
                     e.WorkItem.Title,
-                    e.WorkItem.WorkstreamId,
-                    WorkstreamName = e.WorkItem.Workstream != null ? e.WorkItem.Workstream.Name : null
+                    e.WorkItem.WorkstreamId
                 })
                 .ToListAsync(ct);
 
@@ -747,7 +749,7 @@ public sealed class ActivityProjectionService(
             {
                 var summary = FormatWorkItemSummary(e.Action, e.SourceDeskNameSnapshot, e.TargetDeskNameSnapshot, e.FromStatus, e.ToStatus);
                 var deskId = e.TargetDeskId ?? e.SourceDeskId ?? e.HistoricalDesk?.OfficeDeskId;
-                var deskName = e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot ?? e.HistoricalDesk?.Name;
+                var deskName = e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot;
 
                 allItems.Add(new ActivityItemDto(
                     EventId: e.Id,
@@ -762,7 +764,7 @@ public sealed class ActivityProjectionService(
                     EntityTitle: e.Title,
                     EntityReferenceNumber: null,
                     WorkstreamId: e.WorkstreamId,
-                    WorkstreamName: e.WorkstreamName,
+                    WorkstreamName: null,
                     DeskId: deskId,
                     DeskName: deskName,
                     CanOpen: false,

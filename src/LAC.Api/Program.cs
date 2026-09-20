@@ -419,7 +419,7 @@ api.MapGet("/documents", async (int page, int pageSize, LacDbContext db, Cancell
         .Select(x => new DocumentListItem(x.Id, x.OriginalFileName, x.DocumentType, x.UploadedAt, x.Status));
     return Results.Ok(await ToPageAsync(query, page, pageSize, ct));
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDocumentStorage storage, IRecordAccessLogger accessLogger, ICurrentUserContext currentUser, CancellationToken ct) =>
+api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDbContext db, IDocumentStorage storage, IRecordAccessLogger accessLogger, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     var document = await db.Documents.AsNoTracking()
         .Where(x => x.Id == id && x.RecordStatus == RecordStatus.Active && x.Status == "Active" && (x.AwardLinks.Any() || db.NmDocuments.Any(nm => nm.DocumentId == x.Id) || db.DocumentNotifications.Any(dn => dn.DocumentId == x.Id)))
@@ -443,16 +443,25 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, LacDbContext db, IDoc
     var stream = await storage.OpenReadAsync(document.StoragePath, ct);
     if (stream is null) return Results.NotFound();
 
+    var isDownload = download == true;
     if (currentUser.UserId.HasValue)
     {
+        var awardWs = await db.Workstreams.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.Award && w.IsActive && w.RecordStatus == RecordStatus.Active, ct);
+
         await accessLogger.LogAccessAsync(new RecordAccessCommand(
             ActorUserId: currentUser.UserId.Value,
-            Action: RecordAccessAction.Opened,
+            Action: isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Opened,
             DocumentId: document.Id,
+            WorkstreamId: awardWs?.Id,
             DocumentTitleSnapshot: document.OriginalFileName
         ), ct);
     }
 
+    if (isDownload)
+    {
+        return Results.File(stream, document.MimeType ?? "application/octet-stream", document.OriginalFileName, enableRangeProcessing: true);
+    }
     return Results.File(stream, document.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>

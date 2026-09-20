@@ -1572,4 +1572,782 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
             Assert.Contains("strictly immutable", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    [Fact]
+    public async Task DocumentAccess_ProtectedAwardContentEndpoint_CreatesAccessEventWithDynamicWorkstream_AndAppearsInTeamActivity()
+    {
+        // 1. Resolve or Create Award Workstream
+        Guid awardWsId;
+        string awardWsName;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var ws = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.Award);
+            if (ws == null)
+            {
+                ws = new Workstream
+                {
+                    Id = Guid.NewGuid(),
+                    Code = WorkstreamCodes.Award,
+                    Name = "Land Acquisition Award",
+                    IsActive = true,
+                    RecordStatus = RecordStatus.Active,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                    UpdatedAt = DateTimeOffset.UtcNow
+                };
+                db.Workstreams.Add(ws);
+                await db.SaveChangesAsync();
+            }
+            awardWsId = ws.Id;
+            awardWsName = ws.Name;
+        }
+
+        // 2. Save document to storage and database with award link
+        Guid docId = Guid.NewGuid();
+        Guid awardId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            using var mem = new MemoryStream([1, 2, 3, 4]);
+            var storagePath = await storage.SaveAsync(mem, "award_protected_doc.pdf", default);
+
+            var doc = new Document
+            {
+                Id = docId,
+                DocumentType = "AWARD",
+                OriginalFileName = "award_protected_doc.pdf",
+                StoragePath = storagePath,
+                MimeType = "application/pdf",
+                Status = "Active",
+                RecordStatus = RecordStatus.Active,
+                UploadedAt = DateTimeOffset.UtcNow
+            };
+            db.Documents.Add(doc);
+
+            var award = new Award
+            {
+                Id = awardId,
+                AwardNumber = $"AW-{Guid.NewGuid():N}"[..12],
+                Status = "Active",
+                RecordStatus = RecordStatus.Active
+            };
+            db.Awards.Add(award);
+
+            db.DocumentAwards.Add(new DocumentAward
+            {
+                Id = Guid.NewGuid(),
+                AwardId = awardId,
+                DocumentId = docId,
+                CoreDocumentRole = "Award"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 3. Create user with AwardView + AuditView with Workstream scope
+        var (client, userId) = await CreateScopedUserClientAsync(
+            $"usr_aw_{Guid.NewGuid():N}"[..12],
+            $"R_AW_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Workstream,
+            workstreamId: awardWsId,
+            permissions: [PermissionCodes.AwardView, PermissionCodes.AuditView]
+        );
+
+        // 4. Access protected document content (inline open)
+        var res = await client.GetAsync($"/api/documents/{docId}/content");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        // 5. Verify RecordAccessEvent in DB with dynamic WorkstreamId
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var accessEvent = await db.RecordAccessEvents.FirstOrDefaultAsync(e => e.DocumentId == docId && e.ActorUserId == userId);
+            Assert.NotNull(accessEvent);
+            Assert.Equal(awardWsId, accessEvent.WorkstreamId);
+            Assert.Equal(awardWsName, accessEvent.WorkstreamNameSnapshot);
+            Assert.Equal(RecordAccessAction.Opened, accessEvent.Action);
+            Assert.Equal("award_protected_doc.pdf", accessEvent.DocumentTitleSnapshot);
+        }
+
+        // 6. Verify event appears in Team Activity for Workstream-scoped user
+        var teamRes = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, teamRes.StatusCode);
+        var feed = await teamRes.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        Assert.Contains(feed.Items, i => i.EntityId == docId && i.IsReadEvent && i.WorkstreamId == awardWsId);
+
+        // 7. Access with download=true -> records Downloaded
+        var dlRes = await client.GetAsync($"/api/documents/{docId}/content?download=true");
+        Assert.Equal(HttpStatusCode.OK, dlRes.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var dlEvent = await db.RecordAccessEvents.FirstOrDefaultAsync(e => e.DocumentId == docId && e.ActorUserId == userId && e.Action == RecordAccessAction.Downloaded);
+            Assert.NotNull(dlEvent);
+            Assert.Equal(awardWsId, dlEvent.WorkstreamId);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentAccess_UnauthorizedAccess_CreatesZeroAccessEvents()
+    {
+        Guid docId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Documents.Add(new Document
+            {
+                Id = docId,
+                DocumentType = "AWARD",
+                OriginalFileName = "unauth_test.pdf",
+                StoragePath = "unauth_test.pdf",
+                Status = "Active",
+                RecordStatus = RecordStatus.Active
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // 1. Unauthenticated client
+        var anonClient = _factory.CreateClient();
+        var unauthRes = await anonClient.GetAsync($"/api/documents/{docId}/content");
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthRes.StatusCode);
+
+        // 2. Non-privileged authenticated client
+        var (nopermClient, _) = await CreateScopedUserClientAsync(
+            $"usr_noperm_{Guid.NewGuid():N}"[..12],
+            $"R_NOPERM_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Assigned,
+            permissions: [PermissionCodes.DakView] // lacks AwardView
+        );
+        var forbidRes = await nopermClient.GetAsync($"/api/documents/{docId}/content");
+        Assert.Equal(HttpStatusCode.Forbidden, forbidRes.StatusCode);
+
+        // 3. Verify exactly 0 access events logged
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var count = await db.RecordAccessEvents.CountAsync(e => e.DocumentId == docId);
+            Assert.Equal(0, count);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentAccess_OpenAfterDedupWindow_CreatesNewEvent()
+    {
+        Guid docId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Documents.Add(new Document
+            {
+                Id = docId,
+                DocumentType = "NOTE",
+                OriginalFileName = "window_test.pdf",
+                StoragePath = "window_test.pdf"
+            });
+            // Initial event seeded directly from an older 5-minute bucket
+            db.RecordAccessEvents.Add(new RecordAccessEvent
+            {
+                Id = Guid.NewGuid(),
+                ActorUserId = SeedData.BootstrapAdminId,
+                Action = RecordAccessAction.Opened,
+                DocumentId = docId,
+                DeduplicationKey = $"{SeedData.BootstrapAdminId}:{docId}:None:None:1",
+                OccurredAt = DateTimeOffset.UtcNow.AddMinutes(-10),
+                DocumentTitleSnapshot = "window_test.pdf",
+                ActorDisplayNameSnapshot = "Admin User"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var cmd = new RecordAccessCommand(
+            ActorUserId: SeedData.BootstrapAdminId,
+            Action: RecordAccessAction.Opened,
+            DocumentId: docId,
+            DocumentTitleSnapshot: "window_test.pdf"
+        );
+
+        // Open in current bucket creates a second event
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(cmd);
+        }
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var count = await db.RecordAccessEvents.CountAsync(e => e.DocumentId == docId && e.Action == RecordAccessAction.Opened);
+            Assert.Equal(2, count);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentAccess_ConcurrentDuplicateOpen_CollapsesToOneEvent()
+    {
+        Guid docId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Documents.Add(new Document
+            {
+                Id = docId,
+                DocumentType = "NOTE",
+                OriginalFileName = "concurrent_test.pdf",
+                StoragePath = "concurrent_test.pdf"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var cmd = new RecordAccessCommand(
+            ActorUserId: SeedData.BootstrapAdminId,
+            Action: RecordAccessAction.Opened,
+            DocumentId: docId,
+            DocumentTitleSnapshot: "concurrent_test.pdf"
+        );
+
+        // Run 8 concurrent log attempts in parallel
+        var tasks = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
+        {
+            using var scope = _factory.Services.CreateScope();
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(cmd);
+        })).ToArray();
+
+        await Task.WhenAll(tasks);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var count = await db.RecordAccessEvents.CountAsync(e => e.DocumentId == docId);
+            Assert.Equal(1, count);
+        }
+    }
+
+    [Fact]
+    public async Task DocumentAccess_AnotherUserAccess_AbsentFromMyHistory()
+    {
+        Guid docId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Documents.Add(new Document
+            {
+                Id = docId,
+                DocumentType = "NOTE",
+                OriginalFileName = "user_isolation.pdf",
+                StoragePath = "user_isolation.pdf"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (clientA, userAId) = await CreateScopedUserClientAsync(
+            $"usr_iso_a_{Guid.NewGuid():N}"[..12],
+            $"R_ISO_A_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Own
+        );
+
+        var (clientB, _) = await CreateScopedUserClientAsync(
+            $"usr_iso_b_{Guid.NewGuid():N}"[..12],
+            $"R_ISO_B_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Own
+        );
+
+        // User A accesses document
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userAId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: docId,
+                DocumentTitleSnapshot: "user_isolation.pdf"
+            ));
+        }
+
+        // User B queries My History
+        var resB = await clientB.GetAsync("/api/activity/my-history");
+        Assert.Equal(HttpStatusCode.OK, resB.StatusCode);
+        var feedB = await resB.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedB);
+        Assert.DoesNotContain(feedB.Items, i => i.EntityId == docId);
+
+        // User A queries My History -> sees the event
+        var resA = await clientA.GetAsync("/api/activity/my-history");
+        Assert.Equal(HttpStatusCode.OK, resA.StatusCode);
+        var feedA = await resA.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feedA);
+        Assert.Contains(feedA.Items, i => i.EntityId == docId);
+    }
+
+    [Fact]
+    public async Task ActorDisplayNameSnapshot_SurvivesActorRename()
+    {
+        var (client, userId) = await CreateScopedUserClientAsync(
+            $"usr_ren_{Guid.NewGuid():N}"[..12],
+            $"R_REN_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Own
+        );
+
+        Guid docId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Documents.Add(new Document
+            {
+                Id = docId,
+                DocumentType = "NOTE",
+                OriginalFileName = "rename_test.pdf",
+                StoragePath = "rename_test.pdf"
+            });
+            await db.SaveChangesAsync();
+
+            var logger = scope.ServiceProvider.GetRequiredService<IRecordAccessLogger>();
+            await logger.LogAccessAsync(new RecordAccessCommand(
+                ActorUserId: userId,
+                Action: RecordAccessAction.Opened,
+                DocumentId: docId,
+                DocumentTitleSnapshot: "rename_test.pdf",
+                ActorDisplayNameSnapshot: "Officer Original Name"
+            ));
+        }
+
+        // Rename the user in AppUsers
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var u = await db.AppUsers.FindAsync(userId);
+            Assert.NotNull(u);
+            u.DisplayName = "Officer Mutated Name";
+            await db.SaveChangesAsync();
+        }
+
+        // In My History, ActorDisplayName must still reflect the immutable snapshot
+        var res = await client.GetAsync("/api/activity/my-history");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        var item = feed.Items.First(i => i.EntityId == docId);
+        Assert.Equal("Officer Original Name", item.ActorDisplayName);
+    }
+
+    [Fact]
+    public async Task WorkItem_HistoricalDisplay_DoesNotChangeAfterDeskOrWorkstreamRename()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_REN_{Guid.NewGuid():N}"[..10], "Original Workstream Name");
+        var desk1 = await CreateDeskAsync($"D1_REN_{Guid.NewGuid():N}"[..10], "Desk One Original", ws.Id);
+        var desk2 = await CreateDeskAsync($"D2_REN_{Guid.NewGuid():N}"[..10], "Desk Two Original", ws.Id);
+
+        Guid workItemId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var wi = new WorkItem
+            {
+                Id = workItemId,
+                WorkstreamId = ws.Id,
+                Title = "WorkItem Historical Name Test",
+                Status = WorkItemStatus.InProgress,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            db.WorkItems.Add(wi);
+
+            db.WorkItemEvents.Add(new WorkItemEvent
+            {
+                WorkItemId = workItemId,
+                SequenceNumber = 1,
+                Action = WorkItemEventAction.Reassigned,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                SourceDeskId = desk1.Id,
+                SourceDeskNameSnapshot = "Desk One Original",
+                TargetDeskId = desk2.Id,
+                TargetDeskNameSnapshot = "Desk Two Original"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Rename Desk and Workstream in DB
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var d1 = await db.OfficeDesks.FindAsync(desk1.Id);
+            var d2 = await db.OfficeDesks.FindAsync(desk2.Id);
+            var w = await db.Workstreams.FindAsync(ws.Id);
+            d1!.Name = "Desk One Mutated";
+            d2!.Name = "Desk Two Mutated";
+            w!.Name = "Mutated Workstream Name";
+            await db.SaveChangesAsync();
+        }
+
+        // Query Team Activity as Admin
+        var res = await adminClient.GetAsync($"/api/activity/team?workstreamId={ws.Id}&entityType=WorkItem");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        var item = feed.Items.First(i => i.EntityId == workItemId);
+
+        // Immutable truth: DeskName must match snapshot ("Desk Two Original"), never mutated name
+        Assert.Equal("Desk Two Original", item.DeskName);
+        // Mutable Workstream name is suppressed (null)
+        Assert.Null(item.WorkstreamName);
+    }
+
+    [Fact]
+    public async Task TeamActivity_ScopeUnion_WorkstreamPlusAssigned_BehavesAsUnion()
+    {
+        var ws1 = await CreateWorkstreamAsync($"WS_U1_{Guid.NewGuid():N}"[..10], "Workstream 1");
+        var desk1 = await CreateDeskAsync($"D_U1_{Guid.NewGuid():N}"[..10], "Desk 1 in WS1", ws1.Id);
+
+        var ws2 = await CreateWorkstreamAsync($"WS_U2_{Guid.NewGuid():N}"[..10], "Workstream 2");
+        var desk2 = await CreateDeskAsync($"D_U2_{Guid.NewGuid():N}"[..10], "Desk 2 in WS2", ws2.Id);
+        var desk3 = await CreateDeskAsync($"D_U3_{Guid.NewGuid():N}"[..10], "Desk 3 in WS2", ws2.Id);
+
+        // Create user with union of Workstream scope on WS1 AND Assigned scope on Desk2
+        var (client, userId) = await CreateScopedUserClientAsync(
+            $"usr_union_{Guid.NewGuid():N}"[..12],
+            $"R_UNION_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Workstream,
+            deskId: desk2.Id,
+            workstreamId: ws1.Id,
+            permissions: [PermissionCodes.AuditView]
+        );
+
+        // Add second RolePermission with ScopeMode.Assigned to the user's role
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var auditPerm = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.AuditView);
+            var user = await db.AppUsers.Include(u => u.UserRoles).FirstAsync(u => u.Id == userId);
+            var roleId = user.UserRoles.First().RoleId;
+            db.RolePermissions.Add(new RolePermission
+            {
+                RoleId = roleId,
+                PermissionId = auditPerm.Id,
+                ScopeMode = ScopeMode.Assigned
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var village = await CreateVillageAsync("Union Village");
+        Guid dak1Id = Guid.NewGuid();
+        Guid dak2Id = Guid.NewGuid();
+        Guid dak3Id = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            // Event 1: In WS1 (Desk 1)
+            var dak1 = new Dak { Id = dak1Id, DiaryNumber = $"DK-U1-{Guid.NewGuid():N}"[..12], Subject = "Dak WS1", SenderName = "Sender", Status = DakStatus.Registered, WorkstreamId = ws1.Id };
+            db.Daks.Add(dak1);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dak1Id,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                WorkstreamIdSnapshot = ws1.Id,
+                WorkstreamNameSnapshot = ws1.Name,
+                ToDeskId = desk1.Id,
+                ToDeskNameSnapshot = desk1.Name
+            });
+
+            // Event 2: In WS2 on Desk 2 (user's desk)
+            var dak2 = new Dak { Id = dak2Id, DiaryNumber = $"DK-U2-{Guid.NewGuid():N}"[..12], Subject = "Dak WS2 Desk2", SenderName = "Sender", Status = DakStatus.Registered, WorkstreamId = ws2.Id };
+            db.Daks.Add(dak2);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dak2Id,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                WorkstreamIdSnapshot = ws2.Id,
+                WorkstreamNameSnapshot = ws2.Name,
+                ToDeskId = desk2.Id,
+                ToDeskNameSnapshot = desk2.Name
+            });
+
+            // Event 3: In WS2 on Desk 3 (different desk, unauthorized)
+            var dak3 = new Dak { Id = dak3Id, DiaryNumber = $"DK-U3-{Guid.NewGuid():N}"[..12], Subject = "Dak WS2 Desk3", SenderName = "Sender", Status = DakStatus.Registered, WorkstreamId = ws2.Id };
+            db.Daks.Add(dak3);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dak3Id,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                WorkstreamIdSnapshot = ws2.Id,
+                WorkstreamNameSnapshot = ws2.Name,
+                ToDeskId = desk3.Id,
+                ToDeskNameSnapshot = desk3.Name
+            });
+
+            await db.SaveChangesAsync();
+        }
+
+        var res = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+
+        // Union: WS1 event is visible (via Workstream scope)
+        Assert.Contains(feed.Items, i => i.EntityId == dak1Id);
+        // Union: Desk2 event is visible (via Assigned desk scope)
+        Assert.Contains(feed.Items, i => i.EntityId == dak2Id);
+        // Desk3 in WS2 is NOT visible
+        Assert.DoesNotContain(feed.Items, i => i.EntityId == dak3Id);
+    }
+
+    [Fact]
+    public async Task TeamActivity_ContributorRequesterRelationship_DoesNotExpandTeamActivity()
+    {
+        var ws1 = await CreateWorkstreamAsync($"WS_C1_{Guid.NewGuid():N}"[..10], "WS Contrib 1");
+        var desk1 = await CreateDeskAsync($"D_C1_{Guid.NewGuid():N}"[..10], "Desk Contrib 1", ws1.Id);
+
+        var ws2 = await CreateWorkstreamAsync($"WS_C2_{Guid.NewGuid():N}"[..10], "WS Contrib 2");
+        var desk2 = await CreateDeskAsync($"D_C2_{Guid.NewGuid():N}"[..10], "Desk Contrib 2", ws2.Id);
+
+        // User is scoped to Desk 2
+        var (client, userId) = await CreateScopedUserClientAsync(
+            $"usr_cnt_{Guid.NewGuid():N}"[..12],
+            $"R_CNT_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Assigned,
+            deskId: desk2.Id,
+            permissions: [PermissionCodes.AuditView]
+        );
+
+        Guid workItemId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var wi = new WorkItem
+            {
+                Id = workItemId,
+                WorkstreamId = ws1.Id,
+                Title = "WorkItem External Contributor",
+                Status = WorkItemStatus.InProgress,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+            db.WorkItems.Add(wi);
+
+            // Add Desk 1 assignment
+            db.WorkItemAssignments.Add(new WorkItemAssignment
+            {
+                WorkItemId = workItemId,
+                OfficeDeskId = desk1.Id,
+                AssignedAt = DateTimeOffset.UtcNow.AddHours(-1),
+                IsActive = true,
+                RecordStatus = RecordStatus.Active
+            });
+
+            // Add caller as a contributor
+            db.WorkItemContributors.Add(new WorkItemContributor
+            {
+                WorkItemId = workItemId,
+                UserId = userId,
+                AddedByUserId = SeedData.BootstrapAdminId,
+                IsActive = true,
+                Status = WorkItemContributorStatus.Active
+            });
+
+            db.WorkItemEvents.Add(new WorkItemEvent
+            {
+                WorkItemId = workItemId,
+                SequenceNumber = 1,
+                Action = WorkItemEventAction.Created,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                SourceDeskId = desk1.Id,
+                SourceDeskNameSnapshot = "Desk Contrib 1"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Query Team Activity: Desk 1 event MUST NOT appear
+        var res = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        Assert.DoesNotContain(feed.Items, i => i.EntityId == workItemId);
+    }
+
+    [Fact]
+    public async Task TeamActivity_InactiveOrRemovedMemberships_FailClosed()
+    {
+        var ws = await CreateWorkstreamAsync($"WS_INACT_{Guid.NewGuid():N}"[..10], "Inactive Membership WS");
+        var desk = await CreateDeskAsync($"D_INACT_{Guid.NewGuid():N}"[..10], "Inactive Membership Desk", ws.Id);
+
+        var (client, userId) = await CreateScopedUserClientAsync(
+            $"usr_rem_{Guid.NewGuid():N}"[..12],
+            $"R_REM_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Assigned,
+            deskId: desk.Id,
+            permissions: [PermissionCodes.AuditView]
+        );
+
+        // Mark desk membership as removed / inactive
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var m = await db.UserDeskMemberships.FirstAsync(udm => udm.UserId == userId && udm.OfficeDeskId == desk.Id);
+            m.RemovedAt = DateTimeOffset.UtcNow;
+            m.IsActive = false;
+            await db.SaveChangesAsync();
+        }
+
+        var village = await CreateVillageAsync("Removed Village");
+        Guid dakId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var dak = new Dak { Id = dakId, DiaryNumber = $"DK-RM-{Guid.NewGuid():N}"[..12], Subject = "Dak RM", SenderName = "Sender", Status = DakStatus.Registered, WorkstreamId = ws.Id };
+            db.Daks.Add(dak);
+            db.DakMovements.Add(new DakMovement
+            {
+                DakId = dakId,
+                Action = DakMovementAction.Registered,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                ToDeskId = desk.Id,
+                ToDeskNameSnapshot = desk.Name
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // Fails closed: removed desk membership means 0 events returned
+        var res = await client.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        Assert.Empty(feed.Items);
+    }
+
+    [Fact]
+    public async Task TeamActivity_FiltersNeverExpandAuthorization()
+    {
+        var wsAuthorized = await CreateWorkstreamAsync($"WS_AUTH_{Guid.NewGuid():N}"[..10], "Authorized WS");
+        var wsUnauthorized = await CreateWorkstreamAsync($"WS_UNAUTH_{Guid.NewGuid():N}"[..10], "Unauthorized WS");
+
+        var (client, _) = await CreateScopedUserClientAsync(
+            $"usr_flt_{Guid.NewGuid():N}"[..12],
+            $"R_FLT_{Guid.NewGuid():N}"[..10],
+            ScopeMode.Workstream,
+            workstreamId: wsAuthorized.Id,
+            permissions: [PermissionCodes.AuditView]
+        );
+
+        var village = await CreateVillageAsync("Filter Sec Village");
+        Guid unauthMatterId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            db.Matters.Add(new Matter
+            {
+                Id = unauthMatterId,
+                VillageId = village.Id,
+                ReferenceNumber = "MAT-SEC-001",
+                Title = "Unauthorized Matter",
+                MatterType = "CIVIL",
+                WorkstreamId = wsUnauthorized.Id
+            });
+            db.MatterEvents.Add(new MatterEvent
+            {
+                MatterId = unauthMatterId,
+                SequenceNumber = 1,
+                Action = MatterEventAction.Created,
+                ActionByUserId = SeedData.BootstrapAdminId,
+                ActionByDisplayNameSnapshot = "Admin",
+                ActionAt = DateTimeOffset.UtcNow,
+                WorkstreamIdSnapshot = wsUnauthorized.Id,
+                WorkstreamNameSnapshot = wsUnauthorized.Name
+            });
+            await db.SaveChangesAsync();
+        }
+
+        // User queries with parameter pointing to unauthorized workstream
+        var res = await client.GetAsync($"/api/activity/team?workstreamId={wsUnauthorized.Id}");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        Assert.Empty(feed.Items);
+    }
+
+    [Fact]
+    public async Task TeamActivity_DelhiDateBoundary_ISTMidnightSemantics()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_DEL_{Guid.NewGuid():N}"[..10], "Delhi Date WS");
+        var village = await CreateVillageAsync("Delhi Village");
+
+        // Indian Standard Time is UTC + 5:30.
+        // Target Delhi date: 2026-11-20
+        // Delhi 2026-11-20 00:00:00 IST = 2026-11-19 18:30:00 UTC
+        // Delhi 2026-11-20 23:59:59 IST = 2026-11-20 18:29:59 UTC
+        // Next Delhi 2026-11-21 00:00:00 IST = 2026-11-20 18:30:00 UTC
+
+        var timePre = new DateTimeOffset(2026, 11, 19, 18, 29, 59, TimeSpan.Zero);  // Delhi Nov 19 23:59:59
+        var timeInside = new DateTimeOffset(2026, 11, 19, 18, 30, 01, TimeSpan.Zero); // Delhi Nov 20 00:00:01
+        var timePost = new DateTimeOffset(2026, 11, 20, 18, 30, 01, TimeSpan.Zero); // Delhi Nov 21 00:00:01
+
+        Guid idPre = Guid.NewGuid();
+        Guid idInside = Guid.NewGuid();
+        Guid idPost = Guid.NewGuid();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            void AddMatter(Guid id, string title, DateTimeOffset eventTime)
+            {
+                db.Matters.Add(new Matter
+                {
+                    Id = id,
+                    VillageId = village.Id,
+                    ReferenceNumber = $"MAT-{id:N}"[..12],
+                    Title = title,
+                    MatterType = "CIVIL",
+                    WorkstreamId = ws.Id
+                });
+                db.MatterEvents.Add(new MatterEvent
+                {
+                    MatterId = id,
+                    SequenceNumber = 1,
+                    Action = MatterEventAction.Created,
+                    ActionByUserId = SeedData.BootstrapAdminId,
+                    ActionByDisplayNameSnapshot = "Admin",
+                    ActionAt = eventTime,
+                    WorkstreamIdSnapshot = ws.Id,
+                    WorkstreamNameSnapshot = ws.Name
+                });
+            }
+
+            AddMatter(idPre, "Matter Pre-Midnight Delhi", timePre);
+            AddMatter(idInside, "Matter Inside Delhi Day", timeInside);
+            AddMatter(idPost, "Matter Post-Midnight Delhi", timePost);
+
+            await db.SaveChangesAsync();
+        }
+
+        // Query with fromDate=2026-11-20 and toDate=2026-11-20
+        var res = await adminClient.GetAsync($"/api/activity/team?workstreamId={ws.Id}&fromDate=2026-11-20&toDate=2026-11-20");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var feed = await res.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+
+        Assert.Contains(feed.Items, i => i.EntityId == idInside);
+        Assert.DoesNotContain(feed.Items, i => i.EntityId == idPre);
+        Assert.DoesNotContain(feed.Items, i => i.EntityId == idPost);
+    }
 }

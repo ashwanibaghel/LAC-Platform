@@ -57,8 +57,8 @@ export function TeamActivity() {
       if (workstreamId) params.set('workstreamId', workstreamId);
       if (deskId) params.set('deskId', deskId);
       if (actorUserId) params.set('actorUserId', actorUserId);
-      if (dateFrom) params.set('dateFrom', dateFrom);
-      if (dateTo) params.set('dateTo', dateTo);
+      if (dateFrom) params.set('fromDate', dateFrom);
+      if (dateTo) params.set('toDate', dateTo);
 
       if (activityCategory === 'mutations') {
         params.set('includeReads', 'false');

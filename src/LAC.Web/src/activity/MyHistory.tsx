@@ -27,8 +27,8 @@ export function MyHistory() {
       if (search.trim()) params.set('search', search.trim());
       if (entityType) params.set('entityType', entityType);
       if (action.trim()) params.set('action', action.trim());
-      if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
-      if (dateTo) params.set('dateTo', new Date(dateTo).toISOString());
+      if (dateFrom) params.set('fromDate', dateFrom);
+      if (dateTo) params.set('toDate', dateTo);
       params.set('includeReads', includeReads.toString());
       params.set('page', page.toString());
       params.set('pageSize', pageSize.toString());

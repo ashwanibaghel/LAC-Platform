@@ -933,6 +933,7 @@ public static class OutwardEndpoints
         // ====================================================================
         outward.MapGet("/{id:guid}/document/content", async (
             Guid id,
+            bool? download,
             LacDbContext db,
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
@@ -958,9 +959,12 @@ public static class OutwardEndpoints
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
 
+            var isDownload = download == true;
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Previewed;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: doc.Id,
                 ContextEntityType: "Outward",
                 ContextEntityId: id,
@@ -968,12 +972,17 @@ public static class OutwardEndpoints
             ), ct);
 
             response.Headers.Append("X-Content-Type-Options", "nosniff");
-            return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
+            if (isDownload)
+            {
+                return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
+            }
+            return Results.Stream(stream, doc.MimeType ?? "application/pdf", enableRangeProcessing: true);
         });
 
         outward.MapGet("/{id:guid}/attachments/{attachmentId:guid}/content", async (
             Guid id,
             Guid attachmentId,
+            bool? download,
             LacDbContext db,
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
@@ -999,9 +1008,13 @@ public static class OutwardEndpoints
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
 
+            var ext = Path.GetExtension(doc.OriginalFileName);
+            var isDownload = download == true || (download == null && !MatterDocumentValidation.IsInlineDisposition(ext));
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Previewed;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: doc.Id,
                 ContextEntityType: "Outward",
                 ContextEntityId: id,
@@ -1009,12 +1022,17 @@ public static class OutwardEndpoints
             ), ct);
 
             response.Headers.Append("X-Content-Type-Options", "nosniff");
-            return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
+            if (isDownload)
+            {
+                return Results.Stream(stream, doc.MimeType ?? "application/pdf", doc.OriginalFileName, enableRangeProcessing: true);
+            }
+            return Results.Stream(stream, doc.MimeType ?? "application/pdf", enableRangeProcessing: true);
         });
 
         outward.MapGet("/{id:guid}/documents/{documentId:guid}", async (
             Guid id,
             Guid documentId,
+            bool? download,
             LacDbContext db,
             IDocumentStorage storage,
             IOutwardAuthorizationService outwardAuth,
@@ -1037,9 +1055,13 @@ public static class OutwardEndpoints
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });
 
+            var ext = Path.GetExtension(doc.OriginalFileName);
+            var isDownload = download == true || (download == null && !MatterDocumentValidation.IsInlineDisposition(ext));
+            var action = isDownload ? RecordAccessAction.Downloaded : RecordAccessAction.Previewed;
+
             await accessLogger.LogAccessAsync(new RecordAccessCommand(
                 ActorUserId: userId,
-                Action: RecordAccessAction.Opened,
+                Action: action,
                 DocumentId: doc.Id,
                 ContextEntityType: "Outward",
                 ContextEntityId: id,
@@ -1047,7 +1069,11 @@ public static class OutwardEndpoints
             ), ct);
 
             response.Headers.Append("X-Content-Type-Options", "nosniff");
-            return Results.Stream(stream, doc.MimeType ?? "application/octet-stream", doc.OriginalFileName, enableRangeProcessing: true);
+            if (isDownload)
+            {
+                return Results.Stream(stream, doc.MimeType ?? "application/octet-stream", doc.OriginalFileName, enableRangeProcessing: true);
+            }
+            return Results.Stream(stream, doc.MimeType ?? "application/octet-stream", enableRangeProcessing: true);
         });
 
         return outward;
