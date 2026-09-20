@@ -66,6 +66,9 @@ builder.Services.AddScoped<MatterWorkflowService>();
 builder.Services.AddScoped<IWorkItemAuthorizationService, WorkItemAuthorizationService>();
 builder.Services.AddScoped<WorkItemWorkflowService>();
 builder.Services.AddScoped<IRecordAccessLogger, RecordAccessLogger>();
+builder.Services.AddScoped<IScheduleAuthorizationService, ScheduleAuthorizationService>();
+builder.Services.AddScoped<IScheduleWorkflowService, ScheduleWorkflowService>();
+builder.Services.AddScoped<IAttentionProjectionService, AttentionProjectionService>();
 builder.Services.AddScoped<IActivityProjectionService, ActivityProjectionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
@@ -126,6 +129,8 @@ api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
 api.MapWorkItemEndpoints();
 api.MapActivityEndpoints();
+api.MapScheduleEndpoints();
+api.MapAttentionEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";

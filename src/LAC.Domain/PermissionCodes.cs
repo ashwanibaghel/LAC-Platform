@@ -43,6 +43,12 @@ public static class PermissionCodes
     public const string WorkItemReview = "WorkItem.Review";
     public const string WorkItemComplete = "WorkItem.Complete";
     public const string WorkItemCancel = "WorkItem.Cancel";
+    public const string ScheduleView = "Schedule.View";
+    public const string ScheduleCreate = "Schedule.Create";
+    public const string ScheduleAssign = "Schedule.Assign";
+    public const string ScheduleUpdate = "Schedule.Update";
+    public const string ScheduleComplete = "Schedule.Complete";
+    public const string ScheduleCancel = "Schedule.Cancel";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -87,6 +93,12 @@ public static class PermissionCodes
         new(WorkItemReview, "Review Work Items", "Review work submissions and return or accept preparations", "Work Management"),
         new(WorkItemComplete, "Complete Work Items", "Mark assigned work items as completed with final disposition", "Work Management"),
         new(WorkItemCancel, "Cancel Work Items", "Void errant or superseded work items with audit justification", "Work Management"),
+        new(ScheduleView, "View Schedules", "View scheduled events, deadlines, court hearings, and attention calendars", "Schedule"),
+        new(ScheduleCreate, "Create Scheduled Events", "Create new official scheduled events and court hearings", "Schedule"),
+        new(ScheduleAssign, "Assign Scheduled Events", "Assign and reassign scheduled events to active desks and officers", "Schedule"),
+        new(ScheduleUpdate, "Update Scheduled Events", "Reschedule events, manage reminders, and link work items", "Schedule"),
+        new(ScheduleComplete, "Complete Scheduled Events", "Mark scheduled events as completed", "Schedule"),
+        new(ScheduleCancel, "Cancel Scheduled Events", "Cancel scheduled events with mandatory audit reason", "Schedule"),
     ];
 }
 

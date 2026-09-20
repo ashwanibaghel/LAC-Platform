@@ -34,6 +34,9 @@ import { WorkItemWorkspace } from "./work/WorkItemWorkspace";
 import { BranchPulse } from "./work/BranchPulse";
 import { MyHistory } from "./activity/MyHistory";
 import { TeamActivity } from "./activity/TeamActivity";
+import { MyAttention } from "./attention/MyAttention";
+import { CalendarView } from "./attention/CalendarView";
+import "./attention/attention.css";
 import "./work/work.css";
 import "./matter/matter.css";
 import "./index.css";
@@ -466,6 +469,10 @@ function Shell({ children }: { children: ReactNode }) {
   }
   if (hasPermission("WorkItem.View")) {
     links.push(["Branch Pulse", "/branch-pulse", "◉"]);
+  }
+  if (hasPermission("Schedule.View")) {
+    links.push(["My Attention", "/my-attention", "⏰"]);
+    links.push(["Calendar", "/calendar", "📅"]);
   }
   links.push(["My History", "/my-history", "🕒"]);
   if (hasPermission("Audit.View")) {
@@ -3296,6 +3303,8 @@ function AuthenticatedApp() {
         <Route path="/my-desk" element={<MyDesk />} />
         <Route path="/my-work" element={<MyWork />} />
         <Route path="/branch-pulse" element={<BranchPulse />} />
+        <Route path="/my-attention" element={<MyAttention />} />
+        <Route path="/calendar" element={<CalendarView />} />
         <Route path="/my-history" element={<MyHistory />} />
         <Route path="/team-activity" element={<TeamActivity />} />
         <Route path="/work/new" element={<WorkItemCreate />} />

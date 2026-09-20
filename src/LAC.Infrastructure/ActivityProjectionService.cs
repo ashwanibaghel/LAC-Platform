@@ -81,7 +81,8 @@ public sealed class ActivityProjectionService(
     IMatterAuthorizationService matterAuth,
     IDakAuthorizationService dakAuth,
     IOutwardAuthorizationService outwardAuth,
-    IWorkItemAuthorizationService workItemAuth) : IActivityProjectionService
+    IWorkItemAuthorizationService workItemAuth,
+    IScheduleAuthorizationService? scheduleAuth = null) : IActivityProjectionService
 {
     // ========================================================================
     // 1. MY HISTORY
@@ -297,6 +298,7 @@ public sealed class ActivityProjectionService(
         var shouldIncludeMatter = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "matter";
         var shouldIncludeOutward = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "outward";
         var shouldIncludeWorkItem = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "workitem" || normalizedEntityType == "work";
+        var shouldIncludeSchedule = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "schedule" || normalizedEntityType == "event" || normalizedEntityType == "scheduled_event" || normalizedEntityType == "scheduledevent";
         var shouldIncludeReads = query.IncludeReads && (string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "document" || normalizedEntityType == "read");
 
         var allItems = new List<ActivityItemDto>();
@@ -885,7 +887,130 @@ public sealed class ActivityProjectionService(
         }
 
         // --------------------------------------------------------------------
-        // F. DETERMINISTIC MERGE-SORT & PAGE SLICING
+        // F. SCHEDULED EVENT EVENTS
+        // --------------------------------------------------------------------
+        if (shouldIncludeSchedule)
+        {
+            var q = db.ScheduledEventEvents.AsNoTracking().Include(e => e.ScheduledEvent).AsQueryable();
+
+            if (!isTeamActivity)
+            {
+                q = q.Where(e => e.ActorUserId == currentUserId);
+            }
+            else
+            {
+                if (query.ActorUserId.HasValue)
+                    q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
+
+                if (!hasAllScope)
+                {
+                    var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                    var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                    if (wsMatch && deskMatch)
+                    {
+                        q = q.Where(e => (e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value))
+                                      || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                      || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
+                    }
+                    else if (wsMatch)
+                    {
+                        q = q.Where(e => e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value));
+                    }
+                    else if (deskMatch)
+                    {
+                        q = q.Where(e => (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                      || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
+                    }
+                    else
+                    {
+                        q = q.Where(_ => false);
+                    }
+                }
+            }
+
+            if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
+            if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
+            if (query.DeskId.HasValue) q = q.Where(e => e.TargetDeskId == query.DeskId.Value || e.SourceDeskId == query.DeskId.Value);
+            if (query.WorkstreamId.HasValue) q = q.Where(e => e.WorkstreamIdSnapshot == query.WorkstreamId.Value);
+            if (!string.IsNullOrWhiteSpace(query.Action))
+            {
+                var actionStr = query.Action.Trim();
+                q = q.Where(e => e.Action.ToString().ToLower() == actionStr.ToLower());
+            }
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var s = query.Search.Trim().ToLower();
+                q = q.Where(e => e.ScheduledEvent.Title.ToLower().Contains(s)
+                              || e.ActorDisplayNameSnapshot.ToLower().Contains(s)
+                              || (e.Reason != null && e.Reason.ToLower().Contains(s))
+                              || (e.Notes != null && e.Notes.ToLower().Contains(s)));
+            }
+
+            var scheduleCount = await q.CountAsync(ct);
+            totalCount += scheduleCount;
+
+            var scheduleEvents = await q.OrderByDescending(e => e.ActionAt)
+                .ThenBy(e => e.Id)
+                .Take(fetchCount)
+                .Select(e => new
+                {
+                    e.Id,
+                    e.ScheduledEventId,
+                    e.Action,
+                    e.ActorUserId,
+                    e.ActorDisplayNameSnapshot,
+                    e.ActionAt,
+                    e.WorkstreamIdSnapshot,
+                    e.WorkstreamNameSnapshot,
+                    e.SourceDeskId,
+                    e.SourceDeskNameSnapshot,
+                    e.TargetDeskId,
+                    e.TargetDeskNameSnapshot,
+                    e.OldScheduledDate,
+                    e.OldScheduledTime,
+                    e.NewScheduledDate,
+                    e.NewScheduledTime,
+                    e.ReminderDaysBefore,
+                    e.Reason,
+                    e.Notes,
+                    e.ScheduledEvent.Title,
+                    e.ScheduledEvent.EventKind
+                })
+                .ToListAsync(ct);
+
+            foreach (var e in scheduleEvents)
+            {
+                var summary = FormatScheduleSummary(e.Action, e.EventKind, e.OldScheduledDate, e.NewScheduledDate, e.SourceDeskNameSnapshot, e.TargetDeskNameSnapshot, e.ReminderDaysBefore, e.Reason);
+                var deskId = e.TargetDeskId ?? e.SourceDeskId;
+                var deskName = e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot;
+
+                allItems.Add(new ActivityItemDto(
+                    EventId: e.Id,
+                    SourceType: "Schedule",
+                    Action: e.Action.ToString(),
+                    Summary: summary,
+                    OccurredAt: e.ActionAt,
+                    ActorUserId: e.ActorUserId,
+                    ActorDisplayName: e.ActorDisplayNameSnapshot,
+                    EntityType: "ScheduledEvent",
+                    EntityId: e.ScheduledEventId,
+                    EntityTitle: e.Title,
+                    EntityReferenceNumber: null,
+                    WorkstreamId: e.WorkstreamIdSnapshot,
+                    WorkstreamName: e.WorkstreamNameSnapshot,
+                    DeskId: deskId,
+                    DeskName: deskName,
+                    CanOpen: false,
+                    NavigationUrl: null,
+                    IsReadEvent: false,
+                    Metadata: new { e.OldScheduledDate, e.NewScheduledDate, e.Reason }
+                ));
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // G. DETERMINISTIC MERGE-SORT & PAGE SLICING
         // --------------------------------------------------------------------
         var sortedItems = allItems
             .OrderByDescending(x => x.OccurredAt)
@@ -896,7 +1021,7 @@ public sealed class ActivityProjectionService(
             .ToList();
 
         // --------------------------------------------------------------------
-        // G. NAVIGATION SECURITY EVALUATION (canOpen & navigationUrl)
+        // H. NAVIGATION SECURITY EVALUATION (canOpen & navigationUrl)
         // --------------------------------------------------------------------
         var finalItems = new List<ActivityItemDto>(sortedItems.Count);
 
@@ -927,6 +1052,14 @@ public sealed class ActivityProjectionService(
                     case "WorkItem":
                         canOpen = await workItemAuth.CanAccessWorkItemAsync(item.EntityId, PermissionCodes.WorkItemView, currentUserId, ct);
                         if (canOpen) navUrl = $"/work/{item.EntityId}";
+                        break;
+
+                    case "Schedule":
+                        if (scheduleAuth != null)
+                        {
+                            canOpen = await scheduleAuth.CanAccessScheduledEventAsync(item.EntityId, PermissionCodes.ScheduleView, currentUserId, ct);
+                        }
+                        if (canOpen) navUrl = $"/calendar?eventId={item.EntityId}";
                         break;
 
                     case "RecordAccess":
@@ -1075,6 +1208,48 @@ public sealed class ActivityProjectionService(
             RecordAccessAction.Previewed => $"Previewed '{title}'",
             RecordAccessAction.Downloaded => $"Downloaded '{title}'",
             _ => $"Accessed '{title}'"
+        };
+    }
+
+    private static string FormatScheduleSummary(
+        ScheduledEventAction action,
+        ScheduledEventKind kind,
+        DateOnly? oldDate,
+        DateOnly? newDate,
+        string? sourceDeskName,
+        string? targetDeskName,
+        int? reminderDaysBefore,
+        string? reason)
+    {
+        return action switch
+        {
+            ScheduledEventAction.Created => newDate.HasValue
+                ? (kind == ScheduledEventKind.CourtHearing
+                    ? $"Court hearing scheduled for {newDate.Value:dd MMM yyyy}"
+                    : $"{kind} scheduled for {newDate.Value:dd MMM yyyy}")
+                : "Scheduled obligation created",
+
+            ScheduledEventAction.Rescheduled => (oldDate.HasValue && newDate.HasValue)
+                ? $"Hearing rescheduled from {oldDate.Value:dd MMM yyyy} to {newDate.Value:dd MMM yyyy}"
+                : "Scheduled obligation rescheduled",
+
+            ScheduledEventAction.ResponsibilityChanged => $"Responsibility moved from {sourceDeskName ?? "Unassigned"} to {targetDeskName ?? "Unassigned"}",
+
+            ScheduledEventAction.ReminderAdded => $"Reminder added for {reminderDaysBefore ?? 0} days before",
+
+            ScheduledEventAction.ReminderRemoved => $"Reminder removed for {reminderDaysBefore ?? 0} days before",
+
+            ScheduledEventAction.WorkItemLinked => "Work item linked to scheduled event",
+
+            ScheduledEventAction.WorkItemUnlinked => "Work item unlinked from scheduled event",
+
+            ScheduledEventAction.Completed => "Scheduled obligation completed",
+
+            ScheduledEventAction.Cancelled => !string.IsNullOrWhiteSpace(reason)
+                ? $"Scheduled obligation cancelled: {reason}"
+                : "Scheduled obligation cancelled",
+
+            _ => "Schedule updated"
         };
     }
 }
