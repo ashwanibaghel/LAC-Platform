@@ -23,6 +23,11 @@ public sealed record CreateWorkItemApiRequest(
 public sealed record StartWorkApiRequest(int? ExpectedRevision);
 public sealed record AddUpdateApiRequest(string Message, int? ExpectedRevision);
 public sealed record RemoveAttachmentApiRequest(int? ExpectedRevision);
+public sealed record AddContributorApiRequest(Guid UserId, string? Instructions, int? ExpectedRevision);
+public sealed record SubmitContributionApiRequest(int? ExpectedRevision, string? Note = null);
+public sealed record ReturnContributionApiRequest(int? ExpectedRevision, string Remarks);
+public sealed record AcceptContributionApiRequest(int? ExpectedRevision, string? Remarks = null);
+public sealed record RemoveContributorApiRequest(int? ExpectedRevision, string? Reason = null);
 
 public sealed record MyWorkSummaryDto(
     int TotalOpen,
@@ -31,7 +36,10 @@ public sealed record MyWorkSummaryDto(
     int Overdue,
     int DueToday,
     int DueThisWeek,
-    int NeedsReview
+    int NeedsReview,
+    int ReturnedToMe,
+    int Helping,
+    int WaitingOnOthers
 );
 
 public sealed record MyWorkItemDto(
@@ -68,6 +76,23 @@ public sealed record MyWorkResponseDto(
     int PageSize
 );
 
+public sealed record WorkItemContributorDetailDto(
+    Guid ContributorId,
+    Guid UserId,
+    string DisplayName,
+    string? Designation,
+    string? Instructions,
+    string Status,
+    bool IsActive,
+    Guid AddedByUserId,
+    string AddedByDisplayName,
+    DateTimeOffset AddedAt,
+    DateTimeOffset? SubmittedAt,
+    DateTimeOffset? ReviewedAt,
+    Guid? ReviewedByUserId,
+    string? ReviewedByDisplayName
+);
+
 public sealed record WorkItemDetailDto(
     Guid Id,
     string Title,
@@ -86,6 +111,8 @@ public sealed record WorkItemDetailDto(
     DateTimeOffset? CompletedAt,
     DateTimeOffset CreatedAt,
     WorkItemAssignmentDetailDto? CurrentAssignment,
+    IReadOnlyList<WorkItemContributorDetailDto> Contributors,
+    WorkItemCapabilitiesDto Capabilities,
     IReadOnlyList<WorkItemUpdateDetailDto> Updates,
     IReadOnlyList<WorkItemAttachmentDetailDto> Attachments,
     IReadOnlyList<WorkItemMatterLinkDetailDto> MatterLinks,
@@ -296,6 +323,27 @@ public static class WorkItemEndpoints
                 .Select(m => m.OfficeDeskId)
                 .ToListAsync(ct);
 
+            // Resolve caller's active workstream memberships
+            var userWorkstreamIds = await db.UserWorkstreamMemberships.AsNoTracking()
+                .Where(m => m.UserId == userId
+                         && m.IsActive
+                         && m.Workstream.IsActive
+                         && m.Workstream.RecordStatus == RecordStatus.Active)
+                .Select(m => m.WorkstreamId)
+                .ToListAsync(ct);
+
+            // Resolve caller's review scopes
+            var reviewScopes = await (
+                from ur in db.UserRoles
+                join r in db.Roles on ur.RoleId equals r.Id
+                join rp in db.RolePermissions on r.Id equals rp.RoleId
+                join p in db.Permissions on rp.PermissionId equals p.Id
+                where ur.UserId == userId
+                   && r.IsActive && r.RecordStatus == RecordStatus.Active
+                   && p.Code == PermissionCodes.WorkItemReview
+                select rp.ScopeMode
+            ).Distinct().ToListAsync(ct);
+
             // Step 1: Base query representing operational participation
             var baseQuery = db.WorkItems.AsNoTracking()
                 .Where(w => w.RecordStatus == RecordStatus.Active);
@@ -303,12 +351,13 @@ public static class WorkItemEndpoints
             // Intersect with operational participation criteria:
             // - Desk responsibility (user must have live active membership in the assigned desk, regardless of optional named handler)
             // - Requested by caller and not completed/cancelled
-            // - Contributor participation
+            // - Contributor participation (Active, Submitted, Returned)
             baseQuery = baseQuery.Where(w =>
                 (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
                     activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
                 (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
-                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Active)
+                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                    (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
             );
 
             // Step 2: Intersect with WorkItem.View authorization scopes
@@ -316,23 +365,16 @@ public static class WorkItemEndpoints
             {
                 if (viewScopes.Contains(ScopeMode.Workstream))
                 {
-                    var userWorkstreamIds = await db.UserWorkstreamMemberships.AsNoTracking()
-                        .Where(m => m.UserId == userId
-                                 && m.IsActive
-                                 && m.Workstream.IsActive
-                                 && m.Workstream.RecordStatus == RecordStatus.Active)
-                        .Select(m => m.WorkstreamId)
-                        .ToListAsync(ct);
-
                     baseQuery = baseQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
                 }
                 else if (viewScopes.Contains(ScopeMode.Assigned))
                 {
-                    // ScopeMode.Assigned allows only items where caller is a live desk member of the assigned desk or active contributor
+                    // ScopeMode.Assigned allows only items where caller is a live desk member of the assigned desk or active/submitted/returned contributor
                     baseQuery = baseQuery.Where(w =>
                         (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
                             activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
-                        w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Active)
+                        w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                            (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
                     );
                 }
                 else
@@ -372,8 +414,53 @@ public static class WorkItemEndpoints
                 w.Status != WorkItemStatus.Completed &&
                 w.Status != WorkItemStatus.Cancelled &&
                 w.DueAt != null && w.DueAt.Value >= todayStartUtc && w.DueAt.Value < weekEndUtc, ct);
-            var summaryNeedsReview = await baseQuery.CountAsync(w =>
-                w.Status == WorkItemStatus.SubmittedForReview, ct);
+
+            // NeedsReview: Count open work items where at least one contributor is Submitted (or item is SubmittedForReview) and caller has review authority
+            var summaryNeedsReview = 0;
+            if (reviewScopes.Count > 0)
+            {
+                var reviewQuery = baseQuery.Where(w => w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled &&
+                    (w.Status == WorkItemStatus.SubmittedForReview ||
+                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted)));
+
+                if (!reviewScopes.Contains(ScopeMode.All))
+                {
+                    if (reviewScopes.Contains(ScopeMode.Workstream))
+                    {
+                        reviewQuery = reviewQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
+                    }
+                    else if (reviewScopes.Contains(ScopeMode.Assigned))
+                    {
+                        reviewQuery = reviewQuery.Where(w => w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId));
+                    }
+                    else
+                    {
+                        reviewQuery = reviewQuery.Where(w => false);
+                    }
+                }
+                summaryNeedsReview = await reviewQuery.CountAsync(ct);
+            }
+
+            // ReturnedToMe: caller is active contributor with Status == Returned
+            var summaryReturnedToMe = await baseQuery.CountAsync(w =>
+                w.Status != WorkItemStatus.Completed &&
+                w.Status != WorkItemStatus.Cancelled &&
+                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Returned), ct);
+
+            // Helping: caller is active contributor with Status in (Active, Submitted, Returned)
+            var summaryHelping = await baseQuery.CountAsync(w =>
+                w.Status != WorkItemStatus.Completed &&
+                w.Status != WorkItemStatus.Cancelled &&
+                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                    (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)), ct);
+
+            // WaitingOnOthers: caller is responsible desk member or requesting officer, and item has active contributor in (Active, Submitted, Returned)
+            var summaryWaitingOnOthers = await baseQuery.CountAsync(w =>
+                w.Status != WorkItemStatus.Completed &&
+                w.Status != WorkItemStatus.Cancelled &&
+                ((w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) || w.RequestedByUserId == userId) &&
+                w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                    (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)), ct);
 
             var summary = new MyWorkSummaryDto(
                 summaryTotalOpen,
@@ -382,7 +469,10 @@ public static class WorkItemEndpoints
                 summaryOverdue,
                 summaryDueToday,
                 summaryDueThisWeek,
-                summaryNeedsReview
+                summaryNeedsReview,
+                summaryReturnedToMe,
+                summaryHelping,
+                summaryWaitingOnOthers
             );
 
             // Step 5: Filter application
@@ -450,7 +540,38 @@ public static class WorkItemEndpoints
             }
             else if (relFilter == "review")
             {
-                filteredQuery = filteredQuery.Where(w => w.Status == WorkItemStatus.SubmittedForReview);
+                filteredQuery = filteredQuery.Where(w =>
+                    w.Status == WorkItemStatus.SubmittedForReview ||
+                    w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted));
+
+                if (!reviewScopes.Contains(ScopeMode.All))
+                {
+                    if (reviewScopes.Contains(ScopeMode.Workstream))
+                    {
+                        filteredQuery = filteredQuery.Where(w => userWorkstreamIds.Contains(w.WorkstreamId));
+                    }
+                    else if (reviewScopes.Contains(ScopeMode.Assigned))
+                    {
+                        filteredQuery = filteredQuery.Where(w => w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId));
+                    }
+                    else
+                    {
+                        filteredQuery = filteredQuery.Where(w => false);
+                    }
+                }
+            }
+            else if (relFilter == "contributing")
+            {
+                filteredQuery = filteredQuery.Where(w =>
+                    w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                        (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)));
+            }
+            else if (relFilter == "waiting")
+            {
+                filteredQuery = filteredQuery.Where(w =>
+                    ((w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) || w.RequestedByUserId == userId) &&
+                    w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                        (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)));
             }
 
             var totalCount = await filteredQuery.CountAsync(ct);
@@ -593,6 +714,13 @@ public static class WorkItemEndpoints
                         .ThenInclude(u => u!.Designation)
                 .Include(w => w.CurrentAssignment)
                     .ThenInclude(a => a!.AssignedByUser)
+                .Include(w => w.Contributors)
+                    .ThenInclude(c => c.User)
+                        .ThenInclude(u => u.Designation)
+                .Include(w => w.Contributors)
+                    .ThenInclude(c => c.AddedByUser)
+                .Include(w => w.Contributors)
+                    .ThenInclude(c => c.ReviewedByUser)
                 .Include(w => w.Updates)
                     .ThenInclude(u => u.AddedByUser)
                         .ThenInclude(u => u.Designation)
@@ -625,6 +753,29 @@ public static class WorkItemEndpoints
                     item.CurrentAssignment.IsActive
                 );
             }
+
+            var contributorsDto = item.Contributors
+                .Where(c => c.RecordStatus == RecordStatus.Active)
+                .OrderBy(c => c.AddedAt)
+                .Select(c => new WorkItemContributorDetailDto(
+                    c.Id,
+                    c.UserId,
+                    c.User.DisplayName,
+                    c.User.Designation?.Name,
+                    c.Instructions,
+                    c.Status.ToString(),
+                    c.IsActive,
+                    c.AddedByUserId,
+                    c.AddedByUser.DisplayName,
+                    c.AddedAt,
+                    c.SubmittedAt,
+                    c.ReviewedAt,
+                    c.ReviewedByUserId,
+                    c.ReviewedByUser?.DisplayName
+                ))
+                .ToList();
+
+            var capabilities = await workItemAuth.ComputeCapabilitiesAsync(item, userId, ct);
 
             var updatesDto = item.Updates
                 .OrderBy(u => u.AddedAt)
@@ -727,6 +878,8 @@ public static class WorkItemEndpoints
                 item.CompletedAt,
                 item.CreatedAt,
                 assignmentDto,
+                contributorsDto,
+                capabilities,
                 updatesDto,
                 attachmentsDto,
                 matterLinksDto,
@@ -1013,6 +1166,198 @@ public static class WorkItemEndpoints
             }
 
             return Results.Ok(new { desks });
+        });
+
+        // ====================================================================
+        // 13. CONTRIBUTOR OPTIONS
+        // ====================================================================
+        group.MapGet("/{id:guid}/contributor-options", async (
+            Guid id,
+            [Microsoft.AspNetCore.Mvc.FromQuery] string? q,
+            IWorkItemAuthorizationService workItemAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            var (allowed, statusCode, errorMessage, options) = await workItemAuth.GetContributorOptionsForWorkItemAsync(id, q, userId, ct);
+            if (!allowed)
+            {
+                if (statusCode == 404) return Results.NotFound(new { message = errorMessage });
+                if (statusCode == 401) return Results.Unauthorized();
+                return Results.Forbid();
+            }
+
+            return Results.Ok(new { options });
+        });
+
+        // ====================================================================
+        // 14. ADD CONTRIBUTOR
+        // ====================================================================
+        group.MapPost("/{id:guid}/contributors", async (
+            Guid id,
+            AddContributorApiRequest request,
+            WorkItemWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
+            if (request.UserId == Guid.Empty)
+                return Results.BadRequest(new { message = "userId is required." });
+
+            try
+            {
+                var cmd = new AddContributorCommand(request.UserId, request.Instructions, request.ExpectedRevision.Value);
+                var result = await workflow.AddContributorAsync(id, cmd, userId, ct);
+                return Results.Ok(result);
+            }
+            catch (WorkItemWorkflowException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: ex.StatusCode);
+            }
+        });
+
+        // ====================================================================
+        // 15. SUBMIT CONTRIBUTION
+        // ====================================================================
+        group.MapPost("/{id:guid}/contributors/{contributorId:guid}/submit", async (
+            Guid id,
+            Guid contributorId,
+            SubmitContributionApiRequest request,
+            WorkItemWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
+            try
+            {
+                var cmd = new SubmitContributionCommand(request.ExpectedRevision.Value, request.Note);
+                var result = await workflow.SubmitContributionAsync(id, contributorId, cmd, userId, ct);
+                return Results.Ok(result);
+            }
+            catch (WorkItemWorkflowException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: ex.StatusCode);
+            }
+        });
+
+        // ====================================================================
+        // 16. RETURN CONTRIBUTION FOR CORRECTION
+        // ====================================================================
+        group.MapPost("/{id:guid}/contributors/{contributorId:guid}/return", async (
+            Guid id,
+            Guid contributorId,
+            ReturnContributionApiRequest request,
+            WorkItemWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
+            if (string.IsNullOrWhiteSpace(request.Remarks))
+                return Results.BadRequest(new { message = "Remarks are mandatory when returning contribution for correction." });
+
+            try
+            {
+                var cmd = new ReturnContributionCommand(request.ExpectedRevision.Value, request.Remarks);
+                var result = await workflow.ReturnContributionAsync(id, contributorId, cmd, userId, ct);
+                return Results.Ok(result);
+            }
+            catch (WorkItemWorkflowException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: ex.StatusCode);
+            }
+        });
+
+        // ====================================================================
+        // 17. ACCEPT CONTRIBUTION
+        // ====================================================================
+        group.MapPost("/{id:guid}/contributors/{contributorId:guid}/accept", async (
+            Guid id,
+            Guid contributorId,
+            AcceptContributionApiRequest request,
+            WorkItemWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!request.ExpectedRevision.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
+            try
+            {
+                var cmd = new AcceptContributionCommand(request.ExpectedRevision.Value, request.Remarks);
+                var result = await workflow.AcceptContributionAsync(id, contributorId, cmd, userId, ct);
+                return Results.Ok(result);
+            }
+            catch (WorkItemWorkflowException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: ex.StatusCode);
+            }
+        });
+
+        // ====================================================================
+        // 18. REMOVE CONTRIBUTOR
+        // ====================================================================
+        group.MapDelete("/{id:guid}/contributors/{contributorId:guid}", async (
+            Guid id,
+            Guid contributorId,
+            [Microsoft.AspNetCore.Mvc.FromQuery] int? expectedRevision,
+            [Microsoft.AspNetCore.Mvc.FromQuery] string? reason,
+            HttpContext httpContext,
+            WorkItemWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            int? rev = expectedRevision;
+            string? resReason = reason;
+            if (!rev.HasValue && httpContext.Request.HasJsonContentType())
+            {
+                try
+                {
+                    var body = await httpContext.Request.ReadFromJsonAsync<RemoveContributorApiRequest>(ct);
+                    if (body != null)
+                    {
+                        rev = body.ExpectedRevision;
+                        resReason = body.Reason ?? resReason;
+                    }
+                }
+                catch { }
+            }
+
+            if (!rev.HasValue)
+                return Results.BadRequest(new { message = "expectedRevision is required." });
+
+            try
+            {
+                var cmd = new RemoveContributorCommand(rev.Value, resReason);
+                var result = await workflow.RemoveContributorAsync(id, contributorId, cmd, userId, ct);
+                return Results.Ok(result);
+            }
+            catch (WorkItemWorkflowException ex)
+            {
+                return Results.Problem(detail: ex.Message, statusCode: ex.StatusCode);
+            }
         });
 
         return group;

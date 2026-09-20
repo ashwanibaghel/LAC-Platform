@@ -19,6 +19,24 @@ public sealed record WorkItemDeskMemberOptionDto(
     bool IsPrimaryDesk
 );
 
+public sealed record WorkItemContributorOptionDto(
+    Guid UserId,
+    string DisplayName,
+    string? Designation,
+    IReadOnlyList<string> DeskNames
+);
+
+public sealed record WorkItemCapabilitiesDto(
+    bool CanAddContributor,
+    bool CanRemoveContributor,
+    bool CanContribute,
+    bool CanSubmitContribution,
+    bool CanReviewContributions,
+    bool CanAddUpdate,
+    bool CanUploadAttachment,
+    bool CanStartWork
+);
+
 public interface IWorkItemAuthorizationService
 {
     Task<bool> CanAccessWorkItemAsync(
@@ -45,6 +63,22 @@ public interface IWorkItemAuthorizationService
 
     Task<(bool Allowed, int StatusCode, string? ErrorMessage, IReadOnlyList<WorkItemDeskOptionDto> Desks)> GetAssignmentOptionsForWorkstreamAsync(
         Guid workstreamId,
+        Guid userId,
+        CancellationToken ct = default);
+
+    Task<bool> IsUserEligibleContributorAsync(
+        Guid workItemId,
+        Guid targetUserId,
+        CancellationToken ct = default);
+
+    Task<(bool Allowed, int StatusCode, string? ErrorMessage, IReadOnlyList<WorkItemContributorOptionDto> Options)> GetContributorOptionsForWorkItemAsync(
+        Guid workItemId,
+        string? query,
+        Guid callerUserId,
+        CancellationToken ct = default);
+
+    Task<WorkItemCapabilitiesDto> ComputeCapabilitiesAsync(
+        WorkItem item,
         Guid userId,
         CancellationToken ct = default);
 
@@ -98,7 +132,35 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
                             && m.Workstream.IsActive
                             && m.Workstream.RecordStatus == RecordStatus.Active, ct);
 
-            if (hasWorkstreamMembership) return true;
+            if (hasWorkstreamMembership)
+            {
+                // Contributor state overrides broad workstream grant for Update/Contribute/View.
+                // If the caller has an explicit contributor relationship on this specific work item,
+                // their contributor status governs access — not the broader workstream scope.
+
+                // Check for any contributor record (active or inactive) for this user on this item.
+                var contributorRecord = await db.WorkItemContributors.AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.WorkItemId == workItemId
+                                           && c.UserId == userId
+                                           && c.RecordStatus == RecordStatus.Active, ct);
+
+                if (contributorRecord is not null)
+                {
+                    // Removed/Accepted contributor: revoke View, Update, and Contribute access entirely.
+                    if (!contributorRecord.IsActive)
+                        return false;
+
+                    // Submitted contributor: revoke Update and Contribute (read-only while under review).
+                    if (contributorRecord.Status == WorkItemContributorStatus.Submitted
+                        && permissionCode is PermissionCodes.WorkItemUpdate or PermissionCodes.WorkItemContribute)
+                        return false;
+
+                    // Active or Returned contributor: workstream grant applies normally.
+                    return true;
+                }
+
+                return true;
+            }
         }
 
         if (scopes.Contains(ScopeMode.Assigned))
@@ -131,18 +193,30 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             }
 
             // Contributor authority strictly permitted only for View, Update, Contribute
-            if (permissionCode is PermissionCodes.WorkItemView
-                               or PermissionCodes.WorkItemUpdate
-                               or PermissionCodes.WorkItemContribute)
+            if (permissionCode == PermissionCodes.WorkItemView)
             {
-                var isContributor = await db.WorkItemContributors.AsNoTracking()
+                var isViewContributor = await db.WorkItemContributors.AsNoTracking()
                     .AnyAsync(c => c.WorkItemId == workItemId
                                 && c.UserId == userId
                                 && c.IsActive
                                 && c.RecordStatus == RecordStatus.Active
-                                && c.Status == WorkItemContributorStatus.Active, ct);
+                                && (c.Status == WorkItemContributorStatus.Active
+                                 || c.Status == WorkItemContributorStatus.Submitted
+                                 || c.Status == WorkItemContributorStatus.Returned), ct);
 
-                if (isContributor) return true;
+                if (isViewContributor) return true;
+            }
+            else if (permissionCode is PermissionCodes.WorkItemUpdate or PermissionCodes.WorkItemContribute)
+            {
+                var isEditContributor = await db.WorkItemContributors.AsNoTracking()
+                    .AnyAsync(c => c.WorkItemId == workItemId
+                                && c.UserId == userId
+                                && c.IsActive
+                                && c.RecordStatus == RecordStatus.Active
+                                && (c.Status == WorkItemContributorStatus.Active
+                                 || c.Status == WorkItemContributorStatus.Returned), ct);
+
+                if (isEditContributor) return true;
             }
         }
 
@@ -406,6 +480,224 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         if (!workstreamId.HasValue) return [];
         var res = await GetAssignmentOptionsForWorkstreamAsync(workstreamId.Value, userId, ct);
         return res.Allowed ? res.Desks : [];
+    }
+
+    public async Task<bool> IsUserEligibleContributorAsync(
+        Guid workItemId,
+        Guid targetUserId,
+        CancellationToken ct = default)
+    {
+        var targetUser = await db.AppUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == targetUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (targetUser is null) return false;
+
+        var workItem = await db.WorkItems.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Id == workItemId && w.RecordStatus == RecordStatus.Active, ct);
+
+        if (workItem is null) return false;
+
+        // Check WorkItem.View scopes
+        var viewScopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == targetUserId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == PermissionCodes.WorkItemView
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (viewScopes.Count == 0) return false;
+
+        var hasViewCapability = false;
+        if (viewScopes.Contains(ScopeMode.All) || viewScopes.Contains(ScopeMode.Assigned))
+        {
+            hasViewCapability = true;
+        }
+        else if (viewScopes.Contains(ScopeMode.Workstream))
+        {
+            hasViewCapability = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == targetUserId
+                            && m.WorkstreamId == workItem.WorkstreamId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+        }
+
+        if (!hasViewCapability) return false;
+
+        // Check WorkItem.Contribute (or WorkItem.Update) scopes
+        var contributeScopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == targetUserId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && (p.Code == PermissionCodes.WorkItemContribute || p.Code == PermissionCodes.WorkItemUpdate)
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (contributeScopes.Count == 0) return false;
+
+        var hasContributeCapability = false;
+        if (contributeScopes.Contains(ScopeMode.All) || contributeScopes.Contains(ScopeMode.Assigned))
+        {
+            hasContributeCapability = true;
+        }
+        else if (contributeScopes.Contains(ScopeMode.Workstream))
+        {
+            hasContributeCapability = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == targetUserId
+                            && m.WorkstreamId == workItem.WorkstreamId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+        }
+
+        return hasContributeCapability;
+    }
+
+    public async Task<(bool Allowed, int StatusCode, string? ErrorMessage, IReadOnlyList<WorkItemContributorOptionDto> Options)> GetContributorOptionsForWorkItemAsync(
+        Guid workItemId,
+        string? query,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        var isCallerActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == callerUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isCallerActive) return (false, 401, "Caller user not active.", []);
+
+        var workItem = await db.WorkItems.AsNoTracking()
+            .FirstOrDefaultAsync(w => w.Id == workItemId && w.RecordStatus == RecordStatus.Active, ct);
+
+        if (workItem is null) return (false, 404, "Work item not found.", []);
+
+        // Caller requires exact WorkItem.Assign authorization on this WorkItem
+        var canAssign = await CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemAssign, callerUserId, ct);
+        if (!canAssign) return (false, 403, "Forbidden: Caller requires WorkItem.Assign permission on this work item.", []);
+
+        // Exclude users who already have an active contributor relationship on this work item
+        var activeContributorUserIds = await db.WorkItemContributors.AsNoTracking()
+            .Where(c => c.WorkItemId == workItemId
+                     && c.IsActive
+                     && c.RecordStatus == RecordStatus.Active
+                     && (c.Status == WorkItemContributorStatus.Active
+                      || c.Status == WorkItemContributorStatus.Submitted
+                      || c.Status == WorkItemContributorStatus.Returned))
+            .Select(c => c.UserId)
+            .ToListAsync(ct);
+
+        var usersQuery = db.AppUsers.AsNoTracking()
+            .Include(u => u.Designation)
+            .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active && !activeContributorUserIds.Contains(u.Id));
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var q = query.Trim().ToLower();
+            usersQuery = usersQuery.Where(u => u.DisplayName.ToLower().Contains(q) || u.Username.ToLower().Contains(q));
+        }
+
+        var candidateUsers = await usersQuery.OrderBy(u => u.DisplayName).ToListAsync(ct);
+
+        var eligibleOptions = new List<WorkItemContributorOptionDto>();
+
+        // Load desk memberships for candidate users in batch
+        var candidateIds = candidateUsers.Select(u => u.Id).ToList();
+        var userDeskMap = await db.UserDeskMemberships.AsNoTracking()
+            .Where(m => candidateIds.Contains(m.UserId)
+                     && m.IsActive
+                     && m.RemovedAt == null
+                     && m.RecordStatus == RecordStatus.Active
+                     && m.OfficeDesk.IsActive
+                     && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+            .Select(m => new { m.UserId, DeskName = m.OfficeDesk.Name })
+            .ToListAsync(ct);
+
+        var deskLookup = userDeskMap.GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DeskName).Distinct().ToList());
+
+        foreach (var user in candidateUsers)
+        {
+            if (await IsUserEligibleContributorAsync(workItemId, user.Id, ct))
+            {
+                deskLookup.TryGetValue(user.Id, out var deskNames);
+                eligibleOptions.Add(new WorkItemContributorOptionDto(
+                    user.Id,
+                    user.DisplayName,
+                    user.Designation?.Name,
+                    deskNames ?? []
+                ));
+            }
+        }
+
+        return (true, 200, null, eligibleOptions);
+    }
+
+    public async Task<WorkItemCapabilitiesDto> ComputeCapabilitiesAsync(
+        WorkItem item,
+        Guid userId,
+        CancellationToken ct = default)
+    {
+        var isTerminal = item.Status is WorkItemStatus.Completed or WorkItemStatus.Cancelled;
+        if (isTerminal)
+        {
+            return new WorkItemCapabilitiesDto(
+                CanAddContributor: false,
+                CanRemoveContributor: false,
+                CanContribute: false,
+                CanSubmitContribution: false,
+                CanReviewContributions: false,
+                CanAddUpdate: false,
+                CanUploadAttachment: false,
+                CanStartWork: false
+            );
+        }
+
+        var canAssign = await CanAccessWorkItemAsync(item.Id, PermissionCodes.WorkItemAssign, userId, ct);
+        var canContribute = await CanAccessWorkItemAsync(item.Id, PermissionCodes.WorkItemContribute, userId, ct);
+        var canUpdate = await CanAccessWorkItemAsync(item.Id, PermissionCodes.WorkItemUpdate, userId, ct);
+        var canReview = await CanAccessWorkItemAsync(item.Id, PermissionCodes.WorkItemReview, userId, ct);
+
+        var canSubmitContribution = item.Contributors.Any(c => c.UserId == userId
+                                                            && c.IsActive
+                                                            && c.RecordStatus == RecordStatus.Active
+                                                            && (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Returned))
+                                    && canContribute;
+
+        var canReviewContributions = canReview && item.Contributors.Any(c => c.IsActive
+                                                                          && c.RecordStatus == RecordStatus.Active
+                                                                          && c.Status == WorkItemContributorStatus.Submitted);
+
+        var canAddUpdate = canUpdate || canContribute;
+        var canUploadAttachment = canUpdate || canContribute;
+
+        var canStartWork = false;
+        if (item.Status == WorkItemStatus.Assigned && item.CurrentAssignment != null)
+        {
+            canStartWork = await db.UserDeskMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.OfficeDeskId == item.CurrentAssignment.OfficeDeskId
+                            && m.IsActive
+                            && m.RemovedAt == null
+                            && m.RecordStatus == RecordStatus.Active
+                            && m.OfficeDesk.IsActive
+                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+        }
+
+        return new WorkItemCapabilitiesDto(
+            CanAddContributor: canAssign,
+            CanRemoveContributor: canAssign,
+            CanContribute: canContribute,
+            CanSubmitContribution: canSubmitContribution,
+            CanReviewContributions: canReviewContributions,
+            CanAddUpdate: canAddUpdate,
+            CanUploadAttachment: canUploadAttachment,
+            CanStartWork: canStartWork
+        );
     }
 
     public async Task<bool> CanAccessAttachmentContentAsync(

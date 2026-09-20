@@ -221,6 +221,80 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         return (userClient, userId);
     }
 
+    private async Task<(HttpClient Client, Guid UserId)> CreateCustomUserClientAsync(
+        string username,
+        string roleCode,
+        ScopeMode scopeMode,
+        string[] permissionCodes,
+        Guid? deskId = null,
+        Guid? workstreamId = null)
+    {
+        var adminClient = await CreateAdminClientAsync();
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var role = await db.Roles.Include(r => r.RolePermissions).FirstOrDefaultAsync(r => r.Code == roleCode);
+            if (role == null)
+            {
+                role = new Role
+                {
+                    Code = roleCode,
+                    Name = roleCode,
+                    Description = "Custom Work Item Test Role",
+                    IsSystemRole = false
+                };
+                db.Roles.Add(role);
+                await db.SaveChangesAsync();
+
+                var perms = await db.Permissions.Where(p => permissionCodes.Contains(p.Code)).ToListAsync();
+                foreach (var p in perms)
+                {
+                    db.RolePermissions.Add(new RolePermission
+                    {
+                        RoleId = role.Id,
+                        PermissionId = p.Id,
+                        ScopeMode = scopeMode
+                    });
+                }
+                await db.SaveChangesAsync();
+            }
+        }
+
+        var userPass = "WorkItemCustomPass!123";
+        Guid roleId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            roleId = (await db.Roles.FirstAsync(r => r.Code == roleCode)).Id;
+        }
+
+        var createReq = new CreateUserRequest(
+            Username: username,
+            DisplayName: $"User {username}",
+            Password: userPass,
+            DesignationId: null,
+            RoleIds: [roleId],
+            WorkstreamIds: workstreamId.HasValue ? [workstreamId.Value] : null,
+            PrimaryWorkstreamId: workstreamId
+        );
+        var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", createReq);
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var userId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+        if (deskId.HasValue)
+        {
+            var assignRes = await adminClient.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(deskId.Value, IsPrimary: true));
+            Assert.Equal(HttpStatusCode.Created, assignRes.StatusCode);
+        }
+
+        var userClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var loginRes = await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, userPass));
+        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+
+        return (userClient, userId);
+    }
+
     [Fact]
     public async Task WorkItem_Create_And_ReadDetails_Succeeds_WithTimelineAndAssignment()
     {
@@ -2032,6 +2106,629 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         // 7. User B remains authorized through live Desk D membership -> 200
         var resDetailBAfter = await userBClient.GetAsync($"/api/work-items/{workItemId}");
         Assert.Equal(HttpStatusCode.OK, resDetailBAfter.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_Lifecycle_Add_Submit_Return_Resubmit_Accept()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-1", "Workstream Contributor 1");
+        var desk1 = await CreateDeskAsync("DSK-RESP-1", "Responsible Desk 1", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-1", "Helper Desk 1", ws.Id, assignAdmin: false);
+
+        // Helper user has Workstream scope on View and Contribute
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "helper_user_1",
+            "ROLE_HELPER_1",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        // 1. Create work item
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Draft Section 19 Acquisition Order",
+            Instructions: "Prepare detailed property schedule",
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Urgent",
+            DueAt: DateTimeOffset.UtcNow.AddDays(5),
+            MatterId: null,
+            DakId: null
+        ));
+        Assert.Equal(HttpStatusCode.Created, resCreate.StatusCode);
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 2. Add Helper as Contributor
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: "Focus on survey numbers and cadastral maps",
+            ExpectedRevision: 0
+        ));
+        Assert.Equal(HttpStatusCode.OK, resAdd.StatusCode);
+        var addResult = await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts);
+        Assert.NotNull(addResult);
+        var contributorId = addResult.ContributorId;
+        Assert.Equal(1, addResult.Revision);
+
+        // 3. Helper accesses work item
+        var resDetailHelper = await helperClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetailHelper.StatusCode);
+        var detail = await resDetailHelper.Content.ReadFromJsonAsync<WorkItemDetailDto>(JsonOpts);
+        Assert.NotNull(detail);
+        Assert.True(detail.Capabilities.CanContribute);
+        Assert.True(detail.Capabilities.CanAddUpdate);
+        Assert.True(detail.Capabilities.CanSubmitContribution);
+        Assert.False(detail.Capabilities.CanAddContributor);
+        Assert.False(detail.Capabilities.CanReviewContributions);
+
+        var contrib = Assert.Single(detail.Contributors);
+        Assert.Equal("Active", contrib.Status);
+        Assert.Equal(helperId, contrib.UserId);
+
+        // 4. Helper adds update
+        var resUpdate = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Completed extraction of 14 survey numbers",
+            ExpectedRevision: 1
+        ));
+        Assert.Equal(HttpStatusCode.OK, resUpdate.StatusCode);
+
+        // 5. Verify FirstActionAt is NOT set on assignment by helper action
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item = await db.WorkItems.Include(w => w.CurrentAssignment).FirstAsync(w => w.Id == workItemId);
+            Assert.Null(item.CurrentAssignment?.FirstActionAt);
+
+            // Verify WorkItemEvent has ContributorId populated
+            var updateEvent = await db.WorkItemEvents.FirstAsync(e => e.WorkItemId == workItemId && e.Action == WorkItemEventAction.UpdateAdded);
+            Assert.Equal(contributorId, updateEvent.ContributorId);
+        }
+
+        // 6. Helper submits contribution
+        var resSubmit = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 2,
+            Note: "All 14 survey numbers verified with field reports"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit.StatusCode);
+        var submitResult = await resSubmit.Content.ReadFromJsonAsync<SubmitContributionResult>(JsonOpts);
+        Assert.Equal(3, submitResult!.Revision);
+
+        // 7. While Submitted, helper mutation is blocked
+        var resUpdateBlocked = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Attempting edit while under review",
+            ExpectedRevision: 3
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, resUpdateBlocked.StatusCode);
+
+        // 8. Return for correction requires mandatory remarks
+        var resReturnEmpty = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/return", new ReturnContributionApiRequest(
+            ExpectedRevision: 3,
+            Remarks: "   "
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, resReturnEmpty.StatusCode);
+
+        // 9. Return with remarks succeeds
+        var resReturn = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/return", new ReturnContributionApiRequest(
+            ExpectedRevision: 3,
+            Remarks: "Survey number 12 requires demarcation boundary clarification"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resReturn.StatusCode);
+        var returnResult = await resReturn.Content.ReadFromJsonAsync<ReturnContributionResult>(JsonOpts);
+        Assert.Equal(4, returnResult!.Revision);
+
+        // 10. Helper can now update and submit again
+        var resUpdate2 = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Attached boundary clarification for parcel 12",
+            ExpectedRevision: 4
+        ));
+        Assert.Equal(HttpStatusCode.OK, resUpdate2.StatusCode);
+
+        var resSubmit2 = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 5,
+            Note: "Resubmitted with boundary clarification"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit2.StatusCode);
+
+        // 11. Admin accepts contribution
+        var resAccept = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/accept", new AcceptContributionApiRequest(
+            ExpectedRevision: 6,
+            Remarks: "Approved and merged into main draft"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resAccept.StatusCode);
+        var acceptResult = await resAccept.Content.ReadFromJsonAsync<AcceptContributionResult>(JsonOpts);
+        Assert.Equal(7, acceptResult!.Revision);
+
+        // 12. Helper access ends upon acceptance (not on responsible desk)
+        var resDetailHelperAfter = await helperClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.Forbidden, resDetailHelperAfter.StatusCode);
+
+        // 13. Work item remains open
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item = await db.WorkItems.FirstAsync(w => w.Id == workItemId);
+            Assert.NotEqual(WorkItemStatus.Completed, item.Status);
+            Assert.NotEqual(WorkItemStatus.Cancelled, item.Status);
+
+            var contribRecord = await db.WorkItemContributors.FirstAsync(c => c.Id == contributorId);
+            Assert.Equal(WorkItemContributorStatus.Accepted, contribRecord.Status);
+            Assert.False(contribRecord.IsActive);
+        }
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_Strict_Actor_And_Review_Authorization()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-2", "Workstream Contributor 2");
+        var desk1 = await CreateDeskAsync("DSK-RESP-2", "Responsible Desk 2", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-2", "Helper Desk 2", ws.Id, assignAdmin: false);
+
+        var (helper1Client, helper1Id) = await CreateCustomUserClientAsync(
+            "helper_actor_1",
+            "ROLE_HELPER_ACTOR_1",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var (helper2Client, _) = await CreateCustomUserClientAsync(
+            "helper_actor_2",
+            "ROLE_HELPER_ACTOR_2",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        // 1. Create work item
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Strict Actor Test Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 2. Add Helper 1
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helper1Id,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var addResult = await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts);
+        var contributorId = addResult!.ContributorId;
+
+        // 3. Helper 2 attempts to submit Helper 1's contribution -> 403 Forbidden
+        var resSubmitImposter = await helper2Client.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Unauthorized submit"
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, resSubmitImposter.StatusCode);
+
+        // 4. Helper 1 submits legitimately
+        var resSubmitReal = await helper1Client.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Valid submit"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmitReal.StatusCode);
+
+        // 5. Helper 2 (lacking WorkItem.Review) attempts to Accept or Return -> 403 Forbidden
+        var resAcceptUnauthorized = await helper2Client.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/accept", new AcceptContributionApiRequest(
+            ExpectedRevision: 2
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, resAcceptUnauthorized.StatusCode);
+
+        var resReturnUnauthorized = await helper2Client.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/return", new ReturnContributionApiRequest(
+            ExpectedRevision: 2,
+            Remarks: "Unauthorized return"
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, resReturnUnauthorized.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_Eligibility_And_Options()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-3", "Workstream Contributor 3");
+        var desk1 = await CreateDeskAsync("DSK-RESP-3", "Responsible Desk 3", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-3", "Helper Desk 3", ws.Id, assignAdmin: false);
+
+        // User without WorkItem.Contribute (View only)
+        var (_, viewOnlyId) = await CreateCustomUserClientAsync(
+            "view_only_user",
+            "ROLE_VIEW_ONLY",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        // User with ScopeMode.Own only
+        var (_, ownScopeId) = await CreateCustomUserClientAsync(
+            "own_scope_user",
+            "ROLE_OWN_SCOPE",
+            ScopeMode.Own,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        // Eligible user (View + Contribute under Workstream)
+        var (_, eligibleUserId) = await CreateCustomUserClientAsync(
+            "eligible_helper_user",
+            "ROLE_ELIGIBLE",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        // Create work item
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Eligibility Test Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 1. Ineligible: View only -> 400
+        var resAddViewOnly = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: viewOnlyId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, resAddViewOnly.StatusCode);
+
+        // 2. Ineligible: ScopeMode.Own -> 400
+        var resAddOwn = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: ownScopeId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, resAddOwn.StatusCode);
+
+        // 3. Query contributor options -> includes eligible user, excludes view-only and own-scope
+        var resOptions = await adminClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
+        Assert.Equal(HttpStatusCode.OK, resOptions.StatusCode);
+        var optionsJson = await resOptions.Content.ReadFromJsonAsync<JsonElement>();
+        var options = optionsJson.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()).ToList();
+        Assert.Contains(eligibleUserId, options);
+        Assert.DoesNotContain(viewOnlyId, options);
+        Assert.DoesNotContain(ownScopeId, options);
+
+        // 4. Add eligible user -> 200 OK
+        var resAddEligible = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: eligibleUserId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        Assert.Equal(HttpStatusCode.OK, resAddEligible.StatusCode);
+
+        // 5. Re-query contributor options -> eligible user now excluded (already active)
+        var resOptions2 = await adminClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
+        var optionsJson2 = await resOptions2.Content.ReadFromJsonAsync<JsonElement>();
+        var options2 = optionsJson2.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()).ToList();
+        Assert.DoesNotContain(eligibleUserId, options2);
+
+        // 6. Duplicate add -> 400
+        var resAddDup = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: eligibleUserId,
+            Instructions: null,
+            ExpectedRevision: 1
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, resAddDup.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_Remove_Soft_Deletes_And_Revokes_Access()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-4", "Workstream Contributor 4");
+        var desk1 = await CreateDeskAsync("DSK-RESP-4", "Responsible Desk 4", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-4", "Helper Desk 4", ws.Id, assignAdmin: false);
+
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "helper_removable",
+            "ROLE_REMOVABLE",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Removable Helper Test Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var addResult = await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts);
+        var contributorId = addResult!.ContributorId;
+
+        // Helper has access
+        var resDetail1 = await helperClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetail1.StatusCode);
+
+        // Remove contributor
+        var resRemove = await adminClient.DeleteAsync($"/api/work-items/{workItemId}/contributors/{contributorId}?expectedRevision=1&reason=ReassignedElsewhere");
+        Assert.Equal(HttpStatusCode.OK, resRemove.StatusCode);
+
+        // Helper loses access
+        var resDetail2 = await helperClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.Forbidden, resDetail2.StatusCode);
+
+        // Verify soft delete in DB
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var contrib = await db.WorkItemContributors.FirstAsync(c => c.Id == contributorId);
+            Assert.Equal(WorkItemContributorStatus.Removed, contrib.Status);
+            Assert.False(contrib.IsActive);
+
+            var removeEvent = await db.WorkItemEvents.FirstAsync(e => e.WorkItemId == workItemId && e.Action == WorkItemEventAction.ContributorRemoved);
+            Assert.Equal(contributorId, removeEvent.ContributorId);
+        }
+    }
+
+    [Fact]
+    public async Task WorkItem_Contributor_Concurrency_Conflict_Returns_409()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-5", "Workstream Contributor 5");
+        var desk1 = await CreateDeskAsync("DSK-RESP-5", "Responsible Desk 5", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-5", "Helper Desk 5", ws.Id, assignAdmin: false);
+
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "helper_conflict",
+            "ROLE_CONFLICT",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Conflict Test Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 1. Add with stale revision 99 -> 409
+        var resAddConflict = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 99
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, resAddConflict.StatusCode);
+
+        // Add with correct revision 0
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var addResult = await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts);
+        var contributorId = addResult!.ContributorId;
+
+        // 2. Submit with stale revision 0 -> 409 (item is now at revision 1)
+        var resSubmitConflict = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{contributorId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 0,
+            Note: null
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, resSubmitConflict.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_Multiple_Contributors_Independent_Progress()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-6", "Workstream Contributor 6");
+        var desk1 = await CreateDeskAsync("DSK-RESP-6", "Responsible Desk 6", ws.Id, assignAdmin: true);
+        var desk2 = await CreateDeskAsync("DSK-HELP-6A", "Helper Desk 6A", ws.Id, assignAdmin: false);
+        var desk3 = await CreateDeskAsync("DSK-HELP-6B", "Helper Desk 6B", ws.Id, assignAdmin: false);
+
+        var (helper1Client, helper1Id) = await CreateCustomUserClientAsync(
+            "multi_helper_1",
+            "ROLE_MULTI_1",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk2.Id,
+            workstreamId: ws.Id
+        );
+
+        var (helper2Client, helper2Id) = await CreateCustomUserClientAsync(
+            "multi_helper_2",
+            "ROLE_MULTI_2",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: desk3.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Multi-Contributor Independent Progress",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk1.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // Add Helper 1
+        var resAdd1 = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helper1Id,
+            Instructions: "Prepare legal citations",
+            ExpectedRevision: 0
+        ));
+        var c1 = (await resAdd1.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Add Helper 2
+        var resAdd2 = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helper2Id,
+            Instructions: "Extract survey land maps",
+            ExpectedRevision: 1
+        ));
+        var c2 = (await resAdd2.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Helper 1 submits -> Helper 1 is Submitted, Helper 2 remains Active
+        var resSubmit1 = await helper1Client.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{c1}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 2,
+            Note: "Citations ready"
+        ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit1.StatusCode);
+
+        var resDetail = await adminClient.GetAsync($"/api/work-items/{workItemId}");
+        var detail = await resDetail.Content.ReadFromJsonAsync<WorkItemDetailDto>(JsonOpts);
+        var contributor1 = detail!.Contributors.First(c => c.ContributorId == c1);
+        var contributor2 = detail.Contributors.First(c => c.ContributorId == c2);
+
+        Assert.Equal("Submitted", contributor1.Status);
+        Assert.Equal("Active", contributor2.Status);
+
+        // Helper 2 can post updates while Helper 1 cannot
+        var resUpdate2 = await helper2Client.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Map 3 extracted",
+            ExpectedRevision: 3
+        ));
+        Assert.Equal(HttpStatusCode.OK, resUpdate2.StatusCode);
+
+        var resUpdate1Blocked = await helper1Client.PostAsJsonAsync($"/api/work-items/{workItemId}/updates", new AddUpdateApiRequest(
+            Message: "Blocked while submitted",
+            ExpectedRevision: 4
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, resUpdate1Blocked.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkItem_MyWork_Delegated_Assistance_Metrics_And_Filters()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-CONTRIB-7", "Workstream Contributor 7");
+        var deskResp = await CreateDeskAsync("DSK-RESP-7", "Responsible Desk 7", ws.Id, assignAdmin: true);
+        var deskHelp = await CreateDeskAsync("DSK-HELP-7", "Helper Desk 7", ws.Id, assignAdmin: false);
+
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "mywork_helper_user",
+            "ROLE_MW_HELPER",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute, PermissionCodes.WorkItemUpdate],
+            deskId: deskHelp.Id,
+            workstreamId: ws.Id
+        );
+
+        // Create work item
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "MyWork Delegated Assistance Metrics Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: deskResp.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // Add helper
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: "Help with analysis",
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // 1. Check Helper's MyWork: Helping count includes this item
+        var resMwHelper = await helperClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMwHelper.StatusCode);
+        var mwHelper = await resMwHelper.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.True(mwHelper!.Summary.Helping >= 1);
+        Assert.Equal(0, mwHelper.Summary.ReturnedToMe);
+
+        // Check relationship=contributing filter
+        var resMwContrib = await helperClient.GetAsync("/api/work-items/my-work?relationship=contributing");
+        Assert.Equal(HttpStatusCode.OK, resMwContrib.StatusCode);
+        var mwContrib = await resMwContrib.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwContrib!.Items, i => i.Id == workItemId);
+
+        // 2. Check Admin's MyWork: WaitingOnOthers count includes this item
+        var resMwAdmin = await adminClient.GetAsync("/api/work-items/my-work");
+        var mwAdmin = await resMwAdmin.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.True(mwAdmin!.Summary.WaitingOnOthers >= 1);
+
+        var resMwWaiting = await adminClient.GetAsync("/api/work-items/my-work?relationship=waiting");
+        var mwWaiting = await resMwWaiting.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwWaiting!.Items, i => i.Id == workItemId);
+
+        // 3. Helper submits -> Admin's NeedsReview increments
+        await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Ready"
+        ));
+
+        var resMwAdminAfterSubmit = await adminClient.GetAsync("/api/work-items/my-work");
+        var mwAdminAfterSubmit = await resMwAdminAfterSubmit.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.True(mwAdminAfterSubmit!.Summary.NeedsReview >= 1);
+
+        var resMwReview = await adminClient.GetAsync("/api/work-items/my-work?relationship=review");
+        var mwReview = await resMwReview.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwReview!.Items, i => i.Id == workItemId);
+
+        // 4. Admin returns contribution -> Helper's ReturnedToMe increments
+        await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/return", new ReturnContributionApiRequest(
+            ExpectedRevision: 2,
+            Remarks: "Please add survey summary"
+        ));
+
+        var resMwHelperAfterReturn = await helperClient.GetAsync("/api/work-items/my-work");
+        var mwHelperAfterReturn = await resMwHelperAfterReturn.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.True(mwHelperAfterReturn!.Summary.ReturnedToMe >= 1);
     }
 }
 

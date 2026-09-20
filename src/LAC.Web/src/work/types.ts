@@ -9,7 +9,44 @@ export type WorkItemStatus =
   | 'Cancelled';
 
 export type WorkItemDueFilter = 'all' | 'overdue' | 'today' | 'week' | 'upcoming' | 'none';
-export type WorkItemRelationshipFilter = 'all' | 'assigned' | 'requested' | 'review';
+export type WorkItemRelationshipFilter = 'all' | 'assigned' | 'requested' | 'review' | 'contributing' | 'waiting';
+
+export type WorkItemContributorStatus = 'Active' | 'Submitted' | 'Returned' | 'Accepted' | 'Removed';
+
+export interface WorkItemContributorDetail {
+  contributorId: string;
+  userId: string;
+  displayName: string;
+  designation?: string | null;
+  instructions?: string | null;
+  status: WorkItemContributorStatus;
+  isActive: boolean;
+  addedByUserId: string;
+  addedByDisplayName: string;
+  addedAt: string;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewedByUserId?: string | null;
+  reviewedByDisplayName?: string | null;
+}
+
+export interface WorkItemCapabilities {
+  canAddContributor: boolean;
+  canRemoveContributor: boolean;
+  canContribute: boolean;
+  canSubmitContribution: boolean;
+  canReviewContributions: boolean;
+  canAddUpdate: boolean;
+  canUploadAttachment: boolean;
+  canStartWork: boolean;
+}
+
+export interface ContributorOption {
+  userId: string;
+  displayName: string;
+  designation?: string | null;
+  desks: string[];
+}
 
 export interface WorkItemSummary {
   totalOpen: number;
@@ -19,6 +56,9 @@ export interface WorkItemSummary {
   dueToday: number;
   dueThisWeek: number;
   needsReview: number;
+  returnedToMe: number;
+  helping: number;
+  waitingOnOthers: number;
 }
 
 export interface MyWorkItem {
@@ -127,6 +167,8 @@ export interface WorkItemDetail {
   completedAt?: string | null;
   createdAt: string;
   currentAssignment?: WorkItemAssignmentDetail | null;
+  contributors: WorkItemContributorDetail[];
+  capabilities: WorkItemCapabilities;
   updates: WorkItemUpdateDetail[];
   attachments: WorkItemAttachmentDetail[];
   matterLinks: WorkItemMatterLinkDetail[];

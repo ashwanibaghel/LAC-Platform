@@ -107,7 +107,9 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
     setPage(0);
   };
 
-  const handleSummaryCardClick = (cardType: 'overdue' | 'today' | 'week' | 'assigned' | 'requested') => {
+  const handleSummaryCardClick = (
+    cardType: 'overdue' | 'today' | 'week' | 'assigned' | 'requested' | 'review' | 'returned' | 'contributing' | 'waiting'
+  ) => {
     setPage(0);
     if (cardType === 'overdue') {
       setDue(due === 'overdue' ? 'all' : 'overdue');
@@ -119,6 +121,14 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
       setRelationship(relationship === 'assigned' ? 'all' : 'assigned');
     } else if (cardType === 'requested') {
       setRelationship(relationship === 'requested' ? 'all' : 'requested');
+    } else if (cardType === 'review') {
+      setRelationship(relationship === 'review' ? 'all' : 'review');
+    } else if (cardType === 'returned') {
+      setRelationship(relationship === 'contributing' ? 'all' : 'contributing');
+    } else if (cardType === 'contributing') {
+      setRelationship(relationship === 'contributing' ? 'all' : 'contributing');
+    } else if (cardType === 'waiting') {
+      setRelationship(relationship === 'waiting' ? 'all' : 'waiting');
     }
   };
 
@@ -186,7 +196,10 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
     overdue: 0,
     dueToday: 0,
     dueThisWeek: 0,
-    needsReview: 0
+    needsReview: 0,
+    returnedToMe: 0,
+    helping: 0,
+    waitingOnOthers: 0
   };
 
   return (
@@ -263,6 +276,52 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
         >
           <div className="summary-card-count">{summary.requestedByMe}</div>
           <div className="summary-card-label">Requested by Me</div>
+        </div>
+
+        <div
+          className={`my-work-summary-card card-review ${relationship === 'review' ? 'active' : ''}`}
+          onClick={() => handleSummaryCardClick('review')}
+          role="button"
+          tabIndex={0}
+          title="Filter by Items Needing Review"
+        >
+          <div className="summary-card-count">{summary.needsReview}</div>
+          <div className="summary-card-label">Needs Review</div>
+        </div>
+
+        {summary.returnedToMe > 0 && (
+          <div
+            className={`my-work-summary-card card-returned ${relationship === 'contributing' && summary.returnedToMe > 0 ? 'active' : ''}`}
+            onClick={() => handleSummaryCardClick('returned')}
+            role="button"
+            tabIndex={0}
+            title="Filter by Returned for Correction"
+          >
+            <div className="summary-card-count">{summary.returnedToMe}</div>
+            <div className="summary-card-label">Returned to Me</div>
+          </div>
+        )}
+
+        <div
+          className={`my-work-summary-card ${relationship === 'contributing' ? 'active' : ''}`}
+          onClick={() => handleSummaryCardClick('contributing')}
+          role="button"
+          tabIndex={0}
+          title="Filter by Items I am Helping On"
+        >
+          <div className="summary-card-count">{summary.helping}</div>
+          <div className="summary-card-label">Helping</div>
+        </div>
+
+        <div
+          className={`my-work-summary-card ${relationship === 'waiting' ? 'active' : ''}`}
+          onClick={() => handleSummaryCardClick('waiting')}
+          role="button"
+          tabIndex={0}
+          title="Filter by Items Waiting on Others"
+        >
+          <div className="summary-card-count">{summary.waitingOnOthers}</div>
+          <div className="summary-card-label">Waiting on Others</div>
         </div>
       </div>
 
@@ -351,9 +410,9 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
           ))}
 
           <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, marginLeft: 10 }}>
-            Role:
+            Role / Relation:
           </span>
-          {(['all', 'assigned', 'requested'] as WorkItemRelationshipFilter[]).map((r) => (
+          {(['all', 'assigned', 'requested', 'review', 'contributing', 'waiting'] as WorkItemRelationshipFilter[]).map((r) => (
             <button
               key={r}
               className={`filter-pill ${relationship === r ? 'active' : ''}`}
@@ -362,7 +421,17 @@ export function MyWork({ currentUserPermissions }: MyWorkProps) {
                 setPage(0);
               }}
             >
-              {r === 'all' ? 'All Roles' : r === 'assigned' ? 'Assigned' : 'Requested'}
+              {r === 'all'
+                ? 'All'
+                : r === 'assigned'
+                ? 'Assigned to Desk'
+                : r === 'requested'
+                ? 'Requested'
+                : r === 'review'
+                ? 'Needs Review'
+                : r === 'contributing'
+                ? 'Contributing (Helper)'
+                : 'Waiting on Others'}
             </button>
           ))}
         </div>

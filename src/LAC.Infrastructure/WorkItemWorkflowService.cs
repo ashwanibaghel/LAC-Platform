@@ -52,6 +52,53 @@ public sealed record RemoveWorkItemAttachmentCommand(
     int ExpectedRevision
 );
 
+public sealed record AddContributorCommand(
+    Guid UserId,
+    string? Instructions,
+    int? ExpectedRevision
+);
+
+public sealed record AddContributorResult(
+    Guid ContributorId,
+    int Revision
+);
+
+public sealed record SubmitContributionCommand(
+    int? ExpectedRevision,
+    string? Note
+);
+
+public sealed record SubmitContributionResult(
+    int Revision
+);
+
+public sealed record ReturnContributionCommand(
+    int? ExpectedRevision,
+    string Remarks
+);
+
+public sealed record ReturnContributionResult(
+    int Revision
+);
+
+public sealed record AcceptContributionCommand(
+    int? ExpectedRevision,
+    string? Remarks
+);
+
+public sealed record AcceptContributionResult(
+    int Revision
+);
+
+public sealed record RemoveContributorCommand(
+    int? ExpectedRevision,
+    string? Reason
+);
+
+public sealed record RemoveContributorResult(
+    int Revision
+);
+
 public sealed record CreateWorkItemResult(
     Guid WorkItemId,
     int Revision,
@@ -756,6 +803,13 @@ public sealed class WorkItemWorkflowService(
             };
             db.WorkItemUpdates.Add(update);
 
+            var activeContributor = await db.WorkItemContributors.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.WorkItemId == workItemId
+                                       && x.UserId == callerUserId
+                                       && x.IsActive
+                                       && x.RecordStatus == RecordStatus.Active
+                                       && (x.Status == WorkItemContributorStatus.Active || x.Status == WorkItemContributorStatus.Returned), c);
+
             var maxSeq = await db.WorkItemEvents
                 .Where(e => e.WorkItemId == workItemId)
                 .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
@@ -771,6 +825,7 @@ public sealed class WorkItemWorkflowService(
                 ActionByDesignationSnapshot = actorDesignation,
                 ActionAt = now,
                 WorkItemUpdateId = updateId,
+                ContributorId = activeContributor?.Id,
                 RemarksSnapshot = command.Message.Trim()
             };
             db.WorkItemEvents.Add(updateEvent);
@@ -860,6 +915,13 @@ public sealed class WorkItemWorkflowService(
                 item.Revision += 1;
                 item.LastActivityAt = now;
 
+                var activeContributor = await db.WorkItemContributors.AsNoTracking()
+                    .FirstOrDefaultAsync(x => x.WorkItemId == workItemId
+                                           && x.UserId == callerUserId
+                                           && x.IsActive
+                                           && x.RecordStatus == RecordStatus.Active
+                                           && (x.Status == WorkItemContributorStatus.Active || x.Status == WorkItemContributorStatus.Returned), c);
+
                 var maxSeq = await db.WorkItemEvents
                     .Where(e => e.WorkItemId == workItemId)
                     .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
@@ -875,6 +937,7 @@ public sealed class WorkItemWorkflowService(
                     ActionByDesignationSnapshot = actorDesignation,
                     ActionAt = now,
                     DocumentId = documentId,
+                    ContributorId = activeContributor?.Id,
                     RemarksSnapshot = command.FileName
                 };
                 db.WorkItemEvents.Add(attEvent);
@@ -971,6 +1034,443 @@ public sealed class WorkItemWorkflowService(
 
             await db.SaveChangesAsync(c);
             return item.Revision;
+        }, verifySucceeded, ct);
+    }
+
+    // ========================================================================
+    // 7. ADD CONTRIBUTOR
+    // ========================================================================
+    public async Task<AddContributorResult> AddContributorAsync(
+        Guid workItemId,
+        AddContributorCommand command,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        var canAssign = await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemAssign, callerUserId, ct);
+        if (!canAssign)
+            throw new WorkItemWorkflowException("You do not have permission to add contributors on this work item.", 403);
+
+        if (command.UserId == Guid.Empty)
+            throw new WorkItemWorkflowException("A valid target user is required.", 400);
+
+        var isEligible = await workItemAuth.IsUserEligibleContributorAsync(workItemId, command.UserId, ct);
+        if (!isEligible)
+            throw new WorkItemWorkflowException("Selected user is not eligible to participate as a contributor.", 400);
+
+        var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var stableContributorId = Guid.NewGuid();
+        var stableEventId = Guid.NewGuid();
+
+        Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
+            await db.WorkItemContributors.AsNoTracking().AnyAsync(x => x.Id == stableContributorId, c);
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+
+            if (await db.WorkItemContributors.AsNoTracking().AnyAsync(x => x.Id == stableContributorId, c))
+            {
+                var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
+                return new AddContributorResult(stableContributorId, existingItem?.Revision ?? 0);
+            }
+
+            var item = await LockWorkItemAsync(workItemId, c);
+
+            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+                throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot add contributors to a {item.Status} work item.", 400);
+
+            var existingActive = await db.WorkItemContributors.AnyAsync(x =>
+                x.WorkItemId == workItemId &&
+                x.UserId == command.UserId &&
+                x.IsActive &&
+                x.RecordStatus == RecordStatus.Active &&
+                (x.Status == WorkItemContributorStatus.Active ||
+                 x.Status == WorkItemContributorStatus.Submitted ||
+                 x.Status == WorkItemContributorStatus.Returned), c);
+
+            if (existingActive)
+                throw new WorkItemWorkflowException("User is already an active contributor on this work item.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            var instructions = command.Instructions?.Trim();
+
+            var contributor = new WorkItemContributor
+            {
+                Id = stableContributorId,
+                WorkItemId = workItemId,
+                UserId = command.UserId,
+                AddedByUserId = callerUserId,
+                AddedAt = now,
+                Instructions = instructions,
+                Status = WorkItemContributorStatus.Active,
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = now,
+                UpdatedAt = now,
+                CreatedBy = actorDisplayName
+            };
+            db.WorkItemContributors.Add(contributor);
+
+            item.Revision += 1;
+            item.LastActivityAt = now;
+
+            var maxSeq = await db.WorkItemEvents
+                .Where(e => e.WorkItemId == workItemId)
+                .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
+
+            var contributorEvent = new WorkItemEvent
+            {
+                Id = stableEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = maxSeq + 1,
+                Action = WorkItemEventAction.ContributorAdded,
+                ActionByUserId = callerUserId,
+                ActionByDisplayNameSnapshot = actorDisplayName,
+                ActionByDesignationSnapshot = actorDesignation,
+                ActionAt = now,
+                TargetUserId = command.UserId,
+                ContributorId = stableContributorId,
+                RemarksSnapshot = instructions
+            };
+            db.WorkItemEvents.Add(contributorEvent);
+
+            await db.SaveChangesAsync(c);
+            return new AddContributorResult(stableContributorId, item.Revision);
+        }, verifySucceeded, ct);
+    }
+
+    // ========================================================================
+    // 8. SUBMIT CONTRIBUTION
+    // ========================================================================
+    public async Task<SubmitContributionResult> SubmitContributionAsync(
+        Guid workItemId,
+        Guid contributorId,
+        SubmitContributionCommand command,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        var canContribute = await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemContribute, callerUserId, ct);
+        if (!canContribute)
+            throw new WorkItemWorkflowException("You do not have permission to contribute to this work item.", 403);
+
+        var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var stableEventId = Guid.NewGuid();
+
+        Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorSubmitted, c);
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+
+            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            {
+                var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
+                return new SubmitContributionResult(existingItem?.Revision ?? 0);
+            }
+
+            var item = await LockWorkItemAsync(workItemId, c);
+
+            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+                throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot submit contributions on a {item.Status} work item.", 400);
+
+            var contributor = await db.WorkItemContributors
+                .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, c);
+
+            if (contributor is null)
+                throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+
+            // STRICT ACTOR RULE: caller must be the actual contributor
+            if (contributor.UserId != callerUserId)
+                throw new WorkItemWorkflowException("Only the assigned contributor may submit their contribution.", 403);
+
+            if (contributor.Status is not (WorkItemContributorStatus.Active or WorkItemContributorStatus.Returned))
+                throw new WorkItemWorkflowException($"Cannot submit contribution from status {contributor.Status}.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            contributor.Status = WorkItemContributorStatus.Submitted;
+            contributor.SubmittedAt = now;
+            contributor.IsActive = true;
+            contributor.UpdatedAt = now;
+
+            item.Revision += 1;
+            item.LastActivityAt = now;
+
+            var maxSeq = await db.WorkItemEvents
+                .Where(e => e.WorkItemId == workItemId)
+                .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
+
+            var submitEvent = new WorkItemEvent
+            {
+                Id = stableEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = maxSeq + 1,
+                Action = WorkItemEventAction.ContributorSubmitted,
+                ActionByUserId = callerUserId,
+                ActionByDisplayNameSnapshot = actorDisplayName,
+                ActionByDesignationSnapshot = actorDesignation,
+                ActionAt = now,
+                TargetUserId = contributor.UserId,
+                ContributorId = contributorId,
+                RemarksSnapshot = command.Note?.Trim()
+            };
+            db.WorkItemEvents.Add(submitEvent);
+
+            await db.SaveChangesAsync(c);
+            return new SubmitContributionResult(item.Revision);
+        }, verifySucceeded, ct);
+    }
+
+    // ========================================================================
+    // 9. RETURN CONTRIBUTION FOR CORRECTION
+    // ========================================================================
+    public async Task<ReturnContributionResult> ReturnContributionAsync(
+        Guid workItemId,
+        Guid contributorId,
+        ReturnContributionCommand command,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(command.Remarks))
+            throw new WorkItemWorkflowException("Remarks are required when returning a contribution for correction.", 400);
+
+        var canReview = await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemReview, callerUserId, ct);
+        if (!canReview)
+            throw new WorkItemWorkflowException("You do not have permission to review contributions on this work item.", 403);
+
+        var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var stableEventId = Guid.NewGuid();
+
+        Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorReturned, c);
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+
+            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            {
+                var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
+                return new ReturnContributionResult(existingItem?.Revision ?? 0);
+            }
+
+            var item = await LockWorkItemAsync(workItemId, c);
+
+            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+                throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot return contributions on a {item.Status} work item.", 400);
+
+            var contributor = await db.WorkItemContributors
+                .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, c);
+
+            if (contributor is null)
+                throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+
+            if (contributor.Status != WorkItemContributorStatus.Submitted)
+                throw new WorkItemWorkflowException("Only submitted contributions can be returned for correction.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            contributor.Status = WorkItemContributorStatus.Returned;
+            contributor.ReviewedAt = now;
+            contributor.ReviewedByUserId = callerUserId;
+            contributor.IsActive = true;
+            contributor.UpdatedAt = now;
+
+            item.Revision += 1;
+            item.LastActivityAt = now;
+
+            var maxSeq = await db.WorkItemEvents
+                .Where(e => e.WorkItemId == workItemId)
+                .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
+
+            var returnEvent = new WorkItemEvent
+            {
+                Id = stableEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = maxSeq + 1,
+                Action = WorkItemEventAction.ContributorReturned,
+                ActionByUserId = callerUserId,
+                ActionByDisplayNameSnapshot = actorDisplayName,
+                ActionByDesignationSnapshot = actorDesignation,
+                ActionAt = now,
+                TargetUserId = contributor.UserId,
+                ContributorId = contributorId,
+                RemarksSnapshot = command.Remarks.Trim()
+            };
+            db.WorkItemEvents.Add(returnEvent);
+
+            await db.SaveChangesAsync(c);
+            return new ReturnContributionResult(item.Revision);
+        }, verifySucceeded, ct);
+    }
+
+    // ========================================================================
+    // 10. ACCEPT CONTRIBUTION
+    // ========================================================================
+    public async Task<AcceptContributionResult> AcceptContributionAsync(
+        Guid workItemId,
+        Guid contributorId,
+        AcceptContributionCommand command,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        var canReview = await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemReview, callerUserId, ct);
+        if (!canReview)
+            throw new WorkItemWorkflowException("You do not have permission to review contributions on this work item.", 403);
+
+        var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var stableEventId = Guid.NewGuid();
+
+        Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorAccepted, c);
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+
+            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            {
+                var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
+                return new AcceptContributionResult(existingItem?.Revision ?? 0);
+            }
+
+            var item = await LockWorkItemAsync(workItemId, c);
+
+            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+                throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot accept contributions on a {item.Status} work item.", 400);
+
+            var contributor = await db.WorkItemContributors
+                .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, c);
+
+            if (contributor is null)
+                throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+
+            if (contributor.Status != WorkItemContributorStatus.Submitted)
+                throw new WorkItemWorkflowException("Only submitted contributions can be accepted.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            contributor.Status = WorkItemContributorStatus.Accepted;
+            contributor.ReviewedAt = now;
+            contributor.ReviewedByUserId = callerUserId;
+            contributor.IsActive = false;
+            contributor.UpdatedAt = now;
+
+            item.Revision += 1;
+            item.LastActivityAt = now;
+
+            var maxSeq = await db.WorkItemEvents
+                .Where(e => e.WorkItemId == workItemId)
+                .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
+
+            var acceptEvent = new WorkItemEvent
+            {
+                Id = stableEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = maxSeq + 1,
+                Action = WorkItemEventAction.ContributorAccepted,
+                ActionByUserId = callerUserId,
+                ActionByDisplayNameSnapshot = actorDisplayName,
+                ActionByDesignationSnapshot = actorDesignation,
+                ActionAt = now,
+                TargetUserId = contributor.UserId,
+                ContributorId = contributorId,
+                RemarksSnapshot = command.Remarks?.Trim()
+            };
+            db.WorkItemEvents.Add(acceptEvent);
+
+            await db.SaveChangesAsync(c);
+            return new AcceptContributionResult(item.Revision);
+        }, verifySucceeded, ct);
+    }
+
+    // ========================================================================
+    // 11. REMOVE CONTRIBUTOR
+    // ========================================================================
+    public async Task<RemoveContributorResult> RemoveContributorAsync(
+        Guid workItemId,
+        Guid contributorId,
+        RemoveContributorCommand command,
+        Guid callerUserId,
+        CancellationToken ct = default)
+    {
+        var canAssign = await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemAssign, callerUserId, ct);
+        if (!canAssign)
+            throw new WorkItemWorkflowException("You do not have permission to remove contributors from this work item.", 403);
+
+        var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var stableEventId = Guid.NewGuid();
+
+        Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
+            await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId && e.Action == WorkItemEventAction.ContributorRemoved, c);
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+
+            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == stableEventId, c))
+            {
+                var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
+                return new RemoveContributorResult(existingItem?.Revision ?? 0);
+            }
+
+            var item = await LockWorkItemAsync(workItemId, c);
+
+            if (command.ExpectedRevision.HasValue && item.Revision != command.ExpectedRevision.Value)
+                throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+
+            if (item.Status == WorkItemStatus.Completed || item.Status == WorkItemStatus.Cancelled)
+                throw new WorkItemWorkflowException($"Cannot remove contributors from a {item.Status} work item.", 400);
+
+            var contributor = await db.WorkItemContributors
+                .FirstOrDefaultAsync(x => x.Id == contributorId && x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active, c);
+
+            if (contributor is null)
+                throw new WorkItemWorkflowException("Contributor relationship not found.", 404);
+
+            if (contributor.Status is not (WorkItemContributorStatus.Active or WorkItemContributorStatus.Returned or WorkItemContributorStatus.Submitted))
+                throw new WorkItemWorkflowException($"Cannot remove contributor in status {contributor.Status}.", 400);
+
+            var now = DateTimeOffset.UtcNow;
+            contributor.Status = WorkItemContributorStatus.Removed;
+            contributor.IsActive = false;
+            contributor.UpdatedAt = now;
+
+            item.Revision += 1;
+            item.LastActivityAt = now;
+
+            var maxSeq = await db.WorkItemEvents
+                .Where(e => e.WorkItemId == workItemId)
+                .MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0;
+
+            var removeEvent = new WorkItemEvent
+            {
+                Id = stableEventId,
+                WorkItemId = workItemId,
+                SequenceNumber = maxSeq + 1,
+                Action = WorkItemEventAction.ContributorRemoved,
+                ActionByUserId = callerUserId,
+                ActionByDisplayNameSnapshot = actorDisplayName,
+                ActionByDesignationSnapshot = actorDesignation,
+                ActionAt = now,
+                TargetUserId = contributor.UserId,
+                ContributorId = contributorId,
+                RemarksSnapshot = command.Reason?.Trim()
+            };
+            db.WorkItemEvents.Add(removeEvent);
+
+            await db.SaveChangesAsync(c);
+            return new RemoveContributorResult(item.Revision);
         }, verifySucceeded, ct);
     }
 }
