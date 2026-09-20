@@ -41,6 +41,7 @@ public sealed class WorkItemTestFactory : WebApplicationFactory<Program>
             services.AddDbContext<LacDbContext>(options => options.UseInMemoryDatabase(_databaseName));
         });
     }
+
 }
 
 public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
@@ -3809,6 +3810,25 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         Assert.Equal(1, mwActive.Summary.NeedsReview);
         Assert.Contains(mwActive.Items, i => i.Id == activeItemId);
         Assert.DoesNotContain(mwActive.Items, i => i.Id == staleItemId);
+    }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_Aggregates_CurrentDesk_And_Excludes_Terminal()
+    {
+        var client = await CreateAdminClientAsync(); var ws = await CreateWorkstreamAsync("PULSE-" + Guid.NewGuid().ToString("N")[..6], "Pulse"); var desk = await CreateDeskAsync("PD-" + Guid.NewGuid().ToString("N")[..6], "Pulse Desk", ws.Id);
+        using (var scope = _factory.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); foreach (var status in new[] { WorkItemStatus.Assigned, WorkItemStatus.InProgress, WorkItemStatus.Completed }) { var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = status.ToString(), Status = status, Priority = WorkItemPriority.Urgent, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 1, LastActivityAt = DateTimeOffset.UtcNow.AddDays(-8), RecordStatus = RecordStatus.Active }; db.Add(item); db.Add(new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = desk.Id, IsActive = true, AssignedAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }); } await db.SaveChangesAsync(); }
+        var response = await client.GetAsync("/api/work-items/branch-pulse?attention=open&staleDays=7"); Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()); Assert.Equal(2, json.RootElement.GetProperty("summary").GetProperty("open").GetInt32());
+        var workload = json.RootElement.GetProperty("deskWorkloads").EnumerateArray().Single(x => x.GetProperty("officeDeskId").GetGuid() == desk.Id); Assert.Equal(2, workload.GetProperty("openCount").GetInt32()); Assert.Equal(2, workload.GetProperty("staleCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_Closes_Cycle_And_Emits_Immutable_Snapshots()
+    {
+        var client = await CreateAdminClientAsync(); var ws = await CreateWorkstreamAsync("ROUTE-" + Guid.NewGuid().ToString("N")[..6], "Routing"); var oldDesk = await CreateDeskAsync("OLD-" + Guid.NewGuid().ToString("N")[..6], "Court Desk", ws.Id); var newDesk = await CreateDeskAsync("NEW-" + Guid.NewGuid().ToString("N")[..6], "Land Records"); Guid id; Guid oldId;
+        using (var scope = _factory.Services.CreateScope()) { var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = "Route", Status = WorkItemStatus.InProgress, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 4, LastActivityAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }; var old = new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = oldDesk.Id, IsActive = true, AssignedAt = DateTimeOffset.UtcNow, FirstSeenAt = DateTimeOffset.UtcNow, FirstActionAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }; db.Add(item); db.Add(old); await db.SaveChangesAsync(); id = item.Id; oldId = old.Id; }
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/work-items/{id}/reassign", new ReassignWorkItemApiRequest(newDesk.Id, null, "Verification required", 4))).StatusCode);
+        using var scope2 = _factory.Services.CreateScope(); var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>(); var cycles = await db2.WorkItemAssignments.Where(a => a.WorkItemId == id).ToListAsync(); Assert.Equal(2, cycles.Count); Assert.False(cycles.Single(a => a.Id == oldId).IsActive); var current = cycles.Single(a => a.IsActive); Assert.Null(current.FirstSeenAt); Assert.Equal(newDesk.Id, current.OfficeDeskId); var audit = await db2.WorkItemEvents.SingleAsync(e => e.WorkItemId == id && e.Action == WorkItemEventAction.Reassigned); Assert.Equal(oldId, audit.SourceAssignmentId); Assert.Equal(current.Id, audit.TargetAssignmentId); Assert.Equal("Court Desk", audit.SourceDeskNameSnapshot); Assert.Equal("Land Records", audit.TargetDeskNameSnapshot);
     }
 }
 
