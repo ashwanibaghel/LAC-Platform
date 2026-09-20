@@ -3833,6 +3833,37 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         using var scope2 = _factory.Services.CreateScope(); var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>(); var cycles = await db2.WorkItemAssignments.Where(a => a.WorkItemId == id).ToListAsync(); Assert.Equal(2, cycles.Count); Assert.False(cycles.Single(a => a.Id == oldId).IsActive); var current = cycles.Single(a => a.IsActive); Assert.Null(current.FirstSeenAt); Assert.Equal(newDesk.Id, current.OfficeDeskId); var audit = await db2.WorkItemEvents.SingleAsync(e => e.WorkItemId == id && e.Action == WorkItemEventAction.Reassigned); Assert.Equal(oldId, audit.SourceAssignmentId); Assert.Equal(current.Id, audit.TargetAssignmentId); Assert.Equal("Court Desk", audit.SourceDeskNameSnapshot); Assert.Equal("Land Records", audit.TargetDeskNameSnapshot);
     }
 
+    private async Task<(HttpClient Client, Guid ItemId, Guid SourceDeskId, Guid TargetDeskId)> SeedPhase2FCReassignAsync(WorkItemStatus status = WorkItemStatus.Assigned)
+    { var client=await CreateAdminClientAsync();var ws=await CreateWorkstreamAsync("RVA"+Guid.NewGuid().ToString("N")[..6],"Route");var source=await CreateDeskAsync("RVS"+Guid.NewGuid().ToString("N")[..6],"Source",ws.Id);var target=await CreateDeskAsync("RVT"+Guid.NewGuid().ToString("N")[..6],"Target");var id=await SeedPhase2FCPulseItemAsync(ws,source,"P2FC-REASSIGN-"+Guid.NewGuid().ToString("N"),SeedData.BootstrapAdminId);using(var s=_factory.Services.CreateScope()){var db=s.ServiceProvider.GetRequiredService<LacDbContext>();var item=await db.WorkItems.FindAsync(id);item!.Status=status;await db.SaveChangesAsync();}return(client,id,source.Id,target.Id); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_AllScope_Succeeds()
+    { var (client,id,_,target)=await SeedPhase2FCReassignAsync();Assert.Equal(HttpStatusCode.OK,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"All scope",1))).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_MissingExpectedRevision_IsBadRequest()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync();Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"Reason",null))).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_StaleRevision_IsConflict()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync();Assert.Equal(HttpStatusCode.Conflict,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"Reason",999))).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_BlankReason_IsBadRequest()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync();Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"  ",1))).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_NullNamedHandler_IsAllowed()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync();Assert.Equal(HttpStatusCode.OK,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"Route",1))).StatusCode);using var s=_factory.Services.CreateScope();var db=s.ServiceProvider.GetRequiredService<LacDbContext>();Assert.Null((await db.WorkItemAssignments.SingleAsync(a=>a.WorkItemId==id&&a.IsActive)).AssignedUserId); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_Completed_IsRejected()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync(WorkItemStatus.Completed);Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"No",1))).StatusCode); }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_Cancelled_IsRejected()
+    { var(client,id,_,target)=await SeedPhase2FCReassignAsync(WorkItemStatus.Cancelled);Assert.Equal(HttpStatusCode.BadRequest,(await client.PostAsJsonAsync($"/api/work-items/{id}/reassign",new ReassignWorkItemApiRequest(target,null,"No",1))).StatusCode); }
+
     [Fact]
     public async Task Phase2FC_BranchPulse_Attention_Uses_Derived_Open_States_Before_Pagination()
     {
