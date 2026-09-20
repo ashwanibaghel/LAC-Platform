@@ -461,6 +461,8 @@ function Shell({ children }: { children: ReactNode }) {
   }
   if (hasPermission("WorkItem.View") || hasPermission("WorkItem.Create")) {
     links.push(["My Work", "/my-work", "📋"]);
+  }
+  if (hasPermission("WorkItem.View")) {
     links.push(["Branch Pulse", "/branch-pulse", "◉"]);
   }
   if (hasPermission("Dak.View") || hasPermission("Dak.Register")) {
