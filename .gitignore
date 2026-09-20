@@ -20,3 +20,5 @@ tools/document-intelligence-benchmark/*.local.json
 tools/document-intelligence-benchmark/**/__pycache__/
 dotnet-sdk-*.exe
 supabase/.temp/
+
+/out/
