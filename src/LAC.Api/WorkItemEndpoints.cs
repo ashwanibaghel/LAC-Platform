@@ -28,6 +28,7 @@ public sealed record SubmitContributionApiRequest(int? ExpectedRevision, string?
 public sealed record ReturnContributionApiRequest(int? ExpectedRevision, string Remarks);
 public sealed record AcceptContributionApiRequest(int? ExpectedRevision, string? Remarks = null);
 public sealed record RemoveContributorApiRequest(int? ExpectedRevision, string? Reason = null);
+public sealed record ReassignWorkItemApiRequest(Guid? OfficeDeskId, Guid? AssignedUserId, string? Reason, int? ExpectedRevision);
 
 public sealed record MyWorkSummaryDto(
     int TotalOpen,
@@ -271,6 +272,50 @@ public static class WorkItemEndpoints
             }
         });
 
+        group.MapPost("/{id:guid}/reassign", async (Guid id, ReassignWorkItemApiRequest request, WorkItemWorkflowService workflow, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!request.OfficeDeskId.HasValue || !request.ExpectedRevision.HasValue || string.IsNullOrWhiteSpace(request.Reason))
+                return Results.BadRequest(new { message = "officeDeskId, reason and expectedRevision are required." });
+            try { return Results.Ok(await workflow.ReassignAsync(id, new ReassignWorkItemCommand(request.OfficeDeskId.Value, request.AssignedUserId, request.Reason, request.ExpectedRevision.Value), currentUser.UserId.Value, ct)); }
+            catch (WorkItemWorkflowException ex) { return Results.Problem(ex.Message, statusCode: ex.StatusCode); }
+        });
+
+        group.MapGet("/{id:guid}/reassign-options", async (Guid id, LacDbContext db, IWorkItemAuthorizationService auth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await auth.CanAccessWorkItemAsync(id, PermissionCodes.WorkItemAssign, currentUser.UserId.Value, ct)) return Results.Forbid();
+            var desks = await db.OfficeDesks.AsNoTracking().Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active).OrderBy(d => d.Name).Select(d => new { d.Id, d.Code, d.Name, members = db.UserDeskMemberships.Where(m => m.OfficeDeskId == d.Id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.User.IsActive && m.User.RecordStatus == RecordStatus.Active).OrderBy(m => m.User.DisplayName).Select(m => new { userId = m.UserId, displayName = m.User.DisplayName }).ToList() }).ToListAsync(ct);
+            return Results.Ok(new { desks });
+        });
+
+        // Branch Pulse is authorized operational-area health, deliberately separate from My Work participation.
+        group.MapGet("/branch-pulse", async (string? q, Guid? workstreamId, Guid? deskId, string? attention, string? priority, int? staleDays, int? page, int? pageSize, LacDbContext db, IWorkItemAuthorizationService auth, ICurrentUserContext currentUser, IOfficeClock officeClock, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+            if (!await db.AppUsers.AsNoTracking().AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)) return Results.Forbid();
+            var scopes = await (from ur in db.UserRoles join r in db.Roles on ur.RoleId equals r.Id join rp in db.RolePermissions on r.Id equals rp.RoleId join p in db.Permissions on rp.PermissionId equals p.Id where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.WorkItemView select rp.ScopeMode).Distinct().ToListAsync(ct);
+            var wsIds = await db.UserWorkstreamMemberships.AsNoTracking().Where(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active).Select(m => m.WorkstreamId).ToListAsync(ct);
+            var deskIds = await db.UserDeskMemberships.AsNoTracking().Where(m => m.UserId == userId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active).Select(m => m.OfficeDeskId).ToListAsync(ct);
+            if (!scopes.Contains(ScopeMode.All) && !scopes.Contains(ScopeMode.Workstream) && !scopes.Contains(ScopeMode.Assigned)) return Results.Forbid();
+            IQueryable<WorkItem> query = db.WorkItems.AsNoTracking().Include(w => w.Workstream).Include(w => w.Assignments).ThenInclude(a => a.OfficeDesk).Include(w => w.Assignments).ThenInclude(a => a.AssignedUser).Include(w => w.Contributors).Where(w => w.RecordStatus == RecordStatus.Active && (scopes.Contains(ScopeMode.All) || (scopes.Contains(ScopeMode.Workstream) && wsIds.Contains(w.WorkstreamId)) || (scopes.Contains(ScopeMode.Assigned) && w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && deskIds.Contains(a.OfficeDeskId)))));
+            if (workstreamId.HasValue) query = query.Where(w => w.WorkstreamId == workstreamId.Value);
+            if (deskId.HasValue) query = query.Where(w => w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && a.OfficeDeskId == deskId));
+            if (!string.IsNullOrWhiteSpace(q)) { var term = q.Trim().ToLower(); query = query.Where(w => w.Title.ToLower().Contains(term)); }
+            if (Enum.TryParse<WorkItemPriority>(priority, true, out var parsedPriority)) query = query.Where(w => w.Priority == parsedPriority);
+            var rows = await query.ToListAsync(ct);
+            var now = officeClock.GetUtcNow(); var days = Math.Clamp(staleDays ?? 7, 1, 90); var tz = GetDelhiTimeZone(); var date = officeClock.GetCurrentDate(); var today = TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue), tz); var tomorrow = TimeZoneInfo.ConvertTimeToUtc(date.AddDays(1).ToDateTime(TimeOnly.MinValue), tz);
+            var open = rows.Where(w => w.Status is not (WorkItemStatus.Completed or WorkItemStatus.Cancelled)).ToList();
+            bool Overdue(WorkItem w) => w.DueAt.HasValue && w.DueAt < now; bool DueToday(WorkItem w) => w.DueAt.HasValue && w.DueAt >= today && w.DueAt < tomorrow; bool NeedsReview(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted); bool Waiting(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Returned)); WorkItemAssignment? Current(WorkItem w) => w.Assignments.SingleOrDefault(a => a.IsActive && a.RecordStatus == RecordStatus.Active); bool NoHandler(WorkItem w) => Current(w)?.AssignedUserId is null; bool Stale(WorkItem w) => w.LastActivityAt < now.AddDays(-days);
+            IEnumerable<WorkItem> selected = rows;
+            var a = attention?.Trim().ToLowerInvariant(); if (!string.IsNullOrWhiteSpace(a)) selected = a switch { "overdue" => open.Where(Overdue), "due-today" => open.Where(DueToday), "needs-review" => open.Where(NeedsReview), "waiting-on-help" => open.Where(Waiting), "not-started" => open.Where(w => w.Status == WorkItemStatus.Assigned), "no-named-handler" => open.Where(NoHandler), "stale" => open.Where(Stale), _ => selected };
+            var workload = open.GroupBy(Current).Where(g => g.Key != null).Select(g => new { officeDeskId = g.Key!.OfficeDeskId, deskCode = g.Key.OfficeDesk.Code, deskName = g.Key.OfficeDesk.Name, openCount = g.Count(), overdueCount = g.Count(Overdue), dueTodayCount = g.Count(DueToday), urgentCount = g.Count(w => w.Priority is WorkItemPriority.Urgent or WorkItemPriority.Immediate), needsReviewCount = g.Count(NeedsReview), staleCount = g.Count(Stale), noNamedHandlerCount = g.Count(NoHandler) }).OrderBy(x => x.deskName).ToList();
+            var total = selected.Count(); var size = Math.Clamp(pageSize ?? 25, 1, 100); var number = Math.Max(page ?? 0, 0);
+            var items = new List<object>(); foreach (var w in selected.OrderBy(x => x.DueAt).ThenByDescending(x => x.Priority).Skip(number * size).Take(size)) { var current = Current(w); if (current is null) continue; items.Add(new { workItemId = w.Id, w.Title, priority = w.Priority.ToString(), status = w.Status.ToString(), w.WorkstreamId, workstreamCode = w.Workstream.Code, workstreamName = w.Workstream.Name, currentDeskId = current.OfficeDeskId, currentDeskCode = current.OfficeDesk.Code, currentDeskName = current.OfficeDesk.Name, current.AssignedUserId, assignedUserDisplayName = current.AssignedUser?.DisplayName, w.DueAt, dueState = Overdue(w) ? "overdue" : DueToday(w) ? "today" : "none", w.LastActivityAt, w.Revision, hasSubmittedContribution = NeedsReview(w), hasActiveHelp = Waiting(w), isStale = Stale(w), noNamedHandler = NoHandler(w), canReassign = await auth.CanAccessWorkItemAsync(w.Id, PermissionCodes.WorkItemAssign, userId, ct) }); }
+            return Results.Ok(new { summary = new { open = open.Count, overdue = open.Count(Overdue), dueToday = open.Count(DueToday), needsReview = open.Count(NeedsReview), waitingOnHelp = open.Count(Waiting), notStarted = open.Count(w => w.Status == WorkItemStatus.Assigned), noNamedHandler = open.Count(NoHandler), stale = open.Count(Stale) }, deskWorkloads = workload, items, totalCount = total, page = number, pageSize = size, effectiveStaleDays = days });
+        });
+
         // ====================================================================
         // 2. MY WORK PROJECTION
         // ====================================================================
@@ -359,8 +404,7 @@ public static class WorkItemEndpoints
 
             baseQuery = baseQuery.Where(w =>
                 // A. Responsible Desk
-                (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
+                w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)) ||
                 // B. Requested by Caller
                 (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
                 // C. Contributor Participation
@@ -370,7 +414,7 @@ public static class WorkItemEndpoints
                 (w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted) &&
                     (hasAllReview ||
                      (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                     (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))))
+                     (hasAssignedReview && w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)))))
             );
 
             // Step 2: Intersect with WorkItem.View authorization scopes (UNION):
@@ -392,8 +436,7 @@ public static class WorkItemEndpoints
                 baseQuery = baseQuery.Where(w =>
                     (hasWorkstreamScope && userWorkstreamIds.Contains(w.WorkstreamId)) ||
                     (hasAssignedScope && (
-                        (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                            activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
+                        w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)) ||
                         w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
                             (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
                     ))
@@ -413,8 +456,7 @@ public static class WorkItemEndpoints
             var summaryAssignedToMe = await baseQuery.CountAsync(w =>
                 w.Status != WorkItemStatus.Completed &&
                 w.Status != WorkItemStatus.Cancelled &&
-                w.CurrentAssignment != null &&
-                activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId), ct);
+                w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)), ct);
             var summaryRequestedByMe = await baseQuery.CountAsync(w =>
                 w.Status != WorkItemStatus.Completed &&
                 w.Status != WorkItemStatus.Cancelled &&
@@ -451,7 +493,7 @@ public static class WorkItemEndpoints
                         // Contributor relation must NEVER satisfy Review.
                         reviewQuery = reviewQuery.Where(w =>
                             (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                            (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                            (hasAssignedReview && w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)))
                         );
                     }
                 }
@@ -475,7 +517,7 @@ public static class WorkItemEndpoints
             var summaryWaitingOnOthers = await baseQuery.CountAsync(w =>
                 w.Status != WorkItemStatus.Completed &&
                 w.Status != WorkItemStatus.Cancelled &&
-                ((w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) || w.RequestedByUserId == userId) &&
+                (w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)) || w.RequestedByUserId == userId) &&
                 w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active &&
                     (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)), ct);
 
@@ -548,8 +590,7 @@ public static class WorkItemEndpoints
             if (relFilter == "assigned")
             {
                 filteredQuery = filteredQuery.Where(w =>
-                    w.CurrentAssignment != null &&
-                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId));
+                    w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)));
             }
             else if (relFilter == "requested")
             {
@@ -572,7 +613,7 @@ public static class WorkItemEndpoints
                         // Contributor relation must NEVER satisfy Review.
                         filteredQuery = filteredQuery.Where(w =>
                             (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                            (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                            (hasAssignedReview && w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)))
                         );
                     }
                 }
@@ -586,7 +627,7 @@ public static class WorkItemEndpoints
             else if (relFilter == "waiting")
             {
                 filteredQuery = filteredQuery.Where(w =>
-                    ((w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) || w.RequestedByUserId == userId) &&
+                    (w.Assignments.Any(a => a.IsActive && a.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(a.OfficeDeskId)) || w.RequestedByUserId == userId) &&
                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active &&
                         (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)));
             }
@@ -621,11 +662,11 @@ public static class WorkItemEndpoints
                     w.RequestedByUserId,
                     w.RequestedByDisplayNameSnapshot,
                     w.RequestedByDesignationSnapshot,
-                    OfficeDeskId = w.CurrentAssignment != null ? w.CurrentAssignment.OfficeDeskId : Guid.Empty,
-                    OfficeDeskName = w.CurrentAssignment != null ? w.CurrentAssignment.OfficeDesk.Name : "",
-                    AssignedUserId = w.CurrentAssignment != null ? w.CurrentAssignment.AssignedUserId : null,
-                    AssignedUserDisplayName = w.CurrentAssignment != null && w.CurrentAssignment.AssignedUser != null ? w.CurrentAssignment.AssignedUser.DisplayName : null,
-                    AssignedUserDesignation = w.CurrentAssignment != null && w.CurrentAssignment.AssignedUser != null && w.CurrentAssignment.AssignedUser.Designation != null ? w.CurrentAssignment.AssignedUser.Designation.Name : null,
+                    OfficeDeskId = w.Assignments.Where(a => a.IsActive && a.RecordStatus == RecordStatus.Active).Select(a => a.OfficeDeskId).FirstOrDefault(),
+                    OfficeDeskName = w.Assignments.Where(a => a.IsActive && a.RecordStatus == RecordStatus.Active).Select(a => a.OfficeDesk.Name).FirstOrDefault() ?? "",
+                    AssignedUserId = w.Assignments.Where(a => a.IsActive && a.RecordStatus == RecordStatus.Active).Select(a => a.AssignedUserId).FirstOrDefault(),
+                    AssignedUserDisplayName = w.Assignments.Where(a => a.IsActive && a.RecordStatus == RecordStatus.Active).Select(a => a.AssignedUser == null ? null : a.AssignedUser.DisplayName).FirstOrDefault(),
+                    AssignedUserDesignation = w.Assignments.Where(a => a.IsActive && a.RecordStatus == RecordStatus.Active).Select(a => a.AssignedUser == null || a.AssignedUser.Designation == null ? null : a.AssignedUser.Designation.Name).FirstOrDefault(),
                     w.Revision,
                     w.LastActivityAt,
                     w.CreatedAt,
@@ -724,12 +765,12 @@ public static class WorkItemEndpoints
 
             var item = await db.WorkItems.AsNoTracking()
                 .Include(w => w.Workstream)
-                .Include(w => w.CurrentAssignment)
+                .Include(w => w.Assignments)
                     .ThenInclude(a => a!.OfficeDesk)
-                .Include(w => w.CurrentAssignment)
+                .Include(w => w.Assignments)
                     .ThenInclude(a => a!.AssignedUser)
                         .ThenInclude(u => u!.Designation)
-                .Include(w => w.CurrentAssignment)
+                .Include(w => w.Assignments)
                     .ThenInclude(a => a!.AssignedByUser)
                 .Include(w => w.Contributors)
                     .ThenInclude(c => c.User)
@@ -752,22 +793,23 @@ public static class WorkItemEndpoints
             if (item is null) return Results.NotFound();
 
             WorkItemAssignmentDetailDto? assignmentDto = null;
-            if (item.CurrentAssignment != null)
+            var currentAssignment = item.Assignments.SingleOrDefault(a => a.IsActive && a.RecordStatus == RecordStatus.Active);
+            if (currentAssignment != null)
             {
                 assignmentDto = new WorkItemAssignmentDetailDto(
-                    item.CurrentAssignment.Id,
-                    item.CurrentAssignment.OfficeDeskId,
-                    item.CurrentAssignment.OfficeDesk.Code,
-                    item.CurrentAssignment.OfficeDesk.Name,
-                    item.CurrentAssignment.AssignedUserId,
-                    item.CurrentAssignment.AssignedUser?.DisplayName,
-                    item.CurrentAssignment.AssignedUser?.Designation?.Name,
-                    item.CurrentAssignment.AssignedByUserId,
-                    item.CurrentAssignment.AssignedByUser.DisplayName,
-                    item.CurrentAssignment.AssignedAt,
-                    item.CurrentAssignment.FirstSeenAt,
-                    item.CurrentAssignment.FirstActionAt,
-                    item.CurrentAssignment.IsActive
+                    currentAssignment.Id,
+                    currentAssignment.OfficeDeskId,
+                    currentAssignment.OfficeDesk.Code,
+                    currentAssignment.OfficeDesk.Name,
+                    currentAssignment.AssignedUserId,
+                    currentAssignment.AssignedUser?.DisplayName,
+                    currentAssignment.AssignedUser?.Designation?.Name,
+                    currentAssignment.AssignedByUserId,
+                    currentAssignment.AssignedByUser.DisplayName,
+                    currentAssignment.AssignedAt,
+                    currentAssignment.FirstSeenAt,
+                    currentAssignment.FirstActionAt,
+                    currentAssignment.IsActive
                 );
             }
 

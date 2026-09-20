@@ -1,0 +1,19 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import "./work.css";
+
+type Pulse = { summary: Record<string, number>; deskWorkloads: Array<{officeDeskId:string;deskCode:string;deskName:string;openCount:number;overdueCount:number;dueTodayCount:number;needsReviewCount:number;staleCount:number;noNamedHandlerCount:number}>; items: Array<{workItemId:string;title:string;priority:string;status:string;workstreamName:string;currentDeskName:string;assignedUserDisplayName?:string;dueState:string;revision:number;canReassign:boolean;noNamedHandler:boolean;isStale:boolean;hasSubmittedContribution:boolean;hasActiveHelp:boolean}>; totalCount:number; page:number; pageSize:number };
+
+export function BranchPulse() {
+  const [data, setData] = useState<Pulse | null>(null); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(true); const [attention, setAttention] = useState(""); const [deskId, setDeskId] = useState("");
+  const load = useCallback(async () => { setLoading(true); setError(null); try { const p = new URLSearchParams(); if(attention) p.set("attention", attention); if(deskId) p.set("deskId", deskId); const r = await fetch(`/api/work-items/branch-pulse?${p}`, {credentials:"include"}); if (!r.ok) throw new Error("Branch Pulse could not be loaded."); setData(await r.json()); } catch(e) { setError(e instanceof Error ? e.message : "Branch Pulse could not be loaded."); } finally { setLoading(false); } }, [attention, deskId]);
+  useEffect(() => { void load(); }, [load]);
+  if (loading) return <main className="my-work-container"><p>Loading Branch Pulse…</p></main>;
+  if (error) return <main className="my-work-container"><p role="alert">{error}</p><button onClick={()=>void load()}>Retry</button></main>;
+  const labels: Record<string,string> = {open:"Open",overdue:"Overdue",dueToday:"Due Today",needsReview:"Needs Review",waitingOnHelp:"Waiting on Help",notStarted:"Not Started",noNamedHandler:"No Named Handler",stale:"Stale"};
+  return <main className="my-work-container"><header className="my-work-header"><div><h1>Branch Pulse</h1><p className="my-work-subtitle">Authorized operational-area health.</p></div></header>
+    <section className="my-work-summary-grid" aria-label="Attention summary">{Object.entries(data?.summary ?? {}).map(([k,v])=><button key={k} className="my-work-summary-card" onClick={()=>setAttention(attention===k.replace(/[A-Z]/g,m=>`-${m.toLowerCase()}`)?"":k.replace(/[A-Z]/g,m=>`-${m.toLowerCase()}`)}><span>{labels[k] ?? k}</span><strong>{v}</strong></button>)}</section>
+    <section><h2>Desk workload</h2><div className="my-work-summary-grid">{data?.deskWorkloads.map(d=><button key={d.officeDeskId} className="my-work-summary-card" onClick={()=>setDeskId(deskId===d.officeDeskId?"":d.officeDeskId)}><strong>{d.deskName}</strong><span>{d.openCount} open · {d.overdueCount} overdue · {d.needsReviewCount} review</span></button>)}</div></section>
+    <section><h2>Attention list</h2>{data?.items.length ? data.items.map(i=><article className="my-work-item" key={i.workItemId}><div><h3>{i.title}</h3><p>{i.workstreamName} · {i.currentDeskName} · {i.assignedUserDisplayName ?? "No Named Handler"}</p><p>{[i.dueState === "overdue" && "Overdue", i.hasSubmittedContribution && "Needs Review", i.hasActiveHelp && "Waiting on Help", i.isStale && "Stale"].filter(Boolean).join(" · ")}</p></div><div className="my-work-item-actions"><Link to={`/work/${i.workItemId}`}>Open Work</Link>{i.canReassign && <Link to={`/work/${i.workItemId}`}>Reassign Work</Link>}</div></article>) : <div className="my-work-empty-state"><h3>No work matches this view</h3><p>There are no authorized work items in this attention bucket.</p></div>}</section>
+  </main>;
+}

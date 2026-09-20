@@ -2180,8 +2180,8 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            var item = await db.WorkItems.Include(w => w.CurrentAssignment).FirstAsync(w => w.Id == workItemId);
-            Assert.Null(item.CurrentAssignment?.FirstActionAt);
+            var item = await db.WorkItems.Include(w => w.Assignments).FirstAsync(w => w.Id == workItemId);
+            Assert.Null(item.Assignments.Single(a => a.IsActive && a.RecordStatus == RecordStatus.Active).FirstActionAt);
 
             // Verify WorkItemEvent has ContributorId populated
             var updateEvent = await db.WorkItemEvents.FirstAsync(e => e.WorkItemId == workItemId && e.Action == WorkItemEventAction.UpdateAdded);

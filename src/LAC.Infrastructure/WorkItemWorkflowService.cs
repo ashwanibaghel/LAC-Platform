@@ -98,6 +98,8 @@ public sealed record RemoveContributorCommand(
 public sealed record RemoveContributorResult(
     int Revision
 );
+public sealed record ReassignWorkItemCommand(Guid OfficeDeskId, Guid? AssignedUserId, string Reason, int ExpectedRevision);
+public sealed record ReassignWorkItemResult(Guid AssignmentId, int Revision);
 
 public sealed record CreateWorkItemResult(
     Guid WorkItemId,
@@ -1523,5 +1525,58 @@ public sealed class WorkItemWorkflowService(
             await db.SaveChangesAsync(c);
             return new RemoveContributorResult(item.Revision);
         }, verifySucceeded, ct);
+    }
+
+    public async Task<ReassignWorkItemResult> ReassignAsync(Guid workItemId, ReassignWorkItemCommand command, Guid callerUserId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(command.Reason)) throw new WorkItemWorkflowException("Reassignment reason is required.", 400);
+        if (!await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemAssign, callerUserId, ct))
+            throw new WorkItemWorkflowException("You do not have permission to reassign this work item.", 403);
+
+        var targetDesk = await db.OfficeDesks.AsNoTracking().FirstOrDefaultAsync(d => d.Id == command.OfficeDeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, ct)
+            ?? throw new WorkItemWorkflowException("Target office desk is inactive or does not exist.", 400);
+        string? targetUserName = null;
+        if (command.AssignedUserId.HasValue)
+        {
+            var targetUser = await db.AppUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Id == command.AssignedUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
+                ?? throw new WorkItemWorkflowException("Target user is inactive or does not exist.", 400);
+            var eligible = await db.UserDeskMemberships.AsNoTracking().AnyAsync(m => m.UserId == targetUser.Id && m.OfficeDeskId == targetDesk.Id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active, ct);
+            if (!eligible) throw new WorkItemWorkflowException("Target user is not an active member of the target desk.", 400);
+            targetUserName = targetUser.DisplayName;
+        }
+        var (actorName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
+        var newAssignmentId = Guid.NewGuid();
+        var eventId = Guid.NewGuid();
+        var reason = command.Reason.Trim();
+        Guid sourceAssignmentId = Guid.Empty, sourceDeskId = Guid.Empty; Guid? sourceUserId = null; string sourceDeskName = ""; string? sourceUserName = null;
+
+        return await ExecuteWorkflowTransactionAsync(async c =>
+        {
+            db.ChangeTracker.Clear();
+            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId, c))
+            {
+                var existing = await db.WorkItems.AsNoTracking().FirstAsync(w => w.Id == workItemId, c);
+                return new ReassignWorkItemResult(newAssignmentId, existing.Revision);
+            }
+            var item = await LockWorkItemAsync(workItemId, c);
+            if (item.RecordStatus != RecordStatus.Active) throw new WorkItemWorkflowException("Work item not found.", 404);
+            if (item.Status is WorkItemStatus.Completed or WorkItemStatus.Cancelled) throw new WorkItemWorkflowException("Terminal work items cannot be reassigned.", 400);
+            if (item.Revision != command.ExpectedRevision) throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
+            var active = await db.WorkItemAssignments.Include(a => a.OfficeDesk).Include(a => a.AssignedUser)
+                .Where(a => a.WorkItemId == workItemId && a.IsActive && a.RecordStatus == RecordStatus.Active).ToListAsync(c);
+            if (active.Count != 1) throw new WorkItemWorkflowException("Work item assignment invariant violated.", 400);
+            var old = active[0];
+            if (old.OfficeDeskId == command.OfficeDeskId && old.AssignedUserId == command.AssignedUserId) throw new WorkItemWorkflowException("Reassignment target is unchanged.", 400);
+            sourceAssignmentId = old.Id; sourceDeskId = old.OfficeDeskId; sourceUserId = old.AssignedUserId; sourceDeskName = old.OfficeDesk.Name; sourceUserName = old.AssignedUser?.DisplayName;
+            var now = DateTimeOffset.UtcNow;
+            old.IsActive = false; old.ClosedAt = now;
+            var replacement = new WorkItemAssignment { Id = newAssignmentId, WorkItemId = item.Id, OfficeDeskId = targetDesk.Id, AssignedUserId = command.AssignedUserId, AssignedByUserId = callerUserId, AssignedAt = now, IsActive = true };
+            db.WorkItemAssignments.Add(replacement);
+            var sequence = (await db.WorkItemEvents.Where(e => e.WorkItemId == workItemId).MaxAsync(e => (int?)e.SequenceNumber, c) ?? 0) + 1;
+            db.WorkItemEvents.Add(new WorkItemEvent { Id = eventId, WorkItemId = item.Id, SequenceNumber = sequence, Action = WorkItemEventAction.Reassigned, ActionByUserId = callerUserId, ActionByDisplayNameSnapshot = actorName, ActionByDesignationSnapshot = actorDesignation, ActionAt = now, SourceAssignmentId = old.Id, TargetAssignmentId = newAssignmentId, SourceDeskId = old.OfficeDeskId, TargetDeskId = targetDesk.Id, SourceUserId = old.AssignedUserId, TargetUserId = command.AssignedUserId, SourceDeskNameSnapshot = old.OfficeDesk.Name, SourceUserDisplayNameSnapshot = old.AssignedUser?.DisplayName, TargetDeskNameSnapshot = targetDesk.Name, TargetUserDisplayNameSnapshot = targetUserName, RemarksSnapshot = reason });
+            item.Revision++; item.LastActivityAt = now;
+            await db.SaveChangesAsync(c);
+            return new ReassignWorkItemResult(newAssignmentId, item.Revision);
+        }, async c => await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.TargetAssignmentId == newAssignmentId && e.TargetDeskId == command.OfficeDeskId && e.TargetUserId == command.AssignedUserId && e.RemarksSnapshot == reason, c), ct);
     }
 }

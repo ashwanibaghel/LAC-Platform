@@ -31,16 +31,18 @@ public static class WorkItemModelConfiguration
                 .HasForeignKey(x => x.RequestedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            entity.HasOne(x => x.CurrentAssignment)
+            entity.HasMany(x => x.Assignments)
                 .WithOne(x => x.WorkItem)
-                .HasForeignKey<WorkItemAssignment>(x => x.WorkItemId)
+                .HasForeignKey(x => x.WorkItemId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
         // 2. WorkItemAssignment (Single Current Responsibility Projection Row per WorkItem)
         b.Entity<WorkItemAssignment>(entity =>
         {
-            entity.HasIndex(x => x.WorkItemId).IsUnique();
+            entity.HasIndex(x => x.WorkItemId).IsUnique()
+                .HasFilter("\"IsActive\" = true AND \"RecordStatus\" = 'Active'");
+            entity.HasIndex(x => new { x.WorkItemId, x.AssignedAt });
             entity.HasIndex(x => x.OfficeDeskId);
             entity.HasIndex(x => x.AssignedUserId);
             entity.HasIndex(x => new { x.OfficeDeskId, x.AssignedUserId, x.IsActive });

@@ -31,6 +31,7 @@ export interface WorkItemContributorDetail {
 }
 
 export interface WorkItemCapabilities {
+  canReassign: boolean;
   canAddContributor: boolean;
   canRemoveContributor: boolean;
   canContribute: boolean;

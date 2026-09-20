@@ -1,5 +1,6 @@
 namespace LAC.Domain;
 
+
 public enum WorkItemPriority
 {
     Routine = 0,
@@ -80,7 +81,8 @@ public sealed class WorkItem : OfficialRecord
     public DateTimeOffset LastActivityAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }
 
-    public WorkItemAssignment? CurrentAssignment { get; set; }
+    /// <summary>Official responsibility cycles. The current responsibility is the unique active row.</summary>
+    public ICollection<WorkItemAssignment> Assignments { get; set; } = new List<WorkItemAssignment>();
     public ICollection<WorkItemContributor> Contributors { get; set; } = new List<WorkItemContributor>();
     public ICollection<WorkItemUpdate> Updates { get; set; } = new List<WorkItemUpdate>();
     public ICollection<WorkItemAttachment> Attachments { get; set; } = new List<WorkItemAttachment>();
@@ -208,6 +210,14 @@ public sealed class WorkItemEvent
 
     public Guid? TargetUserId { get; set; }
     public Guid? TargetDeskId { get; set; }
+    public Guid? SourceAssignmentId { get; set; }
+    public Guid? TargetAssignmentId { get; set; }
+    public Guid? SourceDeskId { get; set; }
+    public Guid? SourceUserId { get; set; }
+    public string? SourceDeskNameSnapshot { get; set; }
+    public string? SourceUserDisplayNameSnapshot { get; set; }
+    public string? TargetDeskNameSnapshot { get; set; }
+    public string? TargetUserDisplayNameSnapshot { get; set; }
     public Guid? DocumentId { get; set; }
     public Guid? WorkItemUpdateId { get; set; }
     public Guid? ContributorId { get; set; }

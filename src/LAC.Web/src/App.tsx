@@ -31,6 +31,7 @@ import { MatterWorkspace } from "./matter/MatterWorkspace";
 import { MyWork } from "./work/MyWork";
 import { WorkItemCreate } from "./work/WorkItemCreate";
 import { WorkItemWorkspace } from "./work/WorkItemWorkspace";
+import { BranchPulse } from "./work/BranchPulse";
 import "./work/work.css";
 import "./matter/matter.css";
 import "./index.css";
@@ -460,6 +461,7 @@ function Shell({ children }: { children: ReactNode }) {
   }
   if (hasPermission("WorkItem.View") || hasPermission("WorkItem.Create")) {
     links.push(["My Work", "/my-work", "📋"]);
+    links.push(["Branch Pulse", "/branch-pulse", "◉"]);
   }
   if (hasPermission("Dak.View") || hasPermission("Dak.Register")) {
     links.push(["Dak / Inward", "/dak", "📥"]);
@@ -3285,6 +3287,7 @@ function AuthenticatedApp() {
         <Route path="/imports/lr/review" element={<LrReview />} />
         <Route path="/my-desk" element={<MyDesk />} />
         <Route path="/my-work" element={<MyWork />} />
+        <Route path="/branch-pulse" element={<BranchPulse />} />
         <Route path="/work/new" element={<WorkItemCreate />} />
         <Route path="/work/:id" element={<WorkItemWorkspace />} />
         <Route path="/dak" element={<DakDirectory />} />

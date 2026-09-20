@@ -27,6 +27,7 @@ public sealed record WorkItemContributorOptionDto(
 );
 
 public sealed record WorkItemCapabilitiesDto(
+    bool CanReassign,
     bool CanAddContributor,
     bool CanRemoveContributor,
     bool CanContribute,
@@ -623,6 +624,7 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         if (isTerminal)
         {
             return new WorkItemCapabilitiesDto(
+                CanReassign: false,
                 CanAddContributor: false,
                 CanRemoveContributor: false,
                 CanContribute: false,
@@ -653,11 +655,12 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         var canUploadAttachment = canUpdate || canContribute;
 
         var canStartWork = false;
-        if (item.Status == WorkItemStatus.Assigned && item.CurrentAssignment != null)
+        var currentAssignment = item.Assignments.SingleOrDefault(a => a.IsActive && a.RecordStatus == RecordStatus.Active);
+        if (item.Status == WorkItemStatus.Assigned && currentAssignment != null)
         {
             canStartWork = await db.UserDeskMemberships.AsNoTracking()
                 .AnyAsync(m => m.UserId == userId
-                            && m.OfficeDeskId == item.CurrentAssignment.OfficeDeskId
+                            && m.OfficeDeskId == currentAssignment.OfficeDeskId
                             && m.IsActive
                             && m.RemovedAt == null
                             && m.RecordStatus == RecordStatus.Active
@@ -666,6 +669,7 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         }
 
         return new WorkItemCapabilitiesDto(
+            CanReassign: canAssign,
             CanAddContributor: canAssign,
             CanRemoveContributor: canAssign,
             CanContribute: canContribute,

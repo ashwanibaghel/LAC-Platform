@@ -189,3 +189,15 @@ Phase 2F-B establishes the formal delegation, contribution, and review model for
 ### 8.7 UI / UX Integration
 - **Help & Contribution Workspace Card**: Displays contributor badges, current statuses, and instructions.
 - **Modal Dialogs**: "Ask for Help", "Submit Contribution", and "Return for Correction" modals guide multi-officer collaboration directly within the work item workspace.
+
+---
+
+## 9. Phase 2F-C: Branch Pulse and secure routing
+
+Branch Pulse is authorized operational-area health, not My Work. My Work remains operational participation intersected with exact View authorization; Pulse unions `WorkItem.View` All, live Workstream membership, and live responsible-desk Assigned scope. Contributors and requesters do not expand Pulse scope, and no designation is treated as supervisory authority.
+
+`WorkItemAssignment` is assignment-cycle history. Current responsibility is the one active, active-record assignment; there is no `CurrentAssignmentId` pointer. The approved Phase 2F-C migration replaces the old unconditional work-item uniqueness constraint with a PostgreSQL partial unique index, so old cycles close and remain official evidence while at most one current cycle exists.
+
+Reassignment requires exact `WorkItem.Assign`, a current active assignment, a non-terminal item, reason and expected revision. It closes the old cycle, starts a fresh one without FirstSeen/FirstAction, preserves contributors and status, and emits immutable `Reassigned` history with structured source/target IDs and desk/user name snapshots. Desk workstream is classification only and does not change WorkItem workstream or constrain routing. AssignedUserId remains a non-private routing hint; “No Named Handler” means the desk remains responsible.
+
+Pulse attention and workload values are live projections: overdue, Delhi-date due today, submitted contribution review, active/returned help, Assigned status, no named handler, and stale LastActivityAt. They are never persisted performance scores. The responsive `/branch-pulse` screen provides summary cards, desk filters, operational rows, loading, error and empty states, and links to the Work workspace for authorized routing actions.
