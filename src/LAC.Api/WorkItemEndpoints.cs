@@ -370,7 +370,7 @@ public static class WorkItemEndpoints
                 (w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted) &&
                     (hasAllReview ||
                      (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                     (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))))
+                     (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))))
             );
 
             // Step 2: Intersect with WorkItem.View authorization scopes (UNION):
@@ -451,7 +451,7 @@ public static class WorkItemEndpoints
                         // Contributor relation must NEVER satisfy Review.
                         reviewQuery = reviewQuery.Where(w =>
                             (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                            (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                            (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
                         );
                     }
                 }
@@ -572,7 +572,7 @@ public static class WorkItemEndpoints
                         // Contributor relation must NEVER satisfy Review.
                         filteredQuery = filteredQuery.Where(w =>
                             (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
-                            (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
+                            (hasAssignedReview && w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))
                         );
                     }
                 }

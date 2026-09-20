@@ -3409,13 +3409,16 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             unrelatedItemId = item.Id;
         }
 
+        Assert.NotEqual(Guid.Empty, unrelatedItemId);
+
         // Admin has ScopeMode.All on WorkItem.View, but has NO operational participation on this item
         var resMwAdmin = await adminClient.GetAsync("/api/work-items/my-work");
         Assert.Equal(HttpStatusCode.OK, resMwAdmin.StatusCode);
         var mwAdmin = await resMwAdmin.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mwAdmin);
 
         // Unrelated item must NOT appear in Admin's My Work
-        Assert.DoesNotContain(mwAdmin!.Items, i => i.Id == unrelatedItemId);
+        Assert.DoesNotContain(mwAdmin.Items, i => i.Id == unrelatedItemId);
     }
 
     [Fact]
@@ -3435,27 +3438,32 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             workstreamId: ws.Id
         );
 
-        // Unrelated work item in same workstream, but on desk2 and requested by admin
+        // Unrelated work item in same workstream, but assigned institutionally to desk2 (no named user) and requested by admin
         var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
             Title: "Unrelated Item In Same Workstream",
             Instructions: null,
             WorkstreamId: ws.Id,
             OfficeDeskId: desk2.Id,
-            AssignedUserId: SeedData.BootstrapAdminId,
+            AssignedUserId: null,
             Priority: "Routine",
             DueAt: null,
             MatterId: null,
             DakId: null
         ));
-        var unrelatedItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+        Assert.Equal(HttpStatusCode.Created, resCreate.StatusCode);
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        Assert.NotNull(createResult);
+        Assert.NotEqual(Guid.Empty, createResult.WorkItemId);
+        var unrelatedItemId = createResult.WorkItemId;
 
         // Caller has Workstream View authority, but NO operational relationship (not on desk2, did not request, not contributor)
         var resMw = await callerClient.GetAsync("/api/work-items/my-work");
         Assert.Equal(HttpStatusCode.OK, resMw.StatusCode);
         var mw = await resMw.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mw);
 
         // Item must NOT appear in caller's My Work
-        Assert.DoesNotContain(mw!.Items, i => i.Id == unrelatedItemId);
+        Assert.DoesNotContain(mw.Items, i => i.Id == unrelatedItemId);
     }
 
     [Fact]
@@ -3512,6 +3520,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             await db.SaveChangesAsync();
             workItemId = item.Id;
         }
+        Assert.NotEqual(Guid.Empty, workItemId);
 
         // Caller requested it (operational relevance matches), but caller only has ScopeMode.Assigned
         // and is NOT on responsible desk and NOT an active contributor.
@@ -3519,8 +3528,9 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var resMw = await callerClient.GetAsync("/api/work-items/my-work");
         Assert.Equal(HttpStatusCode.OK, resMw.StatusCode);
         var mw = await resMw.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mw);
 
-        Assert.DoesNotContain(mw!.Items, i => i.Id == workItemId);
+        Assert.DoesNotContain(mw.Items, i => i.Id == workItemId);
     }
 
     [Fact]
@@ -3562,7 +3572,11 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             MatterId: null,
             DakId: null
         ));
-        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+        Assert.Equal(HttpStatusCode.Created, resCreate.StatusCode);
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        Assert.NotNull(createResult);
+        Assert.NotEqual(Guid.Empty, createResult.WorkItemId);
+        var workItemId = createResult.WorkItemId;
 
         // Add helper as contributor
         var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
@@ -3570,26 +3584,231 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             Instructions: null,
             ExpectedRevision: 0
         ));
-        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+        Assert.Equal(HttpStatusCode.OK, resAdd.StatusCode);
+        var addResult = await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts);
+        Assert.NotNull(addResult);
+        Assert.NotEqual(Guid.Empty, addResult.ContributorId);
+        var cId = addResult.ContributorId;
 
         // Before submit: Reviewer has NO operational participation on this item -> not in My Work
         var resMwBefore = await reviewerClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMwBefore.StatusCode);
         var mwBefore = await resMwBefore.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
-        Assert.DoesNotContain(mwBefore!.Items, i => i.Id == workItemId);
+        Assert.NotNull(mwBefore);
+        Assert.DoesNotContain(mwBefore.Items, i => i.Id == workItemId);
 
         // Helper submits contribution -> Actionable Review Participation activates for Workstream reviewer!
-        await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+        var resSubmit = await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
             ExpectedRevision: 1,
             Note: "Ready for review"
         ));
+        Assert.Equal(HttpStatusCode.OK, resSubmit.StatusCode);
 
         // Now reviewer has operational relevance via Actionable Review Participation!
         var resMwAfter = await reviewerClient.GetAsync("/api/work-items/my-work?relationship=review");
         Assert.Equal(HttpStatusCode.OK, resMwAfter.StatusCode);
         var mwAfter = await resMwAfter.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mwAfter);
 
-        Assert.True(mwAfter!.Summary.NeedsReview >= 1);
+        Assert.True(mwAfter.Summary.NeedsReview >= 1);
         Assert.Contains(mwAfter.Items, i => i.Id == workItemId);
+    }
+
+    [Fact]
+    public async Task MyWork_AssignedReview_Requires_Active_CurrentAssignment()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-STALE-REV", "Stale Assigned Review WS");
+        var deskD = await CreateDeskAsync("DSK-STALE-D", "Desk D", ws.Id, assignAdmin: false);
+
+        // Caller user:
+        // - WorkItem.View via ScopeMode.Workstream (in ws)
+        // - WorkItem.Review via ScopeMode.Assigned (on deskD)
+        // - Member of ws and Desk D
+        // - Caller does NOT have WorkItem.Review via Workstream or All.
+        string callerUsername = "stale_review_caller";
+        string callerPass = "StaleRevPass!123";
+        Guid callerId;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            var roleView = new Role { Id = Guid.NewGuid(), Code = "ROLE_STALE_VIEW_WS", Name = "Role Stale View WS", IsSystemRole = false };
+            var roleReview = new Role { Id = Guid.NewGuid(), Code = "ROLE_STALE_REV_ASSIGNED", Name = "Role Stale Review Assigned", IsSystemRole = false };
+            db.Roles.AddRange(roleView, roleReview);
+
+            var pView = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.WorkItemView);
+            var pReview = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.WorkItemReview);
+
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleView.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.Workstream });
+            db.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleReview.Id, PermissionId = pReview.Id, ScopeMode = ScopeMode.Assigned });
+
+            await db.SaveChangesAsync();
+
+            var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
+                Username: callerUsername,
+                DisplayName: "Stale Review Caller",
+                Password: callerPass,
+                DesignationId: null,
+                RoleIds: [roleView.Id, roleReview.Id],
+                WorkstreamIds: [ws.Id],
+                PrimaryWorkstreamId: ws.Id
+            ));
+            Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+            callerId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+
+            // Assign caller to Desk D (live active desk membership)
+            var assignDeskRes = await adminClient.PostAsJsonAsync($"/api/admin/users/{callerId}/desks", new AssignDeskRequest(deskD.Id, IsPrimary: true));
+            Assert.Equal(HttpStatusCode.Created, assignDeskRes.StatusCode);
+        }
+
+        var callerClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var loginRes = await callerClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(callerUsername, callerPass));
+        Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
+
+        // Helper user for contributor submissions
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "stale_helper_user",
+            "ROLE_STALE_HELPER",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: deskD.Id,
+            workstreamId: ws.Id
+        );
+
+        // Other requester user (so caller is NOT requester)
+        var (_, otherRequesterId) = await CreateCustomUserClientAsync(
+            "stale_other_req",
+            "ROLE_STALE_REQ",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView],
+            deskId: deskD.Id,
+            workstreamId: ws.Id
+        );
+
+        // Item 1: Points to Desk D, has a Submitted contributor, but assignment IsActive = false
+        Guid staleItemId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item1 = new WorkItem
+            {
+                Id = Guid.NewGuid(),
+                WorkstreamId = ws.Id,
+                Title = "Stale Assignment Review Item",
+                Priority = WorkItemPriority.Routine,
+                Status = WorkItemStatus.Assigned,
+                Origin = WorkItemOrigin.Manual,
+                RequestedByUserId = otherRequesterId,
+                RequestedByDisplayNameSnapshot = "Other Requester",
+                Revision = 1,
+                LastActivityAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var assignment1 = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item1.Id,
+                OfficeDeskId = deskD.Id,
+                AssignedUserId = null,
+                IsActive = false, // INACTIVE ASSIGNMENT
+                AssignedAt = DateTimeOffset.UtcNow.AddDays(-1),
+                ClosedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            var contributor1 = new WorkItemContributor
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item1.Id,
+                UserId = helperId,
+                Status = WorkItemContributorStatus.Submitted,
+                IsActive = true,
+                AddedByUserId = SeedData.BootstrapAdminId,
+                AddedAt = DateTimeOffset.UtcNow.AddDays(-1),
+                SubmittedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItems.Add(item1);
+            db.WorkItemAssignments.Add(assignment1);
+            db.WorkItemContributors.Add(contributor1);
+            await db.SaveChangesAsync();
+            staleItemId = item1.Id;
+        }
+
+        // Item 1 verification:
+        // Caller has WorkItem.View via Workstream, WorkItem.Review via Assigned on Desk D.
+        // Item assignment is inactive, so Assigned review must NOT match.
+        // Item must NOT appear in relationship=review and must NOT increment NeedsReview.
+        var resMwStale = await callerClient.GetAsync("/api/work-items/my-work?relationship=review");
+        Assert.Equal(HttpStatusCode.OK, resMwStale.StatusCode);
+        var mwStale = await resMwStale.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mwStale);
+        Assert.Equal(0, mwStale.Summary.NeedsReview);
+        Assert.DoesNotContain(mwStale.Items, i => i.Id == staleItemId);
+
+        // Item 2: Equivalent item with ACTIVE assignment on Desk D and a Submitted contributor
+        Guid activeItemId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item2 = new WorkItem
+            {
+                Id = Guid.NewGuid(),
+                WorkstreamId = ws.Id,
+                Title = "Active Assignment Review Item",
+                Priority = WorkItemPriority.Routine,
+                Status = WorkItemStatus.Assigned,
+                Origin = WorkItemOrigin.Manual,
+                RequestedByUserId = otherRequesterId,
+                RequestedByDisplayNameSnapshot = "Other Requester",
+                Revision = 1,
+                LastActivityAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var assignment2 = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item2.Id,
+                OfficeDeskId = deskD.Id,
+                AssignedUserId = null,
+                IsActive = true, // ACTIVE ASSIGNMENT
+                AssignedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            var contributor2 = new WorkItemContributor
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item2.Id,
+                UserId = helperId,
+                Status = WorkItemContributorStatus.Submitted,
+                IsActive = true,
+                AddedByUserId = SeedData.BootstrapAdminId,
+                AddedAt = DateTimeOffset.UtcNow.AddHours(-2),
+                SubmittedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItems.Add(item2);
+            db.WorkItemAssignments.Add(assignment2);
+            db.WorkItemContributors.Add(contributor2);
+            await db.SaveChangesAsync();
+            activeItemId = item2.Id;
+        }
+
+        // Item 2 verification:
+        // With an active assignment, Assigned review matches Desk D.
+        // It DOES appear in relationship=review and increments NeedsReview to 1.
+        var resMwActive = await callerClient.GetAsync("/api/work-items/my-work?relationship=review");
+        Assert.Equal(HttpStatusCode.OK, resMwActive.StatusCode);
+        var mwActive = await resMwActive.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.NotNull(mwActive);
+        Assert.Equal(1, mwActive.Summary.NeedsReview);
+        Assert.Contains(mwActive.Items, i => i.Id == activeItemId);
+        Assert.DoesNotContain(mwActive.Items, i => i.Id == staleItemId);
     }
 }
 
