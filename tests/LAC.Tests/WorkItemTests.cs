@@ -3934,6 +3934,27 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
     }
 
     [Fact]
+    public async Task Phase2FC_Reassign_PreCommitTransientRetry_DoesNotDuplicateCycle()
+    {
+        var interceptor = new TrackingSaveChangesInterceptor(); var (db, workflow, item, target, strategy) = await CreatePhase2FCReassignRetryContextAsync(false, interceptor); interceptor.FailTimes = interceptor.SaveCalls + 1;
+        await workflow.ReassignAsync(item.Id, new ReassignWorkItemCommand(target.Id, null, "retry", 0), SeedData.BootstrapAdminId);
+        Assert.Equal(2, strategy.AttemptCount); Assert.Equal(1, await db.WorkItemAssignments.CountAsync(a => a.WorkItemId == item.Id && !a.IsActive)); Assert.Equal(1, await db.WorkItemAssignments.CountAsync(a => a.WorkItemId == item.Id && a.IsActive)); Assert.Single(await db.WorkItemEvents.Where(e => e.WorkItemId == item.Id && e.Action == WorkItemEventAction.Reassigned).ToListAsync()); Assert.Equal(1, (await db.WorkItems.FindAsync(item.Id))!.Revision);
+    }
+
+    [Fact]
+    public async Task Phase2FC_Reassign_PostCommitAmbiguity_UsesCanonicalVerifierWithoutDuplicates()
+    {
+        var (db, workflow, item, target, strategy) = await CreatePhase2FCReassignRetryContextAsync(true, null);
+        var result = await workflow.ReassignAsync(item.Id, new ReassignWorkItemCommand(target.Id, null, "ambiguity", 0), SeedData.BootstrapAdminId);
+        Assert.True(strategy.VerifyCount >= 1); Assert.Equal(1, await db.WorkItemAssignments.CountAsync(a => a.WorkItemId == item.Id && !a.IsActive)); Assert.Equal(1, await db.WorkItemAssignments.CountAsync(a => a.WorkItemId == item.Id && a.IsActive)); var events = await db.WorkItemEvents.Where(e => e.WorkItemId == item.Id && e.Action == WorkItemEventAction.Reassigned).ToListAsync(); Assert.Single(events); Assert.Equal(result.AssignmentId, events[0].TargetAssignmentId); Assert.Equal(1, (await db.WorkItems.FindAsync(item.Id))!.Revision);
+    }
+
+    private static async Task<(LacDbContext Db, WorkItemWorkflowService Workflow, WorkItem Item, OfficeDesk Target, TestCommitAmbiguityExecutionStrategy Strategy)> CreatePhase2FCReassignRetryContextAsync(bool ambiguity, TrackingSaveChangesInterceptor? interceptor)
+    {
+        var options = new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase("p2fc-reassign-retry-" + Guid.NewGuid()).ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning)); if (interceptor != null) options.AddInterceptors(interceptor); var db = new LacDbContext(options.Options); var ws = new Workstream { Id = Guid.NewGuid(), Code = "P2R" + Guid.NewGuid().ToString("N")[..6], Name = "Retry", IsActive = true, RecordStatus = RecordStatus.Active }; var source = new OfficeDesk { Id = Guid.NewGuid(), Code = "P2RS", Name = "Source", IsActive = true, RecordStatus = RecordStatus.Active }; var target = new OfficeDesk { Id = Guid.NewGuid(), Code = "P2RT", Name = "Target", IsActive = true, RecordStatus = RecordStatus.Active }; var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = "Retry", Status = WorkItemStatus.Assigned, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 0, LastActivityAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }; var admin = new AppUser { Id = SeedData.BootstrapAdminId, Username = "retry-admin-" + Guid.NewGuid().ToString("N"), DisplayName = "Admin", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active }; var role = new Role { Id = Guid.NewGuid(), Code = "P2RR" + Guid.NewGuid().ToString("N")[..6], Name = "Retry", IsActive = true, RecordStatus = RecordStatus.Active }; var permission = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemAssign, Name = "Assign" }; db.AddRange(ws, source, target, item, admin, role, permission, new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = source.Id, IsActive = true, AssignedAt = DateTimeOffset.UtcNow, RecordStatus = RecordStatus.Active }, new UserRole { Id = Guid.NewGuid(), UserId = admin.Id, RoleId = role.Id }, new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permission.Id, ScopeMode = ScopeMode.All }); await db.SaveChangesAsync(); TestCommitAmbiguityExecutionStrategy? strategy = null; var workflow = new WorkItemWorkflowService(db, new TestInMemoryDocumentStorage(), new WorkItemAuthorizationService(db), new MatterAuthorizationService(db), new DakAuthorizationService(db), () => strategy!); strategy = new TestCommitAmbiguityExecutionStrategy(db, ambiguity, 2); return (db, workflow, item, target, strategy);
+    }
+
+    [Fact]
     public async Task Phase2FC_BranchPulse_Attention_Uses_Derived_Open_States_Before_Pagination()
     {
         var client = await CreateAdminClientAsync(); var ws = await CreateWorkstreamAsync("ATTN-" + Guid.NewGuid().ToString("N")[..6], "Attention"); var desk = await CreateDeskAsync("ATD-" + Guid.NewGuid().ToString("N")[..6], "Attention Desk", ws.Id); var now = DateTimeOffset.UtcNow;

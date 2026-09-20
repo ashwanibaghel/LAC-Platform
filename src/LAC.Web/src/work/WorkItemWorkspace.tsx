@@ -38,6 +38,11 @@ export function WorkItemWorkspace({ currentUserPermissions: _currentUserPermissi
   // Action states
   const [startingWork, setStartingWork] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignDesks, setReassignDesks] = useState<Array<{ officeDeskId: string; name: string }>>([]);
+  const [reassignMembers, setReassignMembers] = useState<Array<{ userId: string; displayName: string }>>([]);
+  const [reassignDeskId, setReassignDeskId] = useState(''); const [reassignUserId, setReassignUserId] = useState(''); const [reassignReason, setReassignReason] = useState('');
+  const [reassignLoading, setReassignLoading] = useState(false); const [reassignSubmitting, setReassignSubmitting] = useState(false); const [reassignError, setReassignError] = useState<string | null>(null);
 
   // Contributor modal states
   const [showAddContributorModal, setShowAddContributorModal] = useState(false);
@@ -148,6 +153,9 @@ export function WorkItemWorkspace({ currentUserPermissions: _currentUserPermissi
       setStartingWork(false);
     }
   };
+  const openReassign = async () => { if (!item || reassignLoading) return; setReassignLoading(true); setReassignError(null); try { const r = await fetch(`/api/work-items/${item.id}/reassign-options`, { credentials: 'include' }); if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || 'Reassignment options could not be loaded.'); const x = await r.json(); setReassignDesks(x.desks || []); setReassignDeskId(''); setReassignUserId(''); setReassignMembers([]); setReassignReason(''); setShowReassignModal(true); } catch (e: any) { setActionError(e.message); } finally { setReassignLoading(false); } };
+  const chooseReassignDesk = async (value: string) => { if (!item) return; setReassignDeskId(value); setReassignUserId(''); setReassignMembers([]); if (!value) return; setReassignLoading(true); try { const r = await fetch(`/api/work-items/${item.id}/reassign-options?deskId=${encodeURIComponent(value)}`, { credentials: 'include' }); if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || 'Members could not be loaded.'); setReassignMembers((await r.json()).members || []); } catch (e: any) { setReassignError(e.message); } finally { setReassignLoading(false); } };
+  const submitReassign = async (e: React.FormEvent) => { e.preventDefault(); if (!item || reassignSubmitting) return; setReassignSubmitting(true); setReassignError(null); try { const r = await fetch(`/api/work-items/${item.id}/reassign`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ officeDeskId: reassignDeskId, assignedUserId: reassignUserId || null, reason: reassignReason, expectedRevision: item.revision }) }); if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail || 'Reassignment could not be completed.'); setShowReassignModal(false); await loadData(); } catch (x: any) { setReassignError(x.message); } finally { setReassignSubmitting(false); } };
 
   const handlePostUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -551,6 +559,7 @@ export function WorkItemWorkspace({ currentUserPermissions: _currentUserPermissi
                   + Ask for Help
                 </button>
               )}
+              {item.capabilities.canReassign && <button className="button secondary-button" onClick={() => void openReassign()} disabled={reassignLoading}>{reassignLoading ? 'Loading routing…' : 'Reassign Work'}</button>}
             </div>
           )}
         </div>
@@ -573,7 +582,7 @@ export function WorkItemWorkspace({ currentUserPermissions: _currentUserPermissi
           <div className="workspace-meta-item">
             <span className="workspace-meta-label">Assigned Officer</span>
             <span className="workspace-meta-value">
-              {item.currentAssignment?.assignedUserDisplayName || 'Unallocated'}
+              {item.currentAssignment?.assignedUserDisplayName || (item.currentAssignment ? 'No Named Handler' : '—')}
               {item.currentAssignment?.assignedUserDesignation && (
                 <span style={{ fontSize: '0.8rem', color: '#64748b', marginLeft: 4 }}>
                   ({item.currentAssignment.assignedUserDesignation})
@@ -1270,6 +1279,8 @@ export function WorkItemWorkspace({ currentUserPermissions: _currentUserPermissi
           </div>
         </div>
       )}
+
+      {showReassignModal && <div className="modal-overlay"><div className="modal-content"><h3 className="modal-title">Reassign Work</h3>{reassignError && <p role="alert">{reassignError}</p>}<form onSubmit={submitReassign} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}><label>Responsible desk<select required value={reassignDeskId} disabled={reassignSubmitting} onChange={e => void chooseReassignDesk(e.target.value)}><option value="">Select desk</option>{reassignDesks.map(d => <option key={d.officeDeskId} value={d.officeDeskId}>{d.name}</option>)}</select></label><label>Named handler (optional)<select value={reassignUserId} disabled={!reassignDeskId || reassignLoading || reassignSubmitting} onChange={e => setReassignUserId(e.target.value)}><option value="">{reassignLoading ? 'Loading members…' : 'No Named Handler'}</option>{reassignMembers.map(m => <option key={m.userId} value={m.userId}>{m.displayName}</option>)}</select></label><label>Reason<textarea required value={reassignReason} disabled={reassignSubmitting} onChange={e => setReassignReason(e.target.value)} /></label><div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}><button type="button" className="button secondary-button" disabled={reassignSubmitting} onClick={() => setShowReassignModal(false)}>Cancel</button><button type="submit" className="button primary-button" disabled={reassignSubmitting || reassignLoading}>{reassignSubmitting ? 'Reassigning...' : 'Reassign'}</button></div></form></div></div>}
 
       {/* Submit Contribution Modal */}
       {showSubmitModal && (
