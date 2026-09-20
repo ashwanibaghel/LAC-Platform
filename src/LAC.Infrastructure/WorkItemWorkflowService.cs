@@ -1548,10 +1548,29 @@ public sealed class WorkItemWorkflowService(
         var reason = command.Reason.Trim();
         Guid sourceAssignmentId = Guid.Empty, sourceDeskId = Guid.Empty; Guid? sourceUserId = null; string sourceDeskName = ""; string? sourceUserName = null;
 
+        // A retry can begin after a successful commit whose acknowledgement was lost.  This
+        // deliberately verifies the immutable audit marker and the exact replacement row;
+        // a mutable work-item projection alone is not sufficient evidence of success.
+        async Task<bool> verifySucceeded(CancellationToken c)
+        {
+            if (sourceAssignmentId == Guid.Empty) return false;
+            var eventExists = await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned &&
+                e.SourceAssignmentId == sourceAssignmentId && e.TargetAssignmentId == newAssignmentId &&
+                e.SourceDeskId == sourceDeskId && e.TargetDeskId == command.OfficeDeskId &&
+                e.SourceUserId == sourceUserId && e.TargetUserId == command.AssignedUserId &&
+                e.SourceDeskNameSnapshot == sourceDeskName && e.SourceUserDisplayNameSnapshot == sourceUserName &&
+                e.TargetDeskNameSnapshot == targetDesk.Name && e.TargetUserDisplayNameSnapshot == targetUserName &&
+                e.RemarksSnapshot == reason, c);
+            return eventExists && await db.WorkItemAssignments.AsNoTracking().AnyAsync(a =>
+                a.Id == newAssignmentId && a.WorkItemId == workItemId && a.OfficeDeskId == command.OfficeDeskId &&
+                a.AssignedUserId == command.AssignedUserId && a.IsActive && a.RecordStatus == RecordStatus.Active, c);
+        }
+
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
-            if (sourceAssignmentId != Guid.Empty && await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.SourceAssignmentId == sourceAssignmentId && e.TargetAssignmentId == newAssignmentId && e.SourceDeskId == sourceDeskId && e.TargetDeskId == command.OfficeDeskId && e.SourceUserId == sourceUserId && e.TargetUserId == command.AssignedUserId && e.SourceDeskNameSnapshot == sourceDeskName && e.SourceUserDisplayNameSnapshot == sourceUserName && e.TargetDeskNameSnapshot == targetDesk.Name && e.TargetUserDisplayNameSnapshot == targetUserName && e.RemarksSnapshot == reason, c))
+            if (await verifySucceeded(c))
             {
                 var existing = await db.WorkItems.AsNoTracking().FirstAsync(w => w.Id == workItemId, c);
                 return new ReassignWorkItemResult(newAssignmentId, existing.Revision);
@@ -1586,6 +1605,6 @@ public sealed class WorkItemWorkflowService(
             item.Revision++; item.LastActivityAt = now;
             await db.SaveChangesAsync(c);
             return new ReassignWorkItemResult(newAssignmentId, item.Revision);
-        }, async c => sourceAssignmentId != Guid.Empty && await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.SourceAssignmentId == sourceAssignmentId && e.TargetAssignmentId == newAssignmentId && e.SourceDeskId == sourceDeskId && e.TargetDeskId == command.OfficeDeskId && e.SourceUserId == sourceUserId && e.TargetUserId == command.AssignedUserId && e.SourceDeskNameSnapshot == sourceDeskName && e.SourceUserDisplayNameSnapshot == sourceUserName && e.TargetDeskNameSnapshot == targetDesk.Name && e.TargetUserDisplayNameSnapshot == targetUserName && e.RemarksSnapshot == reason && db.WorkItemAssignments.Any(a => a.Id == newAssignmentId && a.WorkItemId == workItemId && a.OfficeDeskId == command.OfficeDeskId && a.AssignedUserId == command.AssignedUserId && a.IsActive && a.RecordStatus == RecordStatus.Active), c), ct);
+        }, verifySucceeded, ct);
     }
 }
