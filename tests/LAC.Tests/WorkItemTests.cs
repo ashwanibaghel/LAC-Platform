@@ -3830,5 +3830,20 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/work-items/{id}/reassign", new ReassignWorkItemApiRequest(newDesk.Id, null, "Verification required", 4))).StatusCode);
         using var scope2 = _factory.Services.CreateScope(); var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>(); var cycles = await db2.WorkItemAssignments.Where(a => a.WorkItemId == id).ToListAsync(); Assert.Equal(2, cycles.Count); Assert.False(cycles.Single(a => a.Id == oldId).IsActive); var current = cycles.Single(a => a.IsActive); Assert.Null(current.FirstSeenAt); Assert.Equal(newDesk.Id, current.OfficeDeskId); var audit = await db2.WorkItemEvents.SingleAsync(e => e.WorkItemId == id && e.Action == WorkItemEventAction.Reassigned); Assert.Equal(oldId, audit.SourceAssignmentId); Assert.Equal(current.Id, audit.TargetAssignmentId); Assert.Equal("Court Desk", audit.SourceDeskNameSnapshot); Assert.Equal("Land Records", audit.TargetDeskNameSnapshot);
     }
+
+    [Fact]
+    public async Task Phase2FC_BranchPulse_Attention_Uses_Derived_Open_States_Before_Pagination()
+    {
+        var client = await CreateAdminClientAsync(); var ws = await CreateWorkstreamAsync("ATTN-" + Guid.NewGuid().ToString("N")[..6], "Attention"); var desk = await CreateDeskAsync("ATD-" + Guid.NewGuid().ToString("N")[..6], "Attention Desk", ws.Id); var now = DateTimeOffset.UtcNow;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            foreach (var spec in new[] { ("Overdue", WorkItemStatus.Assigned, now.AddHours(-1), now.AddDays(-8)), ("Fresh", WorkItemStatus.InProgress, (DateTimeOffset?)null, now), ("Done", WorkItemStatus.Completed, now.AddHours(-1), now.AddDays(-8)) })
+            { var item = new WorkItem { Id = Guid.NewGuid(), WorkstreamId = ws.Id, Title = spec.Item1, Status = spec.Item2, DueAt = spec.Item3, RequestedByUserId = SeedData.BootstrapAdminId, RequestedByDisplayNameSnapshot = "Admin", Revision = 1, LastActivityAt = spec.Item4, RecordStatus = RecordStatus.Active }; db.Add(item); db.Add(new WorkItemAssignment { Id = Guid.NewGuid(), WorkItemId = item.Id, OfficeDeskId = desk.Id, IsActive = true, AssignedAt = now, RecordStatus = RecordStatus.Active }); }
+            await db.SaveChangesAsync();
+        }
+        var res = await client.GetAsync("/api/work-items/branch-pulse?attention=open&staleDays=7&pageSize=1"); Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var json = JsonDocument.Parse(await res.Content.ReadAsStringAsync()); var summary = json.RootElement.GetProperty("summary"); Assert.Equal(2, summary.GetProperty("open").GetInt32()); Assert.Equal(1, summary.GetProperty("overdue").GetInt32()); Assert.Equal(1, summary.GetProperty("stale").GetInt32()); Assert.Equal(2, json.RootElement.GetProperty("totalCount").GetInt32()); Assert.Single(json.RootElement.GetProperty("items").EnumerateArray());
+    }
 }
 
