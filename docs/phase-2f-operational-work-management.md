@@ -181,6 +181,7 @@ Phase 2F-B establishes the formal delegation, contribution, and review model for
   - `ScopeMode.Workstream` grants record authority within that workstream, but does **not** turn My Work into a workstream directory.
   - `RequestedByUserId` establishes operational relevance, but is **not** an Assigned view authorization grant.
 - **Needs Review**: Work items where at least one active contributor is in `Submitted` status, and the caller possesses `WorkItem.Review` authority (unioned across `All`, `Workstream`, and responsible-Desk `Assigned`). Contributor relation alone never satisfies Review.
+- **Assigned Review Exact Active Invariant**: Evaluating `WorkItem.Review` via `ScopeMode.Assigned` strictly requires `CurrentAssignment != null`, `CurrentAssignment.IsActive == true`, `CurrentAssignment.RecordStatus == RecordStatus.Active`, and the caller holding live active membership in that assignment's `OfficeDesk`. Stale or inactive assignments are excluded.
 - **Returned to Me**: Work items where the caller is an active contributor in `Returned` status.
 - **Helping**: Work items where the caller is an active contributor in `Active`, `Submitted`, or `Returned` status.
 - **Waiting on Others**: Work items where the caller is a responsible desk officer or requester, and at least one contributor is active (`Active`, `Submitted`, or `Returned`).
