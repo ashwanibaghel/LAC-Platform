@@ -79,6 +79,15 @@ namespace LAC.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // A non-lossy downgrade cannot restore the old unconditional unique index after
+            // reassignment history has been recorded. Fail explicitly rather than deleting evidence.
+            migrationBuilder.Sql("""
+                DO $$ BEGIN
+                  IF EXISTS (SELECT 1 FROM "WorkItemAssignments" GROUP BY "WorkItemId" HAVING COUNT(*) > 1) THEN
+                    RAISE EXCEPTION 'Cannot downgrade EnableWorkItemAssignmentHistoryAndRoutingSnapshots: assignment-cycle history exists.';
+                  END IF;
+                END $$;
+                """);
             migrationBuilder.DropIndex(
                 name: "IX_WorkItemAssignments_WorkItemId",
                 table: "WorkItemAssignments");

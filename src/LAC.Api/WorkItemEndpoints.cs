@@ -185,7 +185,13 @@ public sealed record WorkItemEventDto(
     DateTimeOffset ActionAt,
     string? FromStatus,
     string? ToStatus,
-    string? Remarks
+    string? Remarks,
+    Guid? SourceAssignmentId,
+    Guid? TargetAssignmentId,
+    string? SourceDeskName,
+    string? SourceUserDisplayName,
+    string? TargetDeskName,
+    string? TargetUserDisplayName
 );
 
 public static class WorkItemEndpoints
@@ -196,7 +202,7 @@ public static class WorkItemEndpoints
         catch { return TimeZoneInfo.FindSystemTimeZoneById("India Standard Time"); }
     }
 
-    private static string FormatActionText(WorkItemEventAction action, string actorName, string? remarks, string? contextType)
+    private static string FormatActionText(WorkItemEventAction action, string actorName, string? remarks, string? contextType, string? sourceDesk = null, string? sourceUser = null, string? targetDesk = null, string? targetUser = null)
     {
         return action switch
         {
@@ -218,7 +224,8 @@ public static class WorkItemEndpoints
             WorkItemEventAction.SubmittedForReview => $"Submitted for review by {actorName}",
             WorkItemEventAction.ReturnedForCorrection => $"Returned for correction by {actorName}",
             WorkItemEventAction.Approved => $"Approved by {actorName}",
-            WorkItemEventAction.Reassigned => $"Reassigned by {actorName}",
+            WorkItemEventAction.Reassigned when sourceUser != null || targetUser != null => $"{actorName} changed routing from {sourceDesk} / {sourceUser ?? "No Named Handler"} to {targetDesk} / {targetUser ?? "No Named Handler"}",
+            WorkItemEventAction.Reassigned => $"{actorName} reassigned work from {sourceDesk} to {targetDesk}",
             WorkItemEventAction.Completed => $"Completed by {actorName}",
             WorkItemEventAction.Cancelled => $"Cancelled by {actorName}",
             _ => $"{action} by {actorName}"
@@ -281,12 +288,17 @@ public static class WorkItemEndpoints
             catch (WorkItemWorkflowException ex) { return Results.Problem(ex.Message, statusCode: ex.StatusCode); }
         });
 
-        group.MapGet("/{id:guid}/reassign-options", async (Guid id, LacDbContext db, IWorkItemAuthorizationService auth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        group.MapGet("/{id:guid}/reassign-options", async (Guid id, Guid? deskId, string? q, LacDbContext db, IWorkItemAuthorizationService auth, ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await auth.CanAccessWorkItemAsync(id, PermissionCodes.WorkItemAssign, currentUser.UserId.Value, ct)) return Results.Forbid();
-            var desks = await db.OfficeDesks.AsNoTracking().Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active).OrderBy(d => d.Name).Select(d => new { d.Id, d.Code, d.Name, members = db.UserDeskMemberships.Where(m => m.OfficeDeskId == d.Id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.User.IsActive && m.User.RecordStatus == RecordStatus.Active).OrderBy(m => m.User.DisplayName).Select(m => new { userId = m.UserId, displayName = m.User.DisplayName }).ToList() }).ToListAsync(ct);
-            return Results.Ok(new { desks });
+            if (!deskId.HasValue)
+                return Results.Ok(new { desks = await db.OfficeDesks.AsNoTracking().Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active).OrderBy(d => d.Name).Select(d => new { officeDeskId = d.Id, d.Code, d.Name }).ToListAsync(ct) });
+            var desk = await db.OfficeDesks.AsNoTracking().FirstOrDefaultAsync(d => d.Id == deskId && d.IsActive && d.RecordStatus == RecordStatus.Active, ct);
+            if (desk is null) return Results.BadRequest(new { message = "Selected desk is inactive or unavailable." });
+            var members = db.UserDeskMemberships.AsNoTracking().Where(m => m.OfficeDeskId == desk.Id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.User.IsActive && m.User.RecordStatus == RecordStatus.Active);
+            if (!string.IsNullOrWhiteSpace(q)) { var term = q.Trim().ToLower(); members = members.Where(m => m.User.DisplayName.ToLower().Contains(term) || m.User.Username.ToLower().Contains(term)); }
+            return Results.Ok(new { officeDeskId = desk.Id, members = await members.OrderBy(m => m.User.DisplayName).Select(m => new { userId = m.UserId, displayName = m.User.DisplayName, designation = m.User.Designation == null ? null : m.User.Designation.Name }).ToListAsync(ct) });
         });
 
         // Branch Pulse is authorized operational-area health, deliberately separate from My Work participation.
@@ -307,10 +319,10 @@ public static class WorkItemEndpoints
             var rows = await query.ToListAsync(ct);
             var now = officeClock.GetUtcNow(); var days = Math.Clamp(staleDays ?? 7, 1, 90); var tz = GetDelhiTimeZone(); var date = officeClock.GetCurrentDate(); var today = TimeZoneInfo.ConvertTimeToUtc(date.ToDateTime(TimeOnly.MinValue), tz); var tomorrow = TimeZoneInfo.ConvertTimeToUtc(date.AddDays(1).ToDateTime(TimeOnly.MinValue), tz);
             var open = rows.Where(w => w.Status is not (WorkItemStatus.Completed or WorkItemStatus.Cancelled)).ToList();
-            bool Overdue(WorkItem w) => w.DueAt.HasValue && w.DueAt < now; bool DueToday(WorkItem w) => w.DueAt.HasValue && w.DueAt >= today && w.DueAt < tomorrow; bool NeedsReview(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted); bool Waiting(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Returned)); WorkItemAssignment? Current(WorkItem w) => w.Assignments.SingleOrDefault(a => a.IsActive && a.RecordStatus == RecordStatus.Active); bool NoHandler(WorkItem w) => Current(w)?.AssignedUserId is null; bool Stale(WorkItem w) => w.LastActivityAt < now.AddDays(-days);
+            bool Overdue(WorkItem w) => w.DueAt.HasValue && w.DueAt < now; bool DueToday(WorkItem w) => w.DueAt.HasValue && w.DueAt >= today && w.DueAt < tomorrow; bool NeedsReview(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted); bool Waiting(WorkItem w) => w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Returned)); WorkItemAssignment? Current(WorkItem w) => w.Assignments.SingleOrDefault(a => a.IsActive && a.RecordStatus == RecordStatus.Active); bool NoHandler(WorkItem w) => Current(w) is { AssignedUserId: null }; bool Stale(WorkItem w) => w.LastActivityAt < now.AddDays(-days);
             IEnumerable<WorkItem> selected = rows;
-            var a = attention?.Trim().ToLowerInvariant(); if (!string.IsNullOrWhiteSpace(a)) selected = a switch { "overdue" => open.Where(Overdue), "due-today" => open.Where(DueToday), "needs-review" => open.Where(NeedsReview), "waiting-on-help" => open.Where(Waiting), "not-started" => open.Where(w => w.Status == WorkItemStatus.Assigned), "no-named-handler" => open.Where(NoHandler), "stale" => open.Where(Stale), _ => selected };
-            var workload = open.GroupBy(Current).Where(g => g.Key != null).Select(g => new { officeDeskId = g.Key!.OfficeDeskId, deskCode = g.Key.OfficeDesk.Code, deskName = g.Key.OfficeDesk.Name, openCount = g.Count(), overdueCount = g.Count(Overdue), dueTodayCount = g.Count(DueToday), urgentCount = g.Count(w => w.Priority is WorkItemPriority.Urgent or WorkItemPriority.Immediate), needsReviewCount = g.Count(NeedsReview), staleCount = g.Count(Stale), noNamedHandlerCount = g.Count(NoHandler) }).OrderBy(x => x.deskName).ToList();
+            var a = attention?.Trim().ToLowerInvariant(); if (!string.IsNullOrWhiteSpace(a)) selected = a switch { "open" => open, "overdue" => open.Where(Overdue), "due-today" => open.Where(DueToday), "needs-review" => open.Where(NeedsReview), "waiting-on-help" => open.Where(Waiting), "not-started" => open.Where(w => w.Status == WorkItemStatus.Assigned), "no-named-handler" => open.Where(NoHandler), "stale" => open.Where(Stale), _ => selected };
+            var workload = open.Select(w => new { WorkItem = w, Assignment = Current(w) }).Where(x => x.Assignment != null).GroupBy(x => new { x.Assignment!.OfficeDeskId, x.Assignment.OfficeDesk.Code, x.Assignment.OfficeDesk.Name }).Select(g => new { officeDeskId = g.Key.OfficeDeskId, deskCode = g.Key.Code, deskName = g.Key.Name, openCount = g.Count(), overdueCount = g.Count(x => Overdue(x.WorkItem)), dueTodayCount = g.Count(x => DueToday(x.WorkItem)), urgentCount = g.Count(x => x.WorkItem.Priority is WorkItemPriority.Urgent or WorkItemPriority.Immediate), needsReviewCount = g.Count(x => NeedsReview(x.WorkItem)), staleCount = g.Count(x => Stale(x.WorkItem)), noNamedHandlerCount = g.Count(x => NoHandler(x.WorkItem)) }).OrderBy(x => x.deskName).ToList();
             var total = selected.Count(); var size = Math.Clamp(pageSize ?? 25, 1, 100); var number = Math.Max(page ?? 0, 0);
             var items = new List<object>(); foreach (var w in selected.OrderBy(x => x.DueAt).ThenByDescending(x => x.Priority).Skip(number * size).Take(size)) { var current = Current(w); if (current is null) continue; items.Add(new { workItemId = w.Id, w.Title, priority = w.Priority.ToString(), status = w.Status.ToString(), w.WorkstreamId, workstreamCode = w.Workstream.Code, workstreamName = w.Workstream.Name, currentDeskId = current.OfficeDeskId, currentDeskCode = current.OfficeDesk.Code, currentDeskName = current.OfficeDesk.Name, current.AssignedUserId, assignedUserDisplayName = current.AssignedUser?.DisplayName, w.DueAt, dueState = Overdue(w) ? "overdue" : DueToday(w) ? "today" : "none", w.LastActivityAt, w.Revision, hasSubmittedContribution = NeedsReview(w), hasActiveHelp = Waiting(w), isStale = Stale(w), noNamedHandler = NoHandler(w), canReassign = await auth.CanAccessWorkItemAsync(w.Id, PermissionCodes.WorkItemAssign, userId, ct) }); }
             return Results.Ok(new { summary = new { open = open.Count, overdue = open.Count(Overdue), dueToday = open.Count(DueToday), needsReview = open.Count(NeedsReview), waitingOnHelp = open.Count(Waiting), notStarted = open.Count(w => w.Status == WorkItemStatus.Assigned), noNamedHandler = open.Count(NoHandler), stale = open.Count(Stale) }, deskWorkloads = workload, items, totalCount = total, page = number, pageSize = size, effectiveStaleDays = days });
@@ -971,14 +983,20 @@ public static class WorkItemEndpoints
                 e.Id,
                 e.SequenceNumber,
                 e.Action.ToString(),
-                FormatActionText(e.Action, e.ActionByDisplayNameSnapshot, e.RemarksSnapshot, e.ContextType),
+                FormatActionText(e.Action, e.ActionByDisplayNameSnapshot, e.RemarksSnapshot, e.ContextType, e.SourceDeskNameSnapshot, e.SourceUserDisplayNameSnapshot, e.TargetDeskNameSnapshot, e.TargetUserDisplayNameSnapshot),
                 e.ActionByUserId,
                 e.ActionByDisplayNameSnapshot,
                 e.ActionByDesignationSnapshot,
                 e.ActionAt,
                 e.FromStatus?.ToString(),
                 e.ToStatus?.ToString(),
-                e.RemarksSnapshot
+                e.RemarksSnapshot,
+                e.SourceAssignmentId,
+                e.TargetAssignmentId,
+                e.SourceDeskNameSnapshot,
+                e.SourceUserDisplayNameSnapshot,
+                e.TargetDeskNameSnapshot,
+                e.TargetUserDisplayNameSnapshot
             )).ToList();
 
             return Results.Ok(dtos);

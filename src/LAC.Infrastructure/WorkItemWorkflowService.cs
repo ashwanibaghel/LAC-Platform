@@ -575,8 +575,6 @@ public sealed class WorkItemWorkflowService(
 
         if (!isDeskMember) return false;
 
-        if (assignment.AssignedUserId.HasValue && assignment.AssignedUserId.Value != callerUserId)
-            return false;
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
         var stableEventId = Guid.NewGuid();
@@ -681,7 +679,7 @@ public sealed class WorkItemWorkflowService(
                                 && m.OfficeDesk.IsActive
                                 && m.OfficeDesk.RecordStatus == RecordStatus.Active, c);
 
-                var isResponsible = isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == callerUserId);
+                var isResponsible = isDeskMember;
 
                 if (isResponsible)
                 {
@@ -784,7 +782,7 @@ public sealed class WorkItemWorkflowService(
                                 && m.OfficeDesk.IsActive
                                 && m.OfficeDesk.RecordStatus == RecordStatus.Active, c);
 
-                var isResponsible = isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == callerUserId);
+                var isResponsible = isDeskMember;
 
                 if (isResponsible)
                 {
@@ -1553,12 +1551,23 @@ public sealed class WorkItemWorkflowService(
         return await ExecuteWorkflowTransactionAsync(async c =>
         {
             db.ChangeTracker.Clear();
-            if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId, c))
+            if (sourceAssignmentId != Guid.Empty && await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.SourceAssignmentId == sourceAssignmentId && e.TargetAssignmentId == newAssignmentId && e.SourceDeskId == sourceDeskId && e.TargetDeskId == command.OfficeDeskId && e.SourceUserId == sourceUserId && e.TargetUserId == command.AssignedUserId && e.SourceDeskNameSnapshot == sourceDeskName && e.SourceUserDisplayNameSnapshot == sourceUserName && e.TargetDeskNameSnapshot == targetDesk.Name && e.TargetUserDisplayNameSnapshot == targetUserName && e.RemarksSnapshot == reason, c))
             {
                 var existing = await db.WorkItems.AsNoTracking().FirstAsync(w => w.Id == workItemId, c);
                 return new ReassignWorkItemResult(newAssignmentId, existing.Revision);
             }
             var item = await LockWorkItemAsync(workItemId, c);
+            // Revalidate every mutable routing target inside this retry attempt.
+            targetDesk = await db.OfficeDesks.FirstOrDefaultAsync(d => d.Id == command.OfficeDeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, c)
+                ?? throw new WorkItemWorkflowException("Target office desk is inactive or does not exist.", 400);
+            if (command.AssignedUserId.HasValue)
+            {
+                var targetUser = await db.AppUsers.FirstOrDefaultAsync(u => u.Id == command.AssignedUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, c)
+                    ?? throw new WorkItemWorkflowException("Target user is inactive or does not exist.", 400);
+                if (!await db.UserDeskMemberships.AnyAsync(m => m.UserId == targetUser.Id && m.OfficeDeskId == targetDesk.Id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active, c))
+                    throw new WorkItemWorkflowException("Target user is not an active member of the target desk.", 400);
+                targetUserName = targetUser.DisplayName;
+            }
             if (item.RecordStatus != RecordStatus.Active) throw new WorkItemWorkflowException("Work item not found.", 404);
             if (item.Status is WorkItemStatus.Completed or WorkItemStatus.Cancelled) throw new WorkItemWorkflowException("Terminal work items cannot be reassigned.", 400);
             if (item.Revision != command.ExpectedRevision) throw new WorkItemWorkflowException("Work item was modified by another operation. Please refresh.", 409);
@@ -1577,6 +1586,6 @@ public sealed class WorkItemWorkflowService(
             item.Revision++; item.LastActivityAt = now;
             await db.SaveChangesAsync(c);
             return new ReassignWorkItemResult(newAssignmentId, item.Revision);
-        }, async c => await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.TargetAssignmentId == newAssignmentId && e.TargetDeskId == command.OfficeDeskId && e.TargetUserId == command.AssignedUserId && e.RemarksSnapshot == reason, c), ct);
+        }, async c => sourceAssignmentId != Guid.Empty && await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == eventId && e.WorkItemId == workItemId && e.Action == WorkItemEventAction.Reassigned && e.SourceAssignmentId == sourceAssignmentId && e.TargetAssignmentId == newAssignmentId && e.SourceDeskId == sourceDeskId && e.TargetDeskId == command.OfficeDeskId && e.SourceUserId == sourceUserId && e.TargetUserId == command.AssignedUserId && e.SourceDeskNameSnapshot == sourceDeskName && e.SourceUserDisplayNameSnapshot == sourceUserName && e.TargetDeskNameSnapshot == targetDesk.Name && e.TargetUserDisplayNameSnapshot == targetUserName && e.RemarksSnapshot == reason && db.WorkItemAssignments.Any(a => a.Id == newAssignmentId && a.WorkItemId == workItemId && a.OfficeDeskId == command.OfficeDeskId && a.AssignedUserId == command.AssignedUserId && a.IsActive && a.RecordStatus == RecordStatus.Active), c), ct);
     }
 }
