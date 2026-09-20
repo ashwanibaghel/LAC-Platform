@@ -344,14 +344,40 @@ public static class WorkItemEndpoints
                 select rp.ScopeMode
             ).Distinct().ToListAsync(ct);
 
-            // Step 1: Base query representing WorkItem.View projection
+            var hasAllReview = reviewScopes.Contains(ScopeMode.All);
+            var hasWsReview = reviewScopes.Contains(ScopeMode.Workstream);
+            var hasAssignedReview = reviewScopes.Contains(ScopeMode.Assigned);
+
+            // Step 1: Base query filtered by operational participation
+            // An item is operationally relevant to the caller when ANY of these is true:
+            // A. Responsible Desk (active assignment, caller has live desk membership)
+            // B. Requested by caller (not completed/cancelled)
+            // C. Contributor participation (Active, Submitted, Returned)
+            // D. Actionable Review participation (active Submitted contributor AND caller has exact Review authority)
             var baseQuery = db.WorkItems.AsNoTracking()
                 .Where(w => w.RecordStatus == RecordStatus.Active);
 
+            baseQuery = baseQuery.Where(w =>
+                // A. Responsible Desk
+                (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
+                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
+                // B. Requested by Caller
+                (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
+                // C. Contributor Participation
+                w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
+                    (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned)) ||
+                // D. Actionable Review Participation (Contributor relation must NEVER satisfy Review)
+                (w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted) &&
+                    (hasAllReview ||
+                     (hasWsReview && userWorkstreamIds.Contains(w.WorkstreamId)) ||
+                     (hasAssignedReview && w.CurrentAssignment != null && activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))))
+            );
+
             // Step 2: Intersect with WorkItem.View authorization scopes (UNION):
             // All
-            // OR Workstream-authorized rows (active workstream memberships)
-            // OR Assigned-authorized rows (assigned desk, requested by caller, or active/submitted/returned contributor)
+            // OR Workstream-authorized rows (live workstream membership)
+            // OR Assigned-authorized rows (responsible desk membership OR active/submitted/returned contributor)
+            // Note: RequestedBy is NOT an Assigned view authorization grant.
             if (!viewScopes.Contains(ScopeMode.All))
             {
                 var hasWorkstreamScope = viewScopes.Contains(ScopeMode.Workstream);
@@ -368,7 +394,6 @@ public static class WorkItemEndpoints
                     (hasAssignedScope && (
                         (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
                             activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)) ||
-                        (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
                         w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active &&
                             (c.Status == WorkItemContributorStatus.Active || c.Status == WorkItemContributorStatus.Submitted || c.Status == WorkItemContributorStatus.Returned))
                     ))
@@ -414,11 +439,8 @@ public static class WorkItemEndpoints
                 var reviewQuery = baseQuery.Where(w => w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled &&
                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted));
 
-                if (!reviewScopes.Contains(ScopeMode.All))
+                if (!hasAllReview)
                 {
-                    var hasWsReview = reviewScopes.Contains(ScopeMode.Workstream);
-                    var hasAssignedReview = reviewScopes.Contains(ScopeMode.Assigned);
-
                     if (!hasWsReview && !hasAssignedReview)
                     {
                         reviewQuery = reviewQuery.Where(w => false);
@@ -538,11 +560,8 @@ public static class WorkItemEndpoints
                 filteredQuery = filteredQuery.Where(w =>
                     w.Contributors.Any(c => c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Submitted));
 
-                if (!reviewScopes.Contains(ScopeMode.All))
+                if (!hasAllReview)
                 {
-                    var hasWsReview = reviewScopes.Contains(ScopeMode.Workstream);
-                    var hasAssignedReview = reviewScopes.Contains(ScopeMode.Assigned);
-
                     if (!hasWsReview && !hasAssignedReview)
                     {
                         filteredQuery = filteredQuery.Where(w => false);

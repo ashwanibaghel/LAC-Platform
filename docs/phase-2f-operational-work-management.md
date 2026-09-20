@@ -139,7 +139,7 @@ Phase 2F-B establishes the formal delegation, contribution, and review model for
 
 ### 8.1 Responsible Officer ≠ Contributor
 - **Institutional Custody vs. Delegated Assistance**: `OfficeDesk` and `AssignedUserId` hold official institutional custody and accountability for completing the work item. A **Contributor** (`WorkItemContributor`) is an invited assistant/collaborator who provides specialized preparation, notes, or evidence without assuming institutional responsibility.
-- **FirstAction Separation**: Contributor activity (adding notes, uploading attachments, submitting work) **must never populate** `FirstActionAt` or `FirstActionByUserId`. The initial official response remains strictly with the assigned desk/handler.
+- **FirstAction Separation**: Contributor participation by itself does NOT establish `WorkItemAssignment.FirstActionAt` or `WorkItemAssignment.FirstActionByUserId`. However, if the same actor independently qualifies as a live member of the responsible `OfficeDesk`, their action may establish `FirstAction` under normal frozen 2F-A responsibility semantics. This preserves the invariant: *who contributed* $\neq$ *who assumed official responsibility*, while allowing one human to hold both roles independently.
 
 ### 8.2 Bounded Positive Grant — Never a Deny ACL
 - **RBAC Union Semantics**: The `WorkItemContributor` relationship is a **bounded positive grant**, not a negative ACL.
@@ -172,8 +172,15 @@ Phase 2F-B establishes the formal delegation, contribution, and review model for
 - Contributor updates and attachments are attributed in event snapshots with `ContributorId`, preserving full historical context even if the contributor is subsequently removed.
 - Retry resilience and ambiguity verifiers verify exact event snapshots (`Id`, `WorkItemId`, `Action`, `ContributorId`, `TargetUserId`) as immutable proofs of commit.
 
-### 8.6 My Work Metrics & Filtering Semantics
-- **Needs Review**: Work items where at least one active contributor is in `Submitted` status, and the caller possesses `WorkItem.Review` authority (unioned across `All`, `Workstream`, and responsible-Desk `Assigned`).
+### 8.6 My Work Operational Projection Semantics
+- **Operational Participation Intersect Exact View Authorization**: My Work is **not** a general WorkItem directory or an all-viewable-records projection. It strictly reflects:
+  $$\text{My Work} = \text{Operational Participation} \cap \text{Exact WorkItem.View Authorization}$$
+  An item is operationally relevant only if the caller is on the responsible desk, requested the item, participates as an active contributor (`Active`, `Submitted`, `Returned`), or holds actionable review authority over an active submitted contributor.
+- **Scope Invariants**:
+  - `ScopeMode.All` on View removes the authorization boundary, but does **not** bypass the operational participation requirement.
+  - `ScopeMode.Workstream` grants record authority within that workstream, but does **not** turn My Work into a workstream directory.
+  - `RequestedByUserId` establishes operational relevance, but is **not** an Assigned view authorization grant.
+- **Needs Review**: Work items where at least one active contributor is in `Submitted` status, and the caller possesses `WorkItem.Review` authority (unioned across `All`, `Workstream`, and responsible-Desk `Assigned`). Contributor relation alone never satisfies Review.
 - **Returned to Me**: Work items where the caller is an active contributor in `Returned` status.
 - **Helping**: Work items where the caller is an active contributor in `Active`, `Submitted`, or `Returned` status.
 - **Waiting on Others**: Work items where the caller is a responsible desk officer or requester, and at least one contributor is active (`Active`, `Submitted`, or `Returned`).

@@ -3352,5 +3352,244 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         Assert.Contains(reviewData.Items, i => i.Id == item1Id);
         Assert.Contains(reviewData.Items, i => i.Id == item2Id);
     }
+
+    // ========================================================================
+    // AUDIT 2F-B: MY WORK OPERATIONAL PARTICIPATION REGRESSIONS
+    // ========================================================================
+    [Fact]
+    public async Task MyWork_AllScope_DoesNotBecome_AllWorkItems_Directory()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-ALL-DIR", "All Scope Directory Test WS");
+        var deskOther = await CreateDeskAsync("DSK-OTHER-DIR", "Other Desk", ws.Id, assignAdmin: false);
+
+        var (otherUserClient, otherUserId) = await CreateCustomUserClientAsync(
+            "other_user_dir",
+            "ROLE_OTHER_DIR",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: deskOther.Id,
+            workstreamId: ws.Id
+        );
+
+        // Work item created for other user on other desk — admin has no operational participation
+        Guid unrelatedItemId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item = new WorkItem
+            {
+                Id = Guid.NewGuid(),
+                WorkstreamId = ws.Id,
+                Title = "Unrelated Item Not In Admin My Work",
+                Priority = WorkItemPriority.Routine,
+                Status = WorkItemStatus.Assigned,
+                Origin = WorkItemOrigin.Manual,
+                RequestedByUserId = otherUserId,
+                RequestedByDisplayNameSnapshot = "Other User",
+                Revision = 0,
+                LastActivityAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var assignment = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item.Id,
+                OfficeDeskId = deskOther.Id,
+                AssignedUserId = otherUserId,
+                IsActive = true,
+                AssignedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItems.Add(item);
+            db.WorkItemAssignments.Add(assignment);
+            await db.SaveChangesAsync();
+            unrelatedItemId = item.Id;
+        }
+
+        // Admin has ScopeMode.All on WorkItem.View, but has NO operational participation on this item
+        var resMwAdmin = await adminClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMwAdmin.StatusCode);
+        var mwAdmin = await resMwAdmin.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+
+        // Unrelated item must NOT appear in Admin's My Work
+        Assert.DoesNotContain(mwAdmin!.Items, i => i.Id == unrelatedItemId);
+    }
+
+    [Fact]
+    public async Task MyWork_WorkstreamScope_DoesNotBecome_WorkstreamDirectory()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-DIR-TEST", "Workstream Directory Test WS");
+        var desk1 = await CreateDeskAsync("DSK-WSDIR-1", "Desk WSDIR 1", ws.Id, assignAdmin: false);
+        var desk2 = await CreateDeskAsync("DSK-WSDIR-2", "Desk WSDIR 2", ws.Id, assignAdmin: false);
+
+        var (callerClient, callerId) = await CreateCustomUserClientAsync(
+            "ws_caller_user",
+            "ROLE_WS_CALLER",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView],
+            deskId: desk1.Id,
+            workstreamId: ws.Id
+        );
+
+        // Unrelated work item in same workstream, but on desk2 and requested by admin
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Unrelated Item In Same Workstream",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk2.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var unrelatedItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // Caller has Workstream View authority, but NO operational relationship (not on desk2, did not request, not contributor)
+        var resMw = await callerClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMw.StatusCode);
+        var mw = await resMw.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+
+        // Item must NOT appear in caller's My Work
+        Assert.DoesNotContain(mw!.Items, i => i.Id == unrelatedItemId);
+    }
+
+    [Fact]
+    public async Task MyWork_RequestedBy_DoesNot_Bypass_ViewAuthorization()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-REQ-AUTH", "Requested By Auth WS");
+        var deskResponsible = await CreateDeskAsync("DSK-RESP-REQ", "Responsible Desk Req", ws.Id, assignAdmin: true);
+        var deskCaller = await CreateDeskAsync("DSK-CALLER-REQ", "Caller Desk Req", ws.Id, assignAdmin: false);
+
+        // Caller has ScopeMode.Assigned ONLY for WorkItem.View (on deskCaller)
+        var (callerClient, callerId) = await CreateCustomUserClientAsync(
+            "caller_req_user",
+            "ROLE_CALLER_REQ",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView],
+            deskId: deskCaller.Id,
+            workstreamId: ws.Id
+        );
+
+        // Create work item assigned to deskResponsible, requested by caller
+        Guid workItemId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item = new WorkItem
+            {
+                Id = Guid.NewGuid(),
+                WorkstreamId = ws.Id,
+                Title = "Item Requested By Caller But Assigned To Other Desk",
+                Priority = WorkItemPriority.Routine,
+                Status = WorkItemStatus.Assigned,
+                Origin = WorkItemOrigin.Manual,
+                RequestedByUserId = callerId,
+                RequestedByDisplayNameSnapshot = "Caller User",
+                Revision = 0,
+                LastActivityAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            var assignment = new WorkItemAssignment
+            {
+                Id = Guid.NewGuid(),
+                WorkItemId = item.Id,
+                OfficeDeskId = deskResponsible.Id,
+                AssignedUserId = SeedData.BootstrapAdminId,
+                IsActive = true,
+                AssignedAt = DateTimeOffset.UtcNow,
+                RecordStatus = RecordStatus.Active
+            };
+            db.WorkItems.Add(item);
+            db.WorkItemAssignments.Add(assignment);
+            await db.SaveChangesAsync();
+            workItemId = item.Id;
+        }
+
+        // Caller requested it (operational relevance matches), but caller only has ScopeMode.Assigned
+        // and is NOT on responsible desk and NOT an active contributor.
+        // Therefore WorkItem.View authorization fails!
+        var resMw = await callerClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMw.StatusCode);
+        var mw = await resMw.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+
+        Assert.DoesNotContain(mw!.Items, i => i.Id == workItemId);
+    }
+
+    [Fact]
+    public async Task Review_Participation_Is_Operational_Participation()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-REV-OP", "Review Op WS");
+        var deskResp = await CreateDeskAsync("DSK-RESP-ROP", "Responsible Desk ROp", ws.Id, assignAdmin: true);
+        var deskReviewer = await CreateDeskAsync("DSK-REV-ROP", "Reviewer Desk ROp", ws.Id, assignAdmin: false);
+
+        // Reviewer has Workstream scope on View and Review, but is NOT on responsible desk, did NOT request, is NOT contributor
+        var (reviewerClient, _) = await CreateCustomUserClientAsync(
+            "reviewer_user_rop",
+            "ROLE_REVIEWER_ROP",
+            ScopeMode.Workstream,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemReview],
+            deskId: deskReviewer.Id,
+            workstreamId: ws.Id
+        );
+
+        // Helper user
+        var (helperClient, helperId) = await CreateCustomUserClientAsync(
+            "helper_user_rop",
+            "ROLE_HELPER_ROP",
+            ScopeMode.Assigned,
+            [PermissionCodes.WorkItemView, PermissionCodes.WorkItemContribute],
+            deskId: deskReviewer.Id,
+            workstreamId: ws.Id
+        );
+
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Review Op Test Item",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: deskResp.Id,
+            AssignedUserId: SeedData.BootstrapAdminId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        var workItemId = (await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts))!.WorkItemId;
+
+        // Add helper as contributor
+        var resAdd = await adminClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors", new AddContributorApiRequest(
+            UserId: helperId,
+            Instructions: null,
+            ExpectedRevision: 0
+        ));
+        var cId = (await resAdd.Content.ReadFromJsonAsync<AddContributorResult>(JsonOpts))!.ContributorId;
+
+        // Before submit: Reviewer has NO operational participation on this item -> not in My Work
+        var resMwBefore = await reviewerClient.GetAsync("/api/work-items/my-work");
+        var mwBefore = await resMwBefore.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.DoesNotContain(mwBefore!.Items, i => i.Id == workItemId);
+
+        // Helper submits contribution -> Actionable Review Participation activates for Workstream reviewer!
+        await helperClient.PostAsJsonAsync($"/api/work-items/{workItemId}/contributors/{cId}/submit", new SubmitContributionApiRequest(
+            ExpectedRevision: 1,
+            Note: "Ready for review"
+        ));
+
+        // Now reviewer has operational relevance via Actionable Review Participation!
+        var resMwAfter = await reviewerClient.GetAsync("/api/work-items/my-work?relationship=review");
+        Assert.Equal(HttpStatusCode.OK, resMwAfter.StatusCode);
+        var mwAfter = await resMwAfter.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+
+        Assert.True(mwAfter!.Summary.NeedsReview >= 1);
+        Assert.Contains(mwAfter.Items, i => i.Id == workItemId);
+    }
 }
 
