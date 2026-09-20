@@ -108,11 +108,12 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
 
             if (assignment is not null)
             {
-                // Direct assigned handler
-                if (assignment.AssignedUserId == userId)
-                    return true;
-
-                // Live active member of current assigned office desk
+                // A direct named handler qualifies only while:
+                // - assignment is active
+                // - assigned OfficeDesk is active + RecordStatus.Active
+                // - caller is active (already verified)
+                // - caller still has a live active UserDeskMembership in that exact assigned OfficeDesk
+                // Desk-based unnamed responsibility remains available to any live active member of that desk.
                 var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
                     .AnyAsync(m => m.UserId == userId
                                 && m.OfficeDeskId == assignment.OfficeDeskId
@@ -122,7 +123,10 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
                                 && m.OfficeDesk.IsActive
                                 && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
 
-                if (isDeskMember) return true;
+                if (isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == userId))
+                {
+                    return true;
+                }
             }
 
             // Contributor authority strictly permitted only for View, Update, Contribute
@@ -338,9 +342,10 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             }
         }
 
+        // OfficeDesk.WorkstreamId is optional classification metadata only - NOT routing or security authority.
+        // Once target workstream authorization is validated, all active desks are eligible routing targets.
         var desks = await db.OfficeDesks.AsNoTracking()
-            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
-                     && (d.WorkstreamId == workstreamId || d.WorkstreamId == null))
+            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
             .OrderBy(d => d.Name)
             .ToListAsync(ct);
 

@@ -846,7 +846,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var bodyAllowed = await resAllowed.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
         var desks = bodyAllowed.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
         Assert.Contains(desk1.Id, desks);
-        Assert.DoesNotContain(desk2.Id, desks); // Desk 2 MUST NOT be leaked to WS1-scoped caller
+        Assert.Contains(desk2.Id, desks); // Desk 2 classified under WS2 is still an eligible routing target for WS1 WorkItem
 
         // 4. Scope All caller can query any active workstream
         var resAdminWs2 = await adminClient.GetAsync($"/api/work-items/assignment-options?workstreamId={ws2.Id}");
@@ -854,7 +854,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         var bodyAdminWs2 = await resAdminWs2.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
         var desksAdmin = bodyAdminWs2.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
         Assert.Contains(desk2.Id, desksAdmin);
-        Assert.DoesNotContain(desk1.Id, desksAdmin);
+        Assert.Contains(desk1.Id, desksAdmin);
     }
 
     // ========================================================================
@@ -1689,6 +1689,268 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
 
         Assert.True(idxA >= 0 && idxB >= 0);
         Assert.True(idxA < idxB, "Item with earlier due date and higher priority must appear before later item.");
+    }
+
+    // ========================================================================
+    // FINAL AUDIT MICRO-PATCH REGRESSION TESTS
+    // ========================================================================
+    [Fact]
+    public async Task WorkItem_DirectAssignment_Requires_Live_Desk_Membership_Under_Assigned_Scope()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync("WS-LIVE-MW", "Workstream Live MW");
+        var desk = await CreateDeskAsync("DSK-LIVE-MW", "Desk Live MW", ws.Id, assignAdmin: false);
+
+        var (userClient, userId) = await CreateScopedUserClientAsync(
+            "user_direct_mw",
+            "ROLE_DIR_MW",
+            ScopeMode.Assigned,
+            deskId: desk.Id,
+            workstreamId: ws.Id
+        );
+
+        // Create item directly assigned to user on desk
+        var resCreate = await adminClient.PostAsJsonAsync("/api/work-items", new CreateWorkItemApiRequest(
+            Title: "Direct Item for Live Membership Test",
+            Instructions: null,
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk.Id,
+            AssignedUserId: userId,
+            Priority: "Routine",
+            DueAt: null,
+            MatterId: null,
+            DakId: null
+        ));
+        Assert.Equal(HttpStatusCode.Created, resCreate.StatusCode);
+        var createResult = await resCreate.Content.ReadFromJsonAsync<CreateWorkItemResult>(JsonOpts);
+        var workItemId = createResult!.WorkItemId;
+
+        // 1. User sees it in My Work initially while active member of desk
+        var resMwBefore = await userClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMwBefore.StatusCode);
+        var mwBefore = await resMwBefore.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Contains(mwBefore!.Items, i => i.Id == workItemId);
+
+        // 2. User can access work item detail
+        var resDetailBefore = await userClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.OK, resDetailBefore.StatusCode);
+
+        // 3. Remove/close user's desk membership
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var membership = await db.UserDeskMemberships.FirstOrDefaultAsync(m => m.UserId == userId && m.OfficeDeskId == desk.Id);
+            Assert.NotNull(membership);
+            membership.IsActive = false;
+            membership.RemovedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        // 4. Confirm direct assignee access is immediately revoked -> 403 Forbidden
+        var resDetailAfter = await userClient.GetAsync($"/api/work-items/{workItemId}");
+        Assert.Equal(HttpStatusCode.Forbidden, resDetailAfter.StatusCode);
+
+        // 5. Confirm it disappears from Assigned My Work
+        var resMwAfter = await userClient.GetAsync("/api/work-items/my-work");
+        Assert.Equal(HttpStatusCode.OK, resMwAfter.StatusCode);
+        var mwAfter = await resMwAfter.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.DoesNotContain(mwAfter!.Items, i => i.Id == workItemId);
+    }
+
+    [Fact]
+    public async Task WorkItem_OfficeDesk_Workstream_Classification_Only_Not_Routing_Restriction()
+    {
+        var adminClient = await CreateAdminClientAsync();
+        var wsA = await CreateWorkstreamAsync("WS-ROUT-A", "Workstream Routing A");
+        var wsB = await CreateWorkstreamAsync("WS-ROUT-B", "Workstream Routing B");
+
+        var deskA = await CreateDeskAsync("DSK-ROUT-A", "Desk Routing A", wsA.Id, assignAdmin: false);
+        var deskB = await CreateDeskAsync("DSK-ROUT-B", "Desk Routing B", wsB.Id, assignAdmin: false);
+
+        // Caller is authorized to assign in Workstream A (Workstream scope in wsA, member of deskA)
+        var (userAClient, userAId) = await CreateScopedUserClientAsync(
+            "user_assign_wsa",
+            "ROLE_ASSIGN_WSA",
+            ScopeMode.Workstream,
+            deskId: deskA.Id,
+            workstreamId: wsA.Id
+        );
+
+        // 1. Caller queries assignment-options for Workstream A -> Desk B (classified Workstream B) MUST appear as an eligible routing target
+        var resOptions = await userAClient.GetAsync($"/api/work-items/assignment-options?workstreamId={wsA.Id}");
+        Assert.Equal(HttpStatusCode.OK, resOptions.StatusCode);
+        var optionsBody = await resOptions.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var deskIds = optionsBody.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
+        Assert.Contains(deskB.Id, deskIds);
+
+        // 2. Proves Desk B appearing does NOT grant caller Workstream B record authority:
+        // Attempting to query assignment-options for Workstream B MUST return 403 Forbidden
+        var resWsBOptions = await userAClient.GetAsync($"/api/work-items/assignment-options?workstreamId={wsB.Id}");
+        Assert.Equal(HttpStatusCode.Forbidden, resWsBOptions.StatusCode);
+
+        // 3. Attempting to query Work items in Workstream B MUST NOT leak Workstream B items
+        var resMyWork = await userAClient.GetAsync($"/api/work-items/my-work?workstreamId={wsB.Id}");
+        Assert.Equal(HttpStatusCode.OK, resMyWork.StatusCode);
+        var mwData = await resMyWork.Content.ReadFromJsonAsync<MyWorkResponseDto>(JsonOpts);
+        Assert.Empty(mwData!.Items);
+    }
+
+    [Fact]
+    public async Task WorkItem_ExecutionStrategy_Create_Commit_Ambiguity_Proof()
+    {
+        var dbName = $"wi-create-commit-ambig-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<LacDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        using var db = new LacDbContext(options);
+        var storage = new TestInMemoryDocumentStorage();
+        var workItemAuth = new WorkItemAuthorizationService(db);
+        var matterAuth = new MatterAuthorizationService(db);
+        var dakAuth = new DakAuthorizationService(db);
+
+        TestCommitAmbiguityExecutionStrategy? strategy = null;
+        var workflow = new WorkItemWorkflowService(
+            db,
+            storage,
+            workItemAuth,
+            matterAuth,
+            dakAuth,
+            strategyFactory: () => strategy!
+        );
+
+        strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
+
+        var ws = new Workstream { Id = Guid.NewGuid(), Code = "WS-CREATE-AMB", Name = "Create Amb WS", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var desk = new OfficeDesk { Id = Guid.NewGuid(), Code = "DSK-CREATE-AMB", Name = "Create Amb Desk", WorkstreamId = ws.Id, IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var user = new AppUser { Id = Guid.NewGuid(), Username = "user_create_amb", DisplayName = "Create Amb User", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+
+        var village = new Village { Id = Guid.NewGuid(), Name = "Village Amb", RecordStatus = RecordStatus.Active, CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+        var matter = new Matter
+        {
+            Id = Guid.NewGuid(),
+            VillageId = village.Id,
+            WorkstreamId = ws.Id,
+            Title = "Ambiguity Matter",
+            Status = "Open",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        var dak = new Dak
+        {
+            Id = Guid.NewGuid(),
+            WorkstreamId = ws.Id,
+            DiaryNumber = "D/AMB/1",
+            Subject = "Ambiguity Dak",
+            Status = DakStatus.Registered,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        var role = new Role { Id = Guid.NewGuid(), Code = "ROLE_CREATE_AMB", Name = "Create Amb Role", IsSystemRole = false };
+        var permCreate = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemCreate)
+                         ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemCreate, Name = "Create" };
+        var permAssign = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.WorkItemAssign)
+                         ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.WorkItemAssign, Name = "Assign" };
+        var permMatter = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.MatterView)
+                         ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.MatterView, Name = "Matter View" };
+        var permDak = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.DakView)
+                      ?? new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.DakView, Name = "Dak View" };
+
+        if (permCreate.Id == Guid.Empty) permCreate.Id = Guid.NewGuid();
+        if (permAssign.Id == Guid.Empty) permAssign.Id = Guid.NewGuid();
+        if (permMatter.Id == Guid.Empty) permMatter.Id = Guid.NewGuid();
+        if (permDak.Id == Guid.Empty) permDak.Id = Guid.NewGuid();
+
+        var deskMembership = new UserDeskMembership
+        {
+            Id = Guid.NewGuid(),
+            UserId = user.Id,
+            OfficeDeskId = desk.Id,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+
+        db.Villages.Add(village);
+        db.Workstreams.Add(ws);
+        db.OfficeDesks.Add(desk);
+        db.AppUsers.Add(user);
+        db.Matters.Add(matter);
+        db.Daks.Add(dak);
+        db.Roles.Add(role);
+        db.Permissions.AddRange(permCreate, permAssign, permMatter, permDak);
+        db.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = user.Id, RoleId = role.Id });
+        db.RolePermissions.AddRange(
+            new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permCreate.Id, ScopeMode = ScopeMode.All },
+            new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permAssign.Id, ScopeMode = ScopeMode.All },
+            new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permMatter.Id, ScopeMode = ScopeMode.All },
+            new RolePermission { Id = Guid.NewGuid(), RoleId = role.Id, PermissionId = permDak.Id, ScopeMode = ScopeMode.All }
+        );
+        db.UserDeskMemberships.Add(deskMembership);
+        await db.SaveChangesAsync();
+
+        using var ms = new MemoryStream(SamplePdfBytes);
+        var cmd = new CreateWorkItemCommand(
+            WorkstreamId: ws.Id,
+            OfficeDeskId: desk.Id,
+            AssignedUserId: user.Id,
+            Title: "Create Commit Ambiguity Work Item",
+            Instructions: "Check stable IDs and immutable event markers on retry",
+            Priority: WorkItemPriority.Urgent,
+            DueAt: DateTimeOffset.UtcNow.AddDays(2),
+            MatterId: matter.Id,
+            DakId: dak.Id,
+            Attachments: [new WorkItemAttachmentUpload(ms, "ambig_doc.pdf", "application/pdf", "Initial Reference", "SupportingDocument")]
+        );
+
+        // CreateWorkItemAsync triggers commit ambiguity on attempt 1:
+        // Transaction commits, simulated network timeout throws, verifySucceeded verifies exact immutable marker set:
+        // - WorkItem ID exists
+        // - Created event ID + Action
+        // - Assigned event ID + Action + target desk/user
+        // - Matter and Dak link IDs + stable ContextLinked events
+        // - Attachment events
+        var result = await workflow.CreateWorkItemAsync(cmd, user.Id);
+
+        Assert.NotEqual(Guid.Empty, result.WorkItemId);
+        Assert.True(strategy.VerifyCount >= 1, $"Expected VerifyCount >= 1 but got {strategy.VerifyCount}");
+
+        // Exactly one WorkItem entity
+        var items = await db.WorkItems.Where(w => w.Id == result.WorkItemId).ToListAsync();
+        Assert.Single(items);
+        Assert.Equal(0, items[0].Revision);
+
+        // Exactly one assignment
+        var assignments = await db.WorkItemAssignments.Where(a => a.WorkItemId == result.WorkItemId).ToListAsync();
+        Assert.Single(assignments);
+        Assert.Equal(user.Id, assignments[0].AssignedUserId);
+
+        // Exactly one matter link
+        var matterLinks = await db.WorkItemMatterLinks.Where(l => l.WorkItemId == result.WorkItemId).ToListAsync();
+        Assert.Single(matterLinks);
+        Assert.Equal(matter.Id, matterLinks[0].MatterId);
+
+        // Exactly one dak link
+        var dakLinks = await db.WorkItemDakLinks.Where(l => l.WorkItemId == result.WorkItemId).ToListAsync();
+        Assert.Single(dakLinks);
+        Assert.Equal(dak.Id, dakLinks[0].DakId);
+
+        // Exactly one attachment
+        var attachments = await db.WorkItemAttachments.Where(a => a.WorkItemId == result.WorkItemId).ToListAsync();
+        Assert.Single(attachments);
+
+        // Verify event counts: 1 Created, 1 Assigned, 2 ContextLinked, 1 AttachmentAdded = exactly 5 events
+        var events = await db.WorkItemEvents.Where(e => e.WorkItemId == result.WorkItemId).ToListAsync();
+        Assert.Equal(5, events.Count);
+        Assert.Single(events, e => e.Action == WorkItemEventAction.Created);
+        Assert.Single(events, e => e.Action == WorkItemEventAction.Assigned);
+        Assert.Equal(2, events.Count(e => e.Action == WorkItemEventAction.ContextLinked));
+        Assert.Single(events, e => e.Action == WorkItemEventAction.AttachmentAdded);
     }
 }
 

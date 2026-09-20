@@ -180,6 +180,8 @@ public sealed class WorkItemWorkflowService(
         var assignedEventId = Guid.NewGuid();
         var matterLinkId = command.MatterId.HasValue ? Guid.NewGuid() : (Guid?)null;
         var dakLinkId = command.DakId.HasValue ? Guid.NewGuid() : (Guid?)null;
+        var matterEventId = command.MatterId.HasValue ? Guid.NewGuid() : (Guid?)null;
+        var dakEventId = command.DakId.HasValue ? Guid.NewGuid() : (Guid?)null;
 
         // Process attachments outside retry loop
         var savedFiles = new List<(DocumentStorageWriteResult StorageResult, string FileName, string Ext, string? Title, string? AttachmentType, Guid DocId, Guid AttachId, Guid EventId)>();
@@ -208,13 +210,92 @@ public sealed class WorkItemWorkflowService(
         try
         {
             Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
-                await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == createdEventId, c);
+            {
+                // 1. Exact WorkItem ID exists
+                var itemExists = await db.WorkItems.AsNoTracking().AnyAsync(w => w.Id == workItemId, c);
+                if (!itemExists) return false;
+
+                // 2. Exact Created event ID + Created action
+                var createdExists = await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                    e.Id == createdEventId &&
+                    e.WorkItemId == workItemId &&
+                    e.Action == WorkItemEventAction.Created, c);
+                if (!createdExists) return false;
+
+                // 3. Exact Assigned event ID + Assigned action + target desk/user snapshots
+                var assignedExists = await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                    e.Id == assignedEventId &&
+                    e.WorkItemId == workItemId &&
+                    e.Action == WorkItemEventAction.Assigned &&
+                    e.TargetDeskId == command.OfficeDeskId &&
+                    e.TargetUserId == command.AssignedUserId, c);
+                if (!assignedExists) return false;
+
+                // 4. Exact Matter/Dak typed link IDs where requested
+                if (matterLinkId.HasValue && command.MatterId.HasValue)
+                {
+                    var targetMatterId = command.MatterId.Value;
+                    var matterLinkExists = await db.WorkItemMatterLinks.AsNoTracking().AnyAsync(l =>
+                        l.Id == matterLinkId.Value &&
+                        l.WorkItemId == workItemId &&
+                        l.MatterId == targetMatterId, c);
+                    if (!matterLinkExists) return false;
+                }
+
+                if (dakLinkId.HasValue && command.DakId.HasValue)
+                {
+                    var targetDakId = command.DakId.Value;
+                    var dakLinkExists = await db.WorkItemDakLinks.AsNoTracking().AnyAsync(l =>
+                        l.Id == dakLinkId.Value &&
+                        l.WorkItemId == workItemId &&
+                        l.DakId == targetDakId, c);
+                    if (!dakLinkExists) return false;
+                }
+
+                // 5. Exact stable ContextLinked event IDs where requested
+                if (matterEventId.HasValue && command.MatterId.HasValue)
+                {
+                    var targetMatterId = command.MatterId.Value;
+                    var matterEventExists = await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                        e.Id == matterEventId.Value &&
+                        e.WorkItemId == workItemId &&
+                        e.Action == WorkItemEventAction.ContextLinked &&
+                        e.ContextType == "Matter" &&
+                        e.ContextEntityId == targetMatterId, c);
+                    if (!matterEventExists) return false;
+                }
+
+                if (dakEventId.HasValue && command.DakId.HasValue)
+                {
+                    var targetDakId = command.DakId.Value;
+                    var dakEventExists = await db.WorkItemEvents.AsNoTracking().AnyAsync(e =>
+                        e.Id == dakEventId.Value &&
+                        e.WorkItemId == workItemId &&
+                        e.Action == WorkItemEventAction.ContextLinked &&
+                        e.ContextType == "Dak" &&
+                        e.ContextEntityId == targetDakId, c);
+                    if (!dakEventExists) return false;
+                }
+
+                // 6. Attachment immutable event IDs when attachments were part of the service command
+                if (savedFiles.Count > 0)
+                {
+                    var savedEventIds = savedFiles.Select(s => s.EventId).ToList();
+                    var foundCount = await db.WorkItemEvents.AsNoTracking().CountAsync(e =>
+                        savedEventIds.Contains(e.Id) &&
+                        e.WorkItemId == workItemId &&
+                        e.Action == WorkItemEventAction.AttachmentAdded, c);
+                    if (foundCount != savedEventIds.Count) return false;
+                }
+
+                return true;
+            };
 
             var result = await ExecuteWorkflowTransactionAsync(async c =>
             {
                 db.ChangeTracker.Clear();
 
-                if (await db.WorkItemEvents.AsNoTracking().AnyAsync(e => e.Id == createdEventId, c))
+                if (await verifySucceeded(c))
                 {
                     var existingItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId, c);
                     return new CreateWorkItemResult(workItemId, existingItem?.Revision ?? 0, uploadedNames, failedNames);
@@ -285,7 +366,7 @@ public sealed class WorkItemWorkflowService(
                 };
                 db.WorkItemEvents.Add(assignedEvent);
 
-                if (command.MatterId.HasValue && matterLinkId.HasValue)
+                if (command.MatterId.HasValue && matterLinkId.HasValue && matterEventId.HasValue)
                 {
                     var matterLink = new WorkItemMatterLink
                     {
@@ -298,7 +379,7 @@ public sealed class WorkItemWorkflowService(
 
                     db.WorkItemEvents.Add(new WorkItemEvent
                     {
-                        Id = Guid.NewGuid(),
+                        Id = matterEventId.Value,
                         WorkItemId = workItemId,
                         SequenceNumber = seq++,
                         Action = WorkItemEventAction.ContextLinked,
@@ -312,7 +393,7 @@ public sealed class WorkItemWorkflowService(
                     });
                 }
 
-                if (command.DakId.HasValue && dakLinkId.HasValue)
+                if (command.DakId.HasValue && dakLinkId.HasValue && dakEventId.HasValue)
                 {
                     var dakLink = new WorkItemDakLink
                     {
@@ -325,7 +406,7 @@ public sealed class WorkItemWorkflowService(
 
                     db.WorkItemEvents.Add(new WorkItemEvent
                     {
-                        Id = Guid.NewGuid(),
+                        Id = dakEventId.Value,
                         WorkItemId = workItemId,
                         SequenceNumber = seq++,
                         Action = WorkItemEventAction.ContextLinked,
@@ -430,21 +511,23 @@ public sealed class WorkItemWorkflowService(
         // Idempotent: already marked seen
         if (assignment.FirstSeenAt.HasValue) return false;
 
-        // Verify caller is part of current responsibility
-        var isResponsible = assignment.AssignedUserId == callerUserId;
-        if (!isResponsible)
-        {
-            isResponsible = await db.UserDeskMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == callerUserId
-                            && m.OfficeDeskId == assignment.OfficeDeskId
-                            && m.IsActive
-                            && m.RemovedAt == null
-                            && m.RecordStatus == RecordStatus.Active
-                            && m.OfficeDesk.IsActive
-                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
-        }
+        // Verify caller is part of current live responsibility:
+        // Caller must have a live active UserDeskMembership in the assigned active OfficeDesk.
+        // For direct named assignment, caller must also be the assigned user.
+        // For unnamed assignment, any live active desk member qualifies.
+        var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+            .AnyAsync(m => m.UserId == callerUserId
+                        && m.OfficeDeskId == assignment.OfficeDeskId
+                        && m.IsActive
+                        && m.RemovedAt == null
+                        && m.RecordStatus == RecordStatus.Active
+                        && m.OfficeDesk.IsActive
+                        && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
 
-        if (!isResponsible) return false;
+        if (!isDeskMember) return false;
+
+        if (assignment.AssignedUserId.HasValue && assignment.AssignedUserId.Value != callerUserId)
+            return false;
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
         var stableEventId = Guid.NewGuid();
@@ -540,16 +623,16 @@ public sealed class WorkItemWorkflowService(
 
             if (assignment != null && !assignment.FirstActionAt.HasValue)
             {
-                var isResponsible = assignment.AssignedUserId == callerUserId;
-                if (!isResponsible)
-                {
-                    isResponsible = await db.UserDeskMemberships.AsNoTracking()
-                        .AnyAsync(m => m.UserId == callerUserId
-                                    && m.OfficeDeskId == assignment.OfficeDeskId
-                                    && m.IsActive
-                                    && m.RemovedAt == null
-                                    && m.RecordStatus == RecordStatus.Active, c);
-                }
+                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == callerUserId
+                                && m.OfficeDeskId == assignment.OfficeDeskId
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.RecordStatus == RecordStatus.Active
+                                && m.OfficeDesk.IsActive
+                                && m.OfficeDesk.RecordStatus == RecordStatus.Active, c);
+
+                var isResponsible = isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == callerUserId);
 
                 if (isResponsible)
                 {
@@ -643,16 +726,16 @@ public sealed class WorkItemWorkflowService(
 
             if (assignment != null && !assignment.FirstActionAt.HasValue)
             {
-                var isResponsible = assignment.AssignedUserId == callerUserId;
-                if (!isResponsible)
-                {
-                    isResponsible = await db.UserDeskMemberships.AsNoTracking()
-                        .AnyAsync(m => m.UserId == callerUserId
-                                    && m.OfficeDeskId == assignment.OfficeDeskId
-                                    && m.IsActive
-                                    && m.RemovedAt == null
-                                    && m.RecordStatus == RecordStatus.Active, c);
-                }
+                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == callerUserId
+                                && m.OfficeDeskId == assignment.OfficeDeskId
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.RecordStatus == RecordStatus.Active
+                                && m.OfficeDesk.IsActive
+                                && m.OfficeDesk.RecordStatus == RecordStatus.Active, c);
+
+                var isResponsible = isDeskMember && (!assignment.AssignedUserId.HasValue || assignment.AssignedUserId.Value == callerUserId);
 
                 if (isResponsible)
                 {

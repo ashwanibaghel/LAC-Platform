@@ -301,12 +301,13 @@ public static class WorkItemEndpoints
                 .Where(w => w.RecordStatus == RecordStatus.Active);
 
             // Intersect with operational participation criteria:
-            // - Direct assignment or active desk membership
+            // - Direct assignment (user must have live active membership in the assigned desk) OR unnamed desk assignment (user is member of assigned desk)
             // - Requested by caller and not completed/cancelled
             // - Contributor participation
             baseQuery = baseQuery.Where(w =>
                 (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                    (w.CurrentAssignment.AssignedUserId == userId || activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))) ||
+                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId) &&
+                    (w.CurrentAssignment.AssignedUserId == null || w.CurrentAssignment.AssignedUserId == userId)) ||
                 (w.RequestedByUserId == userId && w.Status != WorkItemStatus.Completed && w.Status != WorkItemStatus.Cancelled) ||
                 w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Active)
             );
@@ -328,10 +329,11 @@ public static class WorkItemEndpoints
                 }
                 else if (viewScopes.Contains(ScopeMode.Assigned))
                 {
-                    // ScopeMode.Assigned allows only items where caller is assigned, live desk member, or active contributor
+                    // ScopeMode.Assigned allows only items where caller is assigned (with live desk membership), live desk member of unnamed assignment, or active contributor
                     baseQuery = baseQuery.Where(w =>
                         (w.CurrentAssignment != null && w.CurrentAssignment.IsActive && w.CurrentAssignment.RecordStatus == RecordStatus.Active &&
-                            (w.CurrentAssignment.AssignedUserId == userId || activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId))) ||
+                            activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId) &&
+                            (w.CurrentAssignment.AssignedUserId == null || w.CurrentAssignment.AssignedUserId == userId)) ||
                         w.Contributors.Any(c => c.UserId == userId && c.IsActive && c.RecordStatus == RecordStatus.Active && c.Status == WorkItemContributorStatus.Active)
                     );
                 }
@@ -442,7 +444,8 @@ public static class WorkItemEndpoints
             {
                 filteredQuery = filteredQuery.Where(w =>
                     w.CurrentAssignment != null &&
-                    (w.CurrentAssignment.AssignedUserId == userId || activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId)));
+                    activeDeskIds.Contains(w.CurrentAssignment.OfficeDeskId) &&
+                    (w.CurrentAssignment.AssignedUserId == null || w.CurrentAssignment.AssignedUserId == userId));
             }
             else if (relFilter == "requested")
             {

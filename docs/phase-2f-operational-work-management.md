@@ -17,14 +17,15 @@ Phase 2F-A specifically delivers the **Work Item Core and My Work Experience**:
 
 ## 2. Core Architectural Invariants
 
-### 2.1 Designation Is Not Authority
-- System authority is derived exclusively from active RBAC role-permission assignments and active organization memberships (`OfficeDeskUser`, `OfficeDeskWorkstream`, `UserWorkstreamMembership`).
+### 2.1 Designation Is Not Authority & Live Organizational State
+- System authority is derived exclusively from active RBAC role-permission assignments and live organization memberships (`UserDeskMembership`, `OfficeDesk`, `UserWorkstreamMembership`).
 - No conditional checks on designation strings (e.g., `designation == "ADM"` or `designation == "Tehsildar"`) exist in business logic or authorization routines.
-- Cross-workstream assignments are permitted only when the assigning officer holds `WorkItem.Assign` in both the source context and target workstream, and the assigned officer is an active member of the target desk.
+- **Desk Classification vs. Routing Authority**: `OfficeDesk.WorkstreamId` is optional classification metadata only; it is **not** tenancy, authorization, security boundary, or routing authority. `WorkItem.WorkstreamId` is the explicit functional and authorization classification. An assigning officer holding `WorkItem.Assign` authority in the target Workstream may route work items to any active `OfficeDesk` regardless of the desk's optional workstream classification, provided any named assignee holds a live active `UserDeskMembership` in that target desk. Routing to a desk does not infer or grant caller record authority in that desk's classified workstream.
+- **Live Assignment Responsiveness**: Under `ScopeMode.Assigned`, direct assignment responsibility does **not** survive the loss of required live desk membership. A direct named handler qualifies only while the assignment is active, the assigned `OfficeDesk` is active and has `RecordStatus == Active`, the caller is active, and the caller holds a live active `UserDeskMembership` in that exact assigned `OfficeDesk`. Desk-based unnamed responsibility remains available to any live active member of that desk.
 
 ### 2.2 Context Isolation
 - `WorkItem` is a top-level aggregate root, **not** a child of `Matter` or `Dak`.
-- While a work item may link to a Matter (`WorkItemMatterLink`) or a Dak entry (`WorkItemDakLink`), holding permission on a work item grants **no implicit permission** to view or modify linked records.
+- While a work item may link to a Matter (`WorkItemMatterLink`) or a Dak entry (`WorkItemDakLink`), holding permission on a work item grants **no implicit permission** to view or modify linked records. Context Matter and Dak permissions remain strictly independent.
 - When retrieving work item details or list projections, target Matter or Dak titles and reference numbers are redacted unless the caller independently possesses `Matter.View` or `Dak.View`.
 
 ### 2.3 Strict Immutability & Event History
@@ -79,11 +80,11 @@ stateDiagram-v2
 | **View My Work** | `WorkItem.View` | All, Workstream, Assigned | Filtered by caller's active desk and workstream memberships |
 | **View Work Item** | `WorkItem.View` | All, Workstream, Assigned | Caller must belong to workstream, active desk, or be assigned |
 | **Create Work Item** | `WorkItem.Create` + `WorkItem.Assign` | All, Workstream | Caller must have scope in target workstream; target desk and user must be active |
-| **Mark Seen** | `WorkItem.View` | Assigned | Direct assigned officer or active member of assigned desk |
-| **Start Work** | `WorkItem.Update` | Assigned | Direct assigned officer or active member of assigned desk |
+| **Mark Seen** | `WorkItem.View` | Assigned | Direct assigned officer (with live active desk membership) or active member of assigned desk |
+| **Start Work** | `WorkItem.Update` | Assigned | Direct assigned officer (with live active desk membership) or active member of assigned desk |
 | **Add Update** | `WorkItem.Update` | All, Workstream, Assigned | Must be assigned, workstream officer, or holding `ScopeMode.All` |
 | **Attach Document** | `WorkItem.Update` | All, Workstream, Assigned | Requires write access; content validated via magic bytes |
-| **Remove Document**| `WorkItem.Update` | All, Workstream, Assigned | Only creator or officer with `All` scope |
+| **Remove Document**| `WorkItem.Update` | All, Workstream, Assigned | Requires write access (`WorkItem.Update`); item must not be completed/cancelled; soft deletes active record |
 | **Download Content**| `WorkItem.View` | All, Workstream, Assigned | Authorized work item viewer can stream verified files |
 
 ---
