@@ -4430,7 +4430,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("CourtProceedingId")
                         .IsUnique()
-                        .HasFilter("\"CourtProceedingId\" IS NOT NULL AND \"Status\" != 'Cancelled' AND \"RecordStatus\" = 'Active'");
+                        .HasFilter("\"CourtProceedingId\" IS NOT NULL AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
 
                     b.HasIndex("CreatedByUserId");
 
@@ -4453,6 +4453,10 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("WorkstreamId");
 
                     b.HasIndex("ScheduledDate", "Status");
+
+                    b.HasIndex(new[] { "CourtCaseId" }, "IX_ScheduledEvents_CourtCaseId_ActiveCourtProjection")
+                        .IsUnique()
+                        .HasFilter("\"CourtCaseId\" IS NOT NULL AND \"Origin\" = 'CourtProceeding' AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
 
                     b.ToTable("ScheduledEvents");
                 });

@@ -310,6 +310,14 @@ public sealed class AttentionProjectionService(
                 }
             }
 
+            var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
+            if (!canViewCourt)
+            {
+                eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
+                                                && e.CourtCaseId == null
+                                                && e.CourtProceedingId == null);
+            }
+
             var events = await eventQuery.ToListAsync(ct);
             foreach (var e in events)
             {
@@ -572,6 +580,14 @@ public sealed class AttentionProjectionService(
                 );
             }
 
+            var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
+            if (!canViewCourt)
+            {
+                eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
+                                                && e.CourtCaseId == null
+                                                && e.CourtProceedingId == null);
+            }
+
             var events = await eventQuery.ToListAsync(ct);
             foreach (var e in events)
             {
@@ -793,6 +809,14 @@ public sealed class AttentionProjectionService(
             );
         }
 
+        var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
+        if (!canViewCourt)
+        {
+            eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
+                                            && e.CourtCaseId == null
+                                            && e.CourtProceedingId == null);
+        }
+
         // Bounded date range filters
         if (query.FromDate.HasValue) eventQuery = eventQuery.Where(e => e.ScheduledDate >= query.FromDate.Value);
         if (query.ToDate.HasValue) eventQuery = eventQuery.Where(e => e.ScheduledDate <= query.ToDate.Value);
@@ -920,6 +944,12 @@ public sealed class AttentionProjectionService(
 
         var canView = await scheduleAuth.CanAccessScheduledEventAsync(evt, PermissionCodes.ScheduleView, userId, ct);
         if (!canView) return null;
+
+        var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding || evt.CourtCaseId.HasValue || evt.CourtProceedingId.HasValue;
+        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
+        {
+            return null;
+        }
 
         var isCourtProceeding = evt.Origin == ScheduledEventOrigin.CourtProceeding;
         var canUpdateScheduleAuth = await scheduleAuth.CanUpdateScheduledEventAsync(evt, userId, ct);

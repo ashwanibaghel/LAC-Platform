@@ -82,7 +82,8 @@ public sealed class ActivityProjectionService(
     IDakAuthorizationService dakAuth,
     IOutwardAuthorizationService outwardAuth,
     IWorkItemAuthorizationService workItemAuth,
-    IScheduleAuthorizationService? scheduleAuth = null) : IActivityProjectionService
+    IScheduleAuthorizationService? scheduleAuth = null,
+    ICourtAuthorizationService? courtAuth = null) : IActivityProjectionService
 {
     // ========================================================================
     // 1. MY HISTORY
@@ -900,6 +901,14 @@ public sealed class ActivityProjectionService(
             else
             {
                 q = q.Where(e => e.Action != ScheduledEventAction.ReminderAdded && e.Action != ScheduledEventAction.ReminderRemoved);
+
+                var canViewCourt = courtAuth != null && await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
+                if (!canViewCourt)
+                {
+                    q = q.Where(e => e.ScheduledEvent.Origin != ScheduledEventOrigin.CourtProceeding
+                                  && e.ScheduledEvent.CourtCaseId == null
+                                  && e.ScheduledEvent.CourtProceedingId == null);
+                }
 
                 if (query.ActorUserId.HasValue)
                     q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);

@@ -82,7 +82,9 @@ public interface IScheduleAuthorizationService
         CancellationToken ct = default);
 }
 
-public sealed class ScheduleAuthorizationService(LacDbContext db) : IScheduleAuthorizationService
+public sealed class ScheduleAuthorizationService(
+    LacDbContext db,
+    ICourtAuthorizationService? courtAuth = null) : IScheduleAuthorizationService
 {
     public async Task<bool> CanAccessScheduledEventAsync(
         Guid eventId,
@@ -108,6 +110,17 @@ public sealed class ScheduleAuthorizationService(LacDbContext db) : IScheduleAut
             .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
 
         if (!isUserActive) return false;
+
+        if (permissionCode == PermissionCodes.ScheduleView)
+        {
+            var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding
+                             || evt.CourtCaseId.HasValue
+                             || evt.CourtProceedingId.HasValue;
+            if (isCourtLinked && courtAuth != null && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
+            {
+                return false;
+            }
+        }
 
         var scopes = await (
             from ur in db.UserRoles

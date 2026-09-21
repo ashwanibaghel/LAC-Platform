@@ -275,11 +275,18 @@ namespace LAC.Infrastructure.Migrations
                 column: "CourtCaseId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_ScheduledEvents_CourtCaseId_ActiveCourtProjection",
+                table: "ScheduledEvents",
+                column: "CourtCaseId",
+                unique: true,
+                filter: "\"CourtCaseId\" IS NOT NULL AND \"Origin\" = 'CourtProceeding' AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_ScheduledEvents_CourtProceedingId",
                 table: "ScheduledEvents",
                 column: "CourtProceedingId",
                 unique: true,
-                filter: "\"CourtProceedingId\" IS NOT NULL AND \"Status\" != 'Cancelled' AND \"RecordStatus\" = 'Active'");
+                filter: "\"CourtProceedingId\" IS NOT NULL AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ScheduledEvents_CreatedByUserId",

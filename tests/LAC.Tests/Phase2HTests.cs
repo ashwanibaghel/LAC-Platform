@@ -1866,5 +1866,166 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.NotNull(myAttFeed);
         Assert.DoesNotContain(myAttFeed.Items, i => i.Id == schedEvt.Id);
     }
+
+    [Fact]
+    public async Task CourtSourceAuthorization_EnforcedOnCourtLinkedScheduledEvents_NoLeak()
+    {
+        var admin = await CreateAdminClientAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences && w.IsActive);
+        if (courtWs == null)
+        {
+            courtWs = new Workstream
+            {
+                Id = Guid.NewGuid(),
+                Code = WorkstreamCodes.CourtReferences,
+                Name = "Court References",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.Workstreams.Add(courtWs);
+            await db.SaveChangesAsync();
+        }
+
+        var courtDesk = new OfficeDesk
+        {
+            Id = Guid.NewGuid(),
+            Code = $"DSK_CRT_LEAK_{Guid.NewGuid():N}",
+            Name = "Court Leak Test Desk",
+            WorkstreamId = courtWs.Id,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.OfficeDesks.Add(courtDesk);
+
+        var caseNumber = $"SECRET_CASE_{Guid.NewGuid():N}";
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = caseNumber,
+            CourtName = "High Court of Delhi",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+
+        var proceeding = new CourtProceeding
+        {
+            Id = Guid.NewGuid(),
+            CourtCaseId = courtCase.Id,
+            ProceedingDate = today,
+            OrderType = "Hearing Scheduled",
+            NextDate = today.AddDays(5),
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtProceedings.Add(proceeding);
+        await db.SaveChangesAsync();
+
+        // 1. Admin promotes court proceeding into ScheduledEvent
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{proceeding.Id}", new CreateFromCourtProceedingApiRequest(
+            courtDesk.Id, null, $"NDOH: {caseNumber}", "Confidential court schedule", "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+        var courtEvt = await promoteRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(courtEvt);
+
+        // 2. Create user with Schedule.View = All and Audit.View = All, but NO Court References authority
+        var userNoCourtUsername = $"user_nocourt_{Guid.NewGuid():N}";
+        var (userNoCourtClient, userNoCourt) = await CreateUserWithPermissionsAsync(
+            userNoCourtUsername,
+            "Pass@12345",
+            [
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.AuditView, ScopeMode.All)
+            ],
+            workstreamId: courtWs.Id,
+            deskId: courtDesk.Id
+        );
+
+        // 3. Verify /api/attention/my does NOT expose court event or case metadata
+        var myAttRes = await userNoCourtClient.GetAsync("/api/attention/my");
+        Assert.Equal(HttpStatusCode.OK, myAttRes.StatusCode);
+        var myAtt = await myAttRes.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(myAtt);
+        Assert.DoesNotContain(myAtt.Items, i => i.Id == courtEvt.Id);
+        Assert.DoesNotContain(myAtt.Items, i => (i.Title != null && i.Title.Contains(caseNumber)) || (i.Context?.ReferenceNumber != null && i.Context.ReferenceNumber.Contains(caseNumber)));
+
+        // 4. Verify /api/attention/branch does NOT expose court event or contribute to counts/filters
+        var branchAttRes = await userNoCourtClient.GetAsync("/api/attention/branch");
+        Assert.Equal(HttpStatusCode.OK, branchAttRes.StatusCode);
+        var branchAtt = await branchAttRes.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(branchAtt);
+        Assert.DoesNotContain(branchAtt.Items, i => i.Id == courtEvt.Id);
+        Assert.DoesNotContain(branchAtt.Items, i => (i.Title != null && i.Title.Contains(caseNumber)) || (i.Context?.ReferenceNumber != null && i.Context.ReferenceNumber.Contains(caseNumber)));
+
+        // 5. Verify /api/scheduled-events (Calendar/Feed) does NOT expose court event and doesn't count it
+        var calRes = await userNoCourtClient.GetAsync("/api/scheduled-events");
+        Assert.Equal(HttpStatusCode.OK, calRes.StatusCode);
+        var calFeed = await calRes.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(calFeed);
+        Assert.DoesNotContain(calFeed.Items, i => i.Id == courtEvt.Id);
+        Assert.DoesNotContain(calFeed.Items, i => (i.Title != null && i.Title.Contains(caseNumber)) || (i.Context?.ReferenceNumber != null && i.Context.ReferenceNumber.Contains(caseNumber)));
+
+        // 6. Verify /api/scheduled-events/{id} fails closed (404 / unauthorized) with no data leak
+        var detailRes = await userNoCourtClient.GetAsync($"/api/scheduled-events/{courtEvt.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, detailRes.StatusCode);
+
+        // 7. Verify Team Activity (/api/activity/team) does NOT expose Court ScheduledEvent history
+        var teamActRes = await userNoCourtClient.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, teamActRes.StatusCode);
+        var teamAct = await teamActRes.Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(teamAct);
+        Assert.DoesNotContain(teamAct.Items, i => i.EntityId == courtEvt.Id);
+        Assert.DoesNotContain(teamAct.Items, i => (i.EntityTitle != null && i.EntityTitle.Contains(caseNumber)) || (i.EntityReferenceNumber != null && i.EntityReferenceNumber.Contains(caseNumber)));
+
+        // 8. Now grant valid Court References view authority (Award.View = All)
+        using (var grantScope = _factory.Services.CreateScope())
+        {
+            var grantDb = grantScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var userRole = await grantDb.UserRoles.FirstOrDefaultAsync(ur => ur.UserId == userNoCourt.Id);
+            Assert.NotNull(userRole);
+
+            var awardViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardView);
+            if (awardViewPerm == null)
+            {
+                awardViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.AwardView, Name = "Award View", Category = "Test" };
+                grantDb.Permissions.Add(awardViewPerm);
+            }
+
+            grantDb.RolePermissions.Add(new RolePermission
+            {
+                RoleId = userRole.RoleId,
+                PermissionId = awardViewPerm.Id,
+                ScopeMode = ScopeMode.All
+            });
+            await grantDb.SaveChangesAsync();
+        }
+
+        // 9. Verify that once Court authority is granted, the event becomes visible according to Schedule scope
+        var detailAfterGrant = await userNoCourtClient.GetAsync($"/api/scheduled-events/{courtEvt.Id}");
+        Assert.Equal(HttpStatusCode.OK, detailAfterGrant.StatusCode);
+        var detailDto = await detailAfterGrant.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailDto);
+        Assert.Equal(courtEvt.Id, detailDto.Id);
+
+        var calAfterGrant = await (await userNoCourtClient.GetAsync("/api/scheduled-events")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(calAfterGrant);
+        Assert.Contains(calAfterGrant.Items, i => i.Id == courtEvt.Id);
+
+        var teamActAfterGrant = await (await userNoCourtClient.GetAsync("/api/activity/team")).Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(teamActAfterGrant);
+        Assert.Contains(teamActAfterGrant.Items, i => i.EntityId == courtEvt.Id);
+    }
 }
 
