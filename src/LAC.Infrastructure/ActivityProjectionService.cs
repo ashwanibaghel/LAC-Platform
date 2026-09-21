@@ -899,6 +899,8 @@ public sealed class ActivityProjectionService(
             }
             else
             {
+                q = q.Where(e => e.Action != ScheduledEventAction.ReminderAdded && e.Action != ScheduledEventAction.ReminderRemoved);
+
                 if (query.ActorUserId.HasValue)
                     q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
 

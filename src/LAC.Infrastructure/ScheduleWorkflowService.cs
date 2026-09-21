@@ -797,7 +797,11 @@ public sealed class ScheduleWorkflowService(
                 throw new ScheduleWorkflowException("You do not have permission to update reminders on this event.", 403);
 
             var duplicateReminder = await db.ScheduledReminders
-                .AnyAsync(r => r.ScheduledEventId == id && r.DaysBefore == daysBefore && r.IsActive, c);
+                .AnyAsync(r => r.ScheduledEventId == id
+                            && r.CreatedByUserId == callerUserId
+                            && r.DaysBefore == daysBefore
+                            && r.ReminderTime == command.ReminderTime
+                            && r.IsActive, c);
             if (duplicateReminder)
                 throw new ScheduleWorkflowException($"An active reminder for {daysBefore} day(s) before already exists.", 400);
 
@@ -886,6 +890,9 @@ public sealed class ScheduleWorkflowService(
             var reminder = await db.ScheduledReminders.FirstOrDefaultAsync(r => r.Id == reminderId && r.ScheduledEventId == id, c);
             if (reminder is null)
                 throw new ScheduleWorkflowException("Reminder not found.", 404);
+
+            if (reminder.CreatedByUserId != callerUserId)
+                throw new ScheduleWorkflowException("You do not have permission to remove another user's private reminder.", 403);
 
             var daysBefore = reminder.DaysBefore;
             reminder.IsActive = false;
@@ -1086,13 +1093,23 @@ public sealed class ScheduleWorkflowService(
             ?? throw new ScheduleWorkflowException("Active Court References workstream not found.", 500);
 
         // Check duplicate active ScheduledEvents for the same CourtProceeding
-        var duplicateExists = await db.ScheduledEvents.AnyAsync(
+        var duplicateProceedingExists = await db.ScheduledEvents.AnyAsync(
             e => e.CourtProceedingId == courtProceedingId
-              && e.Status != ScheduledEventStatus.Cancelled
+              && e.Status == ScheduledEventStatus.Scheduled
               && e.RecordStatus == RecordStatus.Active, ct);
 
-        if (duplicateExists)
+        if (duplicateProceedingExists)
             throw new ScheduleWorkflowException("An active scheduled event already exists for this court proceeding.", 409);
+
+        // Check duplicate active ScheduledEvents for the same CourtCase (at most one active NDOH projection per case)
+        var duplicateCaseScheduleExists = await db.ScheduledEvents.AnyAsync(
+            e => e.CourtCaseId == proceeding.CourtCaseId
+              && e.Origin == ScheduledEventOrigin.CourtProceeding
+              && e.Status == ScheduledEventStatus.Scheduled
+              && e.RecordStatus == RecordStatus.Active, ct);
+
+        if (duplicateCaseScheduleExists)
+            throw new ScheduleWorkflowException("An active scheduled event already exists for this court case.", 409);
 
         var canEditCourt = await courtAuth.CanEditCourtReferencesAsync(callerUserId, ct);
         if (!canEditCourt)
@@ -1158,13 +1175,22 @@ public sealed class ScheduleWorkflowService(
             }
 
             // Concurrency check within transaction
-            var innerDuplicate = await db.ScheduledEvents.AnyAsync(
+            var innerDuplicateProceeding = await db.ScheduledEvents.AnyAsync(
                 e => e.CourtProceedingId == courtProceedingId
-                  && e.Status != ScheduledEventStatus.Cancelled
+                  && e.Status == ScheduledEventStatus.Scheduled
                   && e.RecordStatus == RecordStatus.Active, c);
 
-            if (innerDuplicate)
+            if (innerDuplicateProceeding)
                 throw new ScheduleWorkflowException("An active scheduled event already exists for this court proceeding.", 409);
+
+            var innerDuplicateCase = await db.ScheduledEvents.AnyAsync(
+                e => e.CourtCaseId == proceeding.CourtCaseId
+                  && e.Origin == ScheduledEventOrigin.CourtProceeding
+                  && e.Status == ScheduledEventStatus.Scheduled
+                  && e.RecordStatus == RecordStatus.Active, c);
+
+            if (innerDuplicateCase)
+                throw new ScheduleWorkflowException("An active scheduled event already exists for this court case.", 409);
 
             var now = DateTimeOffset.UtcNow;
             var title = !string.IsNullOrWhiteSpace(command.Title)

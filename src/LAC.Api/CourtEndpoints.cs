@@ -15,17 +15,6 @@ public sealed record CreateCourtProceedingApiRequest(
     DateOnly? NextDate
 );
 
-public sealed record CourtProceedingDto(
-    Guid Id,
-    Guid CourtCaseId,
-    DateOnly? ProceedingDate,
-    string? OrderType,
-    string? RestraintNature,
-    string? Summary,
-    DateOnly? NextDate,
-    DateTimeOffset CreatedAt
-);
-
 public static class CourtEndpoints
 {
     public static RouteGroupBuilder MapCourtEndpoints(this RouteGroupBuilder api)
@@ -70,48 +59,37 @@ public static class CourtEndpoints
         group.MapPost("/{id:guid}/proceedings", async (
             Guid id,
             CreateCourtProceedingApiRequest req,
-            ICourtAuthorizationService courtAuth,
-            LacDbContext db,
+            ICourtWorkflowService courtWorkflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await courtAuth.CanEditCourtReferencesAsync(currentUser.UserId.Value, ct))
-                return Results.Forbid();
 
-            var courtCase = await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
-            if (courtCase is null) return Results.NotFound(new { error = "Court case not found." });
-
-            if (req.NextDate.HasValue && req.ProceedingDate.HasValue && req.NextDate.Value < req.ProceedingDate.Value)
+            try
             {
-                return Results.BadRequest(new { error = "NextDate cannot be earlier than ProceedingDate." });
+                var command = new RecordCourtProceedingCommand(
+                    req.ProceedingDate,
+                    req.OrderType,
+                    req.RestraintNature,
+                    req.Summary,
+                    req.NextDate
+                );
+
+                var result = await courtWorkflow.RecordProceedingAsync(id, command, currentUser.UserId.Value, ct);
+                return Results.Created($"/api/court-cases/{id}/proceedings/{result.Id}", result);
             }
-
-            var proceeding = new CourtProceeding
+            catch (CourtWorkflowException ex)
             {
-                CourtCaseId = id,
-                ProceedingDate = req.ProceedingDate,
-                OrderType = req.OrderType,
-                RestraintNature = req.RestraintNature,
-                Summary = req.Summary,
-                NextDate = req.NextDate,
-                CreatedBy = currentUser.Username ?? "System",
-                RecordStatus = RecordStatus.Active
-            };
-
-            db.Set<CourtProceeding>().Add(proceeding);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/court-cases/{id}/proceedings/{proceeding.Id}", new CourtProceedingDto(
-                proceeding.Id,
-                proceeding.CourtCaseId,
-                proceeding.ProceedingDate,
-                proceeding.OrderType,
-                proceeding.RestraintNature,
-                proceeding.Summary,
-                proceeding.NextDate,
-                proceeding.CreatedAt
-            ));
+                return ex.StatusCode switch
+                {
+                    400 => Results.BadRequest(new { error = ex.Message }),
+                    401 => Results.Unauthorized(),
+                    403 => Results.Forbid(),
+                    404 => Results.NotFound(new { error = ex.Message }),
+                    409 => Results.Conflict(new { error = ex.Message }),
+                    _ => Results.Problem(ex.Message, statusCode: ex.StatusCode)
+                };
+            }
         });
 
         return group;

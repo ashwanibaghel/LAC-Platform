@@ -1592,4 +1592,279 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.Single(feedABucket.Items);
         Assert.Contains("Overdue", feedABucket.Items[0].Buckets);
     }
+
+    [Fact]
+    public async Task Reminders_TrulyPrivatePerUser_Enforced()
+    {
+        var admin = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_REM_{Guid.NewGuid():N}", "Reminders WS");
+        var desk = await CreateDeskAsync($"DSK_REM_{Guid.NewGuid():N}", "Reminders Desk", ws.Id);
+
+        var (userAClient, userA) = await CreateUserWithPermissionsAsync(
+            $"usr_rem_a_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleUpdate, ScopeMode.All),
+                (PermissionCodes.AuditView, ScopeMode.All)
+            },
+            workstreamId: ws.Id,
+            deskId: desk.Id
+        );
+
+        var (userBClient, userB) = await CreateUserWithPermissionsAsync(
+            $"usr_rem_b_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleUpdate, ScopeMode.All),
+                (PermissionCodes.AuditView, ScopeMode.All)
+            },
+            workstreamId: ws.Id,
+            deskId: desk.Id
+        );
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var eventDate = today.AddDays(3);
+
+        // 1. Create an event occurring in 3 days
+        var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            ws.Id, desk.Id, null, "Meeting", "Privacy Test Event", null, eventDate, null, "Routine"
+        ));
+        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
+        var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(evt);
+
+        // 2. User A adds a reminder (5 days before)
+        var addResA = await userAClient.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reminders", new AddReminderApiRequest(
+            5, null, evt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.OK, addResA.StatusCode);
+        var detailAfterA = await addResA.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailAfterA);
+        Assert.Single(detailAfterA.Reminders);
+        var reminderAId = detailAfterA.Reminders[0].Id;
+
+        // 3. User A views event detail: sees reminder and ReminderAdded in history
+        var detailA = await (await userAClient.GetAsync($"/api/scheduled-events/{evt.Id}")).Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailA);
+        Assert.Single(detailA.Reminders);
+        Assert.Equal(reminderAId, detailA.Reminders[0].Id);
+        Assert.Contains(detailA.History, h => h.Action == "ReminderAdded" && h.ActorUserId == userA.Id);
+
+        // 4. User B views event detail: A's reminder is invisible to B; B's history hides A's reminder action
+        var detailB = await (await userBClient.GetAsync($"/api/scheduled-events/{evt.Id}")).Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailB);
+        Assert.Empty(detailB.Reminders);
+        Assert.DoesNotContain(detailB.History, h => h.Action == "ReminderAdded");
+
+        // 5. User B adds their own reminder for 5 days before: succeeds (duplicate rule is per user, not global)
+        var addResB = await userBClient.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reminders", new AddReminderApiRequest(
+            5, null, detailA.Revision
+        ));
+        Assert.Equal(HttpStatusCode.OK, addResB.StatusCode);
+        var detailAfterB = await addResB.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailAfterB);
+        Assert.Single(detailAfterB.Reminders);
+        var reminderBId = detailAfterB.Reminders[0].Id;
+        Assert.NotEqual(reminderAId, reminderBId);
+
+        // 6. User A cannot delete User B's reminder (fails 403)
+        var delBByA = await userAClient.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{reminderBId}?expectedRevision={detailAfterB.Revision}");
+        Assert.Equal(HttpStatusCode.Forbidden, delBByA.StatusCode);
+
+        // 7. Surfacing in My Attention:
+        // Today is eventDate - 3. Reminder is 5 days before, so today >= eventDate - 5 (is active).
+        // User A has 5-day reminder -> reminder-active is true for A
+        var myAttA = await (await userAClient.GetAsync("/api/attention/my")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(myAttA);
+        var itemA = myAttA.Items.FirstOrDefault(i => i.Id == evt.Id);
+        Assert.NotNull(itemA);
+        Assert.True(itemA.IsReminderActive);
+        Assert.Contains("Reminder Active", itemA.Buckets);
+
+        // User B deletes their own reminder -> B no longer has an active reminder
+        var delBByB = await userBClient.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{reminderBId}?expectedRevision={detailAfterB.Revision}");
+        Assert.Equal(HttpStatusCode.OK, delBByB.StatusCode);
+
+        // User B My Attention: A's reminder does NOT make B's My Attention reminder-active
+        var myAttB = await (await userBClient.GetAsync("/api/attention/my")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(myAttB);
+        var itemB = myAttB.Items.FirstOrDefault(i => i.Id == evt.Id);
+        Assert.NotNull(itemB);
+        Assert.False(itemB.IsReminderActive);
+        Assert.DoesNotContain("Reminder Active", itemB.Buckets);
+
+        // 8. Calendar reminder indicator: considers only caller's reminders
+        var calA = await (await userAClient.GetAsync("/api/scheduled-events")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(calA);
+        var calItemA = calA.Items.FirstOrDefault(i => i.Id == evt.Id);
+        Assert.NotNull(calItemA);
+        Assert.True(calItemA.IsReminderActive);
+        Assert.Equal(1, calA.Summary.ReminderActive);
+
+        var calB = await (await userBClient.GetAsync("/api/scheduled-events")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(calB);
+        var calItemB = calB.Items.FirstOrDefault(i => i.Id == evt.Id);
+        Assert.NotNull(calItemB);
+        Assert.False(calItemB.IsReminderActive);
+        Assert.Equal(0, calB.Summary.ReminderActive);
+
+        // 9. Team Activity: does NOT leak personal reminder actions
+        var teamAct = await (await admin.GetAsync("/api/activity/team")).Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(teamAct);
+        Assert.DoesNotContain(teamAct.Items, i => i.Action == "ReminderAdded" || i.Action == "ReminderRemoved");
+
+        // 10. My History: User A sees their own ReminderAdded
+        var myHistA = await (await userAClient.GetAsync("/api/activity/my-history")).Content.ReadFromJsonAsync<ActivityFeedResult>(JsonOpts);
+        Assert.NotNull(myHistA);
+        Assert.Contains(myHistA.Items, i => i.Action == "ReminderAdded" && i.ActorUserId == userA.Id);
+    }
+
+    [Fact]
+    public async Task CourtNDOH_SingleCurrentProjectionPerCase_Synchronized()
+    {
+        var admin = await CreateAdminClientAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences && w.IsActive);
+        if (courtWs == null)
+        {
+            courtWs = new Workstream
+            {
+                Id = Guid.NewGuid(),
+                Code = WorkstreamCodes.CourtReferences,
+                Name = "Court References",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.Workstreams.Add(courtWs);
+            await db.SaveChangesAsync();
+        }
+
+        var courtDesk = new OfficeDesk
+        {
+            Id = Guid.NewGuid(),
+            Code = $"DSK_CRT_{Guid.NewGuid():N}",
+            Name = "Court Desk",
+            WorkstreamId = courtWs.Id,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.OfficeDesks.Add(courtDesk);
+
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_SYNC_{Guid.NewGuid():N}",
+            CourtName = "High Court of Delhi",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+
+        var p1 = new CourtProceeding
+        {
+            Id = Guid.NewGuid(),
+            CourtCaseId = courtCase.Id,
+            ProceedingDate = today.AddDays(1),
+            OrderType = "Notice Issued",
+            NextDate = today.AddDays(10),
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtProceedings.Add(p1);
+        await db.SaveChangesAsync();
+
+        // 1. First promotion creates one current Court NDOH ScheduledEvent
+        var promoteP1Res = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{p1.Id}", new CreateFromCourtProceedingApiRequest(
+            courtDesk.Id, null, "Court NDOH Projection", null, "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Created, promoteP1Res.StatusCode);
+        var schedEvt = await promoteP1Res.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(schedEvt);
+        Assert.Equal(p1.NextDate, schedEvt.ScheduledDate);
+        Assert.Equal(p1.Id, schedEvt.CourtProceedingContext?.EntityId);
+        Assert.Equal("CourtProceeding", schedEvt.Origin);
+        Assert.Equal("Scheduled", schedEvt.Status);
+
+        // 2. Promoting P1 again fails with 409
+        var promoteP1Again = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{p1.Id}", new CreateFromCourtProceedingApiRequest(
+            courtDesk.Id, null, "Court NDOH Duplicate", null, "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, promoteP1Again.StatusCode);
+
+        // 3. Record proceeding P2 with later NextDate (today + 20) via POST /api/court-cases/{id}/proceedings
+        var createP2Res = await admin.PostAsJsonAsync($"/api/court-cases/{courtCase.Id}/proceedings", new CreateCourtProceedingApiRequest(
+            today.AddDays(10), "Arguments Heard", null, "Matter adjourned for orders", today.AddDays(20)
+        ));
+        Assert.Equal(HttpStatusCode.Created, createP2Res.StatusCode);
+        var p2 = await createP2Res.Content.ReadFromJsonAsync<CourtProceedingDto>(JsonOpts);
+        Assert.NotNull(p2);
+
+        // 4. Verify existing schedule projection was synchronized transactionally:
+        // Same event ID, updated ScheduledDate = today + 20, updated CourtProceedingId = p2.Id, revision incremented, Rescheduled history added
+        var detailAfterP2 = await (await admin.GetAsync($"/api/scheduled-events/{schedEvt.Id}")).Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailAfterP2);
+        Assert.Equal(schedEvt.Id, detailAfterP2.Id);
+        Assert.Equal(today.AddDays(20), detailAfterP2.ScheduledDate);
+        Assert.Equal(p2.Id, detailAfterP2.CourtProceedingContext?.EntityId);
+        Assert.True(detailAfterP2.Revision > schedEvt.Revision);
+        var rescheduleHist = detailAfterP2.History.FirstOrDefault(h => h.Action == "Rescheduled");
+        Assert.NotNull(rescheduleHist);
+        Assert.Equal(today.AddDays(10), rescheduleHist.OldScheduledDate);
+        Assert.Equal(today.AddDays(20), rescheduleHist.NewScheduledDate);
+
+        // 5. Old date is no longer actionable; calendar only shows today + 20
+        var calFeed = await (await admin.GetAsync("/api/scheduled-events")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(calFeed);
+        var currentEvtInCal = calFeed.Items.FirstOrDefault(i => i.Id == schedEvt.Id);
+        Assert.NotNull(currentEvtInCal);
+        Assert.Equal(today.AddDays(20), currentEvtInCal.ScheduledDate);
+
+        // 6. Promoting P2 explicitly fails with 409 (cannot create second active projection for the case)
+        var promoteP2Res = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{p2.Id}", new CreateFromCourtProceedingApiRequest(
+            courtDesk.Id, null, "Duplicate Promotion P2", null, "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, promoteP2Res.StatusCode);
+
+        // 7. Generic reschedule/cancel remains forbidden for CourtProceeding origin
+        var genericReschedule = await admin.PostAsJsonAsync($"/api/scheduled-events/{schedEvt.Id}/reschedule", new RescheduleEventApiRequest(
+            today.AddDays(25), null, "Manual change", detailAfterP2.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, genericReschedule.StatusCode);
+
+        var genericCancel = await admin.PostAsJsonAsync($"/api/scheduled-events/{schedEvt.Id}/cancel", new CancelEventApiRequest(
+            "Manual cancel", detailAfterP2.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, genericCancel.StatusCode);
+
+        // 8. Record proceeding P3 with NO NextDate (null): clears current NDOH through terminal transition
+        var createP3Res = await admin.PostAsJsonAsync($"/api/court-cases/{courtCase.Id}/proceedings", new CreateCourtProceedingApiRequest(
+            today.AddDays(20), "Final Order Passed", null, "Disposed of", null
+        ));
+        Assert.Equal(HttpStatusCode.Created, createP3Res.StatusCode);
+
+        var detailAfterP3 = await (await admin.GetAsync($"/api/scheduled-events/{schedEvt.Id}")).Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailAfterP3);
+        Assert.Equal("Completed", detailAfterP3.Status);
+        Assert.Contains(detailAfterP3.History, h => h.Action == "Completed" && h.Reason!.Contains("Superseded"));
+
+        // 9. Cleared schedule no longer appears in actionable My Attention
+        var myAttFeed = await (await admin.GetAsync("/api/attention/my")).Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(myAttFeed);
+        Assert.DoesNotContain(myAttFeed.Items, i => i.Id == schedEvt.Id);
+    }
 }
+

@@ -314,7 +314,7 @@ public sealed class AttentionProjectionService(
             foreach (var e in events)
             {
                 var buckets = ComputeBucketsForDate(e.ScheduledDate, today);
-                var isReminderActive = e.Reminders.Any(r => r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
+                var isReminderActive = e.Reminders.Any(r => r.CreatedByUserId == userId && r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
                 if (isReminderActive) buckets.Add("Reminder Active");
 
                 var needsRouting = !e.ResponsibleOfficeDeskId.HasValue;
@@ -576,7 +576,7 @@ public sealed class AttentionProjectionService(
             foreach (var e in events)
             {
                 var buckets = ComputeBucketsForDate(e.ScheduledDate, today);
-                var isReminderActive = e.Reminders.Any(r => r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
+                var isReminderActive = e.Reminders.Any(r => r.CreatedByUserId == userId && r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
                 if (isReminderActive) buckets.Add("Reminder Active");
 
                 var needsRouting = !e.ResponsibleOfficeDeskId.HasValue;
@@ -834,7 +834,7 @@ public sealed class AttentionProjectionService(
             .Select(e => new {
                 e.ScheduledDate,
                 HasDesk = e.ResponsibleOfficeDeskId.HasValue,
-                HasActiveReminder = e.Reminders.Any(r => r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate)
+                HasActiveReminder = e.Reminders.Any(r => r.CreatedByUserId == userId && r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate)
             })
             .ToListAsync(ct);
 
@@ -864,7 +864,7 @@ public sealed class AttentionProjectionService(
         foreach (var e in events)
         {
             var buckets = ComputeBucketsForDate(e.ScheduledDate, today);
-            var isReminderActive = e.Reminders.Any(r => r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
+            var isReminderActive = e.Reminders.Any(r => r.CreatedByUserId == userId && r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate);
             if (isReminderActive) buckets.Add("Reminder Active");
 
             var dueState = ComputeDueState(e.ScheduledDate, today);
@@ -1022,16 +1022,20 @@ public sealed class AttentionProjectionService(
             );
         }
 
-        var reminders = evt.Reminders.Select(r => new ScheduledReminderDto(
-            r.Id,
-            r.DaysBefore,
-            r.ReminderTime,
-            r.IsActive,
-            r.CreatedByUserId,
-            r.CreatedByDisplayNameSnapshot
-        )).ToList();
+        var reminders = evt.Reminders
+            .Where(r => r.CreatedByUserId == userId && r.IsActive)
+            .Select(r => new ScheduledReminderDto(
+                r.Id,
+                r.DaysBefore,
+                r.ReminderTime,
+                r.IsActive,
+                r.CreatedByUserId,
+                r.CreatedByDisplayNameSnapshot
+            )).ToList();
 
-        var history = evt.Events.Select(h => new ScheduledEventEventDto(
+        var history = evt.Events
+            .Where(h => (h.Action != ScheduledEventAction.ReminderAdded && h.Action != ScheduledEventAction.ReminderRemoved) || h.ActorUserId == userId)
+            .Select(h => new ScheduledEventEventDto(
             h.Id,
             h.SequenceNumber,
             h.Action.ToString(),

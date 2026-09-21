@@ -35,10 +35,16 @@ public static class ScheduledEventModelConfiguration
             entity.HasIndex(x => x.LastActivityAt);
             entity.HasIndex(x => new { x.ScheduledDate, x.Status });
 
-            // Prevent duplicate active CourtProceeding-derived schedule rows
+            // Prevent duplicate active CourtProceeding-derived schedule rows for the same proceeding
             entity.HasIndex(x => x.CourtProceedingId)
                 .IsUnique()
-                .HasFilter("\"CourtProceedingId\" IS NOT NULL AND \"Status\" != 'Cancelled' AND \"RecordStatus\" = 'Active'");
+                .HasFilter("\"CourtProceedingId\" IS NOT NULL AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
+
+            // Enforce single active CourtCase NDOH projection across all proceedings of a CourtCase
+            entity.HasIndex(x => x.CourtCaseId, "IX_ScheduledEvents_CourtCaseId_ActiveCourtProjection")
+                .IsUnique()
+                .HasFilter("\"CourtCaseId\" IS NOT NULL AND \"Origin\" = 'CourtProceeding' AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
+
 
             entity.HasOne(x => x.Workstream)
                 .WithMany()
