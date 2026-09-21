@@ -105,7 +105,7 @@ export function MyAttention() {
   // Open modals
   const openRescheduleModal = (item: AttentionItem) => {
     setSelectedItem(item);
-    setRescheduleDate(item.scheduledDate);
+    setRescheduleDate(item.scheduledDate || '');
     setRescheduleTime(item.scheduledTime || '');
     setRescheduleReason('');
     setActionError(null);
@@ -160,21 +160,21 @@ export function MyAttention() {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/scheduled-events/${selectedItem.sourceEntityId}/reschedule`, {
+      const res = await fetch(`/api/scheduled-events/${selectedItem.id}/reschedule`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          scheduledDate: rescheduleDate,
-          scheduledTime: rescheduleTime || null,
+          newScheduledDate: rescheduleDate,
+          newScheduledTime: rescheduleTime || null,
           reason: rescheduleReason.trim() || null,
-          expectedRevision: 1
+          expectedRevision: selectedItem.revision ?? 1
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Reschedule failed (${res.status})`);
+        throw new Error(errJson.detail || errJson.message || errJson.error || `Reschedule failed (${res.status})`);
       }
 
       closeModal();
@@ -192,7 +192,7 @@ export function MyAttention() {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/scheduled-events/${selectedItem.sourceEntityId}/reassign`, {
+      const res = await fetch(`/api/scheduled-events/${selectedItem.id}/reassign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -200,13 +200,13 @@ export function MyAttention() {
           targetDeskId: targetDeskId || null,
           targetUserId: targetUserId || null,
           reason: reassignReason.trim() || null,
-          expectedRevision: 1
+          expectedRevision: selectedItem.revision ?? 1
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Reassign failed (${res.status})`);
+        throw new Error(errJson.detail || errJson.message || errJson.error || `Reassign failed (${res.status})`);
       }
 
       closeModal();
@@ -224,19 +224,19 @@ export function MyAttention() {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/scheduled-events/${selectedItem.sourceEntityId}/complete`, {
+      const res = await fetch(`/api/scheduled-events/${selectedItem.id}/complete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          completionNotes: completionNotes.trim() || null,
-          expectedRevision: 1
+          notes: completionNotes.trim() || null,
+          expectedRevision: selectedItem.revision ?? 1
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Completion failed (${res.status})`);
+        throw new Error(errJson.detail || errJson.message || errJson.error || `Completion failed (${res.status})`);
       }
 
       closeModal();
@@ -258,19 +258,19 @@ export function MyAttention() {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/scheduled-events/${selectedItem.sourceEntityId}/cancel`, {
+      const res = await fetch(`/api/scheduled-events/${selectedItem.id}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          cancellationReason: cancelReason.trim(),
-          expectedRevision: 1
+          reason: cancelReason.trim(),
+          expectedRevision: selectedItem.revision ?? 1
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Cancellation failed (${res.status})`);
+        throw new Error(errJson.detail || errJson.message || errJson.error || `Cancellation failed (${res.status})`);
       }
 
       closeModal();
@@ -288,19 +288,20 @@ export function MyAttention() {
     setActionError(null);
 
     try {
-      const res = await fetch(`/api/scheduled-events/${selectedItem.sourceEntityId}/reminders`, {
+      const res = await fetch(`/api/scheduled-events/${selectedItem.id}/reminders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           daysBefore: reminderDaysBefore,
-          note: reminderNote.trim() || null
+          reminderTime: null,
+          expectedRevision: selectedItem.revision ?? 1
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || `Add reminder failed (${res.status})`);
+        throw new Error(errJson.detail || errJson.message || errJson.error || `Add reminder failed (${res.status})`);
       }
 
       closeModal();
@@ -312,14 +313,13 @@ export function MyAttention() {
     }
   };
 
-  const summary = data?.summary || {
-    overdueCount: 0,
-    todayCount: 0,
-    tomorrowCount: 0,
-    next7DaysCount: 0,
-    reminderActiveCount: 0,
-    totalActiveCount: 0,
-    needsRoutingCount: 0
+  const summary = {
+    overdueCount: data?.summary ? (data.summary.overdue ?? data.summary.overdueCount ?? 0) : 0,
+    todayCount: data?.summary ? (data.summary.today ?? data.summary.todayCount ?? 0) : 0,
+    tomorrowCount: data?.summary ? (data.summary.tomorrow ?? data.summary.tomorrowCount ?? 0) : 0,
+    next7DaysCount: data?.summary ? (data.summary.next7Days ?? data.summary.next7DaysCount ?? 0) : 0,
+    reminderActiveCount: data?.summary ? (data.summary.reminderActive ?? data.summary.reminderActiveCount ?? 0) : 0,
+    needsRoutingCount: data?.summary ? (data.summary.needsRouting ?? data.summary.needsRoutingCount ?? 0) : 0
   };
 
   const selectedDeskMembers = options?.desks.find((d) => d.id === targetDeskId)?.members || [];
@@ -487,7 +487,7 @@ export function MyAttention() {
               }}
             >
               <option value="">All Workstreams</option>
-              {data?.workstreams.map((ws) => (
+              {(data?.workstreams || data?.workstreamOptions || []).map((ws) => (
                 <option key={ws.id} value={ws.id}>
                   {ws.name}
                 </option>
@@ -506,7 +506,7 @@ export function MyAttention() {
               }}
             >
               <option value="">All Desks</option>
-              {data?.desks.map((d) => (
+              {(data?.desks || data?.deskOptions || []).map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>
@@ -525,10 +525,9 @@ export function MyAttention() {
               }}
             >
               <option value="">All Priorities</option>
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High</option>
+              <option value="Routine">Routine</option>
               <option value="Urgent">Urgent</option>
+              <option value="Immediate">Immediate</option>
             </select>
           </div>
 
@@ -645,9 +644,9 @@ export function MyAttention() {
                       style={{
                         fontWeight: 600,
                         color:
-                          item.priority === 'Urgent'
+                          item.priority === 'Immediate'
                             ? '#dc2626'
-                            : item.priority === 'High'
+                            : item.priority === 'Urgent'
                             ? '#ea580c'
                             : '#475569'
                       }}
@@ -676,12 +675,12 @@ export function MyAttention() {
                   <div className="feed-actions">
                     {/* Source navigation */}
                     {item.sourceType === 'WorkItemDue' && (
-                      <Link to={`/work/${item.sourceEntityId}`} className="btn-sm btn-primary">
+                      <Link to={`/work/${item.sourceEntityId || item.id}`} className="btn-sm btn-primary">
                         Open Work Item
                       </Link>
                     )}
                     {item.sourceType === 'DakDue' && (
-                      <Link to={`/dak/${item.sourceEntityId}`} className="btn-sm btn-primary">
+                      <Link to={`/dak/${item.sourceEntityId || item.id}`} className="btn-sm btn-primary">
                         Open Dak
                       </Link>
                     )}
@@ -689,7 +688,15 @@ export function MyAttention() {
                     {/* ScheduledEvent Actions */}
                     {item.sourceType === 'ScheduledEvent' && (
                       <>
-                        {item.capabilities.canReschedule && (
+                        <Link
+                          to={`/calendar?eventId=${item.id}`}
+                          className="btn-sm"
+                          title="View details in Calendar"
+                        >
+                          📅 Calendar
+                        </Link>
+
+                        {item.capabilities?.canReschedule && (
                           <button
                             className="btn-sm"
                             onClick={() => openRescheduleModal(item)}
@@ -699,7 +706,7 @@ export function MyAttention() {
                           </button>
                         )}
 
-                        {item.capabilities.canReassign && (
+                        {item.capabilities?.canReassign && (
                           <button
                             className="btn-sm"
                             onClick={() => openReassignModal(item)}
@@ -709,17 +716,17 @@ export function MyAttention() {
                           </button>
                         )}
 
-                        {item.capabilities.canManageReminders && (
+                        {item.capabilities?.canManageReminders && (
                           <button
                             className="btn-sm"
                             onClick={() => openReminderModal(item)}
                             title="Manage reminders"
                           >
-                            🔔 Reminders ({item.activeRemindersCount})
+                            🔔 Reminders ({item.activeRemindersCount ?? 0})
                           </button>
                         )}
 
-                        {item.capabilities.canComplete && (
+                        {item.capabilities?.canComplete && (
                           <button
                             className="btn-sm btn-success"
                             onClick={() => openCompleteModal(item)}
@@ -729,7 +736,7 @@ export function MyAttention() {
                           </button>
                         )}
 
-                        {item.capabilities.canCancel && (
+                        {item.capabilities?.canCancel && (
                           <button
                             className="btn-sm btn-danger"
                             onClick={() => openCancelModal(item)}

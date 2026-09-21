@@ -246,7 +246,8 @@ namespace LAC.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_ScheduledEventEvents_ScheduledEventId_SequenceNumber",
                 table: "ScheduledEventEvents",
-                columns: new[] { "ScheduledEventId", "SequenceNumber" });
+                columns: new[] { "ScheduledEventId", "SequenceNumber" },
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_ScheduledEventEvents_SourceDeskId",

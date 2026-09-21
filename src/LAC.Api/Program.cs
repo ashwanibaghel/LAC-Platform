@@ -70,6 +70,7 @@ builder.Services.AddScoped<IScheduleAuthorizationService, ScheduleAuthorizationS
 builder.Services.AddScoped<IScheduleWorkflowService, ScheduleWorkflowService>();
 builder.Services.AddScoped<IAttentionProjectionService, AttentionProjectionService>();
 builder.Services.AddScoped<IActivityProjectionService, ActivityProjectionService>();
+builder.Services.AddScoped<ICourtAuthorizationService, CourtAuthorizationService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -131,6 +132,7 @@ api.MapWorkItemEndpoints();
 api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
 api.MapAttentionEndpoints();
+api.MapCourtEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     var path = context.HttpContext.Request.Path.Value ?? "";

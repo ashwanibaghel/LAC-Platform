@@ -8,7 +8,14 @@ public enum ScheduledEventKind
     Compliance = 3,
     Review = 4,
     Meeting = 5,
-    Other = 6
+    Other = 6,
+    ComplianceDeadline = 7,
+    SiteInspection = 8,
+    OrderDelivery = 9,
+    CompensationDisbursement = 10,
+    ReportSubmission = 11,
+    NoticeExpiry = 12,
+    DakCompliance = 13
 }
 
 public enum ScheduledEventStatus

@@ -85,8 +85,8 @@ public static class ScheduleEndpoints
     {
         var group = api.MapGroup("/scheduled-events");
 
-        // 1. Calendar / Events Query
-        group.MapGet("", async (
+        // 1. Calendar / Events Query (both / and /calendar supported)
+        async Task<IResult> QueryCalendarEvents(
             DateOnly? fromDate,
             DateOnly? toDate,
             string? sourceType,
@@ -100,7 +100,7 @@ public static class ScheduleEndpoints
             int? pageSize,
             IAttentionProjectionService projection,
             ICurrentUserContext currentUser,
-            CancellationToken ct) =>
+            CancellationToken ct)
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var query = new CalendarQuery(
@@ -126,7 +126,10 @@ public static class ScheduleEndpoints
             {
                 return Results.Json(new { error = ex.Message }, statusCode: ex.StatusCode);
             }
-        });
+        }
+
+        group.MapGet("", QueryCalendarEvents);
+        group.MapGet("/calendar", QueryCalendarEvents);
 
         // 2. Options for create / reassign UI
         group.MapGet("/options", async (
@@ -161,13 +164,19 @@ public static class ScheduleEndpoints
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
 
-            var kind = Enum.TryParse<ScheduledEventKind>(req.EventKind, true, out var parsedKind)
-                ? parsedKind
-                : ScheduledEventKind.Other;
+            if (!Enum.TryParse<ScheduledEventKind>(req.EventKind, true, out var kind))
+            {
+                return Results.BadRequest(new { error = $"Invalid EventKind '{req.EventKind}'." });
+            }
 
-            var priority = Enum.TryParse<ScheduledEventPriority>(req.Priority, true, out var parsedPriority)
-                ? parsedPriority
-                : ScheduledEventPriority.Routine;
+            ScheduledEventPriority priority = ScheduledEventPriority.Routine;
+            if (!string.IsNullOrWhiteSpace(req.Priority))
+            {
+                if (!Enum.TryParse<ScheduledEventPriority>(req.Priority, true, out priority))
+                {
+                    return Results.BadRequest(new { error = $"Invalid Priority '{req.Priority}'." });
+                }
+            }
 
             var command = new CreateScheduledEventCommand(
                 WorkstreamId: req.WorkstreamId,
@@ -325,7 +334,6 @@ public static class ScheduleEndpoints
             Guid id,
             Guid reminderId,
             int? expectedRevision,
-            LacDbContext db,
             IScheduleWorkflowService workflow,
             IAttentionProjectionService projection,
             ICurrentUserContext currentUser,
@@ -333,19 +341,12 @@ public static class ScheduleEndpoints
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
 
-            int rev;
-            if (expectedRevision.HasValue)
+            if (!expectedRevision.HasValue || expectedRevision.Value <= 0)
             {
-                rev = expectedRevision.Value;
-            }
-            else
-            {
-                var current = await db.ScheduledEvents.AsNoTracking().Where(e => e.Id == id).Select(e => (int?)e.Revision).FirstOrDefaultAsync(ct);
-                if (!current.HasValue) return Results.NotFound(new { error = "Scheduled event not found." });
-                rev = current.Value;
+                return Results.BadRequest(new { error = "expectedRevision query parameter is required and must be greater than 0." });
             }
 
-            var command = new RemoveReminderCommand(rev);
+            var command = new RemoveReminderCommand(expectedRevision.Value);
 
             try
             {
@@ -387,7 +388,6 @@ public static class ScheduleEndpoints
         group.MapDelete("/{id:guid}/work-item", async (
             Guid id,
             int? expectedRevision,
-            LacDbContext db,
             IScheduleWorkflowService workflow,
             IAttentionProjectionService projection,
             ICurrentUserContext currentUser,
@@ -395,19 +395,12 @@ public static class ScheduleEndpoints
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
 
-            int rev;
-            if (expectedRevision.HasValue)
+            if (!expectedRevision.HasValue || expectedRevision.Value <= 0)
             {
-                rev = expectedRevision.Value;
-            }
-            else
-            {
-                var current = await db.ScheduledEvents.AsNoTracking().Where(e => e.Id == id).Select(e => (int?)e.Revision).FirstOrDefaultAsync(ct);
-                if (!current.HasValue) return Results.NotFound(new { error = "Scheduled event not found." });
-                rev = current.Value;
+                return Results.BadRequest(new { error = "expectedRevision query parameter is required and must be greater than 0." });
             }
 
-            var command = new UnlinkWorkItemCommand(rev);
+            var command = new UnlinkWorkItemCommand(expectedRevision.Value);
 
             try
             {
@@ -433,8 +426,12 @@ public static class ScheduleEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
 
             ScheduledEventPriority? priority = null;
-            if (!string.IsNullOrWhiteSpace(req.Priority) && Enum.TryParse<ScheduledEventPriority>(req.Priority, true, out var parsedPriority))
+            if (!string.IsNullOrWhiteSpace(req.Priority))
             {
+                if (!Enum.TryParse<ScheduledEventPriority>(req.Priority, true, out var parsedPriority))
+                {
+                    return Results.BadRequest(new { error = $"Invalid Priority '{req.Priority}'." });
+                }
                 priority = parsedPriority;
             }
 

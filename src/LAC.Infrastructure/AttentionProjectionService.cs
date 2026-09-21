@@ -192,7 +192,8 @@ public sealed class AttentionProjectionService(
     IWorkItemAuthorizationService workItemAuth,
     IMatterAuthorizationService matterAuth,
     IDakAuthorizationService dakAuth,
-    IOutwardAuthorizationService outwardAuth) : IAttentionProjectionService
+    IOutwardAuthorizationService outwardAuth,
+    ICourtAuthorizationService courtAuth) : IAttentionProjectionService
 {
     private static readonly TimeZoneInfo DelhiZone = GetDelhiTimeZone();
 
@@ -254,6 +255,7 @@ public sealed class AttentionProjectionService(
         var hasScheduleAll = scheduleViewScopes.Contains(ScopeMode.All);
         var hasScheduleWs = scheduleViewScopes.Contains(ScopeMode.Workstream);
         var hasScheduleAssigned = scheduleViewScopes.Contains(ScopeMode.Assigned);
+        var canViewSchedule = hasScheduleAll || hasScheduleWs || hasScheduleAssigned;
 
         // Check WorkItem.View permissions
         var workItemViewScopes = await (from ur in db.UserRoles
@@ -264,17 +266,23 @@ public sealed class AttentionProjectionService(
                                         select rp.ScopeMode).Distinct().ToListAsync(ct);
 
         // Check Dak.View permissions
-        var hasDakView = await (from ur in db.UserRoles
-                                join r in db.Roles on ur.RoleId equals r.Id
-                                join rp in db.RolePermissions on r.Id equals rp.RoleId
-                                join p in db.Permissions on rp.PermissionId equals p.Id
-                                where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.DakView
-                                select rp.ScopeMode).AnyAsync(ct);
+        var dakViewScopes = await (from ur in db.UserRoles
+                                   join r in db.Roles on ur.RoleId equals r.Id
+                                   join rp in db.RolePermissions on r.Id equals rp.RoleId
+                                   join p in db.Permissions on rp.PermissionId equals p.Id
+                                   where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.DakView
+                                   select rp.ScopeMode).Distinct().ToListAsync(ct);
+
+        // If caller has no Schedule.View, WorkItem.View, or Dak.View, fail closed with empty feed & 0 counts
+        if (!canViewSchedule && workItemViewScopes.Count == 0 && dakViewScopes.Count == 0)
+        {
+            return new AttentionFeedResult(new AttentionSummaryDto(0, 0, 0, 0, 0, 0), [], 0, query.Page, query.PageSize);
+        }
 
         var rawItems = new List<AttentionItemDto>();
 
-        // 1. ScheduledEvents: Only where caller has exact Schedule.View
-        if (scheduleViewScopes.Count > 0)
+        // 1. ScheduledEvents: Exact union-of-scopes under Schedule.View (ScopeMode.Own fails closed)
+        if (canViewSchedule)
         {
             var eventQuery = db.ScheduledEvents.AsNoTracking()
                 .Include(e => e.Workstream)
@@ -287,10 +295,14 @@ public sealed class AttentionProjectionService(
 
             if (!hasScheduleAll)
             {
-                if (hasScheduleWs)
+                if (hasScheduleWs && hasScheduleAssigned)
                 {
                     eventQuery = eventQuery.Where(e => activeWsIds.Contains(e.WorkstreamId)
                         || (e.ResponsibleOfficeDeskId.HasValue && activeDeskIds.Contains(e.ResponsibleOfficeDeskId.Value)));
+                }
+                else if (hasScheduleWs)
+                {
+                    eventQuery = eventQuery.Where(e => activeWsIds.Contains(e.WorkstreamId));
                 }
                 else if (hasScheduleAssigned)
                 {
@@ -429,53 +441,59 @@ public sealed class AttentionProjectionService(
         }
 
         // 3. DakDue: Exact Dak.View and live membership in current responsible Dak desk
-        if (hasDakView && activeDeskIds.Count > 0)
+        if (dakViewScopes.Count > 0 && activeDeskIds.Count > 0)
         {
-            var dakQuery = db.Daks.AsNoTracking()
+            var baseDakQuery = db.Daks.AsNoTracking()
                 .Include(d => d.Workstream)
                 .Include(d => d.CurrentAssignment).ThenInclude(a => a!.OfficeDesk)
                 .Include(d => d.CurrentAssignment).ThenInclude(a => a!.AssignedUser)
                 .Where(d => d.RecordStatus == RecordStatus.Active
                          && d.Status != DakStatus.Disposed
                          && d.Status != DakStatus.Cancelled
-                         && d.DueDate.HasValue
-                         && d.CurrentAssignment != null
-                         && d.CurrentAssignment.IsActive
-                         && d.CurrentAssignment.RecordStatus == RecordStatus.Active
-                         && activeDeskIds.Contains(d.CurrentAssignment.OfficeDeskId));
+                         && d.DueDate.HasValue);
 
-            var daks = await dakQuery.ToListAsync(ct);
-            foreach (var d in daks)
+            var authDakResult = await dakAuth.AuthorizeListQueryAsync(baseDakQuery, PermissionCodes.DakView, userId, ct);
+            if (authDakResult.HasPermission)
             {
-                var buckets = ComputeBucketsForDate(d.DueDate!.Value, today);
-                var dueState = ComputeDueState(d.DueDate.Value, today);
-                var canOpen = await dakAuth.CanAccessDakAsync(d.Id, PermissionCodes.DakView, userId, ct);
+                var dakQuery = authDakResult.Query.Where(d =>
+                    d.CurrentAssignment != null
+                    && d.CurrentAssignment.IsActive
+                    && d.CurrentAssignment.RecordStatus == RecordStatus.Active
+                    && activeDeskIds.Contains(d.CurrentAssignment.OfficeDeskId));
 
-                rawItems.Add(new AttentionItemDto(
-                    d.Id,
-                    "DakDue",
-                    d.Subject,
-                    dueState,
-                    d.DueDate.Value,
-                    null,
-                    null,
-                    d.WorkstreamId,
-                    d.Workstream?.Code,
-                    d.Workstream?.Name,
-                    d.CurrentAssignment?.OfficeDeskId,
-                    d.CurrentAssignment?.OfficeDesk.Code,
-                    d.CurrentAssignment?.OfficeDesk.Name,
-                    d.CurrentAssignment?.AssignedUserId,
-                    d.CurrentAssignment?.AssignedUser?.DisplayName,
-                    d.Priority.ToString(),
-                    d.Status.ToString(),
-                    null,
-                    buckets,
-                    false,
-                    false,
-                    d.UpdatedAt,
-                    new AttentionContextDto("Dak", d.Id, d.Subject, d.DiaryNumber, canOpen, canOpen ? $"/dak?selectedId={d.Id}" : null)
-                ));
+                var daks = await dakQuery.ToListAsync(ct);
+                foreach (var d in daks)
+                {
+                    var buckets = ComputeBucketsForDate(d.DueDate!.Value, today);
+                    var dueState = ComputeDueState(d.DueDate.Value, today);
+                    var canOpen = await dakAuth.CanAccessDakAsync(d.Id, PermissionCodes.DakView, userId, ct);
+
+                    rawItems.Add(new AttentionItemDto(
+                        d.Id,
+                        "DakDue",
+                        d.Subject,
+                        dueState,
+                        d.DueDate.Value,
+                        null,
+                        null,
+                        d.WorkstreamId,
+                        d.Workstream?.Code,
+                        d.Workstream?.Name,
+                        d.CurrentAssignment?.OfficeDeskId,
+                        d.CurrentAssignment?.OfficeDesk.Code,
+                        d.CurrentAssignment?.OfficeDesk.Name,
+                        d.CurrentAssignment?.AssignedUserId,
+                        d.CurrentAssignment?.AssignedUser?.DisplayName,
+                        d.Priority.ToString(),
+                        d.Status.ToString(),
+                        null,
+                        buckets,
+                        false,
+                        false,
+                        d.UpdatedAt,
+                        new AttentionContextDto("Dak", d.Id, d.Subject, d.DiaryNumber, canOpen, canOpen ? $"/dak?selectedId={d.Id}" : null)
+                    ));
+                }
             }
         }
 
@@ -803,7 +821,26 @@ public sealed class AttentionProjectionService(
             eventQuery = eventQuery.Where(e => e.Title.ToLower().Contains(term) || (e.Description != null && e.Description.ToLower().Contains(term)));
         }
 
+        var today = officeClock.GetCurrentDate();
         var totalCount = await eventQuery.CountAsync(ct);
+
+        var summaryData = await eventQuery
+            .Select(e => new {
+                e.ScheduledDate,
+                HasDesk = e.ResponsibleOfficeDeskId.HasValue,
+                HasActiveReminder = e.Reminders.Any(r => r.IsActive && today >= e.ScheduledDate.AddDays(-r.DaysBefore) && today <= e.ScheduledDate)
+            })
+            .ToListAsync(ct);
+
+        var summary = new AttentionSummaryDto(
+            summaryData.Count(x => x.ScheduledDate < today),
+            summaryData.Count(x => x.ScheduledDate == today),
+            summaryData.Count(x => x.ScheduledDate == today.AddDays(1)),
+            summaryData.Count(x => x.ScheduledDate >= today && x.ScheduledDate <= today.AddDays(7)),
+            summaryData.Count(x => x.HasActiveReminder),
+            summaryData.Count(x => !x.HasDesk)
+        );
+
         var page = Math.Clamp(query.Page, 1, 100);
         var pageSize = Math.Clamp(query.PageSize, 1, 200);
 
@@ -816,7 +853,6 @@ public sealed class AttentionProjectionService(
             .Take(pageSize)
             .ToListAsync(ct);
 
-        var today = officeClock.GetCurrentDate();
         var items = new List<AttentionItemDto>();
 
         foreach (var e in events)
@@ -854,15 +890,6 @@ public sealed class AttentionProjectionService(
                 context
             ));
         }
-
-        var summary = new AttentionSummaryDto(
-            items.Count(x => x.Buckets.Contains("Overdue")),
-            items.Count(x => x.Buckets.Contains("Today")),
-            items.Count(x => x.Buckets.Contains("Tomorrow")),
-            items.Count(x => x.Buckets.Contains("Next 7 Days")),
-            items.Count(x => x.IsReminderActive),
-            items.Count(x => x.NeedsRouting)
-        );
 
         return new AttentionFeedResult(summary, items, totalCount, page, pageSize);
     }
@@ -963,28 +990,32 @@ public sealed class AttentionProjectionService(
         AttentionContextDto? courtCaseCtx = null;
         if (evt.CourtCaseId.HasValue)
         {
-            var ccase = await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == evt.CourtCaseId.Value, ct);
+            var canViewCourt = await courtAuth.CanViewCourtCaseAsync(evt.CourtCaseId.Value, userId, ct);
+            var navUrl = canViewCourt ? await courtAuth.GetCourtCaseNavigationUrlAsync(evt.CourtCaseId.Value, userId, ct) : null;
+            var ccase = canViewCourt ? await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == evt.CourtCaseId.Value, ct) : null;
             courtCaseCtx = new AttentionContextDto(
                 "CourtCase",
                 evt.CourtCaseId.Value,
-                ccase != null ? $"{ccase.CourtName} - {ccase.CaseNumber}" : null,
-                ccase?.CaseNumber,
-                true,
-                $"/court-cases/{evt.CourtCaseId.Value}"
+                canViewCourt && ccase != null ? $"{ccase.CourtName} - {ccase.CaseNumber}" : null,
+                canViewCourt ? ccase?.CaseNumber : null,
+                canViewCourt && navUrl != null,
+                navUrl
             );
         }
 
         AttentionContextDto? courtProcCtx = null;
         if (evt.CourtProceedingId.HasValue)
         {
-            var proc = await db.CourtProceedings.Include(p => p.CourtCase).FirstOrDefaultAsync(p => p.Id == evt.CourtProceedingId.Value, ct);
+            var canViewCourt = evt.CourtCaseId.HasValue && await courtAuth.CanViewCourtCaseAsync(evt.CourtCaseId.Value, userId, ct);
+            var navUrl = canViewCourt && evt.CourtCaseId.HasValue ? await courtAuth.GetCourtCaseNavigationUrlAsync(evt.CourtCaseId.Value, userId, ct) : null;
+            var proc = canViewCourt ? await db.CourtProceedings.Include(p => p.CourtCase).FirstOrDefaultAsync(p => p.Id == evt.CourtProceedingId.Value, ct) : null;
             courtProcCtx = new AttentionContextDto(
                 "CourtProceeding",
                 evt.CourtProceedingId.Value,
-                proc != null ? $"Proceeding: {proc.CourtCase.CaseNumber} ({proc.ProceedingDate:dd MMM yyyy})" : null,
-                proc?.ProceedingDate?.ToString("yyyy-MM-dd"),
-                true,
-                $"/court-cases/{evt.CourtCaseId}"
+                canViewCourt && proc != null ? $"Proceeding: {proc.CourtCase.CaseNumber} ({proc.ProceedingDate:dd MMM yyyy})" : null,
+                canViewCourt ? proc?.ProceedingDate?.ToString("yyyy-MM-dd") : null,
+                canViewCourt && navUrl != null,
+                navUrl
             );
         }
 
@@ -1102,8 +1133,12 @@ public sealed class AttentionProjectionService(
     {
         if (e.CourtCaseId.HasValue)
         {
+            var canViewCourt = await courtAuth.CanViewCourtCaseAsync(e.CourtCaseId.Value, userId, ct);
+            if (!canViewCourt) return null;
+
             var courtCase = await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == e.CourtCaseId.Value, ct);
-            return new AttentionContextDto("CourtCase", e.CourtCaseId.Value, courtCase?.CaseNumber, courtCase?.CourtName, true, $"/court-cases/{e.CourtCaseId.Value}");
+            var navUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(e.CourtCaseId.Value, userId, ct);
+            return new AttentionContextDto("CourtCase", e.CourtCaseId.Value, courtCase?.CaseNumber, courtCase?.CourtName, navUrl != null, navUrl);
         }
 
         if (e.WorkItemId.HasValue)

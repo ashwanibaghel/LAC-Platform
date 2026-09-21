@@ -139,7 +139,7 @@ public static class ScheduledEventModelConfiguration
             entity.HasIndex(x => x.WorkstreamIdSnapshot);
             entity.HasIndex(x => x.SourceDeskId);
             entity.HasIndex(x => x.TargetDeskId);
-            entity.HasIndex(x => new { x.ScheduledEventId, x.SequenceNumber });
+            entity.HasIndex(x => new { x.ScheduledEventId, x.SequenceNumber }).IsUnique();
 
             entity.HasOne(x => x.ActorUser)
                 .WithMany()

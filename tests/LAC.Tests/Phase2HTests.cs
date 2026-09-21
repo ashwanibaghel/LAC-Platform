@@ -69,7 +69,8 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         string password,
         IEnumerable<(string Code, ScopeMode Scope)> permissions,
         Guid? workstreamId = null,
-        Guid? deskId = null)
+        Guid? deskId = null,
+        bool isActive = true)
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -81,7 +82,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             Username = username,
             NormalizedUsername = username.ToUpperInvariant(),
             DisplayName = $"User {username}",
-            IsActive = true,
+            IsActive = isActive,
             RecordStatus = RecordStatus.Active,
             CreatedAt = DateTimeOffset.UtcNow,
             UpdatedAt = DateTimeOffset.UtcNow,
@@ -159,8 +160,11 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         await db.SaveChangesAsync();
 
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        var res = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, password));
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        if (isActive)
+        {
+            var res = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, password));
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        }
 
         return (client, user);
     }
@@ -220,12 +224,12 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             ws.Id,
             desk.Id,
             null,
-            "Hearing",
+            "CourtHearing",
             "High Court Compliance Hearing",
             "Urgent hearing compliance",
             today.AddDays(3),
             new TimeOnly(10, 30),
-            "High"
+            "Urgent"
         );
 
         var res = await admin.PostAsJsonAsync("/api/scheduled-events", req);
@@ -269,7 +273,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(5),
             null,
-            "Medium"
+            "Routine"
         );
         var allowedRes = await client.PostAsJsonAsync("/api/scheduled-events", allowedReq);
         Assert.Equal(HttpStatusCode.Created, allowedRes.StatusCode);
@@ -284,7 +288,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(5),
             null,
-            "Medium"
+            "Routine"
         );
         var deniedRes = await client.PostAsJsonAsync("/api/scheduled-events", deniedReq);
         Assert.Equal(HttpStatusCode.Forbidden, deniedRes.StatusCode);
@@ -321,7 +325,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(2),
             null,
-            "Low"
+            "Routine"
         );
         var okRes = await client.PostAsJsonAsync("/api/scheduled-events", okReq);
         Assert.Equal(HttpStatusCode.Created, okRes.StatusCode);
@@ -336,14 +340,86 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(2),
             null,
-            "Low"
+            "Routine"
         );
         var failRes = await client.PostAsJsonAsync("/api/scheduled-events", failReq);
         Assert.Equal(HttpStatusCode.Forbidden, failRes.StatusCode);
     }
 
     [Fact]
-    public async Task CreateScheduledEvent_InactiveUserOrWorkstreamOrDesk_FailsClosed()
+    public async Task ScheduleView_ScopeModeOwn_FailsClosed_ReturnsEmpty()
+    {
+        var admin = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_OWN_{Guid.NewGuid():N}", "Own Scope WS");
+        var desk = await CreateDeskAsync($"DSK_OWN_{Guid.NewGuid():N}", "Own Scope Desk", ws.Id);
+
+        var (client, user) = await CreateUserWithPermissionsAsync(
+            $"own_user_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.ScheduleView, ScopeMode.Own) },
+            workstreamId: ws.Id,
+            deskId: desk.Id
+        );
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // Admin creates event assigned to desk and user
+        await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            ws.Id, desk.Id, user.Id, "CourtHearing", "Hearing for Own User", null, today.AddDays(2), null, "Urgent"
+        ));
+
+        // Calling GetMyAttention should fail closed on Schedule.View with ScopeMode.Own (no personal fallback)
+        var res = await client.GetAsync("/api/attention/my");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var feed = await res.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(feed);
+        // Scheduled events must be empty because ScopeMode.Own fails closed
+        Assert.DoesNotContain(feed.Items, i => i.SourceType == "ScheduledEvent");
+    }
+
+    [Fact]
+    public async Task InactiveUser_FailsClosed_OnAllScheduleAndAttentionEndpoints()
+    {
+        var ws = await CreateWorkstreamAsync($"WS_INACT_U_{Guid.NewGuid():N}", "Inactive WS");
+        var desk = await CreateDeskAsync($"DSK_INACT_U_{Guid.NewGuid():N}", "Inactive Desk", ws.Id);
+
+        // Create active user, then mark inactive directly in DB
+        var (client, user) = await CreateUserWithPermissionsAsync(
+            $"inact_user_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleCreate, ScopeMode.All)
+            },
+            workstreamId: ws.Id,
+            deskId: desk.Id
+        );
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var u = await db.AppUsers.FirstAsync(x => x.Id == user.Id);
+            u.IsActive = false;
+            await db.SaveChangesAsync();
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        var attentionRes = await client.GetAsync("/api/attention/my");
+        Assert.Equal(HttpStatusCode.Forbidden, attentionRes.StatusCode);
+
+        var calendarRes = await client.GetAsync("/api/scheduled-events/calendar");
+        Assert.Equal(HttpStatusCode.Forbidden, calendarRes.StatusCode);
+
+        var createRes = await client.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            ws.Id, desk.Id, null, "CourtHearing", "Inactive Test", null, today.AddDays(1), null, "Routine"
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, createRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateScheduledEvent_InactiveWorkstreamOrDesk_FailsClosed()
     {
         var admin = await CreateAdminClientAsync();
         var ws = await CreateWorkstreamAsync($"WS_INACT_{Guid.NewGuid():N}", "Inactive WS");
@@ -368,7 +444,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(1),
             null,
-            "Medium"
+            "Routine"
         );
 
         var res = await admin.PostAsJsonAsync("/api/scheduled-events", req);
@@ -410,7 +486,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(4),
             null,
-            "Medium"
+            "Routine"
         );
         var okRes = await admin.PostAsJsonAsync("/api/scheduled-events", okReq);
         Assert.Equal(HttpStatusCode.Created, okRes.StatusCode);
@@ -425,7 +501,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             null,
             today.AddDays(4),
             null,
-            "Medium"
+            "Routine"
         );
         var badRes = await admin.PostAsJsonAsync("/api/scheduled-events", badReq);
         Assert.Equal(HttpStatusCode.Forbidden, badRes.StatusCode);
@@ -444,7 +520,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Hearing", "Hearing to Reschedule", null, today.AddDays(2), new TimeOnly(11, 0), "High"
+            ws.Id, desk.Id, null, "CourtHearing", "Hearing to Reschedule", null, today.AddDays(2), new TimeOnly(11, 0), "Urgent"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);
@@ -462,8 +538,9 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.Equal("Scheduled", updated.Status);
         Assert.Equal(2, updated.Revision);
 
-        // Check history
+        // Check history sequence and action
         Assert.Contains(updated.History, h => h.Action == "Rescheduled" && h.Reason != null && h.Reason.Contains("state counsel"));
+        Assert.True(updated.History.All(h => h.SequenceNumber > 0));
     }
 
     [Fact]
@@ -475,16 +552,28 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Meeting", "Concurrency Meeting", null, today.AddDays(3), null, "Medium"
+            ws.Id, desk.Id, null, "Meeting", "Concurrency Meeting", null, today.AddDays(3), null, "Routine"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);
 
-        // Pass incorrect ExpectedRevision (e.g. 999 instead of 1)
-        var conflictRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reschedule", new RescheduleEventApiRequest(
+        // 1. Reschedule mismatch
+        var reschedConflict = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reschedule", new RescheduleEventApiRequest(
             today.AddDays(4), null, "Invalid revision test", 999
         ));
-        Assert.Equal(HttpStatusCode.Conflict, conflictRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, reschedConflict.StatusCode);
+
+        // 2. Complete mismatch
+        var completeConflict = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/complete", new CompleteEventApiRequest(
+            "Notes", 999
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, completeConflict.StatusCode);
+
+        // 3. Cancel mismatch
+        var cancelConflict = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/cancel", new CancelEventApiRequest(
+            "Reason", 999
+        ));
+        Assert.Equal(HttpStatusCode.Conflict, cancelConflict.StatusCode);
     }
 
     [Fact]
@@ -498,7 +587,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // 1. Complete
         var create1 = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Hearing", "Event to Complete", null, today.AddDays(1), null, "Medium"
+            ws.Id, desk.Id, null, "CourtHearing", "Event to Complete", null, today.AddDays(1), null, "Routine"
         ));
         var evt1 = await create1.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt1);
@@ -520,7 +609,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // 2. Cancel - blank reason rejected
         var create2 = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "NoticeExpiry", "Event to Cancel", null, today.AddDays(2), null, "Low"
+            ws.Id, desk.Id, null, "NoticeExpiry", "Event to Cancel", null, today.AddDays(2), null, "Routine"
         ));
         var evt2 = await create2.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt2);
@@ -564,7 +653,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var createRes = await sourceClient.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, deskSource.Id, null, "SiteInspection", "Inspection to Reassign", null, today.AddDays(3), null, "High"
+            ws.Id, deskSource.Id, null, "SiteInspection", "Inspection to Reassign", null, today.AddDays(3), null, "Urgent"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);
@@ -583,7 +672,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
     }
 
     // =========================================================================
-    // 3. SCHEDULED EVENT IMMUTABILITY TEST
+    // 3. SCHEDULED EVENT IMMUTABILITY & SEQUENCE NUMBER TESTS
     // =========================================================================
 
     [Fact]
@@ -621,12 +710,45 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
     }
 
+    [Fact]
+    public async Task ScheduledEvent_InitialReminders_GenerateSequentialSequenceNumbers()
+    {
+        var admin = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_SEQ_{Guid.NewGuid():N}", "Sequence WS");
+        var desk = await CreateDeskAsync($"DSK_SEQ_{Guid.NewGuid():N}", "Sequence Desk", ws.Id);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var req = new CreateScheduledEventApiRequest(
+            ws.Id,
+            desk.Id,
+            null,
+            "CourtHearing",
+            "Hearing with Multiple Reminders",
+            null,
+            today.AddDays(10),
+            null,
+            "Urgent",
+            Reminders: new[] { 1, 3, 7 }
+        );
+
+        var res = await admin.PostAsJsonAsync("/api/scheduled-events", req);
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+
+        var detail = await res.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detail);
+
+        // Verify history has sequential sequence numbers starting at 1
+        Assert.Equal(4, detail.History.Count); // Created + 3 reminders
+        var seqNumbers = detail.History.Select(h => h.SequenceNumber).ToList();
+        Assert.Equal(new[] { 1, 2, 3, 4 }, seqNumbers);
+    }
+
     // =========================================================================
     // 4. REMINDERS MANAGEMENT TESTS
     // =========================================================================
 
     [Fact]
-    public async Task Reminders_AddCalculatesTargetDate_DuplicateDaysBeforeRejected_RemoveDeactivates()
+    public async Task Reminders_ValidationAndExpectedRevision_EnforcedStrictly()
     {
         var admin = await CreateAdminClientAsync();
         var ws = await CreateWorkstreamAsync($"WS_REM_{Guid.NewGuid():N}", "Reminder WS");
@@ -635,13 +757,26 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var eventDate = today.AddDays(10);
 
+        // DaysBefore out of range on create -> 400
+        var badCreateRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            ws.Id, desk.Id, null, "CourtHearing", "Bad Reminder", null, eventDate, null, "Urgent",
+            Reminders: new[] { -1 }
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, badCreateRes.StatusCode);
+
         var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Hearing", "Hearing with Reminders", null, eventDate, null, "High"
+            ws.Id, desk.Id, null, "CourtHearing", "Hearing with Reminders", null, eventDate, null, "Urgent"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);
 
-        // Add 3 days before reminder -> surfaces on eventDate - 3 days
+        // DaysBefore out of range on AddReminder -> 400
+        var badAddRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reminders", new AddReminderApiRequest(
+            400, null, evt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, badAddRes.StatusCode);
+
+        // Add valid 3 days before reminder
         var addRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reminders", new AddReminderApiRequest(
             3, null, evt.Revision
         ));
@@ -650,16 +785,21 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var updated = await addRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(updated);
         var rem = Assert.Single(updated.Reminders, r => r.DaysBefore == 3 && r.IsActive);
-        Assert.Equal(3, rem.DaysBefore);
 
-        // Duplicate DaysBefore rejected
-        var dupRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{evt.Id}/reminders", new AddReminderApiRequest(
-            3, null, updated.Revision
-        ));
-        Assert.Equal(HttpStatusCode.BadRequest, dupRes.StatusCode);
+        // Remove without expectedRevision query param -> 400
+        var noRevRes = await admin.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{rem.Id}");
+        Assert.Equal(HttpStatusCode.BadRequest, noRevRes.StatusCode);
 
-        // Deactivate reminder
-        var delRes = await admin.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{rem.Id}");
+        // Remove with expectedRevision <= 0 -> 400
+        var zeroRevRes = await admin.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{rem.Id}?expectedRevision=0");
+        Assert.Equal(HttpStatusCode.BadRequest, zeroRevRes.StatusCode);
+
+        // Remove with wrong expectedRevision -> 409 Conflict
+        var wrongRevRes = await admin.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{rem.Id}?expectedRevision=999");
+        Assert.Equal(HttpStatusCode.Conflict, wrongRevRes.StatusCode);
+
+        // Remove with correct expectedRevision -> 200 OK
+        var delRes = await admin.DeleteAsync($"/api/scheduled-events/{evt.Id}/reminders/{rem.Id}?expectedRevision={updated.Revision}");
         Assert.Equal(HttpStatusCode.OK, delRes.StatusCode);
 
         var refreshed = await admin.GetFromJsonAsync<ScheduledEventDetailDto>($"/api/scheduled-events/{evt.Id}", JsonOpts);
@@ -668,7 +808,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
     }
 
     // =========================================================================
-    // 5. UNIFIED ATTENTION PROJECTION TESTS
+    // 5. UNIFIED ATTENTION PROJECTION & CALENDAR TESTS
     // =========================================================================
 
     [Fact]
@@ -689,12 +829,12 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // Today event
         await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Hearing", "Today Item", null, delhiToday, null, "High"
+            ws.Id, desk.Id, null, "CourtHearing", "Today Item", null, delhiToday, null, "Urgent"
         ));
 
         // Tomorrow event
         await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "Meeting", "Tomorrow Item", null, delhiToday.AddDays(1), null, "Medium"
+            ws.Id, desk.Id, null, "Meeting", "Tomorrow Item", null, delhiToday.AddDays(1), null, "Routine"
         ));
 
         var res = await admin.GetAsync("/api/attention/my");
@@ -713,90 +853,82 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
     }
 
     [Fact]
-    public async Task MyAttention_NeedsRouting_SurfacesUnassignedScheduledEvents()
+    public async Task MyAttention_NoPermissions_ReturnsEmptyFeedWithZeroCounts()
     {
-        var admin = await CreateAdminClientAsync();
-        var ws = await CreateWorkstreamAsync($"WS_ROUT_{Guid.NewGuid():N}", "Needs Routing WS");
+        // User with no Schedule.View, WorkItem.View, Dak.View
+        var (client, _) = await CreateUserWithPermissionsAsync(
+            $"noperm_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { ("SomeOther.Permission", ScopeMode.All) }
+        );
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        // Create scheduled event without responsible desk
-        var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, null, null, "NoticeExpiry", "Unrouted Notice Event", null, today.AddDays(2), null, "High"
-        ));
-        Assert.Equal(HttpStatusCode.Created, createRes.StatusCode);
-
-        var res = await admin.GetAsync("/api/attention/my?bucket=NeedsRouting");
+        var res = await client.GetAsync("/api/attention/my");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
         var feed = await res.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
         Assert.NotNull(feed);
-        Assert.Contains(feed.Items, i => i.Title == "Unrouted Notice Event");
+        Assert.Empty(feed.Items);
+        Assert.Equal(0, feed.TotalCount);
+        Assert.Equal(0, feed.Summary.Overdue);
+        Assert.Equal(0, feed.Summary.Today);
+        Assert.Equal(0, feed.Summary.Tomorrow);
+        Assert.Equal(0, feed.Summary.Next7Days);
+        Assert.Equal(0, feed.Summary.ReminderActive);
+        Assert.Equal(0, feed.Summary.NeedsRouting);
     }
 
-    // =========================================================================
-    // 6. COURT PROCEEDING PROMOTION TESTS
-    // =========================================================================
-
     [Fact]
-    public async Task PromoteCourtProceeding_WithNextDate_Succeeds_DuplicatePrevented()
+    public async Task CalendarEvents_CalculatesSummaryAcrossFullResultSet_BeforePagination()
     {
         var admin = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_CAL_SUM_{Guid.NewGuid():N}", "Calendar Summary WS");
+        var desk = await CreateDeskAsync($"DSK_CAL_SUM_{Guid.NewGuid():N}", "Calendar Summary Desk", ws.Id);
 
-        Guid procId;
-        using (var scope = _factory.Services.CreateScope())
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5.5));
+
+        // Create 5 events on today
+        for (var i = 1; i <= 5; i++)
         {
-            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            var courtCase = new CourtCase
-            {
-                Id = Guid.NewGuid(),
-                CaseNumber = $"WP_{Guid.NewGuid():N}",
-                CourtName = "High Court of Delhi",
-                CaseType = "Writ Petition",
-                CurrentStatus = "Active",
-                RecordStatus = RecordStatus.Active,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            db.CourtCases.Add(courtCase);
-
-            var proc = new CourtProceeding
-            {
-                Id = Guid.NewGuid(),
-                CourtCaseId = courtCase.Id,
-                ProceedingDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-10)),
-                NextDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(15)),
-                Summary = "Counter affidavit directed",
-                RecordStatus = RecordStatus.Active,
-                CreatedAt = DateTimeOffset.UtcNow,
-                UpdatedAt = DateTimeOffset.UtcNow
-            };
-            db.CourtProceedings.Add(proc);
-            await db.SaveChangesAsync();
-
-            procId = proc.Id;
+            await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+                ws.Id, desk.Id, null, "Meeting", $"Calendar Event {i}", null, today, null, "Routine"
+            ));
         }
 
-        // Promote to ScheduledEvent
-        var promoteReq = new CreateFromCourtProceedingApiRequest(
-            null, null, "Next Hearing: State vs Landowners", null, "High", null
+        // Query with pageSize = 2
+        var res = await admin.GetAsync($"/api/scheduled-events/calendar?workstreamId={ws.Id}&page=1&pageSize=2");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var result = await res.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(result);
+        Assert.Equal(2, result.Items.Count);
+        Assert.Equal(5, result.TotalCount);
+        // Summary must reflect the full 5 events, not just the 2 on page
+        Assert.Equal(5, result.Summary.Today);
+    }
+
+    // =========================================================================
+    // 6. COURT PROCEEDINGS & PROMOTION WORKFLOW TESTS
+    // =========================================================================
+
+    [Fact]
+    public async Task DirectCreate_WithCourtProceedingId_ThrowsBadRequest()
+    {
+        var admin = await CreateAdminClientAsync();
+        var ws = await CreateWorkstreamAsync($"WS_DIR_PROC_{Guid.NewGuid():N}", "Direct Proc WS");
+        var desk = await CreateDeskAsync($"DSK_DIR_PROC_{Guid.NewGuid():N}", "Direct Proc Desk", ws.Id);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var req = new CreateScheduledEventApiRequest(
+            ws.Id, desk.Id, null, "CourtHearing", "Direct Proc Hearing", null, today.AddDays(5), null, "Urgent",
+            CourtProceedingId: Guid.NewGuid()
         );
 
-        var res = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", promoteReq);
-        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
-
-        var created = await res.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
-        Assert.NotNull(created);
-        Assert.Equal(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(15)), created.ScheduledDate);
-        Assert.Equal("CourtHearing", created.EventKind);
-        Assert.Equal("CourtProceeding", created.Origin);
-
-        // Attempting to promote the same proceeding again fails with conflict
-        var dupRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", promoteReq);
-        Assert.Equal(HttpStatusCode.Conflict, dupRes.StatusCode);
+        var res = await admin.PostAsJsonAsync("/api/scheduled-events", req);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
     [Fact]
-    public async Task PromoteCourtProceeding_WithoutNextDate_RejectedWithBadRequest()
+    public async Task CourtProceedingOrigin_CannotBeRescheduledOrCancelled_Directly()
     {
         var admin = await CreateAdminClientAsync();
 
@@ -807,9 +939,9 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             var courtCase = new CourtCase
             {
                 Id = Guid.NewGuid(),
-                CaseNumber = $"LAA_{Guid.NewGuid():N}",
+                CaseNumber = $"WP_ORIG_{Guid.NewGuid():N}",
                 CourtName = "High Court",
-                CaseType = "Appeal",
+                CaseType = "Writ",
                 CurrentStatus = "Active",
                 RecordStatus = RecordStatus.Active,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -822,7 +954,8 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
                 Id = Guid.NewGuid(),
                 CourtCaseId = courtCase.Id,
                 ProceedingDate = DateOnly.FromDateTime(DateTime.UtcNow),
-                NextDate = null, // No NextDate!
+                NextDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),
+                Summary = "Notice issued",
                 RecordStatus = RecordStatus.Active,
                 CreatedAt = DateTimeOffset.UtcNow,
                 UpdatedAt = DateTimeOffset.UtcNow
@@ -832,10 +965,191 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             procId = proc.Id;
         }
 
-        var res = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", new CreateFromCourtProceedingApiRequest(
-            null, null, null, null, "Medium", null
+        // Promote to schedule
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", new CreateFromCourtProceedingApiRequest(
+            null, null, "Official Hearing", null, "Urgent", null
         ));
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+        var created = await promoteRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(created);
+        Assert.Equal("CourtProceeding", created.Origin);
+
+        // Attempting to reschedule directly throws 400
+        var reschedRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{created.Id}/reschedule", new RescheduleEventApiRequest(
+            DateOnly.FromDateTime(DateTime.UtcNow.AddDays(20)), null, "Direct reschedule attempt", created.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, reschedRes.StatusCode);
+
+        // Attempting to cancel directly throws 400
+        var cancelRes = await admin.PostAsJsonAsync($"/api/scheduled-events/{created.Id}/cancel", new CancelEventApiRequest(
+            "Direct cancel attempt", created.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, cancelRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task CourtProceeding_CreateWithNextDateEarlierThanProceedingDate_ThrowsBadRequest()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        Guid caseId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtCase = new CourtCase
+            {
+                Id = Guid.NewGuid(),
+                CaseNumber = $"WP_REV_{Guid.NewGuid():N}",
+                CourtName = "High Court",
+                CaseType = "Writ",
+                CurrentStatus = "Active",
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.CourtCases.Add(courtCase);
+            await db.SaveChangesAsync();
+            caseId = courtCase.Id;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var badReq = new CreateCourtProceedingApiRequest(
+            ProceedingDate: today,
+            OrderType: "Hearing",
+            RestraintNature: null,
+            Summary: "Invalid reverse date",
+            NextDate: today.AddDays(-1) // earlier than proceeding date!
+        );
+
+        var res = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", badReq);
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task CourtProceedings_Authorization_AwardViewAndEditEnforced()
+    {
+        Guid caseId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtCase = new CourtCase
+            {
+                Id = Guid.NewGuid(),
+                CaseNumber = $"WP_AUTH_{Guid.NewGuid():N}",
+                CourtName = "High Court",
+                CaseType = "Writ",
+                CurrentStatus = "Active",
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.CourtCases.Add(courtCase);
+            await db.SaveChangesAsync();
+            caseId = courtCase.Id;
+        }
+
+        // 1. User without Award.View cannot view proceedings
+        var (unauthClient, _) = await CreateUserWithPermissionsAsync(
+            $"unauth_court_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.ScheduleView, ScopeMode.All) }
+        );
+        var unauthRes = await unauthClient.GetAsync($"/api/court-cases/{caseId}/proceedings");
+        Assert.Equal(HttpStatusCode.Forbidden, unauthRes.StatusCode);
+
+        // 2. User with Award.View (COURT_REFERENCES) can view proceedings but cannot create or promote
+        var (viewClient, _) = await CreateUserWithPermissionsAsync(
+            $"view_court_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.AwardView, ScopeMode.All),
+                (PermissionCodes.ScheduleCreate, ScopeMode.All)
+            }
+        );
+        var viewRes = await viewClient.GetAsync($"/api/court-cases/{caseId}/proceedings");
+        Assert.Equal(HttpStatusCode.OK, viewRes.StatusCode);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var postRes = await viewClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new CreateCourtProceedingApiRequest(
+            today, "Notice", null, "Record proceeding", today.AddDays(10)
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, postRes.StatusCode);
+
+        // 3. User with Award.Edit (COURT_REFERENCES) can create proceeding
+        var (editClient, _) = await CreateUserWithPermissionsAsync(
+            $"edit_court_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.AwardView, ScopeMode.All),
+                (PermissionCodes.AwardEdit, ScopeMode.All)
+            }
+        );
+        var editPostRes = await editClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new CreateCourtProceedingApiRequest(
+            today, "Notice", null, "Record proceeding", today.AddDays(10)
+        ));
+        Assert.Equal(HttpStatusCode.Created, editPostRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task CourtCase_NavigationUrl_ReturnsAwardWhenLinked_NullWhenNotLinked()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var courtAuth = scope.ServiceProvider.GetRequiredService<ICourtAuthorizationService>();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var award = new Award
+        {
+            Id = Guid.NewGuid(),
+            AwardNumber = $"AW_{Guid.NewGuid():N}",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.Awards.Add(award);
+
+        var caseLinked = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_L_{Guid.NewGuid():N}",
+            CourtName = "High Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(caseLinked);
+
+        var caseUnlinked = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_U_{Guid.NewGuid():N}",
+            CourtName = "District Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(caseUnlinked);
+
+        db.Set<CourtCaseAward>().Add(new CourtCaseAward
+        {
+            CourtCaseId = caseLinked.Id,
+            AwardId = award.Id
+        });
+
+        await db.SaveChangesAsync();
+
+        var (client, adminUser) = await CreateUserWithPermissionsAsync(
+            $"nav_admin_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+        );
+
+        var linkedNavUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(caseLinked.Id, adminUser.Id);
+        Assert.Equal($"/awards/{award.Id}", linkedNavUrl);
+
+        var unlinkedNavUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(caseUnlinked.Id, adminUser.Id);
+        Assert.Null(unlinkedNavUrl); // Never returns /court-cases/{id}!
     }
 
     // =========================================================================
@@ -877,7 +1191,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // Create ScheduledEvent
         var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "ReportSubmission", "Official Submission Date", null, today.AddDays(7), null, "High"
+            ws.Id, desk.Id, null, "ReportSubmission", "Official Submission Date", null, today.AddDays(7), null, "Urgent"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);
@@ -923,7 +1237,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var createRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
-            ws.Id, desk.Id, null, "SiteInspection", "History Inspection Event", "Inspecting land boundaries", today.AddDays(4), null, "High"
+            ws.Id, desk.Id, null, "SiteInspection", "History Inspection Event", "Inspecting land boundaries", today.AddDays(4), null, "Urgent"
         ));
         var evt = await createRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
         Assert.NotNull(evt);

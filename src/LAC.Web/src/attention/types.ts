@@ -1,5 +1,5 @@
 export type ScheduledEventKind =
-  | 'Hearing'
+  | 'CourtHearing'
   | 'ComplianceDeadline'
   | 'SiteInspection'
   | 'Meeting'
@@ -9,10 +9,9 @@ export type ScheduledEventKind =
   | 'NoticeExpiry'
   | 'Other';
 
-export type ScheduledEventPriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export type ScheduledEventPriority = 'Routine' | 'Urgent' | 'Immediate';
 
 export type ScheduledEventStatus =
-  | 'Draft'
   | 'Scheduled'
   | 'Rescheduled'
   | 'InAttendance'
@@ -24,18 +23,25 @@ export type AttentionSourceType = 'ScheduledEvent' | 'WorkItemDue' | 'DakDue';
 
 export interface FilterOption {
   id: string;
-  code: string;
   name: string;
+  code?: string;
 }
 
 export interface AttentionSummary {
-  overdueCount: number;
-  todayCount: number;
-  tomorrowCount: number;
-  next7DaysCount: number;
-  reminderActiveCount: number;
-  totalActiveCount: number;
-  needsRoutingCount: number;
+  overdue: number;
+  today: number;
+  tomorrow: number;
+  next7Days: number;
+  reminderActive: number;
+  needsRouting: number;
+  // UI aliases
+  overdueCount?: number;
+  todayCount?: number;
+  tomorrowCount?: number;
+  next7DaysCount?: number;
+  reminderActiveCount?: number;
+  needsRoutingCount?: number;
+  totalActiveCount?: number;
 }
 
 export interface AttentionContext {
@@ -48,40 +54,48 @@ export interface AttentionContext {
 }
 
 export interface AttentionItemCapabilities {
-  canView: boolean;
-  canReschedule: boolean;
-  canReassign: boolean;
-  canComplete: boolean;
-  canCancel: boolean;
-  canManageReminders: boolean;
-  canLinkWorkItem: boolean;
+  canView?: boolean;
+  canReschedule?: boolean;
+  canReassign?: boolean;
+  canComplete?: boolean;
+  canCancel?: boolean;
+  canManageReminders?: boolean;
+  canLinkWorkItem?: boolean;
 }
 
 export interface AttentionItem {
   id: string;
   sourceType: AttentionSourceType;
-  sourceEntityId: string;
   title: string;
-  description?: string | null;
-  scheduledDate: string;
+  dueState: string;
+  scheduledDate?: string | null;
   scheduledTime?: string | null;
-  priority: string;
-  status: string;
-  workstreamId: string;
-  workstreamName: string;
+  dueAt?: string | null;
+  workstreamId?: string | null;
+  workstreamCode?: string | null;
+  workstreamName?: string | null;
   responsibleDeskId?: string | null;
+  responsibleDeskCode?: string | null;
   responsibleDeskName?: string | null;
   assignedUserId?: string | null;
-  assignedUserName?: string | null;
   assignedUserDisplayName?: string | null;
-  isAssignedToCaller: boolean;
-  isCallerDeskMember: boolean;
+  priority: string;
+  status: string;
+  eventKind?: string | null;
   buckets: string[];
-  remindersActive: boolean;
-  activeRemindersCount: number;
-  earliestActiveReminderDate?: string | null;
+  isReminderActive: boolean;
+  needsRouting: boolean;
+  lastActivityAt: string;
   context?: AttentionContext | null;
-  capabilities: AttentionItemCapabilities;
+  revision?: number | null;
+
+  // Compatibility accessors
+  sourceEntityId?: string;
+  capabilities?: AttentionItemCapabilities;
+  description?: string | null;
+  remindersActive?: boolean;
+  isAssignedToCaller?: boolean;
+  activeRemindersCount?: number;
 }
 
 export interface AttentionFeedResponse {
@@ -90,111 +104,126 @@ export interface AttentionFeedResponse {
   totalCount: number;
   page: number;
   pageSize: number;
-  workstreams: FilterOption[];
-  desks: FilterOption[];
+  workstreamOptions?: FilterOption[];
+  deskOptions?: FilterOption[];
+  workstreams?: FilterOption[];
+  desks?: FilterOption[];
 }
 
 export interface ScheduledReminderDto {
   id: string;
   daysBefore: number;
-  targetReminderDate: string;
+  reminderTime?: string | null;
+  targetReminderDate?: string | null;
   note?: string | null;
   isActive: boolean;
-  createdAt: string;
-  createdByName?: string | null;
+  createdByUserId: string;
+  createdByDisplayName?: string | null;
 }
 
-export interface ScheduledEventHistoryDto {
+export interface ScheduledEventEventDto {
   id: string;
+  sequenceNumber: number;
   action: string;
-  occurredAt: string;
+  actionAt: string;
+  occurredAt?: string;
   actorUserId: string;
+  actorDisplayName: string;
   actorDisplayNameSnapshot?: string | null;
+  actorDesignation?: string | null;
   actorDesignationSnapshot?: string | null;
-  fromStatus?: string | null;
-  toStatus?: string | null;
-  fromScheduledDate?: string | null;
-  toScheduledDate?: string | null;
-  fromDeskId?: string | null;
-  toDeskId?: string | null;
-  fromDeskNameSnapshot?: string | null;
-  toDeskNameSnapshot?: string | null;
-  fromUserId?: string | null;
-  toUserId?: string | null;
-  fromUserDisplayNameSnapshot?: string | null;
-  toUserDisplayNameSnapshot?: string | null;
+  workstreamName?: string | null;
+  sourceDeskName?: string | null;
+  targetDeskName?: string | null;
+  sourceUserDisplayName?: string | null;
+  targetUserDisplayName?: string | null;
+  oldScheduledDate?: string | null;
+  oldScheduledTime?: string | null;
+  newScheduledDate?: string | null;
+  newScheduledTime?: string | null;
+  reminderDaysBefore?: number | null;
+  linkedWorkItemId?: string | null;
+  reason?: string | null;
+  notes?: string | null;
   remarks?: string | null;
-  revision: number;
-}
-
-export interface ScheduledEventContextDto {
-  matter?: AttentionContext | null;
-  dak?: AttentionContext | null;
-  outward?: AttentionContext | null;
-  workItem?: AttentionContext | null;
-  courtProceeding?: AttentionContext | null;
 }
 
 export interface ScheduledEventCapabilitiesDto {
-  canView: boolean;
   canReschedule: boolean;
   canReassign: boolean;
+  canUpdate: boolean;
   canComplete: boolean;
   canCancel: boolean;
   canManageReminders: boolean;
   canLinkWorkItem: boolean;
+  canView?: boolean;
 }
 
 export interface ScheduledEventDetail {
   id: string;
   workstreamId: string;
+  workstreamCode: string;
   workstreamName: string;
   responsibleOfficeDeskId?: string | null;
+  responsibleOfficeDeskCode?: string | null;
   responsibleOfficeDeskName?: string | null;
   assignedUserId?: string | null;
   assignedUserDisplayName?: string | null;
-  eventKind: ScheduledEventKind;
+  eventKind: string;
   title: string;
   description?: string | null;
   scheduledDate: string;
   scheduledTime?: string | null;
-  priority: ScheduledEventPriority;
-  status: ScheduledEventStatus;
+  priority: string;
+  status: string;
   revision: number;
+  createdByUserId: string;
+  createdByDisplayName?: string | null;
   createdByDisplayNameSnapshot?: string | null;
+  createdByDesignation?: string | null;
   createdByDesignationSnapshot?: string | null;
   createdAt: string;
+  lastActivityAt: string;
   completedAt?: string | null;
   cancelledAt?: string | null;
   cancellationReason?: string | null;
+  origin: string;
   reminders: ScheduledReminderDto[];
-  history: ScheduledEventHistoryDto[];
-  context: ScheduledEventContextDto;
+  history: ScheduledEventEventDto[];
+  matterContext?: AttentionContext | null;
+  dakContext?: AttentionContext | null;
+  outwardContext?: AttentionContext | null;
+  workItemContext?: AttentionContext | null;
+  courtCaseContext?: AttentionContext | null;
+  courtProceedingContext?: AttentionContext | null;
   capabilities: ScheduledEventCapabilitiesDto;
 }
 
 export interface CalendarEventDto {
   id: string;
-  eventKind: ScheduledEventKind;
+  eventKind?: string | null;
   title: string;
   scheduledDate: string;
   scheduledTime?: string | null;
-  priority: ScheduledEventPriority;
-  status: ScheduledEventStatus;
-  workstreamId: string;
-  workstreamName: string;
+  priority: string;
+  status: string;
+  workstreamId?: string | null;
+  workstreamName?: string | null;
   responsibleDeskId?: string | null;
   responsibleDeskName?: string | null;
   assignedUserId?: string | null;
   assignedUserDisplayName?: string | null;
-  activeRemindersCount: number;
-  canOpen: boolean;
+  activeRemindersCount?: number;
+  isReminderActive?: boolean;
+  canOpen?: boolean;
 }
 
 export interface ScheduleCalendarResult {
-  from: string;
-  to: string;
-  events: CalendarEventDto[];
+  from?: string;
+  to?: string;
+  events?: CalendarEventDto[];
+  summary?: AttentionSummary;
+  items?: AttentionItem[];
 }
 
 export interface ScheduleDeskMemberOption {

@@ -149,6 +149,7 @@ public sealed class ScheduleWorkflowService(
     IDakAuthorizationService dakAuth,
     IOutwardAuthorizationService outwardAuth,
     IWorkItemAuthorizationService workItemAuth,
+    ICourtAuthorizationService courtAuth,
     Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null) : IScheduleWorkflowService
 {
     private async Task<TResult> ExecuteWorkflowTransactionAsync<TResult>(
@@ -255,16 +256,26 @@ public sealed class ScheduleWorkflowService(
             if (!canViewWork) throw new ScheduleWorkflowException("You do not have permission to access the linked work item.", 403);
         }
 
+        if (command.CourtProceedingId.HasValue)
+        {
+            throw new ScheduleWorkflowException("Court proceedings must be promoted to the schedule using the official court proceeding promotion workflow.", 400);
+        }
+
         if (command.CourtCaseId.HasValue)
         {
             var courtCase = await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == command.CourtCaseId.Value, ct);
             if (courtCase is null) throw new ScheduleWorkflowException("Linked court case not found.", 404);
+            var canViewCourt = await courtAuth.CanViewCourtCaseAsync(command.CourtCaseId.Value, callerUserId, ct);
+            if (!canViewCourt) throw new ScheduleWorkflowException("You do not have permission to access the linked court case.", 403);
         }
 
-        if (command.CourtProceedingId.HasValue)
+        if (command.Reminders is not null)
         {
-            var proceeding = await db.CourtProceedings.AsNoTracking().FirstOrDefaultAsync(p => p.Id == command.CourtProceedingId.Value, ct);
-            if (proceeding is null) throw new ScheduleWorkflowException("Linked court proceeding not found.", 404);
+            foreach (var d in command.Reminders)
+            {
+                if (d < 0 || d > 365)
+                    throw new ScheduleWorkflowException($"Reminder days before must be between 0 and 365. Received: {d}.", 400);
+            }
         }
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
@@ -287,7 +298,7 @@ public sealed class ScheduleWorkflowService(
         var eventId = Guid.NewGuid();
         var createdEventId = Guid.NewGuid();
         var reminderSpecs = (command.Reminders ?? [])
-            .Select(d => new { Id = Guid.NewGuid(), Days = Math.Clamp(d, 0, 365) })
+            .Select(d => new { Id = Guid.NewGuid(), Days = d })
             .ToList();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
@@ -331,7 +342,7 @@ public sealed class ScheduleWorkflowService(
                 OutwardId = command.OutwardId,
                 WorkItemId = command.WorkItemId,
                 CourtCaseId = command.CourtCaseId,
-                CourtProceedingId = command.CourtProceedingId,
+                CourtProceedingId = null,
                 Origin = ScheduledEventOrigin.Manual
             };
 
@@ -351,12 +362,13 @@ public sealed class ScheduleWorkflowService(
                 });
             }
 
-            // Append official immutable history event
+            // Append official immutable history events (Sequence 1 = Created, Sequence 2, 3... = ReminderAdded)
+            var currentSeq = 1;
             var historyEvent = new ScheduledEventEvent
             {
                 Id = createdEventId,
                 ScheduledEventId = eventId,
-                SequenceNumber = 1,
+                SequenceNumber = currentSeq,
                 Action = ScheduledEventAction.Created,
                 ActionAt = now,
                 ActorUserId = callerUserId,
@@ -374,6 +386,28 @@ public sealed class ScheduleWorkflowService(
             };
 
             db.ScheduledEventEvents.Add(historyEvent);
+
+            foreach (var r in reminderSpecs)
+            {
+                currentSeq++;
+                db.ScheduledEventEvents.Add(new ScheduledEventEvent
+                {
+                    Id = Guid.NewGuid(),
+                    ScheduledEventId = eventId,
+                    SequenceNumber = currentSeq,
+                    Action = ScheduledEventAction.ReminderAdded,
+                    ActionAt = now,
+                    ActorUserId = callerUserId,
+                    ActorDisplayNameSnapshot = actorDisplayName,
+                    ActorDesignationSnapshot = actorDesignation,
+                    WorkstreamIdSnapshot = workstream.Id,
+                    WorkstreamNameSnapshot = workstream.Name,
+                    ReminderId = r.Id,
+                    ReminderDaysBefore = r.Days,
+                    Notes = $"Reminder set for {r.Days} day(s) before event"
+                });
+            }
+
             await db.SaveChangesAsync(c);
 
             return evt;
@@ -416,6 +450,9 @@ public sealed class ScheduleWorkflowService(
 
             if (evt.Status is ScheduledEventStatus.Completed or ScheduledEventStatus.Cancelled)
                 throw new ScheduleWorkflowException("Terminal scheduled events cannot be rescheduled.", 400);
+
+            if (evt.Origin == ScheduledEventOrigin.CourtProceeding)
+                throw new ScheduleWorkflowException("Court hearing dates are derived from the authoritative court proceeding record. They cannot be rescheduled independently through the generic schedule workflow.", 400);
 
             var canUpdate = await scheduleAuth.CanUpdateScheduledEventAsync(evt, callerUserId, c);
             if (!canUpdate)
@@ -677,6 +714,9 @@ public sealed class ScheduleWorkflowService(
             if (evt.Status is ScheduledEventStatus.Completed or ScheduledEventStatus.Cancelled)
                 throw new ScheduleWorkflowException("Scheduled event is already in a terminal state.", 400);
 
+            if (evt.Origin == ScheduledEventOrigin.CourtProceeding)
+                throw new ScheduleWorkflowException("Court hearing schedules are derived from the authoritative court proceeding record and cannot be cancelled independently.", 400);
+
             var canCancel = await scheduleAuth.CanCancelScheduledEventAsync(evt, callerUserId, c);
             if (!canCancel)
                 throw new ScheduleWorkflowException("You do not have permission to cancel this scheduled event.", 403);
@@ -720,7 +760,10 @@ public sealed class ScheduleWorkflowService(
         Guid callerUserId,
         CancellationToken ct = default)
     {
-        var boundedDays = Math.Clamp(command.DaysBefore, 0, 365);
+        if (command.DaysBefore < 0 || command.DaysBefore > 365)
+            throw new ScheduleWorkflowException($"Reminder days before must be between 0 and 365. Received: {command.DaysBefore}.", 400);
+
+        var daysBefore = command.DaysBefore;
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
         var reminderId = Guid.NewGuid();
         var addReminderEventId = Guid.NewGuid();
@@ -754,16 +797,16 @@ public sealed class ScheduleWorkflowService(
                 throw new ScheduleWorkflowException("You do not have permission to update reminders on this event.", 403);
 
             var duplicateReminder = await db.ScheduledReminders
-                .AnyAsync(r => r.ScheduledEventId == id && r.DaysBefore == boundedDays && r.IsActive, c);
+                .AnyAsync(r => r.ScheduledEventId == id && r.DaysBefore == daysBefore && r.IsActive, c);
             if (duplicateReminder)
-                throw new ScheduleWorkflowException($"An active reminder for {boundedDays} day(s) before already exists.", 400);
+                throw new ScheduleWorkflowException($"An active reminder for {daysBefore} day(s) before already exists.", 400);
 
             var now = DateTimeOffset.UtcNow;
             var reminder = new ScheduledReminder
             {
                 Id = reminderId,
                 ScheduledEventId = id,
-                DaysBefore = boundedDays,
+                DaysBefore = daysBefore,
                 ReminderTime = command.ReminderTime,
                 IsActive = true,
                 CreatedByUserId = callerUserId,
@@ -791,7 +834,7 @@ public sealed class ScheduleWorkflowService(
                 WorkstreamIdSnapshot = workstream?.Id ?? evt.WorkstreamId,
                 WorkstreamNameSnapshot = workstream?.Name,
                 ReminderId = reminderId,
-                ReminderDaysBefore = boundedDays
+                ReminderDaysBefore = daysBefore
             });
 
             await db.SaveChangesAsync(c);
@@ -1051,6 +1094,14 @@ public sealed class ScheduleWorkflowService(
         if (duplicateExists)
             throw new ScheduleWorkflowException("An active scheduled event already exists for this court proceeding.", 409);
 
+        var canEditCourt = await courtAuth.CanEditCourtReferencesAsync(callerUserId, ct);
+        if (!canEditCourt)
+            throw new ScheduleWorkflowException("You do not have permission to promote court proceedings to the schedule.", 403);
+
+        var canViewCase = await courtAuth.CanViewCourtCaseAsync(proceeding.CourtCaseId, callerUserId, ct);
+        if (!canViewCase)
+            throw new ScheduleWorkflowException("You do not have permission to access the linked court case.", 403);
+
         var canCreate = await scheduleAuth.CanCreateScheduledEventAsync(
             courtWs.Id,
             command.ResponsibleOfficeDeskId,
@@ -1060,6 +1111,15 @@ public sealed class ScheduleWorkflowService(
 
         if (!canCreate)
             throw new ScheduleWorkflowException("You do not have permission to create court hearing schedules.", 403);
+
+        if (command.Reminders is not null)
+        {
+            foreach (var d in command.Reminders)
+            {
+                if (d < 0 || d > 365)
+                    throw new ScheduleWorkflowException($"Reminder days before must be between 0 and 365. Received: {d}.", 400);
+            }
+        }
 
         var (actorDisplayName, actorDesignation) = await GetActorSnapshotAsync(callerUserId, ct);
 
@@ -1078,7 +1138,7 @@ public sealed class ScheduleWorkflowService(
         var eventId = Guid.NewGuid();
         var createdEventId = Guid.NewGuid();
         var reminderSpecs = (command.Reminders ?? [])
-            .Select(d => new { Id = Guid.NewGuid(), Days = Math.Clamp(d, 0, 365) })
+            .Select(d => new { Id = Guid.NewGuid(), Days = d })
             .ToList();
 
         Func<CancellationToken, Task<bool>> verifySucceeded = async c =>
@@ -1149,11 +1209,12 @@ public sealed class ScheduleWorkflowService(
                 });
             }
 
+            var currentSeq = 1;
             var historyEvent = new ScheduledEventEvent
             {
                 Id = createdEventId,
                 ScheduledEventId = eventId,
-                SequenceNumber = 1,
+                SequenceNumber = currentSeq,
                 Action = ScheduledEventAction.Created,
                 ActionAt = now,
                 ActorUserId = callerUserId,
@@ -1170,6 +1231,28 @@ public sealed class ScheduleWorkflowService(
             };
 
             db.ScheduledEventEvents.Add(historyEvent);
+
+            foreach (var r in reminderSpecs)
+            {
+                currentSeq++;
+                db.ScheduledEventEvents.Add(new ScheduledEventEvent
+                {
+                    Id = Guid.NewGuid(),
+                    ScheduledEventId = eventId,
+                    SequenceNumber = currentSeq,
+                    Action = ScheduledEventAction.ReminderAdded,
+                    ActionAt = now,
+                    ActorUserId = callerUserId,
+                    ActorDisplayNameSnapshot = actorDisplayName,
+                    ActorDesignationSnapshot = actorDesignation,
+                    WorkstreamIdSnapshot = courtWs.Id,
+                    WorkstreamNameSnapshot = courtWs.Name,
+                    ReminderId = r.Id,
+                    ReminderDaysBefore = r.Days,
+                    Notes = $"Reminder set for {r.Days} day(s) before event"
+                });
+            }
+
             await db.SaveChangesAsync(c);
 
             return evt;

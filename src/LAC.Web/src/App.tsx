@@ -470,8 +470,10 @@ function Shell({ children }: { children: ReactNode }) {
   if (hasPermission("WorkItem.View")) {
     links.push(["Branch Pulse", "/branch-pulse", "◉"]);
   }
-  if (hasPermission("Schedule.View")) {
+  if (hasPermission("Schedule.View") || hasPermission("WorkItem.View") || hasPermission("Dak.View")) {
     links.push(["My Attention", "/my-attention", "⏰"]);
+  }
+  if (hasPermission("Schedule.View")) {
     links.push(["Calendar", "/calendar", "📅"]);
   }
   links.push(["My History", "/my-history", "🕒"]);
@@ -2029,6 +2031,7 @@ function Award() {
   const [related, setRelated] = useState(false);
   const [pdfImport, setPdfImport] = useState(false);
   const [rectangle, setRectangle] = useState("");
+  const [selectedCourtCaseForProceedings, setSelectedCourtCaseForProceedings] = useState<{ id: string; caseNumber: string; courtName: string } | null>(null);
   const overview = useApi<any>(`/awards/${id}/workspace?r=${refresh}`);
   const workspace = useApi<Page<any>>(
     path(`/awards/${id}/khasras`, { page, pageSize: 25, r: refresh }),
@@ -2172,7 +2175,32 @@ function Award() {
       {a.courtCaseCount > 0 && (
         <section className="section">
           <h2>Court cases</h2>
-          <p>No legal effect is inferred.</p><DataTable headers={["Case", "Court", "Status", "Affected Khasras"]}>{courtCases.data?.map(item => <tr key={item.id}><td>{item.caseNumber}</td><td>{item.courtName}</td><td>{item.status || "—"}</td><td>{item.khasraCount}</td></tr>)}</DataTable>
+          <p>No legal effect is inferred.</p>
+          <DataTable headers={["Case", "Court", "Status", "Affected Khasras", "Actions"]}>
+            {courtCases.data?.map((item) => (
+              <tr key={item.id}>
+                <td>{item.caseNumber}</td>
+                <td>{item.courtName}</td>
+                <td>{item.status || "—"}</td>
+                <td>{item.khasraCount}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() =>
+                      setSelectedCourtCaseForProceedings({
+                        id: item.id,
+                        caseNumber: item.caseNumber,
+                        courtName: item.courtName,
+                      })
+                    }
+                  >
+                    Proceedings
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </DataTable>
         </section>
       )}
       {a.claimCount > 0 && <section className="section"><h2>Claims</h2><DataTable headers={["Reference", "Date", "Claimant", "Claimed amount", "Affected Khasras", "Status"]}>{claims.data?.items.map(item => <tr key={item.id}><td>{item.claimReference || "—"}</td><td>{date(item.claimDate)}</td><td>{item.claimantName || "—"}</td><td>{item.claimedAmount ?? "—"}</td><td>{item.khasraCount}</td><td>{item.status || "—"}</td></tr>)}</DataTable></section>}
@@ -2187,10 +2215,223 @@ function Award() {
         />
       )}
       {related && <AwardRelatedPanel award={a} khasras={rows} onClose={() => setRelated(false)} onSaved={() => { setRelated(false); setRefresh(x => x + 1); }} />}
+      {selectedCourtCaseForProceedings && (
+        <AwardCourtProceedingsModal
+          courtCase={selectedCourtCaseForProceedings}
+          onClose={() => setSelectedCourtCaseForProceedings(null)}
+        />
+      )}
       <AwardDocumentsSection key={`${id}-${refresh}`} awardId={id} />
       <PermanentSourceLines endpoint={`/awards/${id}/evidence`} />
       {pdfImport && <AwardPdfImportPanel award={a} onUploaded={() => setRefresh(v => v + 1)} onClose={() => setPdfImport(false)} />}
     </>
+  );
+}
+
+function AwardCourtProceedingsModal({
+  courtCase,
+  onClose,
+}: {
+  courtCase: { id: string; caseNumber: string; courtName: string };
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  const [refresh, setRefresh] = useState(0);
+  const [proceedings, setProceedings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Form for recording new proceeding
+  const [proceedingDate, setProceedingDate] = useState("");
+  const [nextDate, setNextDate] = useState("");
+  const [orderType, setOrderType] = useState("");
+  const [restraintNature, setRestraintNature] = useState("");
+  const [summary, setSummary] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/court-cases/${courtCase.id}/proceedings`, { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to load proceedings (${res.status})`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        setProceedings(data || []);
+      })
+      .catch((err) => {
+        setError(err.message || "Failed to load court proceedings.");
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [courtCase.id, refresh]);
+
+  const handleRecordProceeding = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!proceedingDate) {
+      setFormError("Proceeding Date is required.");
+      return;
+    }
+    if (nextDate && nextDate < proceedingDate) {
+      setFormError("Next Date cannot be earlier than Proceeding Date.");
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+
+    try {
+      const res = await fetch(`/api/court-cases/${courtCase.id}/proceedings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          proceedingDate: proceedingDate || null,
+          nextDate: nextDate || null,
+          orderType: orderType.trim() || null,
+          restraintNature: restraintNature.trim() || null,
+          summary: summary.trim() || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || errJson.message || `Could not record proceeding (${res.status})`);
+      }
+
+      setProceedingDate("");
+      setNextDate("");
+      setOrderType("");
+      setRestraintNature("");
+      setSummary("");
+      setRefresh((x) => x + 1);
+    } catch (err: any) {
+      setFormError(err.message || "Failed to record court proceeding.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <aside className="workflow-drawer" aria-label="Court Proceedings">
+      <section className="workspace-panel" style={{ maxWidth: 720 }}>
+        <div className="panel-title">
+          <div>
+            <h3>Court Proceedings</h3>
+            <small className="subtext">{courtCase.courtName} · {courtCase.caseNumber}</small>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+
+        <p className="hint">
+          Official court proceedings recorded for this case. Promoted hearings will appear in Unified Time & Attention.
+        </p>
+
+        {error && <p className="form-message" role="alert" style={{ color: "#b91c1c" }}>{error}</p>}
+
+        {loading ? (
+          <LoadingState label="Loading proceedings..." />
+        ) : (
+          <div style={{ marginBottom: "1.5rem" }}>
+            <h4>Recorded Proceedings ({proceedings.length})</h4>
+            {proceedings.length === 0 ? (
+              <p style={{ color: "#64748b", fontSize: "0.88rem" }}>No proceedings recorded yet for this court case.</p>
+            ) : (
+              <DataTable headers={["Proceeding Date", "Next Date", "Order Type", "Summary", "Action"]}>
+                {proceedings.map((p) => (
+                  <tr key={p.id}>
+                    <td>{date(p.proceedingDate)}</td>
+                    <td>{p.nextDate ? <strong>{date(p.nextDate)}</strong> : "—"}</td>
+                    <td>{p.orderType || p.restraintNature || "—"}</td>
+                    <td>{p.summary || "—"}</td>
+                    <td>
+                      {p.nextDate && (
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => {
+                            const title = `Next Hearing - ${courtCase.caseNumber}`;
+                            navigate(`/calendar?proceedingId=${p.id}&title=${encodeURIComponent(title)}`);
+                          }}
+                          title="Promote this proceeding to official schedule"
+                        >
+                          Promote to Schedule
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleRecordProceeding} style={{ borderTop: "1px solid #e2e8f0", paddingTop: "1rem" }}>
+          <h4>Record New Court Proceeding</h4>
+          {formError && <p className="form-message" role="alert" style={{ color: "#b91c1c" }}>{formError}</p>}
+
+          <div className="field-grid">
+            <label>
+              Proceeding Date <span className="required-star">*</span>
+              <input
+                type="date"
+                value={proceedingDate}
+                onChange={(e) => setProceedingDate(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Next Date (Adjourned To)
+              <input
+                type="date"
+                value={nextDate}
+                onChange={(e) => setNextDate(e.target.value)}
+              />
+            </label>
+            <label>
+              Order Type
+              <input
+                type="text"
+                placeholder="e.g. Interim Order, Notice, Final"
+                value={orderType}
+                onChange={(e) => setOrderType(e.target.value)}
+              />
+            </label>
+            <label>
+              Restraint Nature
+              <input
+                type="text"
+                placeholder="e.g. Status Quo, Stay on Demolition"
+                value={restraintNature}
+                onChange={(e) => setRestraintNature(e.target.value)}
+              />
+            </label>
+            <label className="span-two">
+              Order Summary / Proceedings Notes
+              <textarea
+                rows={3}
+                placeholder="Official notes from the hearing..."
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="form-footer" style={{ marginTop: "1rem" }}>
+            <button type="button" className="secondary-button" onClick={onClose} disabled={submitting}>
+              Close
+            </button>
+            <button type="submit" disabled={submitting || !proceedingDate}>
+              {submitting ? "Saving..." : "Record Proceeding"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </aside>
   );
 }
 function DocumentPdfViewer({documentId,initialPage=1}:{documentId:string;initialPage?:number}) {

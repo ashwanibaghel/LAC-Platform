@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import type {
   CalendarEventDto,
   ScheduleCalendarResult,
@@ -41,18 +41,17 @@ export function CalendarView() {
   const [createWsId, setCreateWsId] = useState('');
   const [createDeskId, setCreateDeskId] = useState('');
   const [createUserId, setCreateUserId] = useState('');
-  const [createKind, setCreateKind] = useState<ScheduledEventKind>('Hearing');
+  const [createKind, setCreateKind] = useState<ScheduledEventKind>('CourtHearing');
   const [createTitle, setCreateTitle] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [createDate, setCreateDate] = useState('');
   const [createTime, setCreateTime] = useState('');
-  const [createPriority, setCreatePriority] = useState<ScheduledEventPriority>('Medium');
+  const [createPriority, setCreatePriority] = useState<ScheduledEventPriority>('Routine');
   const [createMatterId, setCreateMatterId] = useState('');
   const [createDakId, setCreateDakId] = useState('');
   const [createOutwardId, setCreateOutwardId] = useState('');
   const [createWorkItemId, setCreateWorkItemId] = useState('');
   const [createCourtCaseId, setCreateCourtCaseId] = useState('');
-  const [createCourtProceedingId, setCreateCourtProceedingId] = useState('');
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -60,7 +59,7 @@ export function CalendarView() {
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [promoteProceedingId, setPromoteProceedingId] = useState('');
   const [promoteTitle, setPromoteTitle] = useState('');
-  const [promotePriority, setPromotePriority] = useState<ScheduledEventPriority>('High');
+  const [promotePriority, setPromotePriority] = useState<ScheduledEventPriority>('Routine');
   const [promoteDeskId, setPromoteDeskId] = useState('');
   const [promoteUserId, setPromoteUserId] = useState('');
   const [promoteSubmitting, setPromoteSubmitting] = useState(false);
@@ -91,11 +90,17 @@ export function CalendarView() {
       .catch(() => {});
   }, []);
 
-  // Handle URL query parameters (e.g. ?proceedingId=...)
+  // Handle URL query parameters (e.g. ?eventId=... or ?proceedingId=...)
   useEffect(() => {
+    const eventId = searchParams.get('eventId');
+    if (eventId) {
+      loadEventDetail(eventId);
+    }
     const procId = searchParams.get('proceedingId');
     if (procId) {
       setPromoteProceedingId(procId);
+      const titleParam = searchParams.get('title');
+      if (titleParam) setPromoteTitle(titleParam);
       setShowPromoteModal(true);
     }
   }, [searchParams]);
@@ -119,6 +124,8 @@ export function CalendarView() {
     setError(null);
 
     const params = new URLSearchParams();
+    params.set('fromDate', fromDateStr);
+    params.set('toDate', toDateStr);
     params.set('from', fromDateStr);
     params.set('to', toDateStr);
     if (workstreamId) params.set('workstreamId', workstreamId);
@@ -133,7 +140,7 @@ export function CalendarView() {
 
       if (!res.ok) throw new Error(`Failed to load calendar events (${res.status})`);
       const json: ScheduleCalendarResult = await res.json();
-      setEvents(json.events || []);
+      setEvents(((json.items || json.events || []) as unknown) as CalendarEventDto[]);
     } catch (err: any) {
       setError(err.message || 'Error fetching calendar.');
     } finally {
@@ -282,8 +289,7 @@ export function CalendarView() {
           dakId: createDakId || null,
           outwardId: createOutwardId || null,
           workItemId: createWorkItemId || null,
-          courtCaseId: createCourtCaseId || null,
-          courtProceedingId: createCourtProceedingId || null
+          courtCaseId: createCourtCaseId || null
         })
       });
 
@@ -306,18 +312,17 @@ export function CalendarView() {
     setCreateWsId('');
     setCreateDeskId('');
     setCreateUserId('');
-    setCreateKind('Hearing');
+    setCreateKind('CourtHearing');
     setCreateTitle('');
     setCreateDescription('');
     setCreateDate('');
     setCreateTime('');
-    setCreatePriority('Medium');
+    setCreatePriority('Routine');
     setCreateMatterId('');
     setCreateDakId('');
     setCreateOutwardId('');
     setCreateWorkItemId('');
     setCreateCourtCaseId('');
-    setCreateCourtProceedingId('');
     setCreateError(null);
   };
 
@@ -378,8 +383,8 @@ export function CalendarView() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          scheduledDate: actionDate,
-          scheduledTime: actionTime || null,
+          newScheduledDate: actionDate,
+          newScheduledTime: actionTime || null,
           reason: actionReason.trim() || null,
           expectedRevision: detail.revision
         })
@@ -444,7 +449,7 @@ export function CalendarView() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          completionNotes: actionReason.trim() || null,
+          notes: actionReason.trim() || null,
           expectedRevision: detail.revision
         })
       });
@@ -479,7 +484,7 @@ export function CalendarView() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          cancellationReason: actionReason.trim(),
+          reason: actionReason.trim(),
           expectedRevision: detail.revision
         })
       });
@@ -511,7 +516,8 @@ export function CalendarView() {
         credentials: 'include',
         body: JSON.stringify({
           daysBefore: actionDaysBefore,
-          note: actionReminderNote.trim() || null
+          reminderTime: null,
+          expectedRevision: detail.revision
         })
       });
 
@@ -533,10 +539,13 @@ export function CalendarView() {
   const handleDeactivateReminder = async (reminderId: string) => {
     if (!detail) return;
     try {
-      const res = await fetch(`/api/scheduled-events/${detail.id}/reminders/${reminderId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
+      const res = await fetch(
+        `/api/scheduled-events/${detail.id}/reminders/${reminderId}?expectedRevision=${detail.revision}`,
+        {
+          method: 'DELETE',
+          credentials: 'include'
+        }
+      );
       if (!res.ok) throw new Error('Failed to deactivate reminder');
       loadEventDetail(detail.id);
       fetchCalendar();
@@ -786,7 +795,9 @@ export function CalendarView() {
                       {evt.scheduledTime ? `${evt.scheduledTime.slice(0, 5)} ` : ''}
                       {evt.title}
                     </span>
-                    {evt.activeRemindersCount > 0 && <span title="Has active reminders">🔔</span>}
+                    {((evt.activeRemindersCount ?? 0) > 0 || !!evt.isReminderActive) && (
+                      <span title="Has active reminders">🔔</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -915,27 +926,62 @@ export function CalendarView() {
                   <div>
                     <h4 style={{ margin: '8px 0 4px 0', fontSize: '0.9rem', color: '#1e293b' }}>Linked Context</h4>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {detail.context.matter && (
-                        <span className={`context-pill ${detail.context.matter.canOpen ? 'clickable' : 'locked'}`}>
-                          ⚖ Matter: {detail.context.matter.title || detail.context.matter.referenceNumber}
-                        </span>
+                      {detail.matterContext && (
+                        detail.matterContext.canOpen && detail.matterContext.navigationUrl ? (
+                          <Link to={detail.matterContext.navigationUrl} className="context-pill clickable">
+                            ⚖ Matter: {detail.matterContext.title || detail.matterContext.referenceNumber}
+                          </Link>
+                        ) : (
+                          <span className="context-pill locked" title="Access restricted">
+                            🔒 Matter (Restricted)
+                          </span>
+                        )
                       )}
-                      {detail.context.dak && (
-                        <span className={`context-pill ${detail.context.dak.canOpen ? 'clickable' : 'locked'}`}>
-                          📥 Dak: {detail.context.dak.referenceNumber}
-                        </span>
+                      {detail.dakContext && (
+                        detail.dakContext.canOpen && detail.dakContext.navigationUrl ? (
+                          <Link to={detail.dakContext.navigationUrl} className="context-pill clickable">
+                            📥 Dak: {detail.dakContext.referenceNumber || detail.dakContext.title}
+                          </Link>
+                        ) : (
+                          <span className="context-pill locked" title="Access restricted">
+                            🔒 Dak (Restricted)
+                          </span>
+                        )
                       )}
-                      {detail.context.outward && (
-                        <span className={`context-pill ${detail.context.outward.canOpen ? 'clickable' : 'locked'}`}>
-                          📤 Outward: {detail.context.outward.referenceNumber}
-                        </span>
+                      {detail.outwardContext && (
+                        detail.outwardContext.canOpen && detail.outwardContext.navigationUrl ? (
+                          <Link to={detail.outwardContext.navigationUrl} className="context-pill clickable">
+                            📤 Outward: {detail.outwardContext.referenceNumber || detail.outwardContext.title}
+                          </Link>
+                        ) : (
+                          <span className="context-pill locked" title="Access restricted">
+                            🔒 Outward (Restricted)
+                          </span>
+                        )
                       )}
-                      {detail.context.courtProceeding && (
-                        <span className="context-pill clickable">
-                          🏛 Proceeding: {detail.context.courtProceeding.title}
-                        </span>
+                      {detail.courtCaseContext && (
+                        detail.courtCaseContext.canOpen && detail.courtCaseContext.navigationUrl ? (
+                          <Link to={detail.courtCaseContext.navigationUrl} className="context-pill clickable">
+                            🏛 Court Case: {detail.courtCaseContext.title || detail.courtCaseContext.referenceNumber}
+                          </Link>
+                        ) : (
+                          <span className="context-pill locked" title={detail.courtCaseContext.canOpen ? "Official court reference" : "Access restricted"}>
+                            🏛 Court Case: {detail.courtCaseContext.title || detail.courtCaseContext.referenceNumber || 'Official reference'}
+                          </span>
+                        )
                       )}
-                      {!detail.context.matter && !detail.context.dak && !detail.context.outward && !detail.context.courtProceeding && (
+                      {detail.courtProceedingContext && (
+                        detail.courtProceedingContext.canOpen && detail.courtProceedingContext.navigationUrl ? (
+                          <Link to={detail.courtProceedingContext.navigationUrl} className="context-pill clickable">
+                            🏛 Proceeding: {detail.courtProceedingContext.title || detail.courtProceedingContext.referenceNumber}
+                          </Link>
+                        ) : (
+                          <span className="context-pill locked" title={detail.courtProceedingContext.canOpen ? "Official proceeding reference" : "Access restricted"}>
+                            🏛 Proceeding: {detail.courtProceedingContext.title || detail.courtProceedingContext.referenceNumber || 'Proceeding'}
+                          </span>
+                        )
+                      )}
+                      {!detail.matterContext && !detail.dakContext && !detail.outwardContext && !detail.courtCaseContext && !detail.courtProceedingContext && (
                         <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No linked records</span>
                       )}
                     </div>
@@ -947,14 +993,14 @@ export function CalendarView() {
                       <h4 style={{ margin: '8px 0 4px 0', fontSize: '0.9rem', color: '#1e293b' }}>
                         Linked Work Item
                       </h4>
-                      {detail.context.workItem ? (
-                        detail.capabilities.canLinkWorkItem && (
+                      {detail.workItemContext ? (
+                        detail.capabilities?.canLinkWorkItem && (
                           <button className="btn-sm btn-danger" onClick={handleUnlinkWorkItem}>
                             Unlink Work Item
                           </button>
                         )
                       ) : (
-                        detail.capabilities.canLinkWorkItem && (
+                        detail.capabilities?.canLinkWorkItem && (
                           <button
                             className="btn-sm"
                             onClick={() => {
@@ -968,10 +1014,16 @@ export function CalendarView() {
                         )
                       )}
                     </div>
-                    {detail.context.workItem ? (
-                      <span className="context-pill clickable">
-                        📋 Work Item: {detail.context.workItem.title}
-                      </span>
+                    {detail.workItemContext ? (
+                      detail.workItemContext.canOpen && detail.workItemContext.navigationUrl ? (
+                        <Link to={detail.workItemContext.navigationUrl} className="context-pill clickable">
+                          📋 Work Item: {detail.workItemContext.title}
+                        </Link>
+                      ) : (
+                        <span className="context-pill locked">
+                          🔒 Work Item (Restricted)
+                        </span>
+                      )
                     ) : (
                       <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>
                         No work item linked.
@@ -1019,7 +1071,7 @@ export function CalendarView() {
                             }}
                           >
                             <div>
-                              🔔 <strong>{rem.daysBefore} days before</strong> (surfaces on {rem.targetReminderDate})
+                              🔔 <strong>{rem.daysBefore} days before</strong>{rem.targetReminderDate ? ` (surfaces on ${rem.targetReminderDate})` : (rem.reminderTime ? ` at ${rem.reminderTime}` : '')}
                               {rem.note && <span> — {rem.note}</span>}
                               {!rem.isActive && <span style={{ color: '#94a3b8' }}> (Inactive)</span>}
                             </div>
@@ -1048,10 +1100,12 @@ export function CalendarView() {
                           <div className="history-dot" />
                           <div className="history-action">{h.action}</div>
                           <div className="history-actor">
-                            By {h.actorDisplayNameSnapshot || 'User'} ({h.actorDesignationSnapshot || 'Staff'}) on{' '}
-                            {new Date(h.occurredAt).toLocaleString()}
+                            By {h.actorDisplayNameSnapshot || h.actorDisplayName || 'User'} ({h.actorDesignationSnapshot || h.actorDesignation || 'Staff'}) on{' '}
+                            {new Date(h.occurredAt || h.actionAt).toLocaleString()}
                           </div>
-                          {h.remarks && <div className="history-remarks">"{h.remarks}"</div>}
+                          {(h.remarks || h.notes || h.reason) && (
+                            <div className="history-remarks">"{h.remarks || h.notes || h.reason}"</div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -1360,8 +1414,8 @@ export function CalendarView() {
                     value={createKind}
                     onChange={(e) => setCreateKind(e.target.value as ScheduledEventKind)}
                   >
-                    <option value="Hearing">Hearing</option>
-                    <option value="ComplianceDeadline">Compliance Deadline</option>
+                    <option value="CourtHearing">Court Hearing</option>
+                    <option value="DakCompliance">Dak Compliance</option>
                     <option value="SiteInspection">Site Inspection</option>
                     <option value="Meeting">Meeting</option>
                     <option value="OrderDelivery">Order Delivery</option>
@@ -1411,10 +1465,9 @@ export function CalendarView() {
                     value={createPriority}
                     onChange={(e) => setCreatePriority(e.target.value as ScheduledEventPriority)}
                   >
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
+                    <option value="Routine">Routine</option>
                     <option value="Urgent">Urgent</option>
+                    <option value="Immediate">Immediate</option>
                   </select>
                 </div>
 
@@ -1482,12 +1535,6 @@ export function CalendarView() {
                     value={createCourtCaseId}
                     onChange={(e) => setCreateCourtCaseId(e.target.value)}
                   />
-                  <input
-                    type="text"
-                    placeholder="Court Proceeding ID"
-                    value={createCourtProceedingId}
-                    onChange={(e) => setCreateCourtProceedingId(e.target.value)}
-                  />
                 </div>
               </details>
             </div>
@@ -1538,10 +1585,9 @@ export function CalendarView() {
                     value={promotePriority}
                     onChange={(e) => setPromotePriority(e.target.value as ScheduledEventPriority)}
                   >
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
+                    <option value="Routine">Routine</option>
                     <option value="Urgent">Urgent</option>
+                    <option value="Immediate">Immediate</option>
                   </select>
                 </div>
 
