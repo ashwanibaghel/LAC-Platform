@@ -103,6 +103,22 @@ public static class ScheduleEndpoints
             CancellationToken ct)
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+
+            if (!string.IsNullOrWhiteSpace(eventKind) && !Enum.TryParse<ScheduledEventKind>(eventKind, true, out _))
+            {
+                return Results.Json(new { error = $"Invalid eventKind: '{eventKind}'." }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            if (!string.IsNullOrWhiteSpace(status) && !Enum.TryParse<ScheduledEventStatus>(status, true, out _))
+            {
+                return Results.Json(new { error = $"Invalid status: '{status}'." }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
+            if (!string.IsNullOrWhiteSpace(priority) && !Enum.TryParse<ScheduledEventPriority>(priority, true, out _))
+            {
+                return Results.Json(new { error = $"Invalid priority: '{priority}'." }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
             var query = new CalendarQuery(
                 FromDate: fromDate,
                 ToDate: toDate,

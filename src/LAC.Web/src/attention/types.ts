@@ -1,23 +1,25 @@
 export type ScheduledEventKind =
   | 'CourtHearing'
+  | 'Deadline'
+  | 'FollowUp'
+  | 'Compliance'
+  | 'Review'
+  | 'Meeting'
+  | 'Other'
   | 'ComplianceDeadline'
   | 'SiteInspection'
-  | 'Meeting'
   | 'OrderDelivery'
   | 'CompensationDisbursement'
   | 'ReportSubmission'
   | 'NoticeExpiry'
-  | 'Other';
+  | 'DakCompliance';
 
 export type ScheduledEventPriority = 'Routine' | 'Urgent' | 'Immediate';
 
 export type ScheduledEventStatus =
   | 'Scheduled'
-  | 'Rescheduled'
-  | 'InAttendance'
   | 'Completed'
-  | 'Cancelled'
-  | 'Adjourned';
+  | 'Cancelled';
 
 export type AttentionSourceType = 'ScheduledEvent' | 'WorkItemDue' | 'DakDue';
 
@@ -114,8 +116,6 @@ export interface ScheduledReminderDto {
   id: string;
   daysBefore: number;
   reminderTime?: string | null;
-  targetReminderDate?: string | null;
-  note?: string | null;
   isActive: boolean;
   createdByUserId: string;
   createdByDisplayName?: string | null;
@@ -179,9 +179,7 @@ export interface ScheduledEventDetail {
   revision: number;
   createdByUserId: string;
   createdByDisplayName?: string | null;
-  createdByDisplayNameSnapshot?: string | null;
   createdByDesignation?: string | null;
-  createdByDesignationSnapshot?: string | null;
   createdAt: string;
   lastActivityAt: string;
   completedAt?: string | null;

@@ -28,6 +28,11 @@ public static class AttentionEndpoints
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
 
+            if (!string.IsNullOrWhiteSpace(priority) && !Enum.TryParse<ScheduledEventPriority>(priority, true, out _))
+            {
+                return Results.Json(new { error = $"Invalid priority: '{priority}'." }, statusCode: StatusCodes.Status400BadRequest);
+            }
+
             var query = new AttentionQuery(
                 Bucket: bucket,
                 SourceType: sourceType,
@@ -65,6 +70,11 @@ public static class AttentionEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+
+            if (!string.IsNullOrWhiteSpace(priority) && !Enum.TryParse<ScheduledEventPriority>(priority, true, out _))
+            {
+                return Results.Json(new { error = $"Invalid priority: '{priority}'." }, statusCode: StatusCodes.Status400BadRequest);
+            }
 
             var query = new AttentionQuery(
                 Bucket: bucket,

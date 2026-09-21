@@ -435,7 +435,7 @@ public sealed class AttentionProjectionService(
                     false,
                     currentAssignment is null,
                     w.UpdatedAt,
-                    new AttentionContextDto("WorkItem", w.Id, w.Title, null, canOpen, canOpen ? $"/work-items/{w.Id}" : null)
+                    new AttentionContextDto("WorkItem", w.Id, w.Title, null, canOpen, canOpen ? $"/work/{w.Id}" : null)
                 ));
             }
         }
@@ -674,7 +674,7 @@ public sealed class AttentionProjectionService(
                     false,
                     needsRouting,
                     w.UpdatedAt,
-                    new AttentionContextDto("WorkItem", w.Id, w.Title, null, canOpen, canOpen ? $"/work-items/{w.Id}" : null)
+                    new AttentionContextDto("WorkItem", w.Id, w.Title, null, canOpen, canOpen ? $"/work/{w.Id}" : null)
                 ));
             }
         }
@@ -800,18 +800,24 @@ public sealed class AttentionProjectionService(
         if (query.WorkstreamId.HasValue) eventQuery = eventQuery.Where(e => e.WorkstreamId == query.WorkstreamId.Value);
         if (query.DeskId.HasValue) eventQuery = eventQuery.Where(e => e.ResponsibleOfficeDeskId == query.DeskId.Value);
 
-        if (!string.IsNullOrWhiteSpace(query.EventKind) && Enum.TryParse<ScheduledEventKind>(query.EventKind, true, out var kind))
+        if (!string.IsNullOrWhiteSpace(query.EventKind))
         {
+            if (!Enum.TryParse<ScheduledEventKind>(query.EventKind, true, out var kind))
+                throw new ScheduleWorkflowException($"Invalid eventKind: '{query.EventKind}'.", 400);
             eventQuery = eventQuery.Where(e => e.EventKind == kind);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Status) && Enum.TryParse<ScheduledEventStatus>(query.Status, true, out var status))
+        if (!string.IsNullOrWhiteSpace(query.Status))
         {
+            if (!Enum.TryParse<ScheduledEventStatus>(query.Status, true, out var status))
+                throw new ScheduleWorkflowException($"Invalid status: '{query.Status}'.", 400);
             eventQuery = eventQuery.Where(e => e.Status == status);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Priority) && Enum.TryParse<ScheduledEventPriority>(query.Priority, true, out var priority))
+        if (!string.IsNullOrWhiteSpace(query.Priority))
         {
+            if (!Enum.TryParse<ScheduledEventPriority>(query.Priority, true, out var priority))
+                throw new ScheduleWorkflowException($"Invalid priority: '{query.Priority}'.", 400);
             eventQuery = eventQuery.Where(e => e.Priority == priority);
         }
 
@@ -915,16 +921,13 @@ public sealed class AttentionProjectionService(
         var canView = await scheduleAuth.CanAccessScheduledEventAsync(evt, PermissionCodes.ScheduleView, userId, ct);
         if (!canView) return null;
 
-        var canReschedule = await scheduleAuth.CanUpdateScheduledEventAsync(evt, userId, ct);
-        var canReassign = await (from ur in db.UserRoles
-                                 join r in db.Roles on ur.RoleId equals r.Id
-                                 join rp in db.RolePermissions on r.Id equals rp.RoleId
-                                 join p in db.Permissions on rp.PermissionId equals p.Id
-                                 where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.ScheduleAssign
-                                 select rp.ScopeMode).AnyAsync(ct);
-        var canUpdate = await scheduleAuth.CanUpdateScheduledEventAsync(evt, userId, ct);
+        var isCourtProceeding = evt.Origin == ScheduledEventOrigin.CourtProceeding;
+        var canUpdateScheduleAuth = await scheduleAuth.CanUpdateScheduledEventAsync(evt, userId, ct);
+        var canReschedule = !isCourtProceeding && canUpdateScheduleAuth;
+        var canReassign = await scheduleAuth.CanAccessScheduledEventAsync(evt, PermissionCodes.ScheduleAssign, userId, ct);
+        var canUpdate = !isCourtProceeding && canUpdateScheduleAuth;
         var canComplete = await scheduleAuth.CanCompleteScheduledEventAsync(evt, userId, ct);
-        var canCancel = await scheduleAuth.CanCancelScheduledEventAsync(evt, userId, ct);
+        var canCancel = !isCourtProceeding && await scheduleAuth.CanCancelScheduledEventAsync(evt, userId, ct);
 
         // Resolve context security
         AttentionContextDto? matterCtx = null;
@@ -983,7 +986,7 @@ public sealed class AttentionProjectionService(
                 canViewWork ? work?.Title : null,
                 null,
                 canViewWork,
-                canViewWork ? $"/work-items/{evt.WorkItemId.Value}" : null
+                canViewWork ? $"/work/{evt.WorkItemId.Value}" : null
             );
         }
 
@@ -1092,8 +1095,8 @@ public sealed class AttentionProjectionService(
                 canUpdate,
                 canComplete,
                 canCancel,
-                canUpdate,
-                canUpdate
+                canUpdateScheduleAuth,
+                canUpdateScheduleAuth
             )
         );
     }
@@ -1145,7 +1148,7 @@ public sealed class AttentionProjectionService(
         {
             var workItem = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == e.WorkItemId.Value, ct);
             var canViewWork = workItem != null && await workItemAuth.CanAccessWorkItemAsync(e.WorkItemId.Value, PermissionCodes.WorkItemView, userId, ct);
-            return new AttentionContextDto("WorkItem", e.WorkItemId.Value, canViewWork ? workItem?.Title : null, null, canViewWork, canViewWork ? $"/work-items/{e.WorkItemId.Value}" : null);
+            return new AttentionContextDto("WorkItem", e.WorkItemId.Value, canViewWork ? workItem?.Title : null, null, canViewWork, canViewWork ? $"/work/{e.WorkItemId.Value}" : null);
         }
 
         if (e.MatterId.HasValue)
@@ -1178,66 +1181,73 @@ public sealed class AttentionProjectionService(
         IReadOnlyList<FilterOptionDto>? workstreams = null,
         IReadOnlyList<FilterOptionDto>? desks = null)
     {
-        var summary = new AttentionSummaryDto(
-            rawItems.Count(x => x.Buckets.Contains("Overdue")),
-            rawItems.Count(x => x.Buckets.Contains("Today")),
-            rawItems.Count(x => x.Buckets.Contains("Tomorrow")),
-            rawItems.Count(x => x.Buckets.Contains("Next 7 Days")),
-            rawItems.Count(x => x.IsReminderActive),
-            rawItems.Count(x => x.NeedsRouting)
-        );
-
-        IEnumerable<AttentionItemDto> filtered = rawItems;
-
-        if (!string.IsNullOrWhiteSpace(query.Bucket))
-        {
-            var b = query.Bucket.Trim().ToLowerInvariant();
-            filtered = b switch
-            {
-                "overdue" => filtered.Where(x => x.Buckets.Contains("Overdue")),
-                "today" => filtered.Where(x => x.Buckets.Contains("Today")),
-                "tomorrow" => filtered.Where(x => x.Buckets.Contains("Tomorrow")),
-                "next-7-days" or "next7days" or "next_7_days" or "this-week" => filtered.Where(x => x.Buckets.Contains("Next 7 Days")),
-                "reminder-active" or "reminderactive" or "reminder" => filtered.Where(x => x.IsReminderActive),
-                "needs-routing" or "needsrouting" or "unassigned" => filtered.Where(x => x.NeedsRouting),
-                _ => filtered
-            };
-        }
+        IEnumerable<AttentionItemDto> baseFiltered = rawItems;
 
         if (!string.IsNullOrWhiteSpace(query.SourceType))
         {
             var st = query.SourceType.Trim().ToLowerInvariant();
-            filtered = st switch
+            baseFiltered = st switch
             {
-                "schedule" or "event" or "scheduled-event" or "scheduledevent" => filtered.Where(x => x.SourceType == "ScheduledEvent"),
-                "work" or "workitem" or "work-item" => filtered.Where(x => x.SourceType == "WorkItemDue"),
-                "dak" => filtered.Where(x => x.SourceType == "DakDue"),
-                _ => filtered
+                "schedule" or "event" or "scheduled-event" or "scheduledevent" => baseFiltered.Where(x => x.SourceType == "ScheduledEvent"),
+                "work" or "workitem" or "work-item" => baseFiltered.Where(x => x.SourceType == "WorkItemDue"),
+                "dak" => baseFiltered.Where(x => x.SourceType == "DakDue"),
+                _ => baseFiltered
             };
         }
 
         if (query.WorkstreamId.HasValue)
         {
-            filtered = filtered.Where(x => x.WorkstreamId == query.WorkstreamId.Value);
+            baseFiltered = baseFiltered.Where(x => x.WorkstreamId == query.WorkstreamId.Value);
         }
 
         if (query.DeskId.HasValue)
         {
-            filtered = filtered.Where(x => x.ResponsibleDeskId == query.DeskId.Value);
+            baseFiltered = baseFiltered.Where(x => x.ResponsibleDeskId == query.DeskId.Value);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Priority))
         {
-            filtered = filtered.Where(x => string.Equals(x.Priority, query.Priority, StringComparison.OrdinalIgnoreCase));
+            if (!Enum.TryParse<ScheduledEventPriority>(query.Priority, true, out _))
+                throw new ScheduleWorkflowException($"Invalid priority: '{query.Priority}'.", 400);
+
+            baseFiltered = baseFiltered.Where(x => string.Equals(x.Priority, query.Priority, StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term = query.Search.Trim().ToLowerInvariant();
-            filtered = filtered.Where(x => x.Title.ToLowerInvariant().Contains(term));
+            baseFiltered = baseFiltered.Where(x => x.Title.ToLowerInvariant().Contains(term));
         }
 
-        var list = filtered.ToList();
+        var baseList = baseFiltered.ToList();
+
+        var summary = new AttentionSummaryDto(
+            baseList.Count(x => x.Buckets.Contains("Overdue")),
+            baseList.Count(x => x.Buckets.Contains("Today")),
+            baseList.Count(x => x.Buckets.Contains("Tomorrow")),
+            baseList.Count(x => x.Buckets.Contains("Next 7 Days")),
+            baseList.Count(x => x.IsReminderActive),
+            baseList.Count(x => x.NeedsRouting)
+        );
+
+        IEnumerable<AttentionItemDto> bucketFiltered = baseList;
+
+        if (!string.IsNullOrWhiteSpace(query.Bucket))
+        {
+            var b = query.Bucket.Trim().ToLowerInvariant();
+            bucketFiltered = b switch
+            {
+                "overdue" => bucketFiltered.Where(x => x.Buckets.Contains("Overdue")),
+                "today" => bucketFiltered.Where(x => x.Buckets.Contains("Today")),
+                "tomorrow" => bucketFiltered.Where(x => x.Buckets.Contains("Tomorrow")),
+                "next-7-days" or "next7days" or "next_7_days" or "this-week" => bucketFiltered.Where(x => x.Buckets.Contains("Next 7 Days")),
+                "reminder-active" or "reminderactive" or "reminder" => bucketFiltered.Where(x => x.IsReminderActive),
+                "needs-routing" or "needsrouting" or "unassigned" => bucketFiltered.Where(x => x.NeedsRouting),
+                _ => bucketFiltered
+            };
+        }
+
+        var list = bucketFiltered.ToList();
         var totalCount = list.Count;
         var page = Math.Clamp(query.Page, 1, 100);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);

@@ -75,7 +75,7 @@ export function CalendarView() {
   const [actionTargetDeskId, setActionTargetDeskId] = useState('');
   const [actionTargetUserId, setActionTargetUserId] = useState('');
   const [actionDaysBefore, setActionDaysBefore] = useState(1);
-  const [actionReminderNote, setActionReminderNote] = useState('');
+  const [actionReminderTime, setActionReminderTime] = useState('');
   const [actionWorkItemId, setActionWorkItemId] = useState('');
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -516,7 +516,7 @@ export function CalendarView() {
         credentials: 'include',
         body: JSON.stringify({
           daysBefore: actionDaysBefore,
-          reminderTime: null,
+          reminderTime: actionReminderTime ? actionReminderTime : null,
           expectedRevision: detail.revision
         })
       });
@@ -699,14 +699,18 @@ export function CalendarView() {
             style={{ padding: '5px 8px', fontSize: '0.82rem', borderRadius: 4, border: '1px solid #cbd5e1' }}
           >
             <option value="">All Event Kinds</option>
-            <option value="Hearing">Hearing</option>
-            <option value="ComplianceDeadline">Compliance Deadline</option>
-            <option value="SiteInspection">Site Inspection</option>
+            <option value="CourtHearing">Court Hearing</option>
+            <option value="Deadline">Deadline</option>
+            <option value="FollowUp">Follow-Up</option>
+            <option value="Compliance">Compliance</option>
+            <option value="Review">Review</option>
             <option value="Meeting">Meeting</option>
+            <option value="SiteInspection">Site Inspection</option>
             <option value="OrderDelivery">Order Delivery</option>
             <option value="CompensationDisbursement">Compensation Disbursement</option>
             <option value="ReportSubmission">Report Submission</option>
             <option value="NoticeExpiry">Notice Expiry</option>
+            <option value="DakCompliance">Dak Compliance</option>
             <option value="Other">Other</option>
           </select>
 
@@ -717,7 +721,6 @@ export function CalendarView() {
           >
             <option value="">All Statuses</option>
             <option value="Scheduled">Scheduled</option>
-            <option value="Rescheduled">Rescheduled</option>
             <option value="Completed">Completed</option>
             <option value="Cancelled">Cancelled</option>
           </select>
@@ -909,7 +912,7 @@ export function CalendarView() {
                     </div>
                     <div>
                       <strong>Created By:</strong>{' '}
-                      {detail.createdByDisplayNameSnapshot || 'System'} ({detail.createdByDesignationSnapshot || 'Officer'})
+                      {detail.createdByDisplayName || 'System'} ({detail.createdByDesignation || 'Officer'})
                     </div>
                     <div>
                       <strong>Revision:</strong> #{detail.revision}
@@ -1042,7 +1045,7 @@ export function CalendarView() {
                           className="btn-sm"
                           onClick={() => {
                             setActionDaysBefore(1);
-                            setActionReminderNote('');
+                            setActionReminderTime('');
                             setActionError(null);
                             setActiveActionModal('addReminder');
                           }}
@@ -1071,8 +1074,7 @@ export function CalendarView() {
                             }}
                           >
                             <div>
-                              🔔 <strong>{rem.daysBefore} days before</strong>{rem.targetReminderDate ? ` (surfaces on ${rem.targetReminderDate})` : (rem.reminderTime ? ` at ${rem.reminderTime}` : '')}
-                              {rem.note && <span> — {rem.note}</span>}
+                              🔔 <strong>{rem.daysBefore} days before</strong>{rem.reminderTime ? ` at ${rem.reminderTime}` : ''}
                               {!rem.isActive && <span style={{ color: '#94a3b8' }}> (Inactive)</span>}
                             </div>
                             {rem.isActive && detail.capabilities.canManageReminders && (
@@ -1331,11 +1333,11 @@ export function CalendarView() {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Note</label>
+                  <label>Reminder Time (Optional)</label>
                   <input
-                    type="text"
-                    value={actionReminderNote}
-                    onChange={(e) => setActionReminderNote(e.target.value)}
+                    type="time"
+                    value={actionReminderTime}
+                    onChange={(e) => setActionReminderTime(e.target.value)}
                   />
                 </div>
               </div>
@@ -1415,13 +1417,17 @@ export function CalendarView() {
                     onChange={(e) => setCreateKind(e.target.value as ScheduledEventKind)}
                   >
                     <option value="CourtHearing">Court Hearing</option>
-                    <option value="DakCompliance">Dak Compliance</option>
-                    <option value="SiteInspection">Site Inspection</option>
+                    <option value="Deadline">Deadline</option>
+                    <option value="FollowUp">Follow-Up</option>
+                    <option value="Compliance">Compliance</option>
+                    <option value="Review">Review</option>
                     <option value="Meeting">Meeting</option>
+                    <option value="SiteInspection">Site Inspection</option>
                     <option value="OrderDelivery">Order Delivery</option>
                     <option value="CompensationDisbursement">Compensation Disbursement</option>
                     <option value="ReportSubmission">Report Submission</option>
                     <option value="NoticeExpiry">Notice Expiry</option>
+                    <option value="DakCompliance">Dak Compliance</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>

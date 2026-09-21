@@ -1256,4 +1256,340 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.NotNull(team);
         Assert.Contains(team.Items, i => i.EntityType == "ScheduledEvent" && i.EntityId == evt.Id);
     }
+
+    // =========================================================================
+    // 9. AUDIT HARDENING PASS TESTS
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtAuthorization_StrictWorkstreamAndScopeTruth()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var courtAuth = scope.ServiceProvider.GetRequiredService<ICourtAuthorizationService>();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var wsCourt = await CreateWorkstreamAsync(WorkstreamCodes.CourtReferences, "Court References WS");
+        var wsAward = await CreateWorkstreamAsync(WorkstreamCodes.Award, "Award WS");
+        var deskCourt = await CreateDeskAsync($"DSK_CRT_{Guid.NewGuid():N}", "Court Desk", wsCourt.Id);
+
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_AUTH_{Guid.NewGuid():N}",
+            CourtName = "High Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+        await db.SaveChangesAsync();
+
+        // 1. User with Award.View on Award WS only cannot view court references
+        var (awardUserClient, awardUser) = await CreateUserWithPermissionsAsync(
+            $"usr_award_only_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            workstreamId: wsAward.Id
+        );
+        var canAwardUserView = await courtAuth.CanViewCourtReferencesAsync(awardUser.Id);
+        Assert.False(canAwardUserView);
+        var awardUserRes = await awardUserClient.GetAsync($"/api/court-cases/{courtCase.Id}/proceedings");
+        Assert.Equal(HttpStatusCode.Forbidden, awardUserRes.StatusCode);
+
+        // 2. User with Award.View on Assigned desk under CourtReferences fails closed
+        var (assignedUserClient, assignedUser) = await CreateUserWithPermissionsAsync(
+            $"usr_court_assigned_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.Assigned) },
+            deskId: deskCourt.Id
+        );
+        var canAssignedUserView = await courtAuth.CanViewCourtReferencesAsync(assignedUser.Id);
+        Assert.False(canAssignedUserView);
+
+        // 3. User with Award.View on CourtReferences WS can view
+        var (courtUserClient, courtUser) = await CreateUserWithPermissionsAsync(
+            $"usr_court_ws_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            workstreamId: wsCourt.Id
+        );
+        var canCourtUserView = await courtAuth.CanViewCourtReferencesAsync(courtUser.Id);
+        Assert.True(canCourtUserView);
+        var courtUserRes = await courtUserClient.GetAsync($"/api/court-cases/{courtCase.Id}/proceedings");
+        Assert.Equal(HttpStatusCode.OK, courtUserRes.StatusCode);
+
+        // 4. User with ScopeMode.All can view
+        var (allUserClient, allUser) = await CreateUserWithPermissionsAsync(
+            $"usr_court_all_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+        );
+        var canAllUserView = await courtAuth.CanViewCourtReferencesAsync(allUser.Id);
+        Assert.True(canAllUserView);
+    }
+
+    [Fact]
+    public async Task CourtNavigationTruth_GatedOnAwardWorkspaceAccess()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var courtAuth = scope.ServiceProvider.GetRequiredService<ICourtAuthorizationService>();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var wsCourt = await CreateWorkstreamAsync(WorkstreamCodes.CourtReferences, "Court WS Nav");
+        var wsAward = await CreateWorkstreamAsync(WorkstreamCodes.Award, "Award WS Nav");
+
+        var award = new Award
+        {
+            Id = Guid.NewGuid(),
+            AwardNumber = $"AW_NAV_{Guid.NewGuid():N}",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.Awards.Add(award);
+
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_NAV_{Guid.NewGuid():N}",
+            CourtName = "High Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+
+        db.Set<CourtCaseAward>().Add(new CourtCaseAward
+        {
+            CourtCaseId = courtCase.Id,
+            AwardId = award.Id
+        });
+        await db.SaveChangesAsync();
+
+        // 1. User with CourtReferences access ONLY: has court permission, but NOT Award workspace access
+        var (_, courtOnlyUser) = await CreateUserWithPermissionsAsync(
+            $"usr_court_only_nav_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            workstreamId: wsCourt.Id
+        );
+
+        var canViewAwardWsCourtOnly = await courtAuth.CanViewAwardWorkspaceAsync(courtOnlyUser.Id);
+        Assert.False(canViewAwardWsCourtOnly);
+
+        var navUrlCourtOnly = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, courtOnlyUser.Id);
+        Assert.Null(navUrlCourtOnly);
+
+        // 2. User with both CourtReferences AND Award workspace access
+        var (_, dualUser) = await CreateUserWithPermissionsAsync(
+            $"usr_dual_nav_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            workstreamId: wsCourt.Id
+        );
+
+        using (var updateScope = _factory.Services.CreateScope())
+        {
+            var updateDb = updateScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            updateDb.UserWorkstreamMemberships.Add(new UserWorkstreamMembership
+            {
+                UserId = dualUser.Id,
+                WorkstreamId = wsAward.Id,
+                IsActive = true,
+                IsPrimary = false,
+                AssignedAt = DateTimeOffset.UtcNow
+            });
+            await updateDb.SaveChangesAsync();
+        }
+
+        var canViewAwardWsDual = await courtAuth.CanViewAwardWorkspaceAsync(dualUser.Id);
+        Assert.True(canViewAwardWsDual);
+
+        var navUrlDual = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, dualUser.Id);
+        Assert.Equal($"/awards/{award.Id}", navUrlDual);
+
+        // 3. User with ScopeMode.All
+        var (_, allUser) = await CreateUserWithPermissionsAsync(
+            $"usr_all_nav_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+        );
+        var canViewAwardWsAll = await courtAuth.CanViewAwardWorkspaceAsync(allUser.Id);
+        Assert.True(canViewAwardWsAll);
+
+        var navUrlAll = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, allUser.Id);
+        Assert.Equal($"/awards/{award.Id}", navUrlAll);
+    }
+
+    [Fact]
+    public async Task ScheduledEventCapabilities_CourtProceedingAndReassignTruth()
+    {
+        var admin = await CreateAdminClientAsync();
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var ws1 = await CreateWorkstreamAsync($"WS_CAP1_{Guid.NewGuid():N}", "Cap WS 1");
+        var ws2 = await CreateWorkstreamAsync($"WS_CAP2_{Guid.NewGuid():N}", "Cap WS 2");
+        var desk1 = await CreateDeskAsync($"DSK_CAP1_{Guid.NewGuid():N}", "Cap Desk 1", ws1.Id);
+
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_CAP_{Guid.NewGuid():N}",
+            CourtName = "Supreme Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+
+        var proceeding = new CourtProceeding
+        {
+            Id = Guid.NewGuid(),
+            CourtCaseId = courtCase.Id,
+            ProceedingDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5)),
+            OrderType = "Hearing",
+            NextDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(15)),
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtProceedings.Add(proceeding);
+        await db.SaveChangesAsync();
+
+        // 1. Promote proceeding to official schedule
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{proceeding.Id}", new CreateFromCourtProceedingApiRequest(
+            desk1.Id, null, "Court Proceeding Event", null, "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+        var courtEvt = await promoteRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(courtEvt);
+        Assert.Equal("CourtProceeding", courtEvt.Origin);
+
+        // For court proceeding origin: CanReschedule=false, CanCancel=false, CanUpdate=false
+        Assert.False(courtEvt.Capabilities.CanReschedule);
+        Assert.False(courtEvt.Capabilities.CanCancel);
+        Assert.False(courtEvt.Capabilities.CanUpdate);
+
+        // 2. CanReassign test:
+        // Create an event in WS1
+        var createEvtRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            ws1.Id, desk1.Id, null, "CourtHearing", "WS1 Event", null, DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)), null, "Urgent"
+        ));
+        Assert.Equal(HttpStatusCode.Created, createEvtRes.StatusCode);
+        var normalEvt = await createEvtRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(normalEvt);
+
+        // User with ScheduleAssign in WS2 only cannot reassign event in WS1
+        var (userWs2Client, userWs2) = await CreateUserWithPermissionsAsync(
+            $"usr_reassign_ws2_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleAssign, ScopeMode.Workstream)
+            },
+            workstreamId: ws2.Id
+        );
+
+        var detailWs2Res = await userWs2Client.GetAsync($"/api/scheduled-events/{normalEvt.Id}");
+        Assert.Equal(HttpStatusCode.OK, detailWs2Res.StatusCode);
+        var detailWs2 = await detailWs2Res.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailWs2);
+        Assert.False(detailWs2.Capabilities.CanReassign);
+
+        // User with ScheduleAssign in WS1 CAN reassign event in WS1
+        var (userWs1Client, userWs1) = await CreateUserWithPermissionsAsync(
+            $"usr_reassign_ws1_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleAssign, ScopeMode.Workstream)
+            },
+            workstreamId: ws1.Id
+        );
+
+        var detailWs1Res = await userWs1Client.GetAsync($"/api/scheduled-events/{normalEvt.Id}");
+        Assert.Equal(HttpStatusCode.OK, detailWs1Res.StatusCode);
+        var detailWs1 = await detailWs1Res.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(detailWs1);
+        Assert.True(detailWs1.Capabilities.CanReassign);
+    }
+
+    [Fact]
+    public async Task CalendarAndAttentionQuery_StrictEnumValidation_Returns400()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        // 1. Calendar query with invalid eventKind
+        var res1 = await admin.GetAsync("/api/scheduled-events?eventKind=InvalidKind");
+        Assert.Equal(HttpStatusCode.BadRequest, res1.StatusCode);
+
+        // 2. Calendar query with invalid status
+        var res2 = await admin.GetAsync("/api/scheduled-events?status=Rescheduled");
+        Assert.Equal(HttpStatusCode.BadRequest, res2.StatusCode);
+
+        // 3. Calendar query with invalid priority
+        var res3 = await admin.GetAsync("/api/scheduled-events?priority=SuperUrgent");
+        Assert.Equal(HttpStatusCode.BadRequest, res3.StatusCode);
+
+        // 4. My Attention query with invalid priority
+        var res4 = await admin.GetAsync("/api/attention/my?priority=BadPriority");
+        Assert.Equal(HttpStatusCode.BadRequest, res4.StatusCode);
+
+        // 5. Branch Attention query with invalid priority
+        var res5 = await admin.GetAsync("/api/attention/branch?priority=BadPriority");
+        Assert.Equal(HttpStatusCode.BadRequest, res5.StatusCode);
+    }
+
+    [Fact]
+    public async Task AttentionSummary_FilterOrdering_MultiWorkstream()
+    {
+        var admin = await CreateAdminClientAsync();
+        var wsA = await CreateWorkstreamAsync($"WS_FLT_A_{Guid.NewGuid():N}", "Filter WS A");
+        var wsB = await CreateWorkstreamAsync($"WS_FLT_B_{Guid.NewGuid():N}", "Filter WS B");
+        var deskA = await CreateDeskAsync($"DSK_FLT_A_{Guid.NewGuid():N}", "Filter Desk A", wsA.Id);
+        var deskB = await CreateDeskAsync($"DSK_FLT_B_{Guid.NewGuid():N}", "Filter Desk B", wsB.Id);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Create 2 events in WS A: 1 Overdue, 1 Today
+        await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            wsA.Id, deskA.Id, null, "CourtHearing", "WS A Overdue Event", null, today.AddDays(-2), null, "Urgent"
+        ));
+        await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            wsA.Id, deskA.Id, null, "CourtHearing", "WS A Today Event", null, today, null, "Routine"
+        ));
+
+        // Create 1 event in WS B: Today
+        await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            wsB.Id, deskB.Id, null, "CourtHearing", "WS B Today Event", null, today, null, "Routine"
+        ));
+
+        // Query branch attention filtered by wsA
+        var resA = await admin.GetAsync($"/api/attention/branch?workstreamId={wsA.Id}");
+        Assert.Equal(HttpStatusCode.OK, resA.StatusCode);
+        var feedA = await resA.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(feedA);
+
+        // Summary counts MUST strictly reflect wsA items only (1 overdue, 1 today, 0 from wsB)
+        Assert.Equal(1, feedA.Summary.Overdue);
+        Assert.Equal(1, feedA.Summary.Today);
+        Assert.Equal(2, feedA.TotalCount);
+
+        // Query branch attention filtered by wsA AND bucket=overdue
+        var resABucket = await admin.GetAsync($"/api/attention/branch?workstreamId={wsA.Id}&bucket=overdue");
+        Assert.Equal(HttpStatusCode.OK, resABucket.StatusCode);
+        var feedABucket = await resABucket.Content.ReadFromJsonAsync<AttentionFeedResult>(JsonOpts);
+        Assert.NotNull(feedABucket);
+
+        // Summary is computed BEFORE bucket filter, so summary still has Overdue=1 and Today=1
+        Assert.Equal(1, feedABucket.Summary.Overdue);
+        Assert.Equal(1, feedABucket.Summary.Today);
+        // But Items returned are filtered by bucket (only 1 overdue item)
+        Assert.Equal(1, feedABucket.TotalCount);
+        Assert.Single(feedABucket.Items);
+        Assert.Contains("Overdue", feedABucket.Items[0].Buckets);
+    }
 }

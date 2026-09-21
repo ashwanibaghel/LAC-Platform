@@ -607,7 +607,7 @@ export function MyAttention() {
                   <div className="feed-item-timing">
                     <span className={`feed-date ${dateClass}`}>{item.scheduledDate}</span>
                     {item.scheduledTime && <span className="feed-time">at {item.scheduledTime}</span>}
-                    {item.remindersActive && (
+                    {item.isReminderActive && (
                       <span className="badge-reminder" title="Active reminder surfaced">
                         🔔 Reminder active
                       </span>
