@@ -1,5 +1,5 @@
 import React from "react";
-import { CourtCaseDetailDto } from "./types";
+import type { CourtCaseDetailDto } from "./types";
 
 interface CourtOverviewTabProps {
   courtCase: CourtCaseDetailDto;

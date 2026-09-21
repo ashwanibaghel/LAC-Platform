@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { CourtCaseDetailDto, CourtCaseDocumentDto } from "./types";
+import type { CourtCaseDetailDto, CourtCaseDocumentDto } from "./types";
 import { useAuth } from "../auth/AuthProvider";
 
 interface CourtDocumentsTabProps {

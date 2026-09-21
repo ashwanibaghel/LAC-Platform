@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { CourtCaseDetailDto, CourtCaseEventDto } from "./types";
+import type { CourtCaseDetailDto, CourtCaseEventDto } from "./types";
 
 interface CourtTimelineTabProps {
   courtCase: CourtCaseDetailDto;

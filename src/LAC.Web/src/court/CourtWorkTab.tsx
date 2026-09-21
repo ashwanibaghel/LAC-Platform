@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { CourtCaseDetailDto, CourtCaseLinkedWorkDto } from "./types";
+import type { CourtCaseDetailDto, CourtCaseLinkedWorkDto } from "./types";
 import { useAuth } from "../auth/AuthProvider";
 
 interface CourtWorkTabProps {

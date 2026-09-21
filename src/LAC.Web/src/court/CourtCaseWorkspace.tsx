@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { CourtCaseDetailDto, CourtFilterOptionsDto } from "./types";
+import type { CourtCaseDetailDto, CourtFilterOptionsDto } from "./types";
 import { CourtOverviewTab } from "./CourtOverviewTab";
 import { CourtProceedingsTab } from "./CourtProceedingsTab";
 import { CourtDocumentsTab } from "./CourtDocumentsTab";
