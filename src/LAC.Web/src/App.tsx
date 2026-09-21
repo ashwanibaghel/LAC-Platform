@@ -36,8 +36,11 @@ import { MyHistory } from "./activity/MyHistory";
 import { TeamActivity } from "./activity/TeamActivity";
 import { MyAttention } from "./attention/MyAttention";
 import { CalendarView } from "./attention/CalendarView";
+import { CourtDirectory } from "./court/CourtDirectory";
+import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
 import "./attention/attention.css";
 import "./work/work.css";
+import "./court/court.css";
 import "./matter/matter.css";
 import "./index.css";
 import "./sidebar.css";
@@ -488,6 +491,9 @@ function Shell({ children }: { children: ReactNode }) {
   }
   if (hasPermission("Matter.View") || hasPermission("Matter.Create")) {
     links.push(["Matters", "/matters", "⚖"]);
+  }
+  if (hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View")) {
+    links.push(["Court Cases", "/court-cases", "🏛"]);
   }
   if (hasPermission("Users.Manage")) {
     links.push(["Users", "/admin/users", "👥"]);
@@ -2179,24 +2185,40 @@ function Award() {
           <DataTable headers={["Case", "Court", "Status", "Affected Khasras", "Actions"]}>
             {courtCases.data?.map((item) => (
               <tr key={item.id}>
-                <td>{item.caseNumber}</td>
+                <td>
+                  <Link
+                    to={`/court-cases/${item.id}`}
+                    style={{ fontWeight: 600, color: "#2563eb", textDecoration: "none" }}
+                  >
+                    {item.caseNumber}
+                  </Link>
+                </td>
                 <td>{item.courtName}</td>
                 <td>{item.status || "—"}</td>
                 <td>{item.khasraCount}</td>
                 <td>
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() =>
-                      setSelectedCourtCaseForProceedings({
-                        id: item.id,
-                        caseNumber: item.caseNumber,
-                        courtName: item.courtName,
-                      })
-                    }
-                  >
-                    Proceedings
-                  </button>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <Link
+                      to={`/court-cases/${item.id}`}
+                      className="link-button"
+                      style={{ textDecoration: "none" }}
+                    >
+                      Open Case
+                    </Link>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() =>
+                        setSelectedCourtCaseForProceedings({
+                          id: item.id,
+                          caseNumber: item.caseNumber,
+                          courtName: item.courtName,
+                        })
+                      }
+                    >
+                      Quick Proceedings
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -3518,6 +3540,9 @@ function AuthenticatedApp() {
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
         <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
+        <Route path="/court-cases" element={<CourtDirectory />} />
+        <Route path="/court-cases/:id" element={<CourtCaseWorkspace />} />
+        <Route path="/court" element={<Navigate to="/court-cases" replace />} />
         <Route
           path="/villages/:villageId/lr/:lrId"
           element={<LrRegister />}

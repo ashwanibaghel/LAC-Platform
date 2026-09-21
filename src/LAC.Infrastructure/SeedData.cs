@@ -166,6 +166,8 @@ public static class SeedData
         }
         await db.SaveChangesAsync(ct);
 
+        await MigrateCourtPermissionsAsync(db, ct);
+
         // 5. Bootstrap Admin User
         if (!await db.AppUsers.AnyAsync(ct))
         {
@@ -277,4 +279,70 @@ public static class SeedData
         }
         await db.SaveChangesAsync(ct);
     }
+
+    public static async Task MigrateCourtPermissionsAsync(LacDbContext db, CancellationToken ct = default)
+    {
+        var awardView = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardView, ct);
+        var awardEdit = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardEdit, ct);
+        var courtView = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtView, ct);
+        var courtCreate = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtCreate, ct);
+        var courtEdit = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtEdit, ct);
+        var courtProceedingManage = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtProceedingManage, ct);
+        var courtDocumentManage = await db.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtDocumentManage, ct);
+
+        if (courtView is null) return;
+
+        var eligibleScopes = new[] { ScopeMode.All, ScopeMode.Workstream };
+
+        if (awardView is not null)
+        {
+            var awardViewRolePerms = await db.RolePermissions
+                .Where(rp => rp.PermissionId == awardView.Id && eligibleScopes.Contains(rp.ScopeMode))
+                .ToListAsync(ct);
+
+            foreach (var rp in awardViewRolePerms)
+            {
+                var exists = await db.RolePermissions.AnyAsync(x => x.RoleId == rp.RoleId && x.PermissionId == courtView.Id, ct);
+                if (!exists)
+                {
+                    db.RolePermissions.Add(new RolePermission
+                    {
+                        RoleId = rp.RoleId,
+                        PermissionId = courtView.Id,
+                        ScopeMode = rp.ScopeMode
+                    });
+                }
+            }
+        }
+
+        if (awardEdit is not null)
+        {
+            var awardEditRolePerms = await db.RolePermissions
+                .Where(rp => rp.PermissionId == awardEdit.Id && eligibleScopes.Contains(rp.ScopeMode))
+                .ToListAsync(ct);
+
+            var targetPerms = new[] { courtCreate, courtEdit, courtProceedingManage, courtDocumentManage }
+                .Where(p => p is not null).Cast<Permission>().ToList();
+
+            foreach (var rp in awardEditRolePerms)
+            {
+                foreach (var target in targetPerms)
+                {
+                    var exists = await db.RolePermissions.AnyAsync(x => x.RoleId == rp.RoleId && x.PermissionId == target.Id, ct);
+                    if (!exists)
+                    {
+                        db.RolePermissions.Add(new RolePermission
+                        {
+                            RoleId = rp.RoleId,
+                            PermissionId = target.Id,
+                            ScopeMode = rp.ScopeMode
+                        });
+                    }
+                }
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
 }
+

@@ -72,6 +72,7 @@ builder.Services.AddScoped<IAttentionProjectionService, AttentionProjectionServi
 builder.Services.AddScoped<IActivityProjectionService, ActivityProjectionService>();
 builder.Services.AddScoped<ICourtAuthorizationService, CourtAuthorizationService>();
 builder.Services.AddScoped<ICourtWorkflowService, CourtWorkflowService>();
+builder.Services.AddScoped<ICourtProjectionService, CourtProjectionService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
@@ -225,7 +226,7 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
 // This is deliberately a three-lane read model.  Canonical records, document-review
 // work and missing source categories are returned separately so an OCR suggestion can
 // never be rendered as an official village fact.
-api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     var village = await db.Villages.AsNoTracking().Where(x => x.Id == id).Select(x => new VillageDetail(x.Id, x.Name,
         new SubDivisionReference(x.SubDivision.Id, x.SubDivision.Name, new DistrictReference(x.SubDivision.District.Id, x.SubDivision.District.Name)),
@@ -240,9 +241,13 @@ api.MapGet("/villages/{id:guid}/overview", async (Guid id, LacDbContext db, Canc
     var notifications = await db.Notifications.AsNoTracking().Where(n => n.KhasraLinks.Any(link => link.Khasra.VillageId == id) || db.AwardNotifications.Any(link => awardIds.Contains(link.AwardId) && link.NotificationId == n.Id)).OrderByDescending(n => n.NotificationDate)
         .Select(n => new VillageOfficialNotificationItem(n.Id, n.NotificationNumber, n.SectionType, n.NotificationDate)).ToListAsync(ct);
     var awardIdList = awards.Select(a => a.Id).ToList();
+
+    var canViewCourt = currentUser.UserId.HasValue && await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct);
+    var courtCount = canViewCourt ? await db.Set<CourtCaseAward>().CountAsync(link => awardIdList.Contains(link.AwardId), ct) : 0;
+
     var official = new VillageOfficialSummary(village.TotalKhasras, awards.Count, notifications.Count,
         await db.PossessionEvents.CountAsync(p => awardIdList.Contains(p.AwardId), ct),
-        await db.Set<CourtCaseAward>().CountAsync(link => awardIdList.Contains(link.AwardId), ct),
+        courtCount,
         await db.Set<AwardValuationRule>().CountAsync(rule => awardIdList.Contains(rule.AwardId), ct),
         await db.Set<AwardCompensationRule>().CountAsync(rule => awardIdList.Contains(rule.AwardId), ct),
         await db.Claims.CountAsync(claim => awardIdList.Contains(claim.AwardId), ct));
@@ -343,15 +348,20 @@ api.MapGet("/khasras/{id:guid}", async (Guid id, LacDbContext db, CancellationTo
     return khasra is null ? NotFound("Khasra", id) : Results.Ok(khasra);
 }).RequirePermission(PermissionCodes.KhasraView);
 
-api.MapGet("/khasras/{id:guid}/history", async (Guid id, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/khasras/{id:guid}/history", async (Guid id, LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     if (!await db.Khasras.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Khasra", id);
     var awards = await db.Set<AwardKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderBy(link => link.Award.AwardNumber)
         .Select(link => new KhasraOfficialAwardHistoryItem(link.AwardId, link.Award.AwardNumber, link.Award.AwardDate, link.RecordedTotalAreaBigha, link.RecordedTotalAreaBiswa, link.RecordedTotalAreaBiswansi, link.AwardedAreaBigha, link.AwardedAreaBiswa, link.AwardedAreaBiswansi, link.AcquisitionStatus)).ToListAsync(ct);
     var possession = await db.Set<PossessionKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderByDescending(link => link.PossessionEvent.PossessionDate)
         .Select(link => new KhasraOfficialPossessionItem(link.PossessionEventId, link.PossessionEvent.AwardId, link.PossessionEvent.PossessionDate, link.PossessionEvent.EventType, link.PossessionEvent.Status)).ToListAsync(ct);
-    var court = await db.Set<CourtCaseKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderBy(link => link.CourtCase.CaseNumber)
-        .Select(link => new KhasraOfficialCourtItem(link.CourtCaseId, link.CourtCase.CaseNumber, link.CourtCase.CourtName, link.CourtCase.CurrentStatus)).ToListAsync(ct);
+
+    var canViewCourt = currentUser.UserId.HasValue && await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct);
+    var court = canViewCourt
+        ? await db.Set<CourtCaseKhasra>().AsNoTracking().Where(link => link.KhasraId == id).OrderBy(link => link.CourtCase.CaseNumber)
+            .Select(link => new KhasraOfficialCourtItem(link.CourtCaseId, link.CourtCase.CaseNumber, link.CourtCase.CourtName, link.CourtCase.CurrentStatus)).ToListAsync(ct)
+        : new List<KhasraOfficialCourtItem>();
+
     var linkedAwardIds = awards.Select(a => a.AwardId).ToList();
     var pendingRows = await db.AwardIngestionSessions.AsNoTracking()
         .Where(s => linkedAwardIds.Contains(s.TargetAwardId ?? Guid.Empty) && s.SourceDocumentId != null && s.Candidates.Any(c => c.Status == AwardIngestionCandidateStatus.NeedsReview || c.Status == AwardIngestionCandidateStatus.Conflict || c.Status == AwardIngestionCandidateStatus.Ambiguous || c.Status == AwardIngestionCandidateStatus.Invalid))
@@ -380,17 +390,43 @@ api.MapGet("/awards/{id:guid}", async (Guid id, LacDbContext db, CancellationTok
     return award is null ? NotFound("Award", id) : Results.Ok(award);
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
-api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
-    var item = await db.Awards.AsNoTracking().Where(x => x.Id == id).Select(x => new AwardWorkspaceOverview(
-        x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.ParentAwardId, x.ParentAward == null ? null : x.ParentAward.AwardNumber, x.ParentAwardReference, x.Purpose, x.ActRegime, x.Status, x.Remarks,
-        x.AcquisitionProject == null ? null : new ProjectReference(x.AcquisitionProject.Id, x.AcquisitionProject.Name, x.AcquisitionProject.RequiringAgency, x.AcquisitionProject.ActRegime),
-        x.VillageLinks.Select(v => new VillageReference(v.Village.Id, v.Village.Name, new SubDivisionReference(v.Village.SubDivision.Id, v.Village.SubDivision.Name, new DistrictReference(v.Village.SubDivision.District.Id, v.Village.SubDivision.District.Name)))).ToList(),
-        x.KhasraLinks.Count, x.NotificationLinks.Count, db.PossessionEvents.Count(p => p.AwardId == x.Id), db.Set<CourtCaseAward>().Count(c => c.AwardId == x.Id), db.Claims.Count(c => c.AwardId == x.Id), db.Set<AwardAreaIssue>().Count(i => i.AwardId == x.Id && i.Status != "Resolved"), x.DocumentRelationships.Count,
-        x.KhasraLinks.Any() ? "Available" : "Not Added", x.NotificationLinks.Any() ? "Available" : "Not Added", db.PossessionEvents.Any(p => p.AwardId == x.Id) ? "Partial" : "Not Added", db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id) ? "Available" : "Not Added", db.Claims.Any(c => c.AwardId == x.Id) ? "Available" : "Not Added"
-    )).FirstOrDefaultAsync(ct);
+    var item = await db.Awards.AsNoTracking().Where(x => x.Id == id).Select(x => new {
+        x.Id, x.AwardNumber, x.AwardDate, x.AwardType, x.ParentAwardId, ParentAwardNumber = x.ParentAward == null ? null : x.ParentAward.AwardNumber, x.ParentAwardReference, x.Purpose, x.ActRegime, x.Status, x.Remarks,
+        AcquisitionProject = x.AcquisitionProject == null ? null : new ProjectReference(x.AcquisitionProject.Id, x.AcquisitionProject.Name, x.AcquisitionProject.RequiringAgency, x.AcquisitionProject.ActRegime),
+        Villages = x.VillageLinks.Select(v => new VillageReference(v.Village.Id, v.Village.Name, new SubDivisionReference(v.Village.SubDivision.Id, v.Village.SubDivision.Name, new DistrictReference(v.Village.SubDivision.District.Id, v.Village.SubDivision.District.Name)))).ToList(),
+        KhasraLinksCount = x.KhasraLinks.Count,
+        NotificationLinksCount = x.NotificationLinks.Count,
+        PossessionEventsCount = db.PossessionEvents.Count(p => p.AwardId == x.Id),
+        CourtCasesCount = db.Set<CourtCaseAward>().Count(c => c.AwardId == x.Id),
+        ClaimsCount = db.Claims.Count(c => c.AwardId == x.Id),
+        AreaIssuesCount = db.Set<AwardAreaIssue>().Count(i => i.AwardId == x.Id && i.Status != "Resolved"),
+        DocumentsCount = x.DocumentRelationships.Count,
+        HasKhasras = x.KhasraLinks.Any(),
+        HasNotifications = x.NotificationLinks.Any(),
+        HasPossession = db.PossessionEvents.Any(p => p.AwardId == x.Id),
+        HasCourtCases = db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id),
+        HasClaims = db.Claims.Any(c => c.AwardId == x.Id)
+    }).FirstOrDefaultAsync(ct);
     if (item is null) return NotFound("Award", id);
-    return Results.Ok(item);
+
+    var canViewCourt = currentUser.UserId.HasValue && await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct);
+    var courtCount = canViewCourt ? item.CourtCasesCount : 0;
+    var courtStatus = canViewCourt ? (item.HasCourtCases ? "Available" : "Not Added") : "Not Added";
+
+    var result = new AwardWorkspaceOverview(
+        item.Id, item.AwardNumber, item.AwardDate, item.AwardType, item.ParentAwardId, item.ParentAwardNumber, item.ParentAwardReference, item.Purpose, item.ActRegime, item.Status, item.Remarks,
+        item.AcquisitionProject,
+        item.Villages,
+        item.KhasraLinksCount, item.NotificationLinksCount, item.PossessionEventsCount, courtCount, item.ClaimsCount, item.AreaIssuesCount, item.DocumentsCount,
+        item.HasKhasras ? "Available" : "Not Added",
+        item.HasNotifications ? "Available" : "Not Added",
+        item.HasPossession ? "Partial" : "Not Added",
+        courtStatus,
+        item.HasClaims ? "Available" : "Not Added"
+    );
+    return Results.Ok(result);
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
 // This deliberately exposes only the direct AwardVillage relationship.  The workspace
@@ -604,7 +640,7 @@ api.MapGet("/documents/{id:guid}/page-image", async (Guid id, int page, LacDbCon
     catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 
-api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =>
+api.MapGet("/search", async (string? q, LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     var input = q?.Trim() ?? string.Empty;
     if (input.Length < 2) return Results.Ok(Array.Empty<SearchResultItem>());
@@ -614,7 +650,21 @@ api.MapGet("/search", async (string? q, LacDbContext db, CancellationToken ct) =
     var khasras = await db.Khasras.AsNoTracking().Where(x => x.NormalizedNumber.Contains(normalizedKhasra) || x.DisplayNumber.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Khasra", x.Id, x.DisplayNumber, x.Village.Name, $"/khasras/{x.Id}")).ToListAsync(ct);
     var awards = await db.Awards.AsNoTracking().Where(x => x.AwardNumber.ToUpper().Contains(term)).Take(8).Select(x => new SearchResultItem("Award", x.Id, x.AwardNumber, x.AcquisitionProject == null ? null : x.AcquisitionProject.Name, $"/awards/{x.Id}")).ToListAsync(ct);
     var parties = await db.Parties.AsNoTracking().Where(x => x.DisplayName.ToUpper().Contains(term)).Take(12).Select(x => new SearchResultItem("Recorded Party", x.Id, x.DisplayName, x.PartyType.ToString() + " · " + (x.KhataShares.Select(s => s.Khata.KhatauniRecord.Village.Name + " / " + s.Khata.KhataNumber).FirstOrDefault() ?? "No recorded holding"), $"/parties/{x.Id}")).ToListAsync(ct);
-    return Results.Ok(villages.Concat(khasras).Concat(awards).Concat(parties));
+
+    var canViewCourt = currentUser.UserId.HasValue && await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct);
+    var courtCases = new List<SearchResultItem>();
+    if (canViewCourt && currentUser.UserId.HasValue)
+    {
+        var courtQuery = db.CourtCases.AsNoTracking().Where(x => x.RecordStatus == RecordStatus.Active);
+        courtQuery = await courtAuth.AuthorizeListQueryAsync(courtQuery, currentUser.UserId.Value, ct);
+        courtCases = await courtQuery
+            .Where(x => x.CaseNumber.ToUpper().Contains(term) || (x.CaseTitle != null && x.CaseTitle.ToUpper().Contains(term)) || x.CourtName.ToUpper().Contains(term))
+            .Take(8)
+            .Select(x => new SearchResultItem("Court Case", x.Id, x.CaseNumber, x.CourtName + (x.CaseTitle != null ? " · " + x.CaseTitle : ""), $"/court-cases/{x.Id}"))
+            .ToListAsync(ct);
+    }
+
+    return Results.Ok(villages.Concat(khasras).Concat(awards).Concat(parties).Concat(courtCases));
 }).RequirePermission(PermissionCodes.VillageView);
 
 api.MapGet("/village-lrs/{id:guid}", async (Guid id, LacDbContext db, CancellationToken ct) =>
@@ -875,8 +925,39 @@ api.MapPost("/awards/{id:guid}/notifications/{notificationId:guid}", async (Guid
 api.MapGet("/awards/{id:guid}/notifications", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.AwardNotifications.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.Notification.NotificationDate).Select(x => new AwardNotificationWorkspaceItem(x.NotificationId, x.Notification.NotificationNumber, x.Notification.SectionType, x.Notification.NotificationDate)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/awards/{id:guid}/possession-events", async (Guid id, CreatePossessionEventRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.AddPossessionAsync(id, request.PossessionDate, request.EventType, request.Status, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/possession-events/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Possession);
 api.MapGet("/awards/{id:guid}/possession-events", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.PossessionEvents.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.PossessionDate).Select(x => new AwardPossessionWorkspaceItem(x.Id, x.PossessionDate, x.EventType, x.Status, x.KhasraLinks.Count)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Possession);
-api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.CreateCourtCaseAsync(id, request.CaseNumber, request.CourtName, request.CaseType, request.FiledDate, request.CurrentStatus, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/court-cases/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.CourtReferences);
-api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.Set<CourtCaseAward>().AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.CourtCase.FiledDate).Select(x => new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CourtCase.CaseNumber, x.CourtCase.CourtName, x.CourtCase.CurrentStatus, db.Set<CourtCaseKhasra>().Count(k => k.CourtCaseId == x.CourtCaseId))).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.CourtReferences);
+api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, ICourtWorkflowService courtWorkflow, ICurrentUserContext currentUser, CancellationToken ct) =>
+{
+    if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+    try
+    {
+        var cmd = new CreateCourtCaseCommand(
+            CaseNumber: request.CaseNumber,
+            CourtName: request.CourtName,
+            CaseType: request.CaseType,
+            FiledDate: request.FiledDate,
+            CurrentStatus: request.CurrentStatus,
+            Remarks: request.Remarks,
+            ResponsibleOfficeDeskId: null,
+            AssignedUserId: null,
+            AwardIds: [id],
+            KhasraIds: request.KhasraIds,
+            MatterIds: null,
+            CaseTitle: null
+        );
+        var item = await courtWorkflow.CreateCourtCaseAsync(cmd, currentUser.UserId.Value, ct);
+        return Results.Created($"/api/court-cases/{item}", new IdResponse(item));
+    }
+    catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+});
+api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+{
+    if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+    if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct))
+    {
+        return Results.Forbid();
+    }
+    return Results.Ok(await db.Set<CourtCaseAward>().AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.CourtCase.FiledDate).Select(x => new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CourtCase.CaseNumber, x.CourtCase.CourtName, x.CourtCase.CurrentStatus, db.Set<CourtCaseKhasra>().Count(k => k.CourtCaseId == x.CourtCaseId))).ToListAsync(ct));
+});
 api.MapGet("/awards/{id:guid}/claims", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Claims.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.ClaimDate).Select(x => new AwardClaimItem(x.Id, x.ClaimReference, x.ClaimDate, x.ClaimantParty == null ? null : x.ClaimantParty.DisplayName, x.ClaimedRateAmount, x.ClaimedAmount, x.Status, db.Set<ClaimKhasra>().Count(k => k.ClaimId == x.Id))), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.AccountsCompensation);
 
 api.MapPost("/awards/{id:guid}/claims", async (Guid id, CreateAwardClaimRequest request, LacDbContext db, CancellationToken ct) =>

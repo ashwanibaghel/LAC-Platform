@@ -300,6 +300,7 @@ public sealed class ActivityProjectionService(
         var shouldIncludeOutward = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "outward";
         var shouldIncludeWorkItem = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "workitem" || normalizedEntityType == "work";
         var shouldIncludeSchedule = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "schedule" || normalizedEntityType == "event" || normalizedEntityType == "scheduled_event" || normalizedEntityType == "scheduledevent";
+        var shouldIncludeCourt = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "court" || normalizedEntityType == "courtcase" || normalizedEntityType == "litigation";
         var shouldIncludeReads = query.IncludeReads && (string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "document" || normalizedEntityType == "read");
 
         var allItems = new List<ActivityItemDto>();
@@ -785,6 +786,12 @@ public sealed class ActivityProjectionService(
         {
             var q = db.RecordAccessEvents.AsNoTracking().Include(e => e.Document).AsQueryable();
 
+            var canViewCourtReads = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
+            if (!canViewCourtReads)
+            {
+                q = q.Where(e => e.ContextEntityType != "CourtCase");
+            }
+
             if (!isTeamActivity)
             {
                 q = q.Where(e => e.ActorUserId == currentUserId);
@@ -1021,7 +1028,131 @@ public sealed class ActivityProjectionService(
         }
 
         // --------------------------------------------------------------------
-        // G. DETERMINISTIC MERGE-SORT & PAGE SLICING
+        // G. COURT CASE EVENTS
+        // --------------------------------------------------------------------
+        if (shouldIncludeCourt)
+        {
+            var canViewCourtFeed = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
+            if (canViewCourtFeed)
+            {
+                var q = db.CourtCaseEvents.AsNoTracking().Include(e => e.CourtCase).AsQueryable();
+
+                if (!isTeamActivity)
+                {
+                    q = q.Where(e => e.ActorUserId == currentUserId);
+                }
+                else
+                {
+                    if (query.ActorUserId.HasValue)
+                        q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
+
+                    if (!hasAllScope)
+                    {
+                        var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
+                        var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
+
+                        if (wsMatch && deskMatch)
+                        {
+                            q = q.Where(e => (e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value))
+                                          || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                          || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
+                        }
+                        else if (wsMatch)
+                        {
+                            q = q.Where(e => e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value));
+                        }
+                        else if (deskMatch)
+                        {
+                            q = q.Where(e => (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
+                                          || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
+                        }
+                        else
+                        {
+                            q = q.Where(_ => false);
+                        }
+                    }
+                }
+
+                if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
+                if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
+                if (query.DeskId.HasValue) q = q.Where(e => e.TargetDeskId == query.DeskId.Value || e.SourceDeskId == query.DeskId.Value);
+                if (query.WorkstreamId.HasValue) q = q.Where(e => e.WorkstreamIdSnapshot == query.WorkstreamId.Value);
+                if (!string.IsNullOrWhiteSpace(query.Action))
+                {
+                    var actionStr = query.Action.Trim();
+                    q = q.Where(e => e.Action.ToString().ToLower() == actionStr.ToLower());
+                }
+                if (!string.IsNullOrWhiteSpace(query.Search))
+                {
+                    var s = query.Search.Trim().ToLower();
+                    q = q.Where(e => e.CourtCase.CaseNumber.ToLower().Contains(s)
+                                  || (e.CourtCase.CaseTitle != null && e.CourtCase.CaseTitle.ToLower().Contains(s))
+                                  || e.ActorDisplayNameSnapshot.ToLower().Contains(s)
+                                  || (e.Reason != null && e.Reason.ToLower().Contains(s))
+                                  || (e.Notes != null && e.Notes.ToLower().Contains(s)));
+                }
+
+                var courtCount = await q.CountAsync(ct);
+                totalCount += courtCount;
+
+                var courtEvents = await q.OrderByDescending(e => e.ActionAt)
+                    .ThenBy(e => e.Id)
+                    .Take(fetchCount)
+                    .Select(e => new
+                    {
+                        e.Id,
+                        e.CourtCaseId,
+                        e.Action,
+                        e.ActorUserId,
+                        e.ActorDisplayNameSnapshot,
+                        e.ActionAt,
+                        e.WorkstreamIdSnapshot,
+                        e.WorkstreamNameSnapshot,
+                        e.SourceDeskId,
+                        e.SourceDeskNameSnapshot,
+                        e.TargetDeskId,
+                        e.TargetDeskNameSnapshot,
+                        e.CaseNumberSnapshot,
+                        e.CaseTitleSnapshot,
+                        e.Reason,
+                        e.Notes
+                    })
+                    .ToListAsync(ct);
+
+                foreach (var e in courtEvents)
+                {
+                    var title = !string.IsNullOrWhiteSpace(e.CaseTitleSnapshot) ? e.CaseTitleSnapshot : e.CaseNumberSnapshot;
+                    var summary = $"Court Case {e.Action}: {title}";
+                    var deskId = e.TargetDeskId ?? e.SourceDeskId;
+                    var deskName = e.TargetDeskNameSnapshot ?? e.SourceDeskNameSnapshot;
+
+                    allItems.Add(new ActivityItemDto(
+                        EventId: e.Id,
+                        SourceType: "CourtCase",
+                        Action: e.Action.ToString(),
+                        Summary: summary,
+                        OccurredAt: e.ActionAt,
+                        ActorUserId: e.ActorUserId,
+                        ActorDisplayName: e.ActorDisplayNameSnapshot,
+                        EntityType: "CourtCase",
+                        EntityId: e.CourtCaseId,
+                        EntityTitle: title,
+                        EntityReferenceNumber: e.CaseNumberSnapshot,
+                        WorkstreamId: e.WorkstreamIdSnapshot,
+                        WorkstreamName: e.WorkstreamNameSnapshot,
+                        DeskId: deskId,
+                        DeskName: deskName,
+                        CanOpen: false,
+                        NavigationUrl: null,
+                        IsReadEvent: false,
+                        Metadata: new { e.Reason, e.Notes }
+                    ));
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // H. DETERMINISTIC MERGE-SORT & PAGE SLICING
         // --------------------------------------------------------------------
         var sortedItems = allItems
             .OrderByDescending(x => x.OccurredAt)
@@ -1070,6 +1201,11 @@ public sealed class ActivityProjectionService(
                         if (canOpen) navUrl = $"/calendar?eventId={item.EntityId}";
                         break;
 
+                    case "CourtCase":
+                        canOpen = await courtAuth.CanViewCourtCaseAsync(item.EntityId, currentUserId, ct);
+                        if (canOpen) navUrl = $"/court-cases/{item.EntityId}";
+                        break;
+
                     case "RecordAccess":
                         // For document reads, evaluate context entity permission if available
                         if (item.Metadata != null)
@@ -1097,6 +1233,10 @@ public sealed class ActivityProjectionService(
                                     case "workitem":
                                         canOpen = await workItemAuth.CanAccessWorkItemAsync(cId.Value, PermissionCodes.WorkItemView, currentUserId, ct);
                                         if (canOpen) navUrl = $"/work/{cId.Value}";
+                                        break;
+                                    case "courtcase":
+                                        canOpen = await courtAuth.CanViewCourtCaseAsync(cId.Value, currentUserId, ct);
+                                        if (canOpen) navUrl = $"/court-cases/{cId.Value}";
                                         break;
                                 }
                             }

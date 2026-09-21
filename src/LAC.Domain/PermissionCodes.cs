@@ -49,6 +49,12 @@ public static class PermissionCodes
     public const string ScheduleUpdate = "Schedule.Update";
     public const string ScheduleComplete = "Schedule.Complete";
     public const string ScheduleCancel = "Schedule.Cancel";
+    public const string CourtView = "Court.View";
+    public const string CourtCreate = "Court.Create";
+    public const string CourtEdit = "Court.Edit";
+    public const string CourtAssign = "Court.Assign";
+    public const string CourtProceedingManage = "Court.Proceeding.Manage";
+    public const string CourtDocumentManage = "Court.Document.Manage";
 
     public static readonly IReadOnlyList<PermissionDefinition> All =
     [
@@ -99,6 +105,12 @@ public static class PermissionCodes
         new(ScheduleUpdate, "Update Scheduled Events", "Reschedule events, manage reminders, and link work items", "Schedule"),
         new(ScheduleComplete, "Complete Scheduled Events", "Mark scheduled events as completed", "Schedule"),
         new(ScheduleCancel, "Cancel Scheduled Events", "Cancel scheduled events with mandatory audit reason", "Schedule"),
+        new(CourtView, "View Court Cases", "View court cases, litigation workspace, proceedings, and documents", "Court / Litigation"),
+        new(CourtCreate, "Create Court Cases", "Register new court cases and litigation records", "Court / Litigation"),
+        new(CourtEdit, "Edit Court Cases", "Edit court case metadata, parties, counsel, and linked records", "Court / Litigation"),
+        new(CourtAssign, "Assign Court Cases", "Assign and reassign court cases to responsible desks and officers", "Court / Litigation"),
+        new(CourtProceedingManage, "Manage Court Proceedings", "Record court proceedings, hearing summaries, and next dates", "Court / Litigation"),
+        new(CourtDocumentManage, "Manage Court Documents", "Upload, link, and manage official court case documents", "Court / Litigation"),
     ];
 }
 
