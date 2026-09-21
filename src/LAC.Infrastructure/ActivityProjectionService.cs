@@ -82,8 +82,8 @@ public sealed class ActivityProjectionService(
     IDakAuthorizationService dakAuth,
     IOutwardAuthorizationService outwardAuth,
     IWorkItemAuthorizationService workItemAuth,
-    IScheduleAuthorizationService? scheduleAuth = null,
-    ICourtAuthorizationService? courtAuth = null) : IActivityProjectionService
+    IScheduleAuthorizationService scheduleAuth,
+    ICourtAuthorizationService courtAuth) : IActivityProjectionService
 {
     // ========================================================================
     // 1. MY HISTORY
@@ -902,7 +902,7 @@ public sealed class ActivityProjectionService(
             {
                 q = q.Where(e => e.Action != ScheduledEventAction.ReminderAdded && e.Action != ScheduledEventAction.ReminderRemoved);
 
-                var canViewCourt = courtAuth != null && await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
+                var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
                 if (!canViewCourt)
                 {
                     q = q.Where(e => e.ScheduledEvent.Origin != ScheduledEventOrigin.CourtProceeding
@@ -1066,10 +1066,7 @@ public sealed class ActivityProjectionService(
                         break;
 
                     case "Schedule":
-                        if (scheduleAuth != null)
-                        {
-                            canOpen = await scheduleAuth.CanAccessScheduledEventAsync(item.EntityId, PermissionCodes.ScheduleView, currentUserId, ct);
-                        }
+                        canOpen = await scheduleAuth.CanAccessScheduledEventAsync(item.EntityId, PermissionCodes.ScheduleView, currentUserId, ct);
                         if (canOpen) navUrl = $"/calendar?eventId={item.EntityId}";
                         break;
 

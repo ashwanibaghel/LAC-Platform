@@ -2027,5 +2027,269 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.NotNull(teamActAfterGrant);
         Assert.Contains(teamActAfterGrant.Items, i => i.EntityId == courtEvt.Id);
     }
+
+    [Fact]
+    public async Task CourtSourceAuthorization_EnforcedOnAllScheduleMutations()
+    {
+        var admin = await CreateAdminClientAsync();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var scheduleAuth = scope.ServiceProvider.GetRequiredService<IScheduleAuthorizationService>();
+
+        var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences && w.IsActive);
+        if (courtWs == null)
+        {
+            courtWs = new Workstream
+            {
+                Id = Guid.NewGuid(),
+                Code = WorkstreamCodes.CourtReferences,
+                Name = "Court References",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.Workstreams.Add(courtWs);
+            await db.SaveChangesAsync();
+        }
+
+        var courtDesk = new OfficeDesk
+        {
+            Id = Guid.NewGuid(),
+            Code = $"DSK_CRT_MUT_{Guid.NewGuid():N}",
+            Name = "Court Mutation Desk",
+            WorkstreamId = courtWs.Id,
+            IsActive = true,
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.OfficeDesks.Add(courtDesk);
+
+        var courtCase = new CourtCase
+        {
+            Id = Guid.NewGuid(),
+            CaseNumber = $"CASE_MUT_{Guid.NewGuid():N}",
+            CourtName = "High Court",
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtCases.Add(courtCase);
+
+        var proceeding = new CourtProceeding
+        {
+            Id = Guid.NewGuid(),
+            CourtCaseId = courtCase.Id,
+            ProceedingDate = today,
+            OrderType = "Hearing Scheduled",
+            NextDate = today.AddDays(7),
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.CourtProceedings.Add(proceeding);
+
+        var workItem = new WorkItem
+        {
+            Id = Guid.NewGuid(),
+            WorkstreamId = courtWs.Id,
+            Title = "Prepare written arguments",
+            Status = WorkItemStatus.Assigned,
+            Priority = WorkItemPriority.Urgent,
+            DueAt = DateTimeOffset.UtcNow.AddDays(7),
+            RequestedByUserId = Guid.NewGuid(),
+            RecordStatus = RecordStatus.Active,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
+        db.WorkItems.Add(workItem);
+        await db.SaveChangesAsync();
+
+        // 1. Admin creates court-promoted ScheduledEvent (Origin = CourtProceeding)
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{proceeding.Id}", new CreateFromCourtProceedingApiRequest(
+            courtDesk.Id, null, "Authoritative Court Hearing", null, "Urgent", null
+        ));
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+        var courtEvt = await promoteRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(courtEvt);
+
+        // 2. Admin creates manual ScheduledEvent linked to CourtCase (Origin = Manual, CourtCaseId != null)
+        var manualRes = await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
+            courtWs.Id, courtDesk.Id, null, "Meeting", "Case Prep Meeting", null, today.AddDays(3), null, "Urgent",
+            CourtCaseId: courtCase.Id
+        ));
+        Assert.Equal(HttpStatusCode.Created, manualRes.StatusCode);
+        var manualEvt = await manualRes.Content.ReadFromJsonAsync<ScheduledEventDetailDto>(JsonOpts);
+        Assert.NotNull(manualEvt);
+
+        // 3. Create caller with ALL Schedule authorities and WorkItem/Audit view, but NO Court References (Award.View)
+        var (schedUserClient, schedUser) = await CreateUserWithPermissionsAsync(
+            $"usr_all_sched_{Guid.NewGuid():N}",
+            "Password123!",
+            [
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.ScheduleAssign, ScopeMode.All),
+                (PermissionCodes.ScheduleUpdate, ScopeMode.All),
+                (PermissionCodes.ScheduleComplete, ScopeMode.All),
+                (PermissionCodes.ScheduleCancel, ScopeMode.All),
+                (PermissionCodes.WorkItemView, ScopeMode.All),
+                (PermissionCodes.AuditView, ScopeMode.All)
+            ],
+            workstreamId: courtWs.Id,
+            deskId: courtDesk.Id
+        );
+
+        // 4. Direct service-level assertions: All schedule checks fail closed on Court-linked events without court authority
+        var courtEntity = await db.ScheduledEvents.FirstAsync(e => e.Id == courtEvt.Id);
+        var manualEntity = await db.ScheduledEvents.FirstAsync(e => e.Id == manualEvt.Id);
+
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(courtEntity, PermissionCodes.ScheduleView, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(courtEntity, PermissionCodes.ScheduleAssign, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(courtEntity, PermissionCodes.ScheduleUpdate, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(courtEntity, PermissionCodes.ScheduleComplete, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(courtEntity, PermissionCodes.ScheduleCancel, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAssignScheduledEventAsync(courtEntity, courtDesk.Id, null, schedUser.Id));
+        Assert.False(await scheduleAuth.CanUpdateScheduledEventAsync(courtEntity, schedUser.Id));
+        Assert.False(await scheduleAuth.CanCompleteScheduledEventAsync(courtEntity, schedUser.Id));
+        Assert.False(await scheduleAuth.CanCancelScheduledEventAsync(courtEntity, schedUser.Id));
+
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(manualEntity, PermissionCodes.ScheduleView, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(manualEntity, PermissionCodes.ScheduleAssign, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(manualEntity, PermissionCodes.ScheduleUpdate, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(manualEntity, PermissionCodes.ScheduleComplete, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAccessScheduledEventAsync(manualEntity, PermissionCodes.ScheduleCancel, schedUser.Id));
+        Assert.False(await scheduleAuth.CanAssignScheduledEventAsync(manualEntity, courtDesk.Id, null, schedUser.Id));
+        Assert.False(await scheduleAuth.CanUpdateScheduledEventAsync(manualEntity, schedUser.Id));
+        Assert.False(await scheduleAuth.CanCompleteScheduledEventAsync(manualEntity, schedUser.Id));
+        Assert.False(await scheduleAuth.CanCancelScheduledEventAsync(manualEntity, schedUser.Id));
+
+        // 5. API assertions on Promoted Court Event:
+        // Detail fails 404 (hidden)
+        var courtGetRes = await schedUserClient.GetAsync($"/api/scheduled-events/{courtEvt.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, courtGetRes.StatusCode);
+
+        // Reassign fails 403
+        var courtReassignRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/reassign", new ReassignEventApiRequest(
+            courtDesk.Id, null, "Attempted reassign", courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, courtReassignRes.StatusCode);
+
+        // Add Reminder fails 403
+        var courtReminderRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/reminders", new AddReminderApiRequest(
+            3, null, courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, courtReminderRes.StatusCode);
+
+        // Complete fails 403
+        var courtCompleteRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/complete", new CompleteEventApiRequest(
+            "Attempted complete", courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, courtCompleteRes.StatusCode);
+
+        // Reschedule and Cancel on CourtProceeding origin fail with 400 Bad Request (authoritative court hearing rules)
+        var courtRescheduleRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/reschedule", new RescheduleEventApiRequest(
+            today.AddDays(14), null, "Attempted reschedule", courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, courtRescheduleRes.StatusCode);
+
+        var courtCancelRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/cancel", new CancelEventApiRequest(
+            "Attempted cancel", courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.BadRequest, courtCancelRes.StatusCode);
+
+        // 6. API assertions on Manual CourtCase-linked Event:
+        // Detail fails 404 (hidden)
+        var manualGetRes = await schedUserClient.GetAsync($"/api/scheduled-events/{manualEvt.Id}");
+        Assert.Equal(HttpStatusCode.NotFound, manualGetRes.StatusCode);
+
+        // Reassign fails 403
+        var manualReassignRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/reassign", new ReassignEventApiRequest(
+            courtDesk.Id, null, "Attempted reassign", manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualReassignRes.StatusCode);
+
+        // Add reminder fails 403
+        var manualReminderRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/reminders", new AddReminderApiRequest(
+            2, null, manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualReminderRes.StatusCode);
+
+        // Complete fails 403
+        var manualCompleteRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/complete", new CompleteEventApiRequest(
+            "Attempted complete", manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualCompleteRes.StatusCode);
+
+        // Reschedule fails 403
+        var manualRescheduleRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/reschedule", new RescheduleEventApiRequest(
+            today.AddDays(5), null, "Attempted reschedule", manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualRescheduleRes.StatusCode);
+
+        // Cancel fails 403
+        var manualCancelRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/cancel", new CancelEventApiRequest(
+            "Attempted cancel", manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualCancelRes.StatusCode);
+
+        // Link work item fails 403
+        var manualLinkRes = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/work-item", new LinkWorkItemApiRequest(
+            workItem.Id, manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.Forbidden, manualLinkRes.StatusCode);
+
+        // Unlink work item fails 403
+        var manualUnlinkRes = await schedUserClient.DeleteAsync($"/api/scheduled-events/{manualEvt.Id}/work-item?expectedRevision={manualEvt.Revision}");
+        Assert.Equal(HttpStatusCode.Forbidden, manualUnlinkRes.StatusCode);
+
+        // 7. Grant Court References view authority (Award.View = All)
+        using (var grantScope = _factory.Services.CreateScope())
+        {
+            var grantDb = grantScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var userRole = await grantDb.UserRoles.FirstOrDefaultAsync(ur => ur.UserId == schedUser.Id);
+            Assert.NotNull(userRole);
+
+            var awardViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardView);
+            if (awardViewPerm == null)
+            {
+                awardViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.AwardView, Name = "Award View", Category = "Test" };
+                grantDb.Permissions.Add(awardViewPerm);
+            }
+
+            grantDb.RolePermissions.Add(new RolePermission
+            {
+                RoleId = userRole.RoleId,
+                PermissionId = awardViewPerm.Id,
+                ScopeMode = ScopeMode.All
+            });
+            await grantDb.SaveChangesAsync();
+        }
+
+        // 8. With Court authority granted, operations succeed according to schedule rules:
+        // Detail succeeds
+        var detailAfterGrant = await schedUserClient.GetAsync($"/api/scheduled-events/{courtEvt.Id}");
+        Assert.Equal(HttpStatusCode.OK, detailAfterGrant.StatusCode);
+
+        // Add reminder succeeds
+        var addReminderAfterGrant = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{courtEvt.Id}/reminders", new AddReminderApiRequest(
+            1, null, courtEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.OK, addReminderAfterGrant.StatusCode);
+
+        // Manual reschedule succeeds
+        var rescheduleAfterGrant = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/reschedule", new RescheduleEventApiRequest(
+            today.AddDays(5), null, "Authorized reschedule", manualEvt.Revision
+        ));
+        Assert.Equal(HttpStatusCode.OK, rescheduleAfterGrant.StatusCode);
+
+        // Manual complete succeeds
+        var completeAfterGrant = await schedUserClient.PostAsJsonAsync($"/api/scheduled-events/{manualEvt.Id}/complete", new CompleteEventApiRequest(
+            "Authorized complete", manualEvt.Revision + 1
+        ));
+        Assert.Equal(HttpStatusCode.OK, completeAfterGrant.StatusCode);
+    }
 }
 

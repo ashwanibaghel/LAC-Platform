@@ -84,7 +84,7 @@ public interface IScheduleAuthorizationService
 
 public sealed class ScheduleAuthorizationService(
     LacDbContext db,
-    ICourtAuthorizationService? courtAuth = null) : IScheduleAuthorizationService
+    ICourtAuthorizationService courtAuth) : IScheduleAuthorizationService
 {
     public async Task<bool> CanAccessScheduledEventAsync(
         Guid eventId,
@@ -111,15 +111,13 @@ public sealed class ScheduleAuthorizationService(
 
         if (!isUserActive) return false;
 
-        if (permissionCode == PermissionCodes.ScheduleView)
+        var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding
+                         || evt.CourtCaseId.HasValue
+                         || evt.CourtProceedingId.HasValue;
+
+        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
         {
-            var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding
-                             || evt.CourtCaseId.HasValue
-                             || evt.CourtProceedingId.HasValue;
-            if (isCourtLinked && courtAuth != null && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
-            {
-                return false;
-            }
+            return false;
         }
 
         var scopes = await (
@@ -269,6 +267,15 @@ public sealed class ScheduleAuthorizationService(
 
         if (evt.Status is ScheduledEventStatus.Completed or ScheduledEventStatus.Cancelled)
             return false;
+
+        var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding
+                         || evt.CourtCaseId.HasValue
+                         || evt.CourtProceedingId.HasValue;
+
+        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(callerUserId, ct))
+        {
+            return false;
+        }
 
         // Verify target desk & handler validity if provided
         if (targetDeskId.HasValue)
