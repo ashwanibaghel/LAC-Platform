@@ -26,13 +26,14 @@
     "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
-    "@rolldown/binding-win32-x64-msvc": "^1.2.7",
+    "@rolldown/binding-win32-x64-msvc": "^1.2.9",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.1.0",
     "oxlint": "^1.79.0",
     "playwright": "^1.63.0",
+    "rolldown": "^1.2.9",
     "typescript": "~6.0.2",
     "vite": "^8.2.2"
   }
