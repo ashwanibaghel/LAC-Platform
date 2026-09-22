@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { IconPlus, IconChevronRight } from "../components/Icons";
+import { useAuth } from "../auth/AuthProvider";
+import { IconPlus, IconChevronRight, IconClose } from "../components/Icons";
+import "./land.css";
 
 const api = "/api";
 
@@ -16,11 +18,18 @@ const CORE_ROLES = [
   { key: "Award", label: "Award PDF" },
   { key: "NM", label: "NM / ENM Register" },
   { key: "StatementA", label: "Statement-A" },
-  { key: "PossessionProceeding", label: "Possession Proceedings" }
+  { key: "PossessionProceeding", label: "Possession Proceedings" },
 ] as const;
 
-export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }> = ({ villageId, id }) => {
-  const targetId = villageId || id || "";
+export interface VillageCoreRecordsTabProps {
+  villageId: string;
+}
+
+export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId }) => {
+  const { hasPermission } = useAuth();
+  const canAddAward = hasPermission("Award.Create") || hasPermission("Award.Edit");
+  const canUploadCore = hasPermission("Award.CoreDocumentUpload") || hasPermission("Award.CoreDocument.Upload") || hasPermission("Award.Edit");
+
   const [refresh, setRefresh] = useState(0);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,12 +48,17 @@ export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }
 
   // Fetch core records
   useEffect(() => {
-    if (!targetId) return;
+    if (!villageId) return;
     let active = true;
     setLoading(true);
-    fetch(`${api}/villages/${targetId}/core-records?r=${refresh}`, { credentials: "include" })
+    setError(null);
+
+    fetch(`${api}/villages/${villageId}/core-records?r=${refresh}`, { credentials: "include" })
       .then(async (r) => {
-        if (!r.ok) throw new Error("Could not load core records.");
+        if (!r.ok) {
+          if (r.status === 403) throw new Error("Access denied: You do not have permission to view core records.");
+          throw new Error("Could not load core records.");
+        }
         return r.json();
       })
       .then((d) => {
@@ -62,7 +76,7 @@ export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }
     return () => {
       active = false;
     };
-  }, [targetId, refresh]);
+  }, [villageId, refresh]);
 
   // Handle Add Award
   const handleCreateAward = async () => {
@@ -73,52 +87,66 @@ export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }
     try {
       setBusy(true);
       setMessage("");
-      const res = await fetch(`${api}/villages/${targetId}/awards`, {
+      const res = await fetch(`${api}/villages/${villageId}/awards`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...newAward,
+          awardNumber: newAward.awardNumber.trim(),
           awardDate: newAward.awardDate || null,
-          remarks: null
+          awardType: newAward.awardType || null,
+          remarks: null,
         }),
-        credentials: "include"
+        credentials: "include",
       });
+
       if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.title || "Could not add Award.");
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.message || "Could not add Award.");
       }
+
       setNewAward({ awardNumber: "", awardDate: "", awardType: "" });
       setAddAwardModalOpen(false);
       setRefresh((x) => x + 1);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not add Award.");
+    } catch (e: any) {
+      setMessage(e?.message || "Could not add Award.");
     } finally {
       setBusy(false);
     }
   };
 
-  // Handle Upload Core Document
+  // Handle Core Document Upload
   const handleUploadDocument = async () => {
-    if (!uploadTarget || !selectedFile) return;
+    if (!uploadTarget || !selectedFile) {
+      setMessage("Please select a file to upload.");
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+
     try {
-      setBusy(true);
-      setMessage("");
-      const form = new FormData();
-      form.append("file", selectedFile);
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
       const res = await fetch(
         `${api}/awards/${uploadTarget.awardId}/core-documents?role=${encodeURIComponent(uploadTarget.role)}`,
-        { method: "POST", body: form, credentials: "include" }
+        {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        }
       );
+
       if (!res.ok) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(errText || "Could not upload document.");
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.message || "Failed to upload document.");
       }
+
+      setSelectedFile(null);
       setUploadModalOpen(false);
       setUploadTarget(null);
-      setSelectedFile(null);
       setRefresh((x) => x + 1);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Could not upload core document.");
+    } catch (e: any) {
+      setMessage(e?.message || "Failed to upload document.");
     } finally {
       setBusy(false);
     }
@@ -131,157 +159,167 @@ export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }
     setUploadModalOpen(true);
   };
 
-  if (loading) return <div className="state loading">Loading core records…</div>;
-  if (error) return <div className="state error"><strong>Unable to load core records.</strong><span>{error}</span></div>;
+  if (loading) return <div className="state loading">Loading core records matrix…</div>;
+  if (error) return <div className="state error">{error}</div>;
 
   return (
-    <div className="village-core-records-tab flex flex-col gap-5">
-      {/* Header & Add Action */}
-      <div className="flex items-center justify-between">
+    <div className="village-core-records-tab">
+      <div className="section-heading" style={{ marginBottom: "20px" }}>
         <div>
-          <h2 className="text-base font-bold text-slate-900 m-0">Core Records Matrix</h2>
-          <span className="text-xs text-slate-500">
-            Award-level core documents linked to this village. Reused automatically by all related Matters.
-          </span>
+          <h2>Core Records Matrix</h2>
+          <span>Presence of authoritative documents across acquisition awards.</span>
         </div>
-
-        <button
-          className="home-action-btn home-action-btn-primary"
-          onClick={() => {
-            setMessage("");
-            setAddAwardModalOpen(true);
-          }}
-        >
-          <IconPlus size={15} />
-          <span>Add Award</span>
-        </button>
+        {canAddAward && (
+          <button className="primary-button" onClick={() => setAddAwardModalOpen(true)}>
+            <IconPlus size={16} /> Add Award
+          </button>
+        )}
       </div>
 
-      {message && <div className="form-message role-alert" role="alert">{message}</div>}
-
-      {/* Matrix Table */}
-      {records.length === 0 ? (
-        <div className="state empty">
-          <strong>No Awards linked yet</strong>
-          <span>Click "+ Add Award" to create an Award entry for this village.</span>
-        </div>
-      ) : (
-        <div className="core-matrix-wrap">
-          <table className="core-matrix-table">
-            <thead>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Award Reference</th>
+              <th scope="col">Award Date</th>
+              {CORE_ROLES.map((role) => (
+                <th scope="col" key={role.key}>
+                  {role.label}
+                </th>
+              ))}
+              <th scope="col">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {records.length === 0 ? (
               <tr>
-                <th>Award Number</th>
-                <th>Award Date</th>
-                <th>Award Type</th>
-                <th>Award PDF</th>
-                <th>NM / ENM</th>
-                <th>Statement-A</th>
-                <th>Possession</th>
-                <th>Actions</th>
+                <td colSpan={3 + CORE_ROLES.length} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                  No awards linked to this village yet.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {records.map((award: any) => {
-                const getRoleCount = (roleKey: string) => {
-                  const roleObj = award.roles?.find((r: any) => r.role === roleKey);
-                  return roleObj ? roleObj.count : 0;
-                };
+            ) : (
+              records.map((award: any) => (
+                <tr key={award.id}>
+                  <td>
+                    <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
+                      Award #{award.awardNumber}
+                    </Link>
+                  </td>
+                  <td>{date(award.awardDate)}</td>
 
-                return (
-                  <tr key={award.id}>
-                    <td>
-                      <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
-                        {award.awardNumber}
-                      </Link>
-                    </td>
-                    <td>{date(award.awardDate)}</td>
-                    <td>{award.awardType || "—"}</td>
-
-                    {CORE_ROLES.map(({ key }) => {
-                      const count = getRoleCount(key);
-                      return (
-                        <td key={key}>
-                          {count > 0 ? (
-                            <span className="role-badge-available">
-                              Available ({count})
+                  {CORE_ROLES.map(({ key }) => {
+                    const doc = award.documents?.[key];
+                    return (
+                      <td key={key}>
+                        {doc ? (
+                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                            <span style={{ fontSize: "13px", fontWeight: 600, color: "#16a34a" }}>
+                              ✓ Present
                             </span>
-                          ) : (
-                            <button
-                              className="btn-add-core-file"
-                              onClick={() => openUploadModal(award.id, award.awardNumber, key)}
-                              title={`Upload ${key} file`}
-                            >
-                              <IconPlus size={12} />
-                              <span>Add</span>
-                            </button>
-                          )}
-                        </td>
-                      );
-                    })}
+                            <span style={{ fontSize: "11px", color: "#64748b" }}>{doc.fileName}</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span style={{ fontSize: "12px", color: "#94a3b8" }}>Missing</span>
+                            {canUploadCore && (
+                              <button
+                                className="text-action"
+                                style={{
+                                  display: "inline-block",
+                                  marginLeft: "8px",
+                                  fontSize: "12px",
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  cursor: "pointer",
+                                }}
+                                onClick={() => openUploadModal(award.id, award.awardNumber, key)}
+                              >
+                                Upload
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
 
-                    <td>
-                      <Link to={`/awards/${award.id}`} className="text-action text-xs font-semibold">
-                        Open Award
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                  <td>
+                    <Link
+                      to={`/awards/${award.id}`}
+                      className="text-action"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                    >
+                      <span>Open Workspace</span>
+                      <IconChevronRight size={14} />
+                    </Link>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
 
       {/* Add Award Modal */}
       {addAwardModalOpen && (
-        <div className="lac-modal-backdrop" onClick={() => setAddAwardModalOpen(false)}>
-          <div className="lac-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="lac-modal-header">
-              <h3>Add New Award</h3>
-              <button className="lac-modal-close" onClick={() => setAddAwardModalOpen(false)}>
-                &times;
+        <div className="modal-overlay" onClick={() => setAddAwardModalOpen(false)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+            <div className="modal-header">
+              <h3>Add Award to Village</h3>
+              <button className="icon-button" onClick={() => setAddAwardModalOpen(false)}>
+                <IconClose size={18} />
               </button>
             </div>
 
-            <div className="field-grid">
-              <label>
-                Award Number *
+            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {message && <div className="state error">{message}</div>}
+
+              <div className="form-group">
+                <label className="form-label required">Award Number</label>
                 <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 15/2021-22"
                   value={newAward.awardNumber}
                   onChange={(e) => setNewAward({ ...newAward, awardNumber: e.target.value })}
-                  placeholder="e.g. 63/86-87"
-                  autoFocus
+                  required
                 />
-              </label>
+              </div>
 
-              <label>
-                Award Date
+              <div className="form-group">
+                <label className="form-label">Award Date</label>
                 <input
                   type="date"
+                  className="form-input"
                   value={newAward.awardDate}
                   onChange={(e) => setNewAward({ ...newAward, awardDate: e.target.value })}
                 />
-              </label>
+              </div>
 
-              <label className="span-two">
-                Award Type
+              <div className="form-group">
+                <label className="form-label">Award Type</label>
                 <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. General, Supplementary"
                   value={newAward.awardType}
                   onChange={(e) => setNewAward({ ...newAward, awardType: e.target.value })}
-                  placeholder="e.g. Regular Acquisition"
                 />
-              </label>
+              </div>
             </div>
 
-            <div className="lac-modal-footer">
-              <button className="secondary-button" onClick={() => setAddAwardModalOpen(false)}>
+            <div className="modal-footer">
+              <button type="button" className="secondary-button" onClick={() => setAddAwardModalOpen(false)}>
                 Cancel
               </button>
               <button
-                disabled={!newAward.awardNumber.trim() || busy}
+                type="button"
+                className="primary-button"
+                disabled={busy || !newAward.awardNumber.trim()}
                 onClick={() => void handleCreateAward()}
               >
-                {busy ? "Saving…" : "Save Award"}
+                {busy ? "Adding…" : "Add Award"}
               </button>
             </div>
           </div>
@@ -290,37 +328,41 @@ export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }
 
       {/* Upload Core Document Modal */}
       {uploadModalOpen && uploadTarget && (
-        <div className="lac-modal-backdrop" onClick={() => setUploadModalOpen(false)}>
-          <div className="lac-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="lac-modal-header">
-              <h3>Upload Core Document</h3>
-              <button className="lac-modal-close" onClick={() => setUploadModalOpen(false)}>
-                &times;
+        <div className="modal-overlay" onClick={() => setUploadModalOpen(false)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
+            <div className="modal-header">
+              <h3>Upload {CORE_ROLES.find((r) => r.key === uploadTarget.role)?.label}</h3>
+              <button className="icon-button" onClick={() => setUploadModalOpen(false)}>
+                <IconClose size={18} />
               </button>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded border border-slate-200">
-                <strong>Target Award:</strong> {uploadTarget.awardNumber} <br />
-                <strong>Document Role:</strong> {uploadTarget.role}
-              </div>
+            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
+                Target: Award #{uploadTarget.awardNumber} ({uploadTarget.role})
+              </p>
 
-              <label className="text-xs font-semibold text-slate-700 flex flex-col gap-2">
-                Select PDF File *
+              {message && <div className="state error">{message}</div>}
+
+              <div className="form-group">
+                <label className="form-label required">Select PDF File</label>
                 <input
                   type="file"
-                  accept="application/pdf,.pdf"
+                  accept=".pdf"
+                  className="form-input"
                   onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
                 />
-              </label>
+              </div>
             </div>
 
-            <div className="lac-modal-footer">
-              <button className="secondary-button" onClick={() => setUploadModalOpen(false)}>
+            <div className="modal-footer">
+              <button type="button" className="secondary-button" onClick={() => setUploadModalOpen(false)}>
                 Cancel
               </button>
               <button
-                disabled={!selectedFile || busy}
+                type="button"
+                className="primary-button"
+                disabled={busy || !selectedFile}
                 onClick={() => void handleUploadDocument()}
               >
                 {busy ? "Uploading…" : "Upload Document"}

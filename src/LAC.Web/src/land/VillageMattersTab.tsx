@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { IconPlus, IconChevronRight, IconClose } from "../components/Icons";
 import "./land.css";
 
@@ -28,7 +29,14 @@ interface AwardOption {
   awardNumber: string;
 }
 
-export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }) => {
+export interface VillageMattersTabProps {
+  villageId: string;
+}
+
+export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId }) => {
+  const { hasPermission } = useAuth();
+  const canCreateMatter = hasPermission("Matter.Create");
+
   const [matters, setMatters] = useState<MatterItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,19 +44,13 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
   // New Matter Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [workstreams, setWorkstreams] = useState<WorkstreamOption[]>([]);
-  const [matterTypes, setMatterTypes] = useState<string[]>([
-    "Court Case",
-    "Compensation",
-    "Land Acquisition",
-    "General",
-    "Other",
-  ]);
+  const [matterTypes, setMatterTypes] = useState<string[]>([]);
   const [awards, setAwards] = useState<AwardOption[]>([]);
 
   // Form state
   const [title, setTitle] = useState("");
   const [workstreamId, setWorkstreamId] = useState("");
-  const [matterType, setMatterType] = useState("Court Case");
+  const [matterType, setMatterType] = useState("");
   const [awardId, setAwardId] = useState("");
   const [khasraReferenceText, setKhasraReferenceText] = useState("");
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -61,7 +63,10 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
     setError(null);
     try {
       const res = await fetch(`${api}/villages/${villageId}/matters`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch village matters.");
+      if (!res.ok) {
+        if (res.status === 403) throw new Error("Access denied: You do not have permission to view matters.");
+        throw new Error("Failed to fetch village matters.");
+      }
       const data = await res.json();
       setMatters(data);
     } catch (err: any) {
@@ -73,16 +78,26 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
 
   const loadModalContext = async () => {
     try {
-      // Load context for workstreams
+      // Load context for workstreams & matterTypes
       const ctxRes = await fetch(`${api}/matters/context`, { credentials: "include" });
       if (ctxRes.ok) {
         const ctxData = await ctxRes.json();
-        if (ctxData.workstreams) setWorkstreams(ctxData.workstreams);
-        if (ctxData.matterTypes) setMatterTypes(ctxData.matterTypes);
+        if (ctxData.workstreams?.length) {
+          setWorkstreams(ctxData.workstreams);
+          if (!workstreamId) {
+            setWorkstreamId(ctxData.workstreams[0].id);
+          }
+        }
+        if (ctxData.matterTypes?.length) {
+          setMatterTypes(ctxData.matterTypes);
+          if (!matterType) {
+            setMatterType(ctxData.matterTypes[0]);
+          }
+        }
       }
 
-      // Load awards for this village
-      const awRes = await fetch(`${api}/villages/${villageId}/awards?pageSize=100`, { credentials: "include" });
+      // Load awards for this village with required page=0
+      const awRes = await fetch(`${api}/villages/${villageId}/awards?page=0&pageSize=100`, { credentials: "include" });
       if (awRes.ok) {
         const awData = await awRes.json();
         setAwards(awData.items || []);
@@ -93,13 +108,12 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
   };
 
   useEffect(() => {
+    if (!villageId) return;
     loadMatters();
   }, [villageId]);
 
   const handleOpenModal = () => {
     setTitle("");
-    setWorkstreamId(workstreams.length > 0 ? workstreams[0].id : "");
-    setMatterType("Court Case");
     setAwardId("");
     setKhasraReferenceText("");
     setReferenceNumber("");
@@ -161,9 +175,11 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
           <h2>Village Matters</h2>
           <span>Legal matters, court cases, and acquisition files active in this village.</span>
         </div>
-        <button className="primary-button" onClick={handleOpenModal}>
-          <IconPlus size={16} /> New Matter
-        </button>
+        {canCreateMatter && (
+          <button className="primary-button" onClick={handleOpenModal}>
+            <IconPlus size={16} /> New Matter
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -186,7 +202,7 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
             <tbody>
               {matters.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-6 text-slate-500">
+                  <td colSpan={6} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                     No active matters associated with this village.
                   </td>
                 </tr>
@@ -199,7 +215,7 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
                           {m.title}
                         </Link>
                         {m.referenceNumber && (
-                          <div style={{ fontSize: "12px", color: "var(--color-neutral-600)" }}>
+                          <div style={{ fontSize: "12px", color: "#64748b" }}>
                             Ref: {m.referenceNumber}
                           </div>
                         )}
@@ -251,14 +267,14 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Compensation Appeal Case 2024"
+                    placeholder="e.g. Compensation Appeal Case 25/2024"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     required
                   />
                 </div>
 
-                <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                   <div className="form-group">
                     <label className="form-label required">Workstream</label>
                     <select
@@ -285,7 +301,7 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
                       value={matterType}
                       onChange={(e) => setMatterType(e.target.value)}
                     >
-                      {matterTypes.map((t) => (
+                      {(matterTypes.length ? matterTypes : ["Court Case", "Compensation", "Land Acquisition", "General", "Other"]).map((t) => (
                         <option key={t} value={t}>
                           {t}
                         </option>
@@ -294,7 +310,7 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
                   </div>
                 </div>
 
-                <div className="form-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                   <div className="form-group">
                     <label className="form-label">Award Reference</label>
                     <select className="form-input" value={awardId} onChange={(e) => setAwardId(e.target.value)}>
@@ -324,7 +340,7 @@ export const VillageMattersTab: React.FC<{ villageId: string }> = ({ villageId }
                   <input
                     type="text"
                     className="form-input"
-                    placeholder="e.g. Khasra 12/1, 14/2"
+                    placeholder="e.g. Khasra 12//14, 15//1"
                     value={khasraReferenceText}
                     onChange={(e) => setKhasraReferenceText(e.target.value)}
                   />

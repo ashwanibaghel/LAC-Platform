@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { IconLand, IconSearch, IconAward, IconChevronRight, IconFileText } from "../components/Icons";
+import { IconLand, IconAward, IconChevronRight, IconFileText } from "../components/Icons";
 import "./land.css";
 
 const api = "/api";
@@ -39,7 +39,13 @@ export const LandRecordsHierarchy: React.FC = () => {
   React.useEffect(() => {
     let active = true;
     fetch(`${api}/home`, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (!res.ok) {
+          if (res.status === 403) throw new Error("Access denied: You do not have permission to view land records.");
+          throw new Error("Failed to load land records.");
+        }
+        return res.json();
+      })
       .then((data) => {
         if (active) {
           setDistrict(data);
@@ -68,113 +74,117 @@ export const LandRecordsHierarchy: React.FC = () => {
     );
 
   return (
-    <div className="land-records-page">
-      <nav aria-label="Breadcrumb" className="breadcrumbs">
+    <div className="land-records-page" style={{ paddingBottom: "16px" }}>
+      <nav aria-label="Breadcrumb" className="breadcrumbs" style={{ marginBottom: "8px" }}>
         <Link to="/">Home</Link>
         <i>/</i>
         <span>Land Records</span>
       </nav>
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "16px" }}>
         <div>
-          <p className="eyebrow">Administrative Workspace</p>
-          <h1>{district.name} Land Records</h1>
-          <p>
+          <p className="eyebrow" style={{ margin: "0 0 2px 0" }}>Administrative Workspace</p>
+          <h1 style={{ margin: "0 0 4px 0" }}>{district.name} Land Records</h1>
+          <p style={{ margin: 0, fontSize: "14px", color: "#64748b" }}>
             Explore land acquisition records, village directories, awards, and canonical khasra records.
           </p>
         </div>
       </div>
 
-      {/* Entry Destinations Grid */}
+      {/* Compact Entry Destinations Grid */}
       <div
         className="land-entry-grid"
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-          gap: "16px",
-          marginBottom: "32px",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: "12px",
+          marginBottom: "16px",
         }}
       >
-        <Link to="/villages" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+        <Link to="/villages" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
             <div
               style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
+                width: "32px",
+                height: "32px",
+                borderRadius: "6px",
                 background: "rgba(37, 99, 235, 0.1)",
                 color: "#2563eb",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              <IconLand size={20} />
+              <IconLand size={18} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Village Directory</h3>
-              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>All villages & khasra counts</span>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700 }}>Village Directory</h3>
+              <span style={{ fontSize: "12px", color: "#64748b" }}>All villages & khasras</span>
             </div>
           </div>
-          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
-            Access canonical village workspaces, core document matrices, and khasra entry panels.
+          <p style={{ margin: 0, fontSize: "12px", color: "#64748b", lineHeight: "1.4" }}>
+            Access canonical village workspaces, core document matrix, and khasra entry.
           </p>
         </Link>
 
-        <Link to="/awards" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+        <Link to="/awards" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
             <div
               style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
+                width: "32px",
+                height: "32px",
+                borderRadius: "6px",
                 background: "rgba(16, 185, 129, 0.1)",
                 color: "#10b981",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              <IconAward size={20} />
+              <IconAward size={18} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Awards Directory</h3>
-              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>Acquisition awards</span>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700 }}>Awards Directory</h3>
+              <span style={{ fontSize: "12px", color: "#64748b" }}>Acquisition awards</span>
             </div>
           </div>
-          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
-            Inspect land acquisition awards, notifications, section declarations, and linked khasras.
+          <p style={{ margin: 0, fontSize: "12px", color: "#64748b", lineHeight: "1.4" }}>
+            Inspect land acquisition awards, section declarations, and linked khasras.
           </p>
         </Link>
 
-        <Link to="/imports/lr" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+        <Link to="/imports/lr" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
             <div
               style={{
-                width: "36px",
-                height: "36px",
-                borderRadius: "8px",
+                width: "32px",
+                height: "32px",
+                borderRadius: "6px",
                 background: "rgba(245, 158, 11, 0.1)",
                 color: "#f59e0b",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              <IconFileText size={20} />
+              <IconFileText size={18} />
             </div>
             <div>
-              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>LR Registers</h3>
-              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>Import & review</span>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700 }}>LR Registers</h3>
+              <span style={{ fontSize: "12px", color: "#64748b" }}>Import & review</span>
             </div>
           </div>
-          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
-            Review land record entry queues, unverified OCR extractions, and verification workflows.
+          <p style={{ margin: 0, fontSize: "12px", color: "#64748b", lineHeight: "1.4" }}>
+            Review land record entry queues and unverified OCR extractions.
           </p>
         </Link>
       </div>
 
-      <div className="summary-strip" style={{ marginBottom: "28px" }}>
+      {/* Compact Jurisdiction Summary Strip */}
+      <div className="summary-strip" style={{ marginBottom: "16px" }}>
         <div className="metric">
           <strong>{district.name}</strong>
           <span>District Jurisdiction</span>
@@ -194,13 +204,14 @@ export const LandRecordsHierarchy: React.FC = () => {
         </div>
       </div>
 
+      {/* Sub-divisions Table */}
       <section className="section">
-        <div className="section-heading">
+        <div className="section-heading" style={{ marginBottom: "12px" }}>
           <div>
-            <h2>Sub-divisions in {district.name}</h2>
-            <span>Select a sub-division to view its constituent villages and land records.</span>
+            <h2 style={{ fontSize: "16px", margin: 0 }}>Sub-divisions in {district.name}</h2>
+            <span style={{ fontSize: "13px", color: "#64748b" }}>Select a sub-division to view constituent villages and land records.</span>
           </div>
-          <span>{district.subDivisions?.length || 0} available</span>
+          <span style={{ fontSize: "13px" }}>{district.subDivisions?.length || 0} available</span>
         </div>
 
         <div className="table-wrap">

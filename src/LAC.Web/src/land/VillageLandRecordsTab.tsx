@@ -5,35 +5,40 @@ import "./land.css";
 
 const api = "/api";
 
-interface VillageLrRegister {
+interface VillageLrListItem {
   id: string;
   registerReference: string;
-  entriesCount: number;
+  entryCount: number;
 }
 
 interface LrProgress {
-  totalEntries: number;
-  draftCount: number;
-  needsReviewCount: number;
-  verifiedCount: number;
-  committedCount: number;
+  totalRows: number;
+  draft: number;
+  needsReview: number;
+  verified: number;
+  committed: number;
 }
 
-interface KhatauniRecordItem {
+interface KhatauniListItem {
   id: string;
   referenceNumber?: string;
   recordYearText?: string;
   asOfDate?: string;
   verificationStatus?: string;
-  khatasCount?: number;
+  khataCount: number;
+  recordedKhasraCount: number;
 }
 
-export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ villageId }) => {
+export interface VillageLandRecordsTabProps {
+  villageId: string;
+}
+
+export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ villageId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [registers, setRegisters] = useState<VillageLrRegister[]>([]);
+  const [registers, setRegisters] = useState<VillageLrListItem[]>([]);
   const [progress, setProgress] = useState<LrProgress | null>(null);
-  const [khataunis, setKhataunis] = useState<KhatauniRecordItem[]>([]);
+  const [khataunis, setKhataunis] = useState<KhatauniListItem[]>([]);
 
   const loadData = async () => {
     setLoading(true);
@@ -45,9 +50,17 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
         fetch(`${api}/villages/${villageId}/khatauni`, { credentials: "include" }),
       ]);
 
-      if (regRes.ok) setRegisters(await regRes.json());
-      if (progRes.ok) setProgress(await progRes.json());
-      if (khataRes.ok) setKhataunis(await khataRes.json());
+      if (regRes.status === 403 || progRes.status === 403 || khataRes.status === 403) {
+        throw new Error("Access denied: You do not have permission to view Land Records.");
+      }
+
+      if (!regRes.ok || !progRes.ok || !khataRes.ok) {
+        throw new Error("Failed to load land records data.");
+      }
+
+      setRegisters(await regRes.json());
+      setProgress(await progRes.json());
+      setKhataunis(await khataRes.json());
     } catch (err: any) {
       setError(err?.message || "Failed to load land records data.");
     } finally {
@@ -56,6 +69,7 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
   };
 
   useEffect(() => {
+    if (!villageId) return;
     loadData();
   }, [villageId]);
 
@@ -78,23 +92,23 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
       {progress && (
         <div className="summary-strip" style={{ marginBottom: "24px" }}>
           <div className="metric">
-            <strong>{progress.totalEntries}</strong>
-            <span>Total LR Entries</span>
+            <strong>{progress.totalRows}</strong>
+            <span>Total LR Rows</span>
           </div>
           <div className="metric">
-            <strong style={{ color: "var(--color-neutral-600)" }}>{progress.draftCount}</strong>
+            <strong style={{ color: "#64748b" }}>{progress.draft}</strong>
             <span>Draft</span>
           </div>
           <div className="metric">
-            <strong style={{ color: "#d97706" }}>{progress.needsReviewCount}</strong>
+            <strong style={{ color: "#d97706" }}>{progress.needsReview}</strong>
             <span>Needs Review</span>
           </div>
           <div className="metric">
-            <strong style={{ color: "#2563eb" }}>{progress.verifiedCount}</strong>
+            <strong style={{ color: "#2563eb" }}>{progress.verified}</strong>
             <span>Verified</span>
           </div>
           <div className="metric">
-            <strong style={{ color: "#16a34a" }}>{progress.committedCount}</strong>
+            <strong style={{ color: "#16a34a" }}>{progress.committed}</strong>
             <span>Committed</span>
           </div>
         </div>
@@ -127,7 +141,7 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
             <tbody>
               {registers.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="text-center py-6 text-slate-500">
+                  <td colSpan={3} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                     No LR registers found for this village.
                   </td>
                 </tr>
@@ -138,15 +152,15 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
                       <span style={{ fontWeight: 650 }}>{reg.registerReference}</span>
                     </td>
                     <td>
-                      <span>{reg.entriesCount} entries</span>
+                      <span>{reg.entryCount} entries</span>
                     </td>
                     <td>
                       <Link
-                        to={`/lr-review?villageId=${villageId}&registerId=${reg.id}`}
+                        to={`/villages/${villageId}/lr/${reg.id}`}
                         className="text-action"
                         style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
                       >
-                        <span>Review Entries</span>
+                        <span>Open Register</span>
                         <IconChevronRight size={14} />
                       </Link>
                     </td>
@@ -176,6 +190,7 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
                 <th scope="col">Record Year</th>
                 <th scope="col">As Of Date</th>
                 <th scope="col">Khatas Count</th>
+                <th scope="col">Recorded Khasras</th>
                 <th scope="col">Status</th>
                 <th scope="col">Action</th>
               </tr>
@@ -183,7 +198,7 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
             <tbody>
               {khataunis.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-6 text-slate-500">
+                  <td colSpan={7} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                     No Khatauni revenue records registered for this village.
                   </td>
                 </tr>
@@ -195,11 +210,10 @@ export const VillageLandRecordsTab: React.FC<{ villageId: string }> = ({ village
                     </td>
                     <td>{kh.recordYearText || "—"}</td>
                     <td>{kh.asOfDate || "—"}</td>
-                    <td>{kh.khatasCount ?? "—"}</td>
+                    <td>{kh.khataCount ?? 0} khatas</td>
+                    <td>{kh.recordedKhasraCount ?? 0} khasras</td>
                     <td>
-                      <span
-                        className={`status-badge status-${(kh.verificationStatus || "draft").toLowerCase()}`}
-                      >
+                      <span className={`status-badge status-${(kh.verificationStatus || "draft").toLowerCase()}`}>
                         {kh.verificationStatus || "Draft"}
                       </span>
                     </td>

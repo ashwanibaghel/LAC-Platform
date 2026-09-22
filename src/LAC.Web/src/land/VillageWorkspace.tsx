@@ -23,10 +23,10 @@ interface VillageData {
   id: string;
   name: string;
   subDivision?: SubDivisionRef;
-  khasraCount?: number;
-  awardCount?: number;
-  documentCount?: number;
-  hasLrRecords?: boolean;
+  totalKhasras: number;
+  linkedAwards: number;
+  documentCount: number;
+  lrAvailable: boolean;
 }
 
 export const VillageWorkspace: React.FC = () => {
@@ -46,7 +46,10 @@ export const VillageWorkspace: React.FC = () => {
 
     fetch(`${api}/villages/${id}`, { credentials: "include" })
       .then((res) => {
-        if (!res.ok) throw new Error("Failed to load village details.");
+        if (!res.ok) {
+          if (res.status === 403) throw new Error("Access denied: You do not have permission to view this village.");
+          throw new Error("Failed to load village details.");
+        }
         return res.json();
       })
       .then((data) => {
@@ -104,11 +107,11 @@ export const VillageWorkspace: React.FC = () => {
         {/* Metric Pills */}
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <div className="metric" style={{ background: "#f8fafc", padding: "8px 14px", borderRadius: "8px" }}>
-            <strong>{village.khasraCount ?? 0}</strong>
+            <strong>{village.totalKhasras ?? 0}</strong>
             <span>Khasras</span>
           </div>
           <div className="metric" style={{ background: "#f8fafc", padding: "8px 14px", borderRadius: "8px" }}>
-            <strong>{village.awardCount ?? 0}</strong>
+            <strong>{village.linkedAwards ?? 0}</strong>
             <span>Awards</span>
           </div>
           <div className="metric" style={{ background: "#f8fafc", padding: "8px 14px", borderRadius: "8px" }}>

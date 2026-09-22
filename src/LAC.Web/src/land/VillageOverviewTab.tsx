@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { IconChevronRight } from "../components/Icons";
+import "./land.css";
 
 const api = "/api";
 
@@ -27,19 +28,27 @@ function reviewSectionName(candidateType: string) {
   }
 }
 
-export const VillageOverviewTab: React.FC<{ villageId?: string; id?: string }> = ({ villageId, id }) => {
-  const targetId = villageId || id || "";
+export interface VillageOverviewTabProps {
+  villageId: string;
+}
+
+export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    if (!targetId) return;
+    if (!villageId) return;
     let active = true;
     setLoading(true);
-    fetch(`${api}/villages/${targetId}/overview`, { credentials: "include" })
+    setError(null);
+
+    fetch(`${api}/villages/${villageId}/overview`, { credentials: "include" })
       .then(async (r) => {
-        if (!r.ok) throw new Error("Could not load village overview.");
+        if (!r.ok) {
+          if (r.status === 403) throw new Error("Access denied: You do not have permission to view this village overview.");
+          throw new Error("Could not load village overview.");
+        }
         return r.json();
       })
       .then((d) => {
@@ -57,153 +66,202 @@ export const VillageOverviewTab: React.FC<{ villageId?: string; id?: string }> =
     return () => {
       active = false;
     };
-  }, [targetId]);
+  }, [villageId]);
 
   if (loading) return <div className="state loading">Loading village overview…</div>;
-  if (error || !data) return <div className="state error"><strong>Unable to load overview.</strong><span>{error || "Overview unavailable."}</span></div>;
+  if (error || !data)
+    return (
+      <div className="state error">
+        <strong>Unable to load overview.</strong>
+        <span>{error || "Overview unavailable."}</span>
+      </div>
+    );
 
   const official = data.official || {};
+  const awards: any[] = data.awards || [];
+  const pending: any[] = data.pendingReview || [];
+  const sources: any[] = data.sources || [];
 
   return (
-    <div className="village-overview-tab flex flex-col gap-6">
-      {/* 1. Official / Committed Data */}
-      <section className="section trust-section official-section">
+    <div className="village-overview-tab">
+      {/* Official Committed Facts Section */}
+      <section className="section" style={{ marginBottom: "28px" }}>
         <div className="section-heading">
           <div>
-            <h2>Official / Committed Data</h2>
-            <span>Canonical records. Pending document findings are separate.</span>
+            <h2>Official Committed Facts</h2>
+            <span>Verified, committed facts for {data.village?.name || "this village"}.</span>
           </div>
-          <span className="status success">Official</span>
         </div>
 
-        <div className="summary-strip compact-summary">
+        <div className="summary-strip" style={{ marginBottom: "20px" }}>
           <div className="metric">
-            <strong>{official.awardCount || 0}</strong>
-            <span>Awards</span>
-          </div>
-          <div className="metric">
-            <strong>{official.notificationCount || 0}</strong>
-            <span>Notifications</span>
+            <strong>{official.khasraCount ?? 0}</strong>
+            <span>Official Khasras</span>
           </div>
           <div className="metric">
             <strong>
-              {data.awards?.reduce((sum: number, award: any) => sum + (award.khasraCount || 0), 0) || 0}
+              {official.totalVerifiedBigha ?? 0} B {official.totalVerifiedBiswa ?? 0} Bis
             </strong>
-            <span>Award Khasras</span>
+            <span>Verified Area</span>
           </div>
           <div className="metric">
-            <strong>{official.possessionEventCount || 0}</strong>
-            <span>Possession</span>
+            <strong>{official.totalAwardsCount ?? 0}</strong>
+            <span>Total Awards</span>
           </div>
           <div className="metric">
-            <strong>{official.courtCaseCount || 0}</strong>
-            <span>Court Cases</span>
+            <strong>{official.totalRecordedOwnersCount ?? 0}</strong>
+            <span>Recorded Owners</span>
           </div>
         </div>
 
-        {data.awards?.length ? (
+        {awards.length > 0 && (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Award Number</th>
-                  <th>Award Date</th>
-                  <th>Award Type</th>
-                  <th>Official Khasras</th>
-                  <th>Source PDF</th>
+                  <th scope="col">Award Number</th>
+                  <th scope="col">Award Date</th>
+                  <th scope="col">Khasras Count</th>
+                  <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {data.awards.map((award: any) => (
-                  <tr key={award.id}>
+                {awards.map((a: any) => (
+                  <tr key={a.id}>
                     <td>
-                      <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
-                        {award.awardNumber}
+                      <Link to={`/awards/${a.id}`} className="entity-link" style={{ fontWeight: 650 }}>
+                        Award #{a.awardNumber}
                       </Link>
                     </td>
-                    <td>{date(award.awardDate)}</td>
-                    <td>{award.awardType || "—"}</td>
-                    <td>{award.khasraCount}</td>
+                    <td>{date(a.awardDate)}</td>
+                    <td>{a.khasraCount ?? 0} khasras</td>
                     <td>
-                      <span className={`status ${award.documentCount ? "success" : ""}`}>
-                        {award.documentCount ? "Source PDF loaded" : "Source PDF not loaded"}
-                      </span>
+                      <Link
+                        to={`/awards/${a.id}`}
+                        className="text-action"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <span>View Award</span>
+                        <IconChevronRight size={14} />
+                      </Link>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        ) : (
+        )}
+      </section>
+
+      {/* Pending Review Findings Section */}
+      <section className="section" style={{ marginBottom: "28px" }}>
+        <div className="section-heading">
+          <div>
+            <h2>Pending Review Queue</h2>
+            <span>Source-extracted findings pending human review and verification.</span>
+          </div>
+          <span>{pending.length} queues</span>
+        </div>
+
+        {pending.length === 0 ? (
           <div className="state empty">
-            <strong>No official Award links</strong>
-            <span>No canonical Award is currently linked to this village.</span>
+            <strong>No pending review items</strong>
+            <span>All source findings for this village are verified or up to date.</span>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Finding Stream</th>
+                  <th scope="col">Pending Count</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pending.map((p: any) => (
+                  <tr key={p.candidateType}>
+                    <td>
+                      <span style={{ fontWeight: 650 }}>{reviewSectionName(p.candidateType)}</span>
+                    </td>
+                    <td>
+                      <span style={{ fontWeight: 600, color: "#d97706" }}>{p.count}</span> items
+                    </td>
+                    <td>
+                      {p.targetUrl ? (
+                        <Link
+                          to={p.targetUrl}
+                          className="text-action"
+                          style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                        >
+                          <span>Review Queue</span>
+                          <IconChevronRight size={14} />
+                        </Link>
+                      ) : (
+                        <span style={{ fontSize: "13px", color: "#64748b" }}>Queue not available</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>
 
-      {/* 2. Pending Review Findings */}
-      {data.pendingReview?.length > 0 && (
-        <section className="section trust-section pending-section">
-          <div className="section-heading">
-            <div>
-              <h2>Pending Review Findings</h2>
-              <span>Document-review counts only — not committed village facts.</span>
-            </div>
-            <span className="status warning">Review Required</span>
-          </div>
-
-          <div className="pending-review-list">
-            {data.pendingReview.map((item: any) => (
-              <div className="pending-review-card" key={item.sessionId}>
-                <div>
-                  <strong>{item.sourceDocumentName}</strong>
-                  <span>
-                    {item.awardNumber ? `Award ${item.awardNumber}` : "Award context pending"} &middot;{" "}
-                    {item.pendingCandidateCount} findings waiting for review
-                  </span>
-                  <small>
-                    {item.candidateCounts?.map((count: any) => `${count.count} ${reviewSectionName(count.candidateType)}`).join(" · ")}
-                  </small>
-                </div>
-
-                {item.awardId ? (
-                  <Link
-                    to={`/awards/${item.awardId}/ingestion/${item.sessionId}`}
-                    className="secondary-button"
-                    style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                  >
-                    <span>Open Review</span>
-                    <IconChevronRight size={14} />
-                  </Link>
-                ) : (
-                  <span className="hint">No Award review route</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* 3. Source Coverage */}
-      <section className="section trust-section source-section">
+      {/* Source Document Coverage Section */}
+      <section className="section">
         <div className="section-heading">
           <div>
-            <h2>Record & Source Coverage</h2>
-            <span>A missing source means no conclusion has been drawn for that module.</span>
+            <h2>Source Coverage Grid</h2>
+            <span>Document availability and digitization status across core record categories.</span>
           </div>
         </div>
 
-        <div className="source-status-grid">
-          {data.sources?.map((source: any) => (
-            <div key={source.sourceType}>
-              <strong>{source.sourceType}</strong>
-              <span className={`status ${source.status === "Loaded" ? "success" : "warning"}`}>
-                {source.status}
-              </span>
-              <span>{source.detail}</span>
-            </div>
-          ))}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Category</th>
+                <th scope="col">Status</th>
+                <th scope="col">Document Count</th>
+                <th scope="col">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-center-muted" style={{ padding: "16px", textAlign: "center", color: "#64748b" }}>
+                    No source coverage status recorded.
+                  </td>
+                </tr>
+              ) : (
+                sources.map((s: any) => (
+                  <tr key={s.category}>
+                    <td>
+                      <span style={{ fontWeight: 650 }}>{s.category}</span>
+                    </td>
+                    <td>
+                      <span className={`status-badge status-${s.hasDocuments ? "committed" : "draft"}`}>
+                        {s.hasDocuments ? "Available" : "Missing / Pending"}
+                      </span>
+                    </td>
+                    <td>{s.documentCount ?? 0} docs</td>
+                    <td>
+                      <Link
+                        to={`/villages/${villageId}?tab=core-records`}
+                        className="text-action"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <span>Core Records</span>
+                        <IconChevronRight size={14} />
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
     </div>
