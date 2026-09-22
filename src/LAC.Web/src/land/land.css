@@ -1,0 +1,394 @@
+/* ==========================================
+   LAC Platform - Land Records & Village Workspace CSS
+   Modern, Dense, Fast, Calm Workspace
+   ========================================== */
+
+.land-records-page,
+.village-workspace-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Page Header & Breadcrumbs */
+.land-header-strip {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--lac-surface-border);
+  padding-bottom: 16px;
+}
+
+.land-title-area h1 {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--lac-navy-950);
+  margin: 0 0 4px;
+  letter-spacing: -0.01em;
+}
+
+.land-title-area p {
+  font-size: 13px;
+  color: var(--lac-text-muted);
+  margin: 0;
+}
+
+/* Fast Destination Cards */
+.land-fast-destinations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.land-fast-card {
+  background-color: #ffffff;
+  border: 1px solid var(--lac-surface-border);
+  border-radius: var(--lac-radius-md);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--lac-shadow-xs);
+  transition: all 0.15s ease;
+}
+
+.land-fast-card:hover {
+  border-color: var(--lac-brand-500);
+  box-shadow: var(--lac-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.land-fast-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.land-fast-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--lac-radius-sm);
+  background-color: var(--lac-brand-50);
+  color: var(--lac-brand-600);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.land-fast-info h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--lac-navy-950);
+  margin: 0 0 2px;
+}
+
+.land-fast-info p {
+  font-size: 11.5px;
+  color: var(--lac-text-muted);
+  margin: 0;
+}
+
+/* Village Workspace Header */
+.village-header-card {
+  background-color: #ffffff;
+  border: 1px solid var(--lac-surface-border);
+  border-radius: var(--lac-radius-lg);
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  box-shadow: var(--lac-shadow-xs);
+}
+
+.village-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.village-identity h1 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--lac-navy-950);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.village-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--lac-text-muted);
+}
+
+.village-metrics {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.village-metric-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  background-color: var(--lac-surface-bg);
+  border: 1px solid var(--lac-surface-border);
+  padding: 6px 14px;
+  border-radius: var(--lac-radius-md);
+}
+
+.village-metric-pill strong {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--lac-navy-950);
+  line-height: 1.1;
+}
+
+.village-metric-pill span {
+  font-size: 10.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  color: var(--lac-text-muted);
+  letter-spacing: 0.04em;
+}
+
+/* Workspace Tabs Bar */
+.village-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--lac-surface-border);
+  margin-bottom: 4px;
+}
+
+.village-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--lac-text-secondary);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.village-tab-btn:hover {
+  color: var(--lac-navy-950);
+  background-color: var(--lac-surface-hover);
+  border-radius: var(--lac-radius-sm) var(--lac-radius-sm) 0 0;
+}
+
+.village-tab-btn.active {
+  color: var(--lac-brand-600);
+  border-bottom-color: var(--lac-brand-600);
+  font-weight: 750;
+}
+
+/* Core Records Matrix Table */
+.core-matrix-wrap {
+  background-color: #ffffff;
+  border: 1px solid var(--lac-surface-border);
+  border-radius: var(--lac-radius-md);
+  overflow: hidden;
+  box-shadow: var(--lac-shadow-xs);
+}
+
+.core-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.core-matrix-table th {
+  background-color: var(--lac-surface-bg);
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--lac-text-muted);
+  border-bottom: 1px solid var(--lac-surface-border);
+  text-align: left;
+}
+
+.core-matrix-table td {
+  padding: 12px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--lac-surface-border-subtle);
+  color: var(--lac-text-primary);
+  vertical-align: middle;
+}
+
+.core-matrix-table tr:last-child td {
+  border-bottom: none;
+}
+
+.core-matrix-table tr:hover td {
+  background-color: var(--lac-surface-hover);
+}
+
+.core-role-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.role-badge-available {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--lac-radius-pill);
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.role-badge-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--lac-radius-pill);
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.btn-add-core-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  background-color: #ffffff;
+  border: 1px dashed #cbd5e1;
+  border-radius: var(--lac-radius-sm);
+  color: var(--lac-brand-600);
+  font-size: 11.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-add-core-file:hover {
+  border-color: var(--lac-brand-500);
+  background-color: var(--lac-brand-50);
+}
+
+/* Modals & Drawers */
+.lac-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: lacFadeIn 0.15s ease;
+}
+
+.lac-modal-card {
+  background-color: #ffffff;
+  border-radius: var(--lac-radius-lg);
+  border: 1px solid var(--lac-surface-border);
+  box-shadow: var(--lac-shadow-popover);
+  width: min(540px, 95vw);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lac-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--lac-surface-border);
+  padding-bottom: 12px;
+}
+
+.lac-modal-header h3 {
+  font-size: 16px;
+  font-weight: 750;
+  color: var(--lac-navy-950);
+  margin: 0;
+}
+
+.lac-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  color: var(--lac-text-muted);
+  cursor: pointer;
+}
+
+.lac-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  border-top: 1px solid var(--lac-surface-border);
+  padding-top: 14px;
+}
+
+/* Khasra Drawer Side Panel */
+.khasra-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(460px, 95vw);
+  background-color: #ffffff;
+  border-left: 1px solid var(--lac-surface-border);
+  box-shadow: var(--lac-shadow-popover);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  overflow-y: auto;
+  gap: 18px;
+}
+
+.khasra-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--lac-surface-border);
+  padding-bottom: 12px;
+}
+
+.khasra-drawer-header h3 {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--lac-navy-950);
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .land-fast-destinations {
+    grid-template-columns: 1fr;
+  }
+  .village-header-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .village-metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

@@ -41,6 +41,8 @@ import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
+import { VillageDirectory } from "./land/VillageDirectory";
+import { VillageWorkspace } from "./land/VillageWorkspace";
 import "./attention/attention.css";
 import "./work/work.css";
 import "./court/court.css";
@@ -3490,8 +3492,8 @@ function AuthenticatedApp() {
         <Route path="/land-records" element={<LandRecordsHierarchy />} />
         <Route path="/districts/:id" element={<District />} />
         <Route path="/subdivisions/:id" element={<Subdivision />} />
-        <Route path="/villages" element={<Villages />} />
-        <Route path="/villages/:id" element={<Village />} />
+        <Route path="/villages" element={<VillageDirectory />} />
+        <Route path="/villages/:id" element={<VillageWorkspace />} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
         <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />

@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { IconLand, IconSearch, IconAward, IconChevronRight } from "../components/Icons";
+import { IconLand, IconSearch, IconAward, IconChevronRight, IconFileText } from "../components/Icons";
+import "./land.css";
 
 const api = "/api";
 
@@ -76,21 +77,101 @@ export const LandRecordsHierarchy: React.FC = () => {
 
       <div className="page-header">
         <div>
-          <p className="eyebrow">Administrative Hierarchy</p>
-          <h1>{district.name} District</h1>
+          <p className="eyebrow">Administrative Workspace</p>
+          <h1>{district.name} Land Records</h1>
           <p>
-            Explore land acquisition records by administrative sub-divisions, villages, and canonical khasra records.
+            Explore land acquisition records, village directories, awards, and canonical khasra records.
           </p>
         </div>
+      </div>
 
-        <div className="page-actions" style={{ display: "flex", gap: "10px" }}>
-          <Link to="/villages" className="secondary-button">
-            <IconLand size={16} /> All Villages
-          </Link>
-          <Link to="/imports/lr" className="secondary-button">
-            <IconSearch size={16} /> LR Registers
-          </Link>
-        </div>
+      {/* Entry Destinations Grid */}
+      <div
+        className="land-entry-grid"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: "16px",
+          marginBottom: "32px",
+        }}
+      >
+        <Link to="/villages" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                background: "rgba(37, 99, 235, 0.1)",
+                color: "#2563eb",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <IconLand size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Village Directory</h3>
+              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>All villages & khasra counts</span>
+            </div>
+          </div>
+          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
+            Access canonical village workspaces, core document matrices, and khasra entry panels.
+          </p>
+        </Link>
+
+        <Link to="/awards" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                background: "rgba(16, 185, 129, 0.1)",
+                color: "#10b981",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <IconAward size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>Awards Directory</h3>
+              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>Acquisition awards</span>
+            </div>
+          </div>
+          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
+            Inspect land acquisition awards, notifications, section declarations, and linked khasras.
+          </p>
+        </Link>
+
+        <Link to="/imports/lr" className="lac-card" style={{ textDecoration: "none", color: "inherit", padding: "20px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "8px",
+                background: "rgba(245, 158, 11, 0.1)",
+                color: "#f59e0b",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <IconFileText size={20} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700 }}>LR Registers</h3>
+              <span style={{ fontSize: "13px", color: "var(--color-neutral-600)" }}>Import & review</span>
+            </div>
+          </div>
+          <p style={{ margin: 0, fontSize: "13px", color: "var(--color-neutral-600)" }}>
+            Review land record entry queues, unverified OCR extractions, and verification workflows.
+          </p>
+        </Link>
       </div>
 
       <div className="summary-strip" style={{ marginBottom: "28px" }}>
