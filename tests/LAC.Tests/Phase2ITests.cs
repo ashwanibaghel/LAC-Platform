@@ -1406,4 +1406,230 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         var unAwardOkRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/awards/{award.Id}?expectedRevision=1");
         Assert.Equal(HttpStatusCode.OK, unAwardOkRes.StatusCode);
     }
+
+    // =========================================================================
+    // 19. EXACT SOURCE DOMAIN CROSS-DOMAIN PROJECTION AUTHORIZATION TESTS
+    // =========================================================================
+
+    [Fact]
+    public async Task Award_CrossDomainProjection_AssignedOrOwnScope_YieldsNullAwardsCount()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, award, khasra) = await SeedVillageAwardKhasraAsync();
+
+        // Admin creates court case linked to award
+        var cmd = new
+        {
+            caseNumber = $"WP_AW_PROJ_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            awardIds = new[] { award.Id }
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Court.View (All) and Award.View (Assigned)
+        var (userAssigned, _) = await CreateUserWithPermissionsAsync(
+            $"usr_aw_assigned_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.AwardView, ScopeMode.Assigned)
+            }
+        );
+
+        // User with Court.View (All) and Award.View (Own)
+        var (userOwn, _) = await CreateUserWithPermissionsAsync(
+            $"usr_aw_own_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.AwardView, ScopeMode.Own)
+            }
+        );
+
+        // Assigned scope without workstream membership yields null awardsCount
+        var detailResAssigned = await userAssigned.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, detailResAssigned.StatusCode);
+        var detailAssigned = await detailResAssigned.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        Assert.Equal(JsonValueKind.Null, detailAssigned.GetProperty("awardsCount").ValueKind);
+
+        // Own scope yields null awardsCount
+        var detailResOwn = await userOwn.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, detailResOwn.StatusCode);
+        var detailOwn = await detailResOwn.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        Assert.Equal(JsonValueKind.Null, detailOwn.GetProperty("awardsCount").ValueKind);
+    }
+
+    [Fact]
+    public async Task Matter_CrossDomainProjection_AssignedOrOwnScope_YieldsNullMattersCount()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, _, _) = await SeedVillageAwardKhasraAsync();
+
+        Matter matter;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            matter = new Matter
+            {
+                VillageId = village.Id,
+                Title = $"Matter_Proj_{Guid.NewGuid():N}",
+                Status = "Open"
+            };
+            db.Matters.Add(matter);
+            await db.SaveChangesAsync();
+        }
+
+        var cmd = new
+        {
+            caseNumber = $"WP_MAT_PROJ_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            matterIds = new[] { matter.Id }
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Court.View (All) and Matter.View (Assigned) without matter assignment
+        var (userAssigned, _) = await CreateUserWithPermissionsAsync(
+            $"usr_mat_assigned_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.MatterView, ScopeMode.Assigned)
+            }
+        );
+
+        var detailResAssigned = await userAssigned.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, detailResAssigned.StatusCode);
+        var detailAssigned = await detailResAssigned.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        Assert.Equal(JsonValueKind.Null, detailAssigned.GetProperty("mattersCount").ValueKind);
+    }
+
+    [Fact]
+    public async Task WorkItem_CrossDomainProjection_AssignedScope_RespectsDeskMembership()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, _, _) = await SeedVillageAwardKhasraAsync();
+
+        OfficeDesk deskA;
+        OfficeDesk deskB;
+        Matter matter;
+        WorkItem workItem;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtWs = await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+
+            deskA = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"DeskA_WI_{Guid.NewGuid():N}" };
+            deskB = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"DeskB_WI_{Guid.NewGuid():N}" };
+            db.OfficeDesks.AddRange(deskA, deskB);
+
+            matter = new Matter
+            {
+                VillageId = village.Id,
+                Title = $"Matter_WI_{Guid.NewGuid():N}",
+                Status = "Open"
+            };
+            db.Matters.Add(matter);
+            await db.SaveChangesAsync();
+
+            var wiUser = new AppUser
+            {
+                Username = $"wi_creator_{Guid.NewGuid():N}",
+                DisplayName = "WI Creator",
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                PasswordChangedAt = DateTimeOffset.UtcNow
+            };
+            db.AppUsers.Add(wiUser);
+            await db.SaveChangesAsync();
+
+            workItem = new WorkItem
+            {
+                WorkstreamId = courtWs.Id,
+                Title = "WorkItem linked to matter",
+                Status = WorkItemStatus.Assigned,
+                Priority = WorkItemPriority.Routine,
+                RequestedByUserId = wiUser.Id,
+                RequestedByDisplayNameSnapshot = wiUser.DisplayName,
+                RecordStatus = RecordStatus.Active,
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.WorkItems.Add(workItem);
+            await db.SaveChangesAsync();
+
+            db.WorkItemAssignments.Add(new WorkItemAssignment
+            {
+                WorkItemId = workItem.Id,
+                OfficeDeskId = deskA.Id,
+                IsActive = true,
+                RecordStatus = RecordStatus.Active,
+                AssignedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            db.WorkItemMatterLinks.Add(new WorkItemMatterLink
+            {
+                WorkItemId = workItem.Id,
+                MatterId = matter.Id
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var cmd = new
+        {
+            caseNumber = $"WP_WI_PROJ_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            matterIds = new[] { matter.Id }
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User assigned ONLY to Desk B (unrelated desk) with WorkItem.View (Assigned)
+        var (userBClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_wi_desk_b_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.MatterView, ScopeMode.All),
+                (PermissionCodes.WorkItemView, ScopeMode.Assigned)
+            },
+            deskId: deskB.Id
+        );
+
+        var resB = await userBClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, resB.StatusCode);
+        var detailB = await resB.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var mattersB = detailB.GetProperty("matters").EnumerateArray().ToList();
+        Assert.Single(mattersB);
+        Assert.Equal(JsonValueKind.Null, mattersB[0].GetProperty("workItemsCount").ValueKind);
+
+        // User assigned to Desk A (matching desk) with WorkItem.View (Assigned)
+        var (userAClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_wi_desk_a_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.MatterView, ScopeMode.All),
+                (PermissionCodes.WorkItemView, ScopeMode.Assigned)
+            },
+            deskId: deskA.Id
+        );
+
+        var resA = await userAClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, resA.StatusCode);
+        var detailA = await resA.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var mattersA = detailA.GetProperty("matters").EnumerateArray().ToList();
+        Assert.Single(mattersA);
+        Assert.Equal(1, mattersA[0].GetProperty("workItemsCount").GetInt32());
+    }
 }

@@ -272,10 +272,10 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px" }}>
-                    {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate || c.nextDate ? (
+                    {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                         <span className="court-badge court-badge-ndoh">
-                          📅 {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate || c.nextDate}
+                          📅 {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate}
                         </span>
                         {c.isProjectedToCalendar ? (
                           <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 600 }}>● On Calendar</span>
@@ -318,8 +318,8 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#64748b" }}>
-                    <div>Awards: {c.awardsCount ?? c.linkedAwardCount ?? "—"}</div>
-                    <div>Matters: {c.mattersCount ?? c.linkedMatterCount ?? "—"}</div>
+                    <div>Awards: {c.awardsCount !== null && c.awardsCount !== undefined ? c.awardsCount : "—"}</div>
+                    <div>Matters: {c.mattersCount !== null && c.mattersCount !== undefined ? c.mattersCount : "—"}</div>
                   </td>
 
                   <td style={{ padding: "12px 16px", textAlign: "right" }}>

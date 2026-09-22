@@ -267,10 +267,6 @@ public sealed class CourtProjectionService(
         var page = Math.Clamp(query.Page, 1, 1000);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var skip = (page - 1) * pageSize;
-
-        var hasAwardViewCap = await HasEffectiveAwardViewAsync(callerUserId, ct);
-        var hasKhasraViewCap = await HasEffectiveKhasraViewAsync(callerUserId, ct);
-        var hasMatterViewCap = await HasEffectiveMatterViewAsync(callerUserId, ct);
         var hasScheduleViewCap = (await GetScopesForPermissionAsync(callerUserId, PermissionCodes.ScheduleView, ct)).Count > 0;
 
         var rawItems = await authorizedQuery
@@ -333,38 +329,9 @@ public sealed class CourtProjectionService(
             var isProjected = activeScheduledEventId.HasValue;
             var nextHearingDate = activeScheduleNextDate ?? authNextDate;
 
-            int? awardsCount = null;
-            if (hasAwardViewCap)
-            {
-                var cnt = 0;
-                foreach (var aid in x.AwardIds)
-                {
-                    if (await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct)) cnt++;
-                }
-                awardsCount = cnt;
-            }
-
-            int? khasrasCount = null;
-            if (hasKhasraViewCap)
-            {
-                var cnt = 0;
-                foreach (var kid in x.KhasraIds)
-                {
-                    if (await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct)) cnt++;
-                }
-                khasrasCount = cnt;
-            }
-
-            int? mattersCount = null;
-            if (hasMatterViewCap)
-            {
-                var cnt = 0;
-                foreach (var mid in x.MatterIds)
-                {
-                    if (await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct)) cnt++;
-                }
-                mattersCount = cnt;
-            }
+            int? awardsCount = await GetEffectiveAwardsCountAsync(x.AwardIds, callerUserId, ct);
+            int? khasrasCount = await GetEffectiveKhasrasCountAsync(x.KhasraIds, callerUserId, ct);
+            int? mattersCount = await GetEffectiveMattersCountAsync(x.MatterIds, callerUserId, ct);
 
             resultList.Add(new CourtCaseSummaryDto(
                 x.Id,
@@ -415,11 +382,6 @@ public sealed class CourtProjectionService(
 
         if (courtCase is null) return null;
 
-        var hasAwardViewCap = await HasEffectiveAwardViewAsync(callerUserId, ct);
-        var hasKhasraViewCap = await HasEffectiveKhasraViewAsync(callerUserId, ct);
-        var hasMatterViewCap = await HasEffectiveMatterViewAsync(callerUserId, ct);
-        var hasDraftViewCap = await HasEffectiveDraftViewAsync(callerUserId, ct);
-        var hasWorkItemViewCap = await HasEffectiveWorkItemViewAsync(callerUserId, ct);
 
         var candidateSchedule = await db.ScheduledEvents.AsNoTracking()
             .FirstOrDefaultAsync(se => se.CourtCaseId == courtCaseId
@@ -459,8 +421,8 @@ public sealed class CourtProjectionService(
             .CountAsync(e => e.CourtCaseId == courtCaseId, ct);
 
         IReadOnlyList<CourtCaseLinkedAwardDto> awards = [];
-        int? awardsCount = null;
-        if (hasAwardViewCap)
+        int? awardsCount = await GetEffectiveAwardsCountAsync(courtCase.Awards.Select(a => a.AwardId).ToList(), callerUserId, ct);
+        if (awardsCount.HasValue)
         {
             var authAwards = new List<CourtCaseLinkedAwardDto>();
             foreach (var a in courtCase.Awards)
@@ -476,12 +438,11 @@ public sealed class CourtProjectionService(
                 }
             }
             awards = authAwards;
-            awardsCount = awards.Count;
         }
 
         IReadOnlyList<CourtCaseLinkedKhasraDto> khasras = [];
-        int? khasrasCount = null;
-        if (hasKhasraViewCap)
+        int? khasrasCount = await GetEffectiveKhasrasCountAsync(courtCase.Khasras.Select(k => k.KhasraId).ToList(), callerUserId, ct);
+        if (khasrasCount.HasValue)
         {
             var authKhasras = new List<CourtCaseLinkedKhasraDto>();
             foreach (var k in courtCase.Khasras)
@@ -500,61 +461,13 @@ public sealed class CourtProjectionService(
                 }
             }
             khasras = authKhasras;
-            khasrasCount = khasras.Count;
         }
 
         IReadOnlyList<CourtCaseLinkedMatterDto> matters = [];
-        int? mattersCount = null;
-        if (hasMatterViewCap)
+        int? mattersCount = await GetEffectiveMattersCountAsync(courtCase.Matters.Select(m => m.MatterId).ToList(), callerUserId, ct);
+        if (mattersCount.HasValue)
         {
-            var authMatters = new List<CourtCaseLinkedMatterDto>();
-            foreach (var m in courtCase.Matters)
-            {
-                if (await courtAuth.CanAccessMatterAsync(m.MatterId, callerUserId, ct))
-                {
-                    int? draftsCount = null;
-                    if (hasDraftViewCap)
-                    {
-                        var cnt = 0;
-                        var draftIds = await db.MatterDrafts.AsNoTracking()
-                            .Where(d => d.MatterId == m.MatterId && d.RecordStatus == RecordStatus.Active)
-                            .Select(d => d.Id).ToListAsync(ct);
-                        foreach (var did in draftIds)
-                        {
-                            if (await courtAuth.CanAccessDraftAsync(did, callerUserId, ct))
-                                cnt++;
-                        }
-                        draftsCount = cnt;
-                    }
-
-                    int? workItemsCount = null;
-                    if (hasWorkItemViewCap)
-                    {
-                        var cnt = 0;
-                        var workItemIds = await db.Set<WorkItemMatterLink>().AsNoTracking()
-                            .Where(w => w.MatterId == m.MatterId && w.RecordStatus == RecordStatus.Active)
-                            .Select(w => w.WorkItemId).ToListAsync(ct);
-                        foreach (var wid in workItemIds)
-                        {
-                            if (await courtAuth.CanAccessWorkItemAsync(wid, callerUserId, ct))
-                                cnt++;
-                        }
-                        workItemsCount = cnt;
-                    }
-
-                    authMatters.Add(new CourtCaseLinkedMatterDto(
-                        m.MatterId,
-                        m.Matter.Title,
-                        m.Matter.ReferenceNumber,
-                        m.Matter.Status,
-                        m.Matter.Workstream?.Name,
-                        draftsCount,
-                        workItemsCount
-                    ));
-                }
-            }
-            matters = authMatters;
-            mattersCount = matters.Count;
+            matters = await GetLinkedWorkAsync(courtCaseId, callerUserId, ct);
         }
 
         var parties = courtCase.Parties
@@ -601,9 +514,9 @@ public sealed class CourtProjectionService(
             ct);
 
         var canPromote = authNextDate.HasValue && candidateSchedule == null && (canEdit || canManageProc) && canScheduleCreate;
-        var canLinkAward = canEdit && hasAwardViewCap;
-        var canLinkKhasra = canEdit && hasKhasraViewCap;
-        var canLinkMatter = canEdit && hasMatterViewCap;
+        var canLinkAward = canEdit && awardsCount.HasValue;
+        var canLinkKhasra = canEdit && khasrasCount.HasValue;
+        var canLinkMatter = canEdit && mattersCount.HasValue;
 
         var capabilities = new CourtCaseCapabilitiesDto(
             CanEdit: canEdit,
@@ -741,131 +654,229 @@ public sealed class CourtProjectionService(
         var canView = await courtAuth.CanViewCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canView) throw new UnauthorizedAccessException("Forbidden");
 
-        var hasMatterViewCap = await HasEffectiveMatterViewAsync(callerUserId, ct);
-        if (!hasMatterViewCap)
-            return [];
-
-        var hasDraftViewCap = await HasEffectiveDraftViewAsync(callerUserId, ct);
-        var hasWorkItemViewCap = await HasEffectiveWorkItemViewAsync(callerUserId, ct);
-
         var linkedMatters = await db.CourtCaseMatters.AsNoTracking()
             .Include(m => m.Matter).ThenInclude(mat => mat.Workstream)
             .Where(m => m.CourtCaseId == courtCaseId && m.RecordStatus == RecordStatus.Active)
             .ToListAsync(ct);
 
+        var matterScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.MatterView, ct);
+        if (matterScopes.Count == 0) return [];
+
+        var draftScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.DraftView, ct);
+        var workItemScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.WorkItemView, ct);
+
         var authMatters = new List<CourtCaseLinkedMatterDto>();
         foreach (var m in linkedMatters)
         {
-            if (await courtAuth.CanAccessMatterAsync(m.MatterId, callerUserId, ct))
+            if (!await courtAuth.CanAccessMatterAsync(m.MatterId, callerUserId, ct))
+                continue;
+
+            int? draftsCount = null;
+            if (draftScopes.Count > 0)
             {
-                int? draftsCount = null;
-                if (hasDraftViewCap)
+                var matterDraftIds = await db.MatterDrafts.AsNoTracking()
+                    .Where(d => d.MatterId == m.MatterId && d.RecordStatus == RecordStatus.Active)
+                    .Select(d => d.Id).ToListAsync(ct);
+
+                var authDraftCount = 0;
+                var hasEffectiveDraftAccess = false;
+
+                if (draftScopes.Contains(ScopeMode.All))
                 {
-                    var cnt = 0;
-                    var draftIds = await db.MatterDrafts.AsNoTracking()
-                        .Where(d => d.MatterId == m.MatterId && d.RecordStatus == RecordStatus.Active)
-                        .Select(d => d.Id).ToListAsync(ct);
-                    foreach (var did in draftIds)
-                    {
-                        if (await courtAuth.CanAccessDraftAsync(did, callerUserId, ct))
-                            cnt++;
-                    }
-                    draftsCount = cnt;
+                    hasEffectiveDraftAccess = true;
+                }
+                else if (draftScopes.Contains(ScopeMode.Workstream))
+                {
+                    var isWsMember = m.Matter.WorkstreamId.HasValue && await db.UserWorkstreamMemberships.AsNoTracking()
+                        .AnyAsync(w => w.UserId == callerUserId && w.WorkstreamId == m.Matter.WorkstreamId.Value && w.IsActive && w.Workstream.IsActive && w.Workstream.RecordStatus == RecordStatus.Active, ct);
+                    if (isWsMember) hasEffectiveDraftAccess = true;
                 }
 
-                int? workItemsCount = null;
-                if (hasWorkItemViewCap)
+                foreach (var did in matterDraftIds)
                 {
-                    var cnt = 0;
-                    var workItemIds = await db.Set<WorkItemMatterLink>().AsNoTracking()
-                        .Where(w => w.MatterId == m.MatterId && w.RecordStatus == RecordStatus.Active)
-                        .Select(w => w.WorkItemId).ToListAsync(ct);
-                    foreach (var wid in workItemIds)
+                    if (await courtAuth.CanAccessDraftAsync(did, callerUserId, ct))
                     {
-                        if (await courtAuth.CanAccessWorkItemAsync(wid, callerUserId, ct))
-                            cnt++;
+                        authDraftCount++;
+                        hasEffectiveDraftAccess = true;
                     }
-                    workItemsCount = cnt;
                 }
 
-                authMatters.Add(new CourtCaseLinkedMatterDto(
-                    m.MatterId,
-                    m.Matter.Title,
-                    m.Matter.ReferenceNumber,
-                    m.Matter.Status,
-                    m.Matter.Workstream?.Name,
-                    draftsCount,
-                    workItemsCount
-                ));
+                if (hasEffectiveDraftAccess)
+                {
+                    draftsCount = authDraftCount;
+                }
             }
+
+            int? workItemsCount = null;
+            if (workItemScopes.Count > 0)
+            {
+                var matterWorkItemIds = await db.Set<WorkItemMatterLink>().AsNoTracking()
+                    .Where(w => w.MatterId == m.MatterId && w.RecordStatus == RecordStatus.Active)
+                    .Select(w => w.WorkItemId).ToListAsync(ct);
+
+                var authWorkItemCount = 0;
+                var hasEffectiveWorkItemAccess = false;
+
+                if (workItemScopes.Contains(ScopeMode.All))
+                {
+                    hasEffectiveWorkItemAccess = true;
+                }
+                else if (workItemScopes.Contains(ScopeMode.Workstream))
+                {
+                    var isWsMember = m.Matter.WorkstreamId.HasValue && await db.UserWorkstreamMemberships.AsNoTracking()
+                        .AnyAsync(w => w.UserId == callerUserId && w.WorkstreamId == m.Matter.WorkstreamId.Value && w.IsActive && w.Workstream.IsActive && w.Workstream.RecordStatus == RecordStatus.Active, ct);
+                    if (isWsMember) hasEffectiveWorkItemAccess = true;
+                }
+
+                foreach (var wid in matterWorkItemIds)
+                {
+                    if (await courtAuth.CanAccessWorkItemAsync(wid, callerUserId, ct))
+                    {
+                        authWorkItemCount++;
+                        hasEffectiveWorkItemAccess = true;
+                    }
+                }
+
+                if (hasEffectiveWorkItemAccess)
+                {
+                    workItemsCount = authWorkItemCount;
+                }
+            }
+
+            authMatters.Add(new CourtCaseLinkedMatterDto(
+                m.MatterId,
+                m.Matter.Title,
+                m.Matter.ReferenceNumber,
+                m.Matter.Status,
+                m.Matter.Workstream?.Name,
+                draftsCount,
+                workItemsCount
+            ));
         }
 
         return authMatters;
     }
 
-    private async Task<bool> HasEffectiveAwardViewAsync(Guid userId, CancellationToken ct)
+    private async Task<int?> GetEffectiveAwardsCountAsync(IReadOnlyList<Guid> awardIds, Guid callerUserId, CancellationToken ct)
     {
-        var scopes = await GetScopesForPermissionAsync(userId, PermissionCodes.AwardView, ct);
-        if (scopes.Count == 0) return false;
-        if (scopes.Contains(ScopeMode.All)) return true;
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
+        var scopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.AwardView, ct);
+        if (scopes.Count == 0) return null;
+
+        if (scopes.Contains(ScopeMode.All))
         {
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active && m.Workstream.Code == WorkstreamCodes.Award, ct);
+            var cnt = 0;
+            foreach (var aid in awardIds)
+            {
+                if (await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
         }
-        return false;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == callerUserId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active
+                            && m.Workstream.Code == WorkstreamCodes.Award, ct);
+            if (!isMember) return null;
+
+            var cnt = 0;
+            foreach (var aid in awardIds)
+            {
+                if (await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
+        }
+
+        var authCount = 0;
+        foreach (var aid in awardIds)
+        {
+            if (await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct)) authCount++;
+        }
+        return authCount > 0 ? authCount : null;
     }
 
-    private async Task<bool> HasEffectiveKhasraViewAsync(Guid userId, CancellationToken ct)
+    private async Task<int?> GetEffectiveKhasrasCountAsync(IReadOnlyList<Guid> khasraIds, Guid callerUserId, CancellationToken ct)
     {
-        var scopes = await GetScopesForPermissionAsync(userId, PermissionCodes.KhasraView, ct);
-        if (scopes.Count == 0) return false;
-        if (scopes.Contains(ScopeMode.All)) return true;
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
+        var scopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct);
+        if (scopes.Count == 0) return null;
+
+        if (scopes.Contains(ScopeMode.All))
         {
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active && (m.Workstream.Code == WorkstreamCodes.LandRecords || m.Workstream.Code == WorkstreamCodes.Award), ct);
+            var cnt = 0;
+            foreach (var kid in khasraIds)
+            {
+                if (await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
         }
-        return false;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == callerUserId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active
+                            && (m.Workstream.Code == WorkstreamCodes.LandRecords || m.Workstream.Code == WorkstreamCodes.Award), ct);
+            if (!isMember) return null;
+
+            var cnt = 0;
+            foreach (var kid in khasraIds)
+            {
+                if (await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
+        }
+
+        var authCount = 0;
+        foreach (var kid in khasraIds)
+        {
+            if (await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct)) authCount++;
+        }
+        return authCount > 0 ? authCount : null;
     }
 
-    private async Task<bool> HasEffectiveMatterViewAsync(Guid userId, CancellationToken ct)
+    private async Task<int?> GetEffectiveMattersCountAsync(IReadOnlyList<Guid> matterIds, Guid callerUserId, CancellationToken ct)
     {
-        var scopes = await GetScopesForPermissionAsync(userId, PermissionCodes.MatterView, ct);
-        if (scopes.Count == 0) return false;
-        if (scopes.Contains(ScopeMode.All)) return true;
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
-        {
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active, ct);
-        }
-        return false;
-    }
+        var scopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.MatterView, ct);
+        if (scopes.Count == 0) return null;
 
-    private async Task<bool> HasEffectiveDraftViewAsync(Guid userId, CancellationToken ct)
-    {
-        var scopes = await GetScopesForPermissionAsync(userId, PermissionCodes.DraftView, ct);
-        if (scopes.Count == 0) return false;
-        if (scopes.Contains(ScopeMode.All)) return true;
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
+        if (scopes.Contains(ScopeMode.All))
         {
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            var cnt = 0;
+            foreach (var mid in matterIds)
+            {
+                if (await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
         }
-        return false;
-    }
 
-    private async Task<bool> HasEffectiveWorkItemViewAsync(Guid userId, CancellationToken ct)
-    {
-        var scopes = await GetScopesForPermissionAsync(userId, PermissionCodes.WorkItemView, ct);
-        if (scopes.Count == 0) return false;
-        if (scopes.Contains(ScopeMode.All)) return true;
-        if (scopes.Contains(ScopeMode.Workstream) || scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
+        if (scopes.Contains(ScopeMode.Workstream))
         {
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            var hasAnyMatterWsMembership = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == callerUserId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            if (!hasAnyMatterWsMembership) return null;
+
+            var cnt = 0;
+            foreach (var mid in matterIds)
+            {
+                if (await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct)) cnt++;
+            }
+            return cnt;
         }
-        return false;
+
+        var authCount = 0;
+        foreach (var mid in matterIds)
+        {
+            if (await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct)) authCount++;
+        }
+        return authCount > 0 ? authCount : null;
     }
 
     private async Task<List<ScopeMode>> GetScopesForPermissionAsync(Guid userId, string permissionCode, CancellationToken ct)

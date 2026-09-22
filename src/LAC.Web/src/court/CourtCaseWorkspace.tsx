@@ -275,13 +275,13 @@ export const CourtCaseWorkspace: React.FC = () => {
           className={`court-tab-button ${activeTab === "proceedings" ? "active" : ""}`}
           onClick={() => setActiveTab("proceedings")}
         >
-          Proceedings & Orders ({courtCase.proceedingsCount ?? courtCase.proceedingCount ?? 0})
+          Proceedings & Orders ({courtCase.proceedingsCount})
         </button>
         <button
           className={`court-tab-button ${activeTab === "documents" ? "active" : ""}`}
           onClick={() => setActiveTab("documents")}
         >
-          Documents ({courtCase.documentsCount ?? courtCase.documentCount ?? 0})
+          Documents ({courtCase.documentsCount})
         </button>
         <button
           className={`court-tab-button ${activeTab === "records" ? "active" : ""}`}

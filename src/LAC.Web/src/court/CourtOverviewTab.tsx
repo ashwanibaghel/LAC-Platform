@@ -67,12 +67,12 @@ export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase })
 
         <div className="court-card">
           <div className="court-card-title">Proceedings</div>
-          <div className="court-card-value">{courtCase.proceedingsCount ?? courtCase.proceedingCount ?? 0}</div>
+          <div className="court-card-value">{courtCase.proceedingsCount}</div>
         </div>
 
         <div className="court-card">
           <div className="court-card-title">Documents</div>
-          <div className="court-card-value">{courtCase.documentsCount ?? courtCase.documentCount ?? 0}</div>
+          <div className="court-card-value">{courtCase.documentsCount}</div>
         </div>
 
         <div className="court-card">
