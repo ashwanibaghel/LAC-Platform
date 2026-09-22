@@ -19,7 +19,8 @@ const CORE_ROLES = [
   { key: "PossessionProceeding", label: "Possession Proceedings" }
 ] as const;
 
-export const VillageCoreRecordsTab: React.FC<{ id: string }> = ({ id }) => {
+export const VillageCoreRecordsTab: React.FC<{ villageId?: string; id?: string }> = ({ villageId, id }) => {
+  const targetId = villageId || id || "";
   const [refresh, setRefresh] = useState(0);
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,9 +39,10 @@ export const VillageCoreRecordsTab: React.FC<{ id: string }> = ({ id }) => {
 
   // Fetch core records
   useEffect(() => {
+    if (!targetId) return;
     let active = true;
     setLoading(true);
-    fetch(`${api}/villages/${id}/core-records?r=${refresh}`, { credentials: "include" })
+    fetch(`${api}/villages/${targetId}/core-records?r=${refresh}`, { credentials: "include" })
       .then(async (r) => {
         if (!r.ok) throw new Error("Could not load core records.");
         return r.json();
@@ -53,22 +55,25 @@ export const VillageCoreRecordsTab: React.FC<{ id: string }> = ({ id }) => {
       })
       .catch((e) => {
         if (active) {
-          setError(e?.message || "Failed to load core records.");
+          setError(e?.message || "Core records unavailable.");
           setLoading(false);
         }
       });
     return () => {
       active = false;
     };
-  }, [id, refresh]);
+  }, [targetId, refresh]);
 
   // Handle Add Award
   const handleCreateAward = async () => {
-    if (!newAward.awardNumber.trim()) return;
+    if (!newAward.awardNumber.trim()) {
+      setMessage("Award number is required.");
+      return;
+    }
     try {
       setBusy(true);
       setMessage("");
-      const res = await fetch(`${api}/villages/${id}/awards`, {
+      const res = await fetch(`${api}/villages/${targetId}/awards`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

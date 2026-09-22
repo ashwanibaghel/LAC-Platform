@@ -47,7 +47,8 @@ function date(value?: string | null) {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
 }
 
-export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
+export const VillageKhasrasTab: React.FC<{ villageId?: string; id?: string }> = ({ villageId, id }) => {
+  const targetId = villageId || id || "";
   const [page, setPage] = useState(0);
   const [query, setQuery] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -61,6 +62,7 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
   const [data, setData] = useState<Page<any> | null>(null);
 
   useEffect(() => {
+    if (!targetId) return;
     let active = true;
     setLoading(true);
     setError(null);
@@ -72,7 +74,7 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
     });
     if (query) searchParams.set("q", query);
 
-    fetch(`${api}/villages/${id}/khasras?${searchParams.toString()}`, { credentials: "include" })
+    fetch(`${api}/villages/${targetId}/khasras?${searchParams.toString()}`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error("Could not load Khasras.");
         return res.json() as Promise<Page<any>>;
@@ -93,7 +95,7 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
     return () => {
       active = false;
     };
-  }, [id, page, query, refresh]);
+  }, [targetId, page, query, refresh]);
 
   const changed = () => {
     setRefresh((v) => v + 1);
@@ -131,12 +133,12 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
           </label>
           <a
             className="secondary-button"
-            href={`${api}/villages/${id}/khasras/import-template`}
+            href={`${api}/villages/${targetId}/khasras/import-template`}
             download
           >
             Download Template
           </a>
-          <ExportMenu baseUrl={`${api}/villages/${id}/khasras/export`} query={query} />
+          <ExportMenu baseUrl={`${api}/villages/${targetId}/khasras/export`} query={query} />
           <div className="lac-header-search-box" style={{ width: "220px" }}>
             <IconSearch size={14} className="lac-search-icon" />
             <input
@@ -153,7 +155,7 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
 
       {importFile && (
         <KhasraImportModal
-          id={id}
+          id={targetId}
           file={importFile}
           onClose={() => setImportFile(null)}
           onSaved={changed}
@@ -162,7 +164,7 @@ export const VillageKhasrasTab: React.FC<{ id: string }> = ({ id }) => {
 
       {panel && (
         <KhasraEntryPanelModal
-          id={id}
+          id={targetId}
           edit={edit}
           onClose={() => {
             setPanel(false);

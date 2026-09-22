@@ -27,15 +27,17 @@ function reviewSectionName(candidateType: string) {
   }
 }
 
-export const VillageOverviewTab: React.FC<{ id: string }> = ({ id }) => {
+export const VillageOverviewTab: React.FC<{ villageId?: string; id?: string }> = ({ villageId, id }) => {
+  const targetId = villageId || id || "";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
+    if (!targetId) return;
     let active = true;
     setLoading(true);
-    fetch(`${api}/villages/${id}/overview`, { credentials: "include" })
+    fetch(`${api}/villages/${targetId}/overview`, { credentials: "include" })
       .then(async (r) => {
         if (!r.ok) throw new Error("Could not load village overview.");
         return r.json();
@@ -55,7 +57,7 @@ export const VillageOverviewTab: React.FC<{ id: string }> = ({ id }) => {
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [targetId]);
 
   if (loading) return <div className="state loading">Loading village overview…</div>;
   if (error || !data) return <div className="state error"><strong>Unable to load overview.</strong><span>{error || "Overview unavailable."}</span></div>;
