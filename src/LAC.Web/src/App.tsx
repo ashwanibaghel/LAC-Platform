@@ -38,12 +38,17 @@ import { MyAttention } from "./attention/MyAttention";
 import { CalendarView } from "./attention/CalendarView";
 import { CourtDirectory } from "./court/CourtDirectory";
 import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
+import { AppShell } from "./components/AppShell";
+import { Home } from "./home/Home";
+import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
 import "./attention/attention.css";
 import "./work/work.css";
 import "./court/court.css";
 import "./matter/matter.css";
 import "./index.css";
 import "./sidebar.css";
+import "./shell.css";
+import "./home/home.css";
 import "./dak/dak.css";
 import "./outward/outward.css";
 import "./verification.css";
@@ -3530,9 +3535,10 @@ function AuthenticatedApp() {
     return <LoginPage />;
   }
   return (
-    <Shell>
+    <AppShell>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/land-records" element={<LandRecordsHierarchy />} />
         <Route path="/districts/:id" element={<District />} />
         <Route path="/subdivisions/:id" element={<Subdivision />} />
         <Route path="/villages" element={<Villages />} />
@@ -3586,7 +3592,7 @@ function AuthenticatedApp() {
         <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
         <Route path="*" element={<SearchPage />} />
       </Routes>
-    </Shell>
+    </AppShell>
   );
 }
 function App() {
