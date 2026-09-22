@@ -21,39 +21,33 @@ public sealed class CourtWorkflowException : Exception
 public sealed record CreateCourtCasePartyDto(
     Guid? PartyId = null,
     string? DisplayName = null,
-    string? Role = null,
     string? PartyName = null,
+    string? Role = null,
+    string? PartyRole = null,
     string? PartyType = null,
-    string? AdvocateName = null,
-    string? ContactDetails = null,
-    bool? IsPrimary = null,
     string? FatherOrSpouseName = null,
     string? AddressText = null,
     string? Remarks = null,
     int Sequence = 0,
-    int? ExpectedRevision = null
+    int ExpectedRevision = 0
 )
 {
-    public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (PartyName?.Trim() ?? "");
-    public string ResolvedRole => !string.IsNullOrWhiteSpace(Role) ? Role.Trim() : (PartyType?.Trim() ?? "");
+    public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (!string.IsNullOrWhiteSpace(PartyName) ? PartyName.Trim() : "");
+    public string ResolvedRole => !string.IsNullOrWhiteSpace(Role) ? Role.Trim() : (!string.IsNullOrWhiteSpace(PartyRole) ? PartyRole.Trim() : (!string.IsNullOrWhiteSpace(PartyType) ? PartyType.Trim() : ""));
 }
 
 public sealed record CreateCourtCaseRepresentativeDto(
     string? DisplayName = null,
     string? Name = null,
     string RepresentativeType = "Counsel",
-    string? Designation = null,
-    string? BarRegistrationNumber = null,
     string? RepresentsRole = null,
     string? ContactText = null,
-    string? ContactDetails = null,
-    bool? IsLeadCounsel = null,
     string? Remarks = null,
     Guid? CourtCasePartyId = null,
-    int? ExpectedRevision = null
+    int ExpectedRevision = 0
 )
 {
-    public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (Name?.Trim() ?? "");
+    public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (!string.IsNullOrWhiteSpace(Name) ? Name.Trim() : "");
     public string ResolvedRepresentativeType => !string.IsNullOrWhiteSpace(RepresentativeType) ? RepresentativeType.Trim() : "Counsel";
 }
 
@@ -108,7 +102,7 @@ public sealed record RecordCourtProceedingCommand(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    int? ExpectedRevision = null
+    int ExpectedRevision = 0
 );
 
 public sealed record CourtProceedingDto(
@@ -119,7 +113,9 @@ public sealed record CourtProceedingDto(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    DateTimeOffset CreatedAt
+    DateTimeOffset CreatedAt,
+    bool IsAuthoritative = false,
+    string? CreatedByDisplayName = null
 );
 
 public sealed record CourtCasePartyDto(
@@ -165,21 +161,21 @@ public interface ICourtWorkflowService
     Task UpdateMetadataAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command, Guid callerUserId, CancellationToken ct = default);
     Task AssignAsync(Guid courtCaseId, AssignCourtCaseCommand command, Guid callerUserId, CancellationToken ct = default);
     Task<CourtProceedingDto> RecordProceedingAsync(Guid courtCaseId, RecordCourtProceedingCommand command, Guid callerUserId, CancellationToken ct = default);
-    Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCasePartyDto> AddPartyAsync(Guid courtCaseId, CreateCourtCasePartyDto dto, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCasePartyDto> UpdatePartyAsync(Guid courtCaseId, Guid partyEntryId, CreateCourtCasePartyDto dto, Guid callerUserId, CancellationToken ct = default);
-    Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCaseRepresentativeDto> AddRepresentativeAsync(Guid courtCaseId, CreateCourtCaseRepresentativeDto dto, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCaseRepresentativeDto> UpdateRepresentativeAsync(Guid courtCaseId, Guid representativeId, CreateCourtCaseRepresentativeDto dto, Guid callerUserId, CancellationToken ct = default);
-    Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task<CourtCaseDocumentDto> UploadDocumentAsync(Guid courtCaseId, Stream stream, string fileName, string? contentType, string? documentRole, string? displayName, Guid? proceedingId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task<CourtCaseDocumentDto> LinkDocumentAsync(Guid courtCaseId, Guid documentId, string? documentRole, string? displayName, Guid? proceedingId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task<CourtCaseDocumentDto> UploadDocumentAsync(Guid courtCaseId, Stream stream, string fileName, string? contentType, string? documentRole, string? displayName, Guid? proceedingId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task<CourtCaseDocumentDto> LinkDocumentAsync(Guid courtCaseId, Guid documentId, string? documentRole, string? displayName, Guid? proceedingId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
 }
 
 public sealed class CourtWorkflowService(
@@ -297,20 +293,29 @@ public sealed class CourtWorkflowService(
         // Validate cross-domain mutation authorization
         if (command.AwardIds != null && command.AwardIds.Count > 0)
         {
-            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
-                throw new CourtWorkflowException("You do not have permission to link awards.", 403);
+            foreach (var aid in command.AwardIds)
+            {
+                if (!await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct))
+                    throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Award.", 403);
+            }
         }
 
         if (command.KhasraIds != null && command.KhasraIds.Count > 0)
         {
-            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
-                throw new CourtWorkflowException("You do not have permission to link khasras.", 403);
+            foreach (var kid in command.KhasraIds)
+            {
+                if (!await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct))
+                    throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Khasra.", 403);
+            }
         }
 
         if (command.MatterIds != null && command.MatterIds.Count > 0)
         {
-            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
-                throw new CourtWorkflowException("You do not have permission to link matters.", 403);
+            foreach (var mid in command.MatterIds)
+            {
+                if (!await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct))
+                    throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Matter.", 403);
+            }
         }
 
         // Validate Parties
@@ -717,7 +722,7 @@ public sealed class CourtWorkflowService(
             var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, c)
                 ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-            if (command.ExpectedRevision.HasValue && courtCase.Revision != command.ExpectedRevision.Value)
+            if (courtCase.Revision != command.ExpectedRevision)
                 throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
             var now = DateTimeOffset.UtcNow;
@@ -856,6 +861,7 @@ public sealed class CourtWorkflowService(
                 }
             }
 
+            var isAuth = authoritative != null && authoritative.Id == proceeding.Id;
             return new CourtProceedingDto(
                 proceeding.Id,
                 proceeding.CourtCaseId,
@@ -864,23 +870,25 @@ public sealed class CourtWorkflowService(
                 proceeding.RestraintNature,
                 proceeding.Summary,
                 proceeding.NextDate,
-                proceeding.CreatedAt
+                proceeding.CreatedAt,
+                isAuth,
+                actorDisplayName
             );
         }, verifySucceeded, ct);
     }
 
-    public async Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
-            throw new CourtWorkflowException("You do not have permission to view awards.", 403);
+        if (!await courtAuth.CanAccessAwardAsync(awardId, callerUserId, ct))
+            throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Award.", 403);
 
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var awardExists = await db.Awards.AnyAsync(a => a.Id == awardId && a.RecordStatus == RecordStatus.Active, ct);
@@ -925,18 +933,15 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
-            throw new CourtWorkflowException("You do not have permission to view awards.", 403);
-
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var link = await db.Set<CourtCaseAward>().FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.AwardId == awardId, ct);
@@ -973,18 +978,18 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
-            throw new CourtWorkflowException("You do not have permission to view khasras.", 403);
+        if (!await courtAuth.CanAccessKhasraAsync(khasraId, callerUserId, ct))
+            throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Khasra.", 403);
 
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var khasraExists = await db.Khasras.AnyAsync(k => k.Id == khasraId && k.RecordStatus == RecordStatus.Active, ct);
@@ -1029,18 +1034,15 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
-            throw new CourtWorkflowException("You do not have permission to view khasras.", 403);
-
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var link = await db.Set<CourtCaseKhasra>().FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.KhasraId == khasraId, ct);
@@ -1077,18 +1079,18 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
-            throw new CourtWorkflowException("You do not have permission to view matters.", 403);
+        if (!await courtAuth.CanAccessMatterAsync(matterId, callerUserId, ct))
+            throw new CourtWorkflowException("Forbidden: Caller lacks authorization for Matter.", 403);
 
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var matterExists = await db.Matters.AnyAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
@@ -1145,18 +1147,15 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
-        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
-            throw new CourtWorkflowException("You do not have permission to view matters.", 403);
-
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var existing = await db.CourtCaseMatters.FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.MatterId == matterId && x.RecordStatus == RecordStatus.Active, ct);
@@ -1208,7 +1207,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+        if (courtCase.Revision != dto.ExpectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
@@ -1272,7 +1271,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+        if (courtCase.Revision != dto.ExpectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var party = await db.CourtCaseParties.FirstOrDefaultAsync(p => p.Id == partyEntryId && p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active, ct)
@@ -1317,7 +1316,7 @@ public sealed class CourtWorkflowService(
         return new CourtCasePartyDto(party.Id, party.CourtCaseId, party.PartyId, party.DisplayName, party.Role, party.FatherOrSpouseName, party.AddressText, party.Remarks, party.Sequence);
     }
 
-    public async Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
@@ -1325,7 +1324,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var party = await db.CourtCaseParties.FirstOrDefaultAsync(p => p.Id == partyEntryId && p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active, ct)
@@ -1375,7 +1374,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+        if (courtCase.Revision != dto.ExpectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
@@ -1436,7 +1435,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+        if (courtCase.Revision != dto.ExpectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var rep = await db.CourtCaseRepresentatives.FirstOrDefaultAsync(r => r.Id == representativeId && r.CourtCaseId == courtCaseId && r.RecordStatus == RecordStatus.Active, ct)
@@ -1481,7 +1480,7 @@ public sealed class CourtWorkflowService(
         return new CourtCaseRepresentativeDto(rep.Id, rep.CourtCaseId, rep.CourtCasePartyId, rep.DisplayName, rep.RepresentativeType, rep.RepresentsRole, rep.ContactText, rep.Remarks);
     }
 
-    public async Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
@@ -1489,7 +1488,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var rep = await db.CourtCaseRepresentatives.FirstOrDefaultAsync(r => r.Id == representativeId && r.CourtCaseId == courtCaseId && r.RecordStatus == RecordStatus.Active, ct)
@@ -1536,7 +1535,7 @@ public sealed class CourtWorkflowService(
         string? documentRole,
         string? displayName,
         Guid? proceedingId,
-        int? expectedRevision,
+        int expectedRevision,
         Guid callerUserId,
         CancellationToken ct = default)
     {
@@ -1546,7 +1545,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         if (proceedingId.HasValue)
@@ -1639,7 +1638,7 @@ public sealed class CourtWorkflowService(
         string? documentRole,
         string? displayName,
         Guid? proceedingId,
-        int? expectedRevision,
+        int expectedRevision,
         Guid callerUserId,
         CancellationToken ct = default)
     {
@@ -1649,7 +1648,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var doc = await db.Documents.FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct)
@@ -1739,7 +1738,7 @@ public sealed class CourtWorkflowService(
         );
     }
 
-    public async Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canManage = await courtAuth.CanManageDocumentsAsync(courtCaseId, callerUserId, ct);
         if (!canManage) throw new CourtWorkflowException("Forbidden", 403);
@@ -1747,7 +1746,7 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+        if (courtCase.Revision != expectedRevision)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var link = await db.CourtCaseDocuments.FirstOrDefaultAsync(d => d.Id == documentLinkId && d.CourtCaseId == courtCaseId && d.RecordStatus == RecordStatus.Active, ct)

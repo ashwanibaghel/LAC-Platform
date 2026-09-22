@@ -188,6 +188,7 @@ export interface CourtProceedingDto {
   summary: string | null;
   nextDate: string | null;
   createdAt: string;
+  isAuthoritative?: boolean;
   isAuthoritativeNdoh?: boolean;
   createdByDisplayName?: string | null;
 }

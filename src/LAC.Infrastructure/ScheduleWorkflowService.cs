@@ -1079,13 +1079,33 @@ public sealed class ScheduleWorkflowService(
         Guid callerUserId,
         CancellationToken ct = default)
     {
-        var proceeding = await db.CourtProceedings
+        var requestedProceeding = await db.CourtProceedings
             .Include(p => p.CourtCase)
-            .FirstOrDefaultAsync(p => p.Id == courtProceedingId, ct)
+            .FirstOrDefaultAsync(p => p.Id == courtProceedingId && p.RecordStatus == RecordStatus.Active, ct)
             ?? throw new ScheduleWorkflowException("Court proceeding not found.", 404);
 
-        if (!proceeding.NextDate.HasValue)
-            throw new ScheduleWorkflowException("Court proceeding does not have a scheduled NextDate. Promotion to scheduled event requires an explicit NextDate.", 400);
+        if (requestedProceeding.CourtCase.CurrentStatus != null &&
+            (requestedProceeding.CourtCase.CurrentStatus.Equals("Disposed", StringComparison.OrdinalIgnoreCase) ||
+             requestedProceeding.CourtCase.CurrentStatus.Equals("Closed", StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ScheduleWorkflowException("Cannot promote proceeding for a disposed court case.", 400);
+        }
+
+        var authoritativeCurrentProceeding = await db.CourtProceedings.AsNoTracking()
+            .Where(p => p.CourtCaseId == requestedProceeding.CourtCaseId && p.RecordStatus == RecordStatus.Active)
+            .OrderByDescending(p => p.ProceedingDate.HasValue)
+            .ThenByDescending(p => p.ProceedingDate)
+            .ThenByDescending(p => p.CreatedAt)
+            .ThenByDescending(p => p.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (authoritativeCurrentProceeding is null || requestedProceeding.Id != authoritativeCurrentProceeding.Id)
+            throw new ScheduleWorkflowException("Only the authoritative current proceeding may be promoted to calendar schedule.", 400);
+
+        if (!authoritativeCurrentProceeding.NextDate.HasValue)
+            throw new ScheduleWorkflowException("Authoritative proceeding does not contain a Next Hearing Date (NDOH).", 400);
+
+        var proceeding = requestedProceeding;
 
         // Resolve active Court References workstream
         var courtWs = await db.Workstreams
@@ -1206,7 +1226,7 @@ public sealed class ScheduleWorkflowService(
                 EventKind = ScheduledEventKind.CourtHearing,
                 Title = title,
                 Description = string.IsNullOrWhiteSpace(command.Description) ? proceeding.Summary : command.Description.Trim(),
-                ScheduledDate = proceeding.NextDate.Value,
+                ScheduledDate = proceeding.NextDate!.Value,
                 ScheduledTime = null,
                 Priority = command.Priority ?? ScheduledEventPriority.Urgent,
                 Status = ScheduledEventStatus.Scheduled,

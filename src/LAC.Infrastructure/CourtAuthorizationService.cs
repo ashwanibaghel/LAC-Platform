@@ -25,6 +25,13 @@ public interface ICourtAuthorizationService
     Task<bool> CanViewAwardWorkspaceAsync(Guid userId, CancellationToken ct = default);
     Task<IQueryable<CourtCase>> AuthorizeListQueryAsync(IQueryable<CourtCase> query, Guid userId, CancellationToken ct = default);
     Task<bool> HasCourtViewPermissionAsync(Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessAwardAsync(Guid awardId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessKhasraAsync(Guid khasraId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessVillageAsync(Guid villageId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessMatterAsync(Guid matterId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessWorkItemAsync(Guid workItemId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessDraftAsync(Guid draftId, Guid userId, CancellationToken ct = default);
+    Task<bool> CanAccessScheduleAsync(Guid scheduleId, Guid userId, CancellationToken ct = default);
 }
 
 public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthorizationService
@@ -360,6 +367,238 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
 
         // Own scope fails closed
         return query.Where(_ => false);
+    }
+
+    public async Task<bool> CanAccessAwardAsync(Guid awardId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var awardExists = await db.Awards.AsNoTracking()
+            .AnyAsync(a => a.Id == awardId && a.RecordStatus == RecordStatus.Active, ct);
+        if (!awardExists) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active
+                            && m.Workstream.Code == WorkstreamCodes.Award, ct);
+            if (isMember) return true;
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessKhasraAsync(Guid khasraId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var khasraExists = await db.Khasras.AsNoTracking()
+            .AnyAsync(k => k.Id == khasraId && k.RecordStatus == RecordStatus.Active, ct);
+        if (!khasraExists) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.KhasraView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active
+                            && (m.Workstream.Code == WorkstreamCodes.LandRecords || m.Workstream.Code == WorkstreamCodes.Award), ct);
+            if (isMember) return true;
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessVillageAsync(Guid villageId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var villageExists = await db.Villages.AsNoTracking()
+            .AnyAsync(v => v.Id == villageId && v.RecordStatus == RecordStatus.Active, ct);
+        if (!villageExists) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.VillageView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active
+                            && (m.Workstream.Code == WorkstreamCodes.LandRecords || m.Workstream.Code == WorkstreamCodes.Award || m.Workstream.Code == WorkstreamCodes.CourtReferences), ct);
+            if (isMember) return true;
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessMatterAsync(Guid matterId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
+        if (matter is null) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.MatterView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            if (!matter.WorkstreamId.HasValue) return false;
+            return await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.WorkstreamId == matter.WorkstreamId.Value
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessWorkItemAsync(Guid workItemId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var item = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId && w.RecordStatus == RecordStatus.Active, ct);
+        if (item is null) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.WorkItemView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.WorkstreamId == item.WorkstreamId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            if (isMember) return true;
+        }
+
+        if (scopes.Contains(ScopeMode.Assigned))
+        {
+            var activeAssignment = await db.WorkItemAssignments.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.WorkItemId == workItemId && a.IsActive && a.RecordStatus == RecordStatus.Active, ct);
+
+            if (activeAssignment != null)
+            {
+                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == userId
+                                && m.OfficeDeskId == activeAssignment.OfficeDeskId
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.RecordStatus == RecordStatus.Active, ct);
+                if (isDeskMember) return true;
+
+                if (activeAssignment.AssignedUserId == userId) return true;
+            }
+
+            var isContributor = await db.WorkItemContributors.AsNoTracking()
+                .AnyAsync(c => c.WorkItemId == workItemId && c.UserId == userId && c.RecordStatus == RecordStatus.Active, ct);
+            if (isContributor) return true;
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessDraftAsync(Guid draftId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var draft = await db.MatterDrafts.AsNoTracking().FirstOrDefaultAsync(d => d.Id == draftId && d.RecordStatus == RecordStatus.Active, ct);
+        if (draft is null) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.DraftView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            return await CanAccessMatterAsync(draft.MatterId, userId, ct);
+        }
+
+        return false;
+    }
+
+    public async Task<bool> CanAccessScheduleAsync(Guid scheduleId, Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        var evt = await db.ScheduledEvents.AsNoTracking().FirstOrDefaultAsync(e => e.Id == scheduleId && e.RecordStatus == RecordStatus.Active, ct);
+        if (evt is null) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.ScheduleView, ct);
+        if (scopes.Count == 0) return false;
+
+        if (scopes.Contains(ScopeMode.All)) return true;
+
+        if (scopes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId
+                            && m.WorkstreamId == evt.WorkstreamId
+                            && m.IsActive
+                            && m.Workstream.IsActive
+                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            if (isMember) return true;
+        }
+
+        if (scopes.Contains(ScopeMode.Assigned))
+        {
+            if (evt.ResponsibleOfficeDeskId.HasValue)
+            {
+                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+                    .AnyAsync(m => m.UserId == userId
+                                && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
+                                && m.IsActive
+                                && m.RemovedAt == null
+                                && m.RecordStatus == RecordStatus.Active, ct);
+                if (isDeskMember) return true;
+            }
+
+            if (evt.AssignedUserId == userId || evt.CreatedByUserId == userId) return true;
+        }
+
+        return false;
     }
 
     private async Task<List<ScopeMode>> GetUserScopesAsync(Guid userId, string permissionCode, CancellationToken ct)

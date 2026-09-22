@@ -1018,7 +1018,8 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             OrderType: "Hearing",
             RestraintNature: null,
             Summary: "Invalid reverse date",
-            NextDate: today.AddDays(-1) // earlier than proceeding date!
+            NextDate: today.AddDays(-1),
+            ExpectedRevision: 1
         );
 
         var res = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", badReq);
@@ -1072,7 +1073,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var postRes = await viewClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new CreateCourtProceedingApiRequest(
-            today, "Notice", null, "Record proceeding", today.AddDays(10)
+            today, "Notice", null, "Record proceeding", today.AddDays(10), 1
         ));
         Assert.Equal(HttpStatusCode.Forbidden, postRes.StatusCode);
 
@@ -1087,7 +1088,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             }
         );
         var editPostRes = await editClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new CreateCourtProceedingApiRequest(
-            today, "Notice", null, "Record proceeding", today.AddDays(10)
+            today, "Notice", null, "Record proceeding", today.AddDays(10), 1
         ));
         Assert.Equal(HttpStatusCode.Created, editPostRes.StatusCode);
     }
@@ -1824,7 +1825,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // 3. Record proceeding P2 with later NextDate (today + 20) via POST /api/court-cases/{id}/proceedings
         var createP2Res = await admin.PostAsJsonAsync($"/api/court-cases/{courtCase.Id}/proceedings", new CreateCourtProceedingApiRequest(
-            today.AddDays(10), "Arguments Heard", null, "Matter adjourned for orders", today.AddDays(20)
+            today.AddDays(10), "Arguments Heard", null, "Matter adjourned for orders", today.AddDays(20), 1
         ));
         Assert.Equal(HttpStatusCode.Created, createP2Res.StatusCode);
         var p2 = await createP2Res.Content.ReadFromJsonAsync<CourtProceedingDto>(JsonOpts);
@@ -1869,7 +1870,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         // 8. Record proceeding P3 with NO NextDate (null): clears current NDOH through terminal transition
         var createP3Res = await admin.PostAsJsonAsync($"/api/court-cases/{courtCase.Id}/proceedings", new CreateCourtProceedingApiRequest(
-            today.AddDays(20), "Final Order Passed", null, "Disposed of", null
+            today.AddDays(20), "Final Order Passed", null, "Disposed of", null, 2
         ));
         Assert.Equal(HttpStatusCode.Created, createP3Res.StatusCode);
 

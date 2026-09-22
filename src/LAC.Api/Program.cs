@@ -925,9 +925,10 @@ api.MapPost("/awards/{id:guid}/notifications/{notificationId:guid}", async (Guid
 api.MapGet("/awards/{id:guid}/notifications", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.AwardNotifications.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.Notification.NotificationDate).Select(x => new AwardNotificationWorkspaceItem(x.NotificationId, x.Notification.NotificationNumber, x.Notification.SectionType, x.Notification.NotificationDate)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/awards/{id:guid}/possession-events", async (Guid id, CreatePossessionEventRequest request, AwardWorkflowService workflow, CancellationToken ct) => { try { var item = await workflow.AddPossessionAsync(id, request.PossessionDate, request.EventType, request.Status, request.Remarks, request.KhasraIds, ct); return Results.Created($"/api/possession-events/{item.Id}", new IdResponse(item.Id)); } catch (AwardWorkflowException ex) { return AwardWorkflowProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Possession);
 api.MapGet("/awards/{id:guid}/possession-events", async (Guid id, LacDbContext db, CancellationToken ct) => Results.Ok(await db.PossessionEvents.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.PossessionDate).Select(x => new AwardPossessionWorkspaceItem(x.Id, x.PossessionDate, x.EventType, x.Status, x.KhasraLinks.Count)).ToListAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Possession);
-api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, ICourtWorkflowService courtWorkflow, ICurrentUserContext currentUser, CancellationToken ct) =>
+api.MapPost("/awards/{id:guid}/court-cases", async (Guid id, CreateAwardCourtCaseRequest request, ICourtWorkflowService courtWorkflow, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+    if (!await courtAuth.CanAccessAwardAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
     try
     {
         var cmd = new CreateCourtCaseCommand(
@@ -953,6 +954,10 @@ api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, ICo
 {
     if (!currentUser.UserId.HasValue) return Results.Unauthorized();
     if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct))
+    {
+        return Results.Forbid();
+    }
+    if (!await courtAuth.CanAccessAwardAsync(id, currentUser.UserId.Value, ct))
     {
         return Results.Forbid();
     }

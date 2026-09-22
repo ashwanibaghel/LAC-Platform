@@ -18,13 +18,13 @@ public sealed record CreateCourtProceedingApiRequest(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    int? ExpectedRevision = null
+    int ExpectedRevision
 );
 
-public sealed record LinkAwardApiRequest(Guid AwardId, int? ExpectedRevision = null);
-public sealed record LinkKhasraApiRequest(Guid KhasraId, int? ExpectedRevision = null);
-public sealed record LinkMatterApiRequest(Guid MatterId, int? ExpectedRevision = null);
-public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId, int? ExpectedRevision = null);
+public sealed record LinkAwardApiRequest(Guid AwardId, int ExpectedRevision);
+public sealed record LinkKhasraApiRequest(Guid KhasraId, int ExpectedRevision);
+public sealed record LinkMatterApiRequest(Guid MatterId, int ExpectedRevision);
+public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId, int ExpectedRevision);
 
 public static class CourtEndpoints
 {
@@ -240,7 +240,8 @@ public static class CourtEndpoints
             var documentRole = form["documentRole"].ToString();
             var displayName = form["displayName"].ToString();
             Guid? proceedingId = Guid.TryParse(form["courtProceedingId"].ToString(), out var pid) ? pid : null;
-            int? expectedRevision = int.TryParse(form["expectedRevision"].ToString(), out var rev) ? rev : null;
+            if (!int.TryParse(form["expectedRevision"].ToString(), out var expectedRevision))
+                return Results.BadRequest(new { error = "expectedRevision is required." });
 
             try
             {
@@ -291,9 +292,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.UnlinkDocumentAsync(id, documentLinkId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.UnlinkDocumentAsync(id, documentLinkId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -380,9 +382,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.UnlinkAwardAsync(id, awardId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.UnlinkAwardAsync(id, awardId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -415,9 +418,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.UnlinkKhasraAsync(id, khasraId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.UnlinkKhasraAsync(id, khasraId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -450,9 +454,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.UnlinkMatterAsync(id, matterId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.UnlinkMatterAsync(id, matterId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -503,9 +508,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.RemovePartyAsync(id, partyId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.RemovePartyAsync(id, partyId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -556,9 +562,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!expectedRevision.HasValue) return Results.BadRequest(new { error = "expectedRevision is required." });
             try
             {
-                await workflow.RemoveRepresentativeAsync(id, repId, expectedRevision, currentUser.UserId.Value, ct);
+                await workflow.RemoveRepresentativeAsync(id, repId, expectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }

@@ -184,7 +184,8 @@ public interface ICourtProjectionService
 
 public sealed class CourtProjectionService(
     LacDbContext db,
-    ICourtAuthorizationService courtAuth) : ICourtProjectionService
+    ICourtAuthorizationService courtAuth,
+    IScheduleAuthorizationService scheduleAuth) : ICourtProjectionService
 {
     private async Task<HashSet<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct)
     {
@@ -232,10 +233,20 @@ public sealed class CourtProjectionService(
             authorizedQuery = authorizedQuery.Where(c => c.AssignedUserId == query.AssignedUserId.Value);
 
         if (query.AwardId.HasValue)
+        {
+            if (!await courtAuth.CanAccessAwardAsync(query.AwardId.Value, callerUserId, ct))
+                return new PagedResult<CourtCaseSummaryDto>([], 0, query.Page, query.PageSize);
+
             authorizedQuery = authorizedQuery.Where(c => c.Awards.Any(a => a.AwardId == query.AwardId.Value));
+        }
 
         if (query.VillageId.HasValue)
+        {
+            if (!await courtAuth.CanAccessVillageAsync(query.VillageId.Value, callerUserId, ct))
+                return new PagedResult<CourtCaseSummaryDto>([], 0, query.Page, query.PageSize);
+
             authorizedQuery = authorizedQuery.Where(c => c.Khasras.Any(k => k.Khasra.VillageId == query.VillageId.Value));
+        }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -396,12 +407,20 @@ public sealed class CourtProjectionService(
         int? awardsCount = null;
         if (hasAwardView)
         {
-            awards = courtCase.Awards.Select(a => new CourtCaseLinkedAwardDto(
-                a.AwardId,
-                a.Award.AwardNumber,
-                null,
-                a.Award.VillageLinks.Select(v => v.Village.Name).Distinct().ToList()
-            )).ToList();
+            var authAwards = new List<CourtCaseLinkedAwardDto>();
+            foreach (var a in courtCase.Awards)
+            {
+                if (await courtAuth.CanAccessAwardAsync(a.AwardId, callerUserId, ct))
+                {
+                    authAwards.Add(new CourtCaseLinkedAwardDto(
+                        a.AwardId,
+                        a.Award.AwardNumber,
+                        null,
+                        a.Award.VillageLinks.Select(v => v.Village.Name).Distinct().ToList()
+                    ));
+                }
+            }
+            awards = authAwards;
             awardsCount = awards.Count;
         }
 
@@ -409,15 +428,23 @@ public sealed class CourtProjectionService(
         int? khasrasCount = null;
         if (hasKhasraView)
         {
-            khasras = courtCase.Khasras.Select(k => new CourtCaseLinkedKhasraDto(
-                k.KhasraId,
-                k.Khasra.VillageId,
-                k.Khasra.Village?.Name ?? "",
-                k.Khasra.NormalizedNumber,
-                k.Khasra.Qualifier,
-                k.Khasra.TotalArea,
-                k.Khasra.AreaUnit
-            )).ToList();
+            var authKhasras = new List<CourtCaseLinkedKhasraDto>();
+            foreach (var k in courtCase.Khasras)
+            {
+                if (await courtAuth.CanAccessKhasraAsync(k.KhasraId, callerUserId, ct))
+                {
+                    authKhasras.Add(new CourtCaseLinkedKhasraDto(
+                        k.KhasraId,
+                        k.Khasra.VillageId,
+                        k.Khasra.Village?.Name ?? "",
+                        k.Khasra.NormalizedNumber,
+                        k.Khasra.Qualifier,
+                        k.Khasra.TotalArea,
+                        k.Khasra.AreaUnit
+                    ));
+                }
+            }
+            khasras = authKhasras;
             khasrasCount = khasras.Count;
         }
 
@@ -425,33 +452,49 @@ public sealed class CourtProjectionService(
         int? mattersCount = null;
         if (hasMatterView)
         {
-            var linkedMatterIds = courtCase.Matters.Select(m => m.MatterId).ToList();
+            var authMatters = new List<CourtCaseLinkedMatterDto>();
+            foreach (var m in courtCase.Matters)
+            {
+                if (await courtAuth.CanAccessMatterAsync(m.MatterId, callerUserId, ct))
+                {
+                    var draftsCount = 0;
+                    if (hasDraftView)
+                    {
+                        var draftIds = await db.MatterDrafts.AsNoTracking()
+                            .Where(d => d.MatterId == m.MatterId && d.RecordStatus == RecordStatus.Active)
+                            .Select(d => d.Id).ToListAsync(ct);
+                        foreach (var did in draftIds)
+                        {
+                            if (await courtAuth.CanAccessDraftAsync(did, callerUserId, ct))
+                                draftsCount++;
+                        }
+                    }
 
-            var draftsCountByMatter = hasDraftView
-                ? await db.MatterDrafts.AsNoTracking()
-                    .Where(d => linkedMatterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
-                    .GroupBy(d => d.MatterId)
-                    .Select(g => new { MatterId = g.Key, Count = g.Count() })
-                    .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
-                : new Dictionary<Guid, int>();
+                    var workItemsCount = 0;
+                    if (hasWorkItemView)
+                    {
+                        var workItemIds = await db.Set<WorkItemMatterLink>().AsNoTracking()
+                            .Where(w => w.MatterId == m.MatterId && w.RecordStatus == RecordStatus.Active)
+                            .Select(w => w.WorkItemId).ToListAsync(ct);
+                        foreach (var wid in workItemIds)
+                        {
+                            if (await courtAuth.CanAccessWorkItemAsync(wid, callerUserId, ct))
+                                workItemsCount++;
+                        }
+                    }
 
-            var workItemsCountByMatter = hasWorkItemView
-                ? await db.Set<WorkItemMatterLink>().AsNoTracking()
-                    .Where(w => linkedMatterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
-                    .GroupBy(w => w.MatterId)
-                    .Select(g => new { MatterId = g.Key, Count = g.Count() })
-                    .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
-                : new Dictionary<Guid, int>();
-
-            matters = courtCase.Matters.Select(m => new CourtCaseLinkedMatterDto(
-                m.MatterId,
-                m.Matter.Title,
-                m.Matter.ReferenceNumber,
-                m.Matter.Status,
-                m.Matter.Workstream?.Name,
-                draftsCountByMatter.GetValueOrDefault(m.MatterId, 0),
-                workItemsCountByMatter.GetValueOrDefault(m.MatterId, 0)
-            )).ToList();
+                    authMatters.Add(new CourtCaseLinkedMatterDto(
+                        m.MatterId,
+                        m.Matter.Title,
+                        m.Matter.ReferenceNumber,
+                        m.Matter.Status,
+                        m.Matter.Workstream?.Name,
+                        draftsCount,
+                        workItemsCount
+                    ));
+                }
+            }
+            matters = authMatters;
             mattersCount = matters.Count;
         }
 
@@ -490,7 +533,16 @@ public sealed class CourtProjectionService(
 
         var authNextDate = latestProceeding?.NextDate;
         var isProjected = activeSchedule != null;
-        var canPromote = authNextDate.HasValue && !isProjected && hasScheduleCreate && (canEdit || canManageProc);
+
+        var courtWs = await db.Workstreams.AsNoTracking().FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences, ct);
+        var canScheduleCreate = courtWs != null && await scheduleAuth.CanCreateScheduledEventAsync(
+            courtWs.Id,
+            courtCase.ResponsibleOfficeDeskId,
+            courtCase.AssignedUserId,
+            callerUserId,
+            ct);
+
+        var canPromote = authNextDate.HasValue && !isProjected && (canEdit || canManageProc) && canScheduleCreate;
         var canLinkAward = canEdit && hasAwardView;
         var canLinkKhasra = canEdit && hasKhasraView;
         var canLinkMatter = canEdit && hasMatterView;
@@ -551,23 +603,28 @@ public sealed class CourtProjectionService(
         var canView = await courtAuth.CanViewCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canView) throw new UnauthorizedAccessException("Forbidden");
 
-        return await db.CourtProceedings.AsNoTracking()
+        var rawProceedings = await db.CourtProceedings.AsNoTracking()
             .Where(p => p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active)
             .OrderByDescending(p => p.ProceedingDate.HasValue)
             .ThenByDescending(p => p.ProceedingDate)
             .ThenByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.Id)
-            .Select(p => new CourtProceedingDto(
-                p.Id,
-                p.CourtCaseId,
-                p.ProceedingDate,
-                p.OrderType,
-                p.RestraintNature,
-                p.Summary,
-                p.NextDate,
-                p.CreatedAt
-            ))
             .ToListAsync(ct);
+
+        var firstId = rawProceedings.FirstOrDefault()?.Id;
+
+        return rawProceedings.Select(p => new CourtProceedingDto(
+            p.Id,
+            p.CourtCaseId,
+            p.ProceedingDate,
+            p.OrderType,
+            p.RestraintNature,
+            p.Summary,
+            p.NextDate,
+            p.CreatedAt,
+            IsAuthoritative: p.Id == firstId,
+            CreatedByDisplayName: p.CreatedBy
+        )).ToList();
     }
 
     public async Task<IReadOnlyList<CourtCaseDocumentDto>> GetDocumentsAsync(Guid courtCaseId, Guid callerUserId, CancellationToken ct = default)
@@ -640,33 +697,50 @@ public sealed class CourtProjectionService(
             .Where(m => m.CourtCaseId == courtCaseId && m.RecordStatus == RecordStatus.Active)
             .ToListAsync(ct);
 
-        var matterIds = linkedMatters.Select(m => m.MatterId).ToList();
+        var authMatters = new List<CourtCaseLinkedMatterDto>();
+        foreach (var m in linkedMatters)
+        {
+            if (await courtAuth.CanAccessMatterAsync(m.MatterId, callerUserId, ct))
+            {
+                var draftsCount = 0;
+                if (hasDraftView)
+                {
+                    var draftIds = await db.MatterDrafts.AsNoTracking()
+                        .Where(d => d.MatterId == m.MatterId && d.RecordStatus == RecordStatus.Active)
+                        .Select(d => d.Id).ToListAsync(ct);
+                    foreach (var did in draftIds)
+                    {
+                        if (await courtAuth.CanAccessDraftAsync(did, callerUserId, ct))
+                            draftsCount++;
+                    }
+                }
 
-        var draftsCount = hasDraftView
-            ? await db.MatterDrafts.AsNoTracking()
-                .Where(d => matterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
-                .GroupBy(d => d.MatterId)
-                .Select(g => new { MatterId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
-            : new Dictionary<Guid, int>();
+                var workItemsCount = 0;
+                if (hasWorkItemView)
+                {
+                    var workItemIds = await db.Set<WorkItemMatterLink>().AsNoTracking()
+                        .Where(w => w.MatterId == m.MatterId && w.RecordStatus == RecordStatus.Active)
+                        .Select(w => w.WorkItemId).ToListAsync(ct);
+                    foreach (var wid in workItemIds)
+                    {
+                        if (await courtAuth.CanAccessWorkItemAsync(wid, callerUserId, ct))
+                            workItemsCount++;
+                    }
+                }
 
-        var workItemsCount = hasWorkItemView
-            ? await db.Set<WorkItemMatterLink>().AsNoTracking()
-                .Where(w => matterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
-                .GroupBy(w => w.MatterId)
-                .Select(g => new { MatterId = g.Key, Count = g.Count() })
-                .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
-            : new Dictionary<Guid, int>();
+                authMatters.Add(new CourtCaseLinkedMatterDto(
+                    m.MatterId,
+                    m.Matter.Title,
+                    m.Matter.ReferenceNumber,
+                    m.Matter.Status,
+                    m.Matter.Workstream?.Name,
+                    draftsCount,
+                    workItemsCount
+                ));
+            }
+        }
 
-        return linkedMatters.Select(m => new CourtCaseLinkedMatterDto(
-            m.MatterId,
-            m.Matter.Title,
-            m.Matter.ReferenceNumber,
-            m.Matter.Status,
-            m.Matter.Workstream?.Name,
-            draftsCount.GetValueOrDefault(m.MatterId, 0),
-            workItemsCount.GetValueOrDefault(m.MatterId, 0)
-        )).ToList();
+        return authMatters;
     }
 
     public async Task<CourtFilterOptionsDto> GetFilterOptionsAsync(Guid callerUserId, CancellationToken ct = default)

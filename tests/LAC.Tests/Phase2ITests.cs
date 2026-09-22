@@ -457,7 +457,8 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
             orderType = "Interim Order",
             restraintNature = "Stay on Dispossession",
             summary = "Interim stay granted until next hearing",
-            nextDate = "2026-06-15"
+            nextDate = "2026-06-15",
+            expectedRevision = 1
         };
         var p1Res = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", proc1);
         Assert.Equal(HttpStatusCode.Created, p1Res.StatusCode);
@@ -492,7 +493,8 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
             proceedingDate = "2026-03-01",
             orderType = "Notice",
             summary = "Notice issued to respondents",
-            nextDate = "2026-04-10"
+            nextDate = "2026-04-10",
+            expectedRevision = 2
         };
         var pHistRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", procHistorical);
         Assert.Equal(HttpStatusCode.Created, pHistRes.StatusCode);
@@ -513,7 +515,8 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
             proceedingDate = "2026-06-15",
             orderType = "Adjournment",
             summary = "Arguments concluded, adjourned for orders",
-            nextDate = "2026-08-20"
+            nextDate = "2026-08-20",
+            expectedRevision = 3
         };
         var pNewerRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", procNewer);
         Assert.Equal(HttpStatusCode.Created, pNewerRes.StatusCode);
@@ -689,6 +692,7 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         form.Add(fileContent, "file", "StayOrder.pdf");
         form.Add(new StringContent("Court Order"), "documentRole");
         form.Add(new StringContent("Interim Stay Order"), "displayName");
+        form.Add(new StringContent("1"), "expectedRevision");
 
         var uploadRes = await admin.PostAsync($"/api/court-cases/{caseId}/documents", form);
         Assert.Equal(HttpStatusCode.Created, uploadRes.StatusCode);
@@ -714,7 +718,7 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         }
 
         // 4. Unlink document
-        var deleteRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/documents/{docRelationshipId}");
+        var deleteRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/documents/{docRelationshipId}?expectedRevision=2");
         Assert.Equal(HttpStatusCode.OK, deleteRes.StatusCode);
 
         using (var scope = _factory.Services.CreateScope())
@@ -740,10 +744,9 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         // Add Party
         var pRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/parties", new
         {
-            partyType = "Petitioner",
-            partyName = "Suresh Chand",
-            advocateName = "Adv. Ramesh",
-            isPrimary = true
+            role = "Petitioner",
+            displayName = "Suresh Chand",
+            expectedRevision = 1
         });
         Assert.Equal(HttpStatusCode.Created, pRes.StatusCode);
         var partyId = (await pRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
@@ -751,10 +754,9 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         // Update Party
         var pUpRes = await admin.PutAsJsonAsync($"/api/court-cases/{caseId}/parties/{partyId}", new
         {
-            partyType = "Petitioner",
-            partyName = "Suresh Chand & Ors.",
-            advocateName = "Adv. Ramesh Senior",
-            isPrimary = true
+            role = "Petitioner",
+            displayName = "Suresh Chand & Ors.",
+            expectedRevision = 2
         });
         Assert.Equal(HttpStatusCode.OK, pUpRes.StatusCode);
 
@@ -762,18 +764,18 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         var rRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/representatives", new
         {
             representativeType = "Standing Counsel",
-            name = "Govt Counsel A",
-            isLeadCounsel = true
+            displayName = "Govt Counsel A",
+            expectedRevision = 3
         });
         Assert.Equal(HttpStatusCode.Created, rRes.StatusCode);
         var repId = (await rRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
 
         // Remove Representative
-        var rDelRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/representatives/{repId}");
+        var rDelRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/representatives/{repId}?expectedRevision=4");
         Assert.Equal(HttpStatusCode.OK, rDelRes.StatusCode);
 
         // Remove Party
-        var pDelRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/parties/{partyId}");
+        var pDelRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/parties/{partyId}?expectedRevision=5");
         Assert.Equal(HttpStatusCode.OK, pDelRes.StatusCode);
     }
 
@@ -1245,7 +1247,8 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         {
             proceedingDate = "2026-06-01",
             nextDate = "2026-07-15",
-            orderType = "Notice"
+            orderType = "Notice",
+            expectedRevision = 1
         });
         var procId = (await pRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
 
@@ -1304,7 +1307,8 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         {
             proceedingDate = "2026-06-01",
             nextDate = "2026-07-15",
-            orderType = "Stay"
+            orderType = "Stay",
+            expectedRevision = 1
         });
         var procId = (await pRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
 
@@ -1332,5 +1336,74 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
             e.TryGetProperty("entityType", out var et) &&
             (et.GetString()?.Equals("CourtCase", StringComparison.OrdinalIgnoreCase) == true ||
              et.GetString()?.Equals("courtcase", StringComparison.OrdinalIgnoreCase) == true));
+    }
+
+    // =========================================================================
+    // 18. SCOPED SOURCE AUTH FOR AWARD COURT-CASES & MANDATORY EXPECTED REVISION
+    // =========================================================================
+
+    [Fact]
+    public async Task Award_CourtCasesEndpoint_RequiresScopedAwardAuthorization()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (_, award, _) = await SeedVillageAwardKhasraAsync();
+
+        // User with Court.View (All) but NO Award.View permission
+        var (noAwardViewClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_no_award_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.All) }
+        );
+
+        // GET /api/awards/{id}/court-cases -> 403 Forbid
+        var getRes = await noAwardViewClient.GetAsync($"/api/awards/{award.Id}/court-cases");
+        Assert.Equal(HttpStatusCode.Forbidden, getRes.StatusCode);
+
+        // POST /api/awards/{id}/court-cases -> 403 Forbid
+        var postRes = await noAwardViewClient.PostAsJsonAsync($"/api/awards/{award.Id}/court-cases", new
+        {
+            caseNumber = $"WP_NO_AWARD_AUTH_{Guid.NewGuid():N}",
+            courtName = "High Court of Delhi"
+        });
+        Assert.Equal(HttpStatusCode.Forbidden, postRes.StatusCode);
+
+        // Admin with full access succeeds
+        var adminGetRes = await admin.GetAsync($"/api/awards/{award.Id}/court-cases");
+        Assert.Equal(HttpStatusCode.OK, adminGetRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task CourtCase_UnlinkAndRemove_RequiresMandatoryExpectedRevision()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, award, khasra) = await SeedVillageAwardKhasraAsync();
+
+        // Create court case with linked award & khasra
+        var cmd = new
+        {
+            caseNumber = $"WP_UNLINK_REV_{Guid.NewGuid():N}",
+            courtName = "High Court of Delhi",
+            awardIds = new[] { award.Id },
+            khasraIds = new[] { khasra.Id },
+            parties = new[] { new { displayName = "Petitioner A", role = "Petitioner", expectedRevision = 1 } }
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // 1. Unlink Award without expectedRevision -> 400
+        var unAwardNoRevRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/awards/{award.Id}");
+        Assert.Equal(HttpStatusCode.BadRequest, unAwardNoRevRes.StatusCode);
+
+        // 2. Unlink Khasra without expectedRevision -> 400
+        var unKhasraNoRevRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/khasras/{khasra.Id}");
+        Assert.Equal(HttpStatusCode.BadRequest, unKhasraNoRevRes.StatusCode);
+
+        // 3. Unlink Award with wrong expectedRevision (99) -> 409
+        var unAwardStaleRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/awards/{award.Id}?expectedRevision=99");
+        Assert.Equal(HttpStatusCode.Conflict, unAwardStaleRes.StatusCode);
+
+        // 4. Unlink Award with correct expectedRevision (1) -> 200 OK
+        var unAwardOkRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/awards/{award.Id}?expectedRevision=1");
+        Assert.Equal(HttpStatusCode.OK, unAwardOkRes.StatusCode);
     }
 }
