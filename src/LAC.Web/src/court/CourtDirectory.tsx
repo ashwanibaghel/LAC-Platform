@@ -200,7 +200,7 @@ export const CourtDirectory: React.FC = () => {
           onChange={(e) => { setSelectedDeskId(e.target.value); setPage(1); }}
         >
           <option value="">All Desks</option>
-          {filterOptions?.desks.map((d) => (
+          {(filterOptions?.viewDesks ?? filterOptions?.desks ?? []).map((d) => (
             <option key={d.id} value={d.id}>{d.name} ({d.workstreamName})</option>
           ))}
         </select>
@@ -487,7 +487,7 @@ export const CourtDirectory: React.FC = () => {
                       onChange={(e) => setNewDeskId(e.target.value)}
                     >
                       <option value="">Unassigned</option>
-                      {filterOptions?.desks.map((d) => (
+                      {(filterOptions?.createDesks ?? filterOptions?.desks ?? []).map((d) => (
                         <option key={d.id} value={d.id}>{d.name} {d.workstreamName ? `(${d.workstreamName})` : ""}</option>
                       ))}
                     </select>

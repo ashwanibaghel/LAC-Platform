@@ -383,7 +383,7 @@ export const CourtCaseWorkspace: React.FC = () => {
                   <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Responsible Office Desk</label>
                   <select className="form-input" style={{ width: "100%" }} value={reassignDeskId} onChange={(e) => setReassignDeskId(e.target.value)}>
                     <option value="">Unassigned</option>
-                    {filterOptions?.desks.map((d) => (
+                    {(filterOptions?.assignTargetDesks ?? filterOptions?.desks ?? []).map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name} {d.workstreamName ? `(${d.workstreamName})` : ""}
                       </option>

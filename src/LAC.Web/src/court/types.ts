@@ -49,6 +49,9 @@ export interface CourtFilterOptionsDto {
   desks: CourtFilterOptionDto[];
   officers?: CourtFilterOptionDto[];
   assignedUsers?: CourtFilterOptionDto[];
+  viewDesks?: CourtFilterOptionDto[];
+  createDesks?: CourtFilterOptionDto[];
+  assignTargetDesks?: CourtFilterOptionDto[];
 }
 
 export interface CourtCaseLinkedAwardDto {
@@ -75,8 +78,8 @@ export interface CourtCaseLinkedMatterDto {
   referenceNumber: string | null;
   status: string;
   workstreamName: string | null;
-  draftsCount: number;
-  workItemsCount: number;
+  draftsCount: number | null;
+  workItemsCount: number | null;
 }
 
 export interface CourtCasePartyDto {
@@ -177,7 +180,6 @@ export interface CourtCaseDocumentDto {
   fileSize?: number | null;
   mimeType?: string | null;
   uploadedAt: string;
-  uploadedByDisplayName?: string | null;
 }
 
 export interface CourtCaseTimelineEventDto {

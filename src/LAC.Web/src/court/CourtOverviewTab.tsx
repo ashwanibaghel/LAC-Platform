@@ -117,7 +117,7 @@ export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase })
           </div>
           <div>
             <div style={{ fontSize: "12px", color: "#64748b", fontWeight: 600 }}>ASSIGNED OFFICER</div>
-            <div style={{ fontSize: "14px", color: "#0f172a", marginTop: "4px" }}>{courtCase.assignedUserDisplayName || "Unassigned Officer"}</div>
+            <div style={{ fontSize: "14px", color: "#0f172a", marginTop: "4px" }}>{courtCase.assignedUserDisplayName || "Unassigned"}</div>
           </div>
         </div>
 

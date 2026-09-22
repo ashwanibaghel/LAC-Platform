@@ -65,7 +65,7 @@ export const CourtTimelineTab: React.FC<CourtTimelineTabProps> = ({ courtCase })
                 </div>
               )}
               <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-                By {evt.actorDisplayName || evt.actorDisplayNameSnapshot || "Officer"}
+                By {evt.actorDisplayName || evt.actorDisplayNameSnapshot || "Not recorded"}
                 {evt.actorDesignation ? ` (${evt.actorDesignation})` : ""}
                 {(evt.sourceDeskName || evt.targetDeskName) && (
                   <span> • Desk: {evt.sourceDeskName || "None"} → {evt.targetDeskName || "None"}</span>

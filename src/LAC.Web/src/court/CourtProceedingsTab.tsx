@@ -208,7 +208,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
               )}
 
               <div style={{ marginTop: "12px", fontSize: "12px", color: "#94a3b8" }}>
-                Recorded by {p.createdByDisplayName || "System"} on {new Date(p.createdAt).toLocaleString()}
+                Recorded by {p.createdByDisplayName ?? "Not recorded"} on {new Date(p.createdAt).toLocaleString()}
               </div>
             </div>
           ))}
