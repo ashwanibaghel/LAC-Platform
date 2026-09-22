@@ -291,10 +291,25 @@
   background-color: #fef3c7;
 }
 
-.lac-user-chip {
+/* User Profile Menu Dropdown */
+.lac-user-profile-wrap {
+  position: relative;
+}
+
+.lac-user-chip-btn {
   display: flex;
   align-items: center;
   gap: 9px;
+  background: transparent;
+  border: none;
+  padding: 3px 6px;
+  border-radius: var(--lac-radius-sm);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.lac-user-chip-btn:hover {
+  background-color: var(--lac-surface-hover);
 }
 
 .lac-user-avatar {
@@ -312,6 +327,7 @@
 .lac-user-info {
   display: flex;
   flex-direction: column;
+  text-align: left;
 }
 
 .lac-user-name {
@@ -326,23 +342,60 @@
   color: var(--lac-text-muted);
 }
 
-.lac-logout-icon-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--lac-radius-sm);
-  border: 1px solid var(--lac-surface-border);
+.lac-user-dropdown-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 200px;
   background-color: #ffffff;
+  border: 1px solid var(--lac-surface-border);
+  border-radius: var(--lac-radius-md);
+  box-shadow: var(--lac-shadow-md);
+  z-index: 70;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lac-user-dropdown-header {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--lac-surface-border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lac-user-dropdown-header strong {
+  font-size: 13px;
+  color: var(--lac-navy-950);
+}
+
+.lac-user-dropdown-header span {
+  font-size: 11px;
   color: var(--lac-text-muted);
-  display: grid;
-  place-items: center;
+}
+
+.lac-user-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--lac-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--lac-text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
+  text-align: left;
   transition: all 0.15s ease;
 }
 
-.lac-logout-icon-btn:hover {
+.lac-user-dropdown-item:hover {
   background-color: #fff1f2;
   color: #e11d48;
-  border-color: #fca5a5;
 }
 
 /* ------------------------------------------

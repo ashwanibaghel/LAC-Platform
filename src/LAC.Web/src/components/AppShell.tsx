@@ -21,8 +21,7 @@ import {
   IconSearch,
   IconMenu,
   IconLogOut,
-  IconChevronRight,
-  IconPlus
+  IconChevronRight
 } from "./Icons";
 
 const api = "/api";
@@ -32,8 +31,8 @@ interface ModuleConfig {
   title: string;
   description: string;
   icon: React.ReactNode;
-  permission?: string;
-  links: { label: string; to: string; permission?: string }[];
+  checkPermission?: () => boolean;
+  links: { label: string; to: string; checkPermission?: () => boolean }[];
 }
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -41,14 +40,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
 
-  // Launcher & Search State
+  // State
   const [launcherOpen, setLauncherOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   // Studio full-screen mode for draft editor
   if (location.pathname.startsWith("/matter-drafts/")) {
@@ -66,10 +67,22 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       if (e.key === "Escape") {
         setSearchOpen(false);
         setLauncherOpen(false);
+        setUserMenuOpen(false);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   // Debounced Search API call
@@ -112,14 +125,24 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     navigate(route);
   };
 
-  // User Initials
+  // User details
   const userDisplayName = user?.displayName || user?.username || "Officer";
+  const userDesignation = user?.designation?.name || null;
   const userInitials = userDisplayName
     .split(" ")
     .map((n) => n[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  // Explicit Permission Helpers
+  const canAccessMyWork = () => hasPermission("WorkItem.View") || hasPermission("WorkItem.Create");
+  const canAccessAttention = () => hasPermission("Schedule.View") || hasPermission("WorkItem.View") || hasPermission("Dak.View");
+  const canAccessCorrespondence = () => hasPermission("Dak.View") || hasPermission("Dak.Register") || hasPermission("Outward.View") || hasPermission("Outward.Create");
+  const canAccessMatters = () => hasPermission("Matter.View") || hasPermission("Matter.Create");
+  const canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View");
+  const canAccessOversight = () => hasPermission("WorkItem.View") || hasPermission("Audit.View");
+  const canAccessAdmin = () => hasPermission("Users.Manage") || hasPermission("Access.Manage") || hasPermission("Audit.View");
 
   // Module Launcher Configuration
   const modules: ModuleConfig[] = [
@@ -140,9 +163,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Matters & Files",
       description: "Acquisition matters, note sheets, and draft files",
       icon: <IconMatters size={20} />,
-      permission: "Matter.View",
+      checkPermission: canAccessMatters,
       links: [
-        { label: "Matters Directory", to: "/matters", permission: "Matter.View" }
+        { label: "Matters Directory", to: "/matters", checkPermission: canAccessMatters }
       ]
     },
     {
@@ -150,11 +173,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Correspondence",
       description: "Inward dak, desk movement, and outward dispatch",
       icon: <IconDak size={20} />,
-      permission: "Dak.View",
+      checkPermission: canAccessCorrespondence,
       links: [
-        { label: "Dak / Inward", to: "/dak", permission: "Dak.View" },
-        { label: "Register New Inward", to: "/dak/register", permission: "Dak.Register" },
-        { label: "Outward Dispatch", to: "/outward", permission: "Outward.View" }
+        { label: "Dak / Inward", to: "/dak", checkPermission: () => hasPermission("Dak.View") || hasPermission("Dak.Register") },
+        { label: "Register New Inward", to: "/dak/register", checkPermission: () => hasPermission("Dak.Register") },
+        { label: "Outward Dispatch", to: "/outward", checkPermission: () => hasPermission("Outward.View") || hasPermission("Outward.Create") }
       ]
     },
     {
@@ -162,9 +185,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Court & Litigation",
       description: "Court cases, hearing dates, order sheets, and references",
       icon: <IconCourt size={20} />,
-      permission: "Court.View",
+      checkPermission: canAccessCourt,
       links: [
-        { label: "Court Cases Directory", to: "/court-cases", permission: "Court.View" }
+        { label: "Court Cases Directory", to: "/court-cases", checkPermission: canAccessCourt }
       ]
     },
     {
@@ -173,9 +196,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       description: "Branch pulse, handler workloads, and team activity",
       icon: <IconPulse size={20} />,
       links: [
-        { label: "Branch Pulse", to: "/branch-pulse", permission: "WorkItem.View" },
+        { label: "Branch Pulse", to: "/branch-pulse", checkPermission: () => hasPermission("WorkItem.View") },
         { label: "My History", to: "/my-history" },
-        { label: "Team Activity", to: "/team-activity", permission: "Audit.View" }
+        { label: "Team Activity", to: "/team-activity", checkPermission: () => hasPermission("Audit.View") }
       ]
     },
     {
@@ -183,17 +206,18 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Administration",
       description: "User management, access roles, and audit trail",
       icon: <IconShield size={20} />,
+      checkPermission: canAccessAdmin,
       links: [
-        { label: "User Management", to: "/admin/users", permission: "Users.Manage" },
-        { label: "Access & Roles", to: "/admin/access", permission: "Access.Manage" },
-        { label: "System Audit Trail", to: "/admin/audit-logs", permission: "Audit.View" }
+        { label: "User Management", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
+        { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "System Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
       ]
     }
   ];
 
-  // Determine active Contextual Navigation Sub-header
+  // Contextual Sub-Header Navigation
   const path = location.pathname;
-  let contextualNav: { categoryTitle: string; links: { label: string; to: string; permission?: string }[] } | null = null;
+  let contextualNav: { categoryTitle: string; links: { label: string; to: string; checkPermission?: () => boolean }[] } | null = null;
 
   if (path.startsWith("/land-records") || path.startsWith("/subdivisions") || path.startsWith("/districts") || path.startsWith("/villages") || path.startsWith("/khasras") || path.startsWith("/khatauni") || path.startsWith("/awards") || path.startsWith("/imports/lr")) {
     contextualNav = {
@@ -209,42 +233,42 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     contextualNav = {
       categoryTitle: "Correspondence",
       links: [
-        { label: "My Desk", to: "/my-desk", permission: "Dak.View" },
-        { label: "Dak / Inward", to: "/dak", permission: "Dak.View" },
-        { label: "Outward / Dispatch", to: "/outward", permission: "Outward.View" }
+        { label: "My Desk", to: "/my-desk", checkPermission: () => hasPermission("Dak.View") },
+        { label: "Dak / Inward", to: "/dak", checkPermission: () => hasPermission("Dak.View") || hasPermission("Dak.Register") },
+        { label: "Outward / Dispatch", to: "/outward", checkPermission: () => hasPermission("Outward.View") || hasPermission("Outward.Create") }
       ]
     };
   } else if (path.startsWith("/matters") || path.startsWith("/my-work")) {
     contextualNav = {
       categoryTitle: "Matters & Work",
       links: [
-        { label: "My Work Queue", to: "/my-work", permission: "WorkItem.View" },
-        { label: "Matters Directory", to: "/matters", permission: "Matter.View" }
+        { label: "My Work Queue", to: "/my-work", checkPermission: canAccessMyWork },
+        { label: "Matters Directory", to: "/matters", checkPermission: canAccessMatters }
       ]
     };
   } else if (path.startsWith("/court-cases") || path.startsWith("/court")) {
     contextualNav = {
       categoryTitle: "Court & Litigation",
       links: [
-        { label: "Court Case Directory", to: "/court-cases", permission: "Court.View" }
+        { label: "Court Case Directory", to: "/court-cases", checkPermission: canAccessCourt }
       ]
     };
   } else if (path.startsWith("/branch-pulse") || path.startsWith("/my-history") || path.startsWith("/team-activity")) {
     contextualNav = {
       categoryTitle: "Oversight",
       links: [
-        { label: "Branch Pulse", to: "/branch-pulse", permission: "WorkItem.View" },
+        { label: "Branch Pulse", to: "/branch-pulse", checkPermission: () => hasPermission("WorkItem.View") },
         { label: "My History", to: "/my-history" },
-        { label: "Team Activity", to: "/team-activity", permission: "Audit.View" }
+        { label: "Team Activity", to: "/team-activity", checkPermission: () => hasPermission("Audit.View") }
       ]
     };
   } else if (path.startsWith("/admin")) {
     contextualNav = {
       categoryTitle: "Administration",
       links: [
-        { label: "Users", to: "/admin/users", permission: "Users.Manage" },
-        { label: "Access & Roles", to: "/admin/access", permission: "Access.Manage" },
-        { label: "Audit Trail", to: "/admin/audit-logs", permission: "Audit.View" }
+        { label: "Users", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
+        { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
       ]
     };
   }
@@ -271,7 +295,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <button
             className={`lac-launcher-trigger ${launcherOpen ? "active" : ""}`}
             onClick={() => setLauncherOpen(!launcherOpen)}
-            title="Open Applications & Modules Launcher"
+            title="Open Modules Launcher"
           >
             <IconMenu size={16} />
             <span>Apps</span>
@@ -324,28 +348,46 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* Right: Actions & User Identity */}
         <div className="lac-header-right">
-          {hasPermission("Schedule.View") && (
+          {canAccessAttention() && (
             <Link to="/my-attention" className="lac-header-attention-btn" title="Needs Attention">
-              <IconAttention size={17} />
+              <IconAttention size={16} />
               <span>Attention</span>
             </Link>
           )}
 
-          <div className="lac-user-chip">
-            <span className="lac-user-avatar">{userInitials}</span>
-            <div className="lac-user-info">
-              <span className="lac-user-name">{userDisplayName}</span>
-              <span className="lac-user-role">{user?.designation?.name || "Official Handler"}</span>
-            </div>
-          </div>
+          {/* User Profile Menu */}
+          <div className="lac-user-profile-wrap" ref={userMenuRef}>
+            <button
+              className="lac-user-chip-btn"
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              title="User Profile Menu"
+            >
+              <span className="lac-user-avatar">{userInitials}</span>
+              <div className="lac-user-info">
+                <span className="lac-user-name">{userDisplayName}</span>
+                {userDesignation && <span className="lac-user-role">{userDesignation}</span>}
+              </div>
+            </button>
 
-          <button
-            className="lac-logout-icon-btn"
-            onClick={() => void logout()}
-            title="Sign Out"
-          >
-            <IconLogOut size={15} />
-          </button>
+            {userMenuOpen && (
+              <div className="lac-user-dropdown-menu">
+                <div className="lac-user-dropdown-header">
+                  <strong>{userDisplayName}</strong>
+                  {userDesignation && <span>{userDesignation}</span>}
+                </div>
+                <button
+                  className="lac-user-dropdown-item lac-logout-item"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    void logout();
+                  }}
+                >
+                  <IconLogOut size={15} />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -354,7 +396,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         <div className="lac-launcher-backdrop" onClick={() => setLauncherOpen(false)}>
           <div className="lac-launcher-popover" onClick={(e) => e.stopPropagation()}>
             <div className="lac-launcher-header">
-              <h3>Office Modules & Applications</h3>
+              <h3>All Modules</h3>
               <button
                 className="lac-launcher-close"
                 onClick={() => setLauncherOpen(false)}
@@ -366,10 +408,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
             <div className="lac-launcher-grid">
               {modules.map((mod) => {
-                if (mod.permission && !hasPermission(mod.permission)) return null;
+                if (mod.checkPermission && !mod.checkPermission()) return null;
 
                 const validLinks = mod.links.filter(
-                  (l) => !l.permission || hasPermission(l.permission)
+                  (l) => !l.checkPermission || l.checkPermission()
                 );
                 if (validLinks.length === 0) return null;
 
@@ -411,7 +453,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <span className="lac-contextual-category">{contextualNav.categoryTitle}:</span>
             <nav className="lac-contextual-nav">
               {contextualNav.links.map((link) => {
-                if (link.permission && !hasPermission(link.permission)) return null;
+                if (link.checkPermission && !link.checkPermission()) return null;
                 return (
                   <NavLink
                     key={link.to}
