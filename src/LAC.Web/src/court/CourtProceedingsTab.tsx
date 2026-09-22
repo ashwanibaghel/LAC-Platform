@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { CourtCaseDetailDto, CourtProceedingDto } from "./types";
-import { useAuth } from "../auth/AuthProvider";
 
 interface CourtProceedingsTabProps {
   courtCase: CourtCaseDetailDto;
@@ -8,13 +7,13 @@ interface CourtProceedingsTabProps {
 }
 
 export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtCase, onRefresh }) => {
-  const { hasPermission } = useAuth();
-  const canManage = hasPermission("Court.Proceeding.Manage") || hasPermission("Court.Edit") || hasPermission("Award.Edit");
+  const canManage = courtCase?.capabilities?.canManageProceedings ?? false;
 
   const [proceedings, setProceedings] = useState<CourtProceedingDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promotingId, setPromotingId] = useState<string | null>(null);
 
   // Form state
   const [proceedingDate, setProceedingDate] = useState("");
@@ -46,6 +45,33 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
     void fetchProceedings();
   }, [fetchProceedings]);
 
+  const handlePromote = async (proceedingId: string) => {
+    try {
+      setPromotingId(proceedingId);
+      const res = await fetch(`/api/scheduled-events/from-court-proceeding/${proceedingId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: `Court Hearing: ${courtCase.caseNumber}`,
+          priority: "High",
+        }),
+      });
+
+      if (res.ok) {
+        await fetchProceedings();
+        onRefresh();
+      } else {
+        const err = await res.json().catch(() => ({ error: "Failed to promote to calendar" }));
+        alert(err.error || "Failed to promote to calendar");
+      }
+    } catch {
+      alert("Network error promoting to calendar");
+    } finally {
+      setPromotingId(null);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setValidationError(null);
@@ -72,6 +98,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
           restraintNature: restraintNature === "None" ? null : restraintNature,
           summary: summary || null,
           nextDate: nextDate || null,
+          expectedRevision: courtCase.revision,
         }),
       });
 
@@ -148,9 +175,28 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                 </div>
 
                 {p.nextDate && (
-                  <div style={{ textAlign: "right" }}>
-                    <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase" }}>NDOH: </span>
-                    <strong style={{ color: "#4338ca", fontSize: "14px" }}>{p.nextDate}</strong>
+                  <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                    <div>
+                      <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase" }}>NDOH: </span>
+                      <strong style={{ color: "#4338ca", fontSize: "14px" }}>{p.nextDate}</strong>
+                    </div>
+                    {courtCase.isProjectedToCalendar ? (
+                      <span className="court-badge" style={{ background: "#dcfce7", color: "#166534", fontSize: "11px" }}>
+                        ● On Calendar
+                      </span>
+                    ) : courtCase.capabilities.canPromoteToCalendar ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{ fontSize: "11px", padding: "3px 8px" }}
+                        onClick={() => handlePromote(p.id)}
+                        disabled={promotingId === p.id}
+                      >
+                        {promotingId === p.id ? "Promoting..." : "📅 Promote to Calendar"}
+                      </button>
+                    ) : (
+                      <span style={{ fontSize: "11px", color: "#94a3b8" }}>○ Not on Calendar</span>
+                    )}
                   </div>
                 )}
               </div>

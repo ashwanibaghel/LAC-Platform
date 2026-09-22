@@ -1048,7 +1048,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             caseId = courtCase.Id;
         }
 
-        // 1. User without Award.View cannot view proceedings
+        // 1. User without Court.View cannot view proceedings
         var (unauthClient, _) = await CreateUserWithPermissionsAsync(
             $"unauth_court_{Guid.NewGuid():N}",
             "UserPass123!",
@@ -1057,13 +1057,13 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var unauthRes = await unauthClient.GetAsync($"/api/court-cases/{caseId}/proceedings");
         Assert.Equal(HttpStatusCode.Forbidden, unauthRes.StatusCode);
 
-        // 2. User with Award.View (COURT_REFERENCES) can view proceedings but cannot create or promote
+        // 2. User with Court.View (ScopeMode.All) can view proceedings but cannot create
         var (viewClient, _) = await CreateUserWithPermissionsAsync(
             $"view_court_{Guid.NewGuid():N}",
             "UserPass123!",
             new[]
             {
-                (PermissionCodes.AwardView, ScopeMode.All),
+                (PermissionCodes.CourtView, ScopeMode.All),
                 (PermissionCodes.ScheduleCreate, ScopeMode.All)
             }
         );
@@ -1076,14 +1076,14 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         ));
         Assert.Equal(HttpStatusCode.Forbidden, postRes.StatusCode);
 
-        // 3. User with Award.Edit (COURT_REFERENCES) can create proceeding
+        // 3. User with Court.Edit (ScopeMode.All) can create proceeding
         var (editClient, _) = await CreateUserWithPermissionsAsync(
             $"edit_court_{Guid.NewGuid():N}",
             "UserPass123!",
             new[]
             {
-                (PermissionCodes.AwardView, ScopeMode.All),
-                (PermissionCodes.AwardEdit, ScopeMode.All)
+                (PermissionCodes.CourtView, ScopeMode.All),
+                (PermissionCodes.CourtEdit, ScopeMode.All)
             }
         );
         var editPostRes = await editClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new CreateCourtProceedingApiRequest(
@@ -1139,17 +1139,29 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
 
         await db.SaveChangesAsync();
 
+        // Phase 2I: Navigation uses Court.View permission; URL is always /court-cases/{id}
         var (client, adminUser) = await CreateUserWithPermissionsAsync(
             $"nav_admin_{Guid.NewGuid():N}",
             "UserPass123!",
-            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+            new[] { (PermissionCodes.CourtView, ScopeMode.All) }
         );
 
+        // Linked case: court-authorised user gets /court-cases/{id} (Phase 2I standard URL)
         var linkedNavUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(caseLinked.Id, adminUser.Id);
-        Assert.Equal($"/awards/{award.Id}", linkedNavUrl);
+        Assert.Equal($"/court-cases/{caseLinked.Id}", linkedNavUrl);
 
+        // Unlinked case: court-authorised user still gets /court-cases/{id}
         var unlinkedNavUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(caseUnlinked.Id, adminUser.Id);
-        Assert.Null(unlinkedNavUrl); // Never returns /court-cases/{id}!
+        Assert.Equal($"/court-cases/{caseUnlinked.Id}", unlinkedNavUrl);
+
+        // User with AwardView.All only (no CourtView) cannot access either case
+        var (awardOnlyClient, awardOnlyUser) = await CreateUserWithPermissionsAsync(
+            $"nav_awardonly_{Guid.NewGuid():N}",
+            "UserPass123!",
+            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+        );
+        var noCourtNavUrl = await courtAuth.GetCourtCaseNavigationUrlAsync(caseLinked.Id, awardOnlyUser.Id);
+        Assert.Null(noCourtNavUrl); // AwardView.All alone does not grant court access in Phase 2I
     }
 
     // =========================================================================
@@ -1306,11 +1318,11 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var canAssignedUserView = await courtAuth.CanViewCourtReferencesAsync(assignedUser.Id);
         Assert.False(canAssignedUserView);
 
-        // 3. User with Award.View on CourtReferences WS can view
+        // 3. User with Court.View on CourtReferences WS can view (Phase 2I: CourtView replaces AwardView fallback)
         var (courtUserClient, courtUser) = await CreateUserWithPermissionsAsync(
             $"usr_court_ws_{Guid.NewGuid():N}",
             "UserPass123!",
-            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            new[] { (PermissionCodes.CourtView, ScopeMode.Workstream) },
             workstreamId: wsCourt.Id
         );
         var canCourtUserView = await courtAuth.CanViewCourtReferencesAsync(courtUser.Id);
@@ -1318,11 +1330,11 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var courtUserRes = await courtUserClient.GetAsync($"/api/court-cases/{courtCase.Id}/proceedings");
         Assert.Equal(HttpStatusCode.OK, courtUserRes.StatusCode);
 
-        // 4. User with ScopeMode.All can view
+        // 4. User with Court.View ScopeMode.All can view
         var (allUserClient, allUser) = await CreateUserWithPermissionsAsync(
             $"usr_court_all_{Guid.NewGuid():N}",
             "UserPass123!",
-            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+            new[] { (PermissionCodes.CourtView, ScopeMode.All) }
         );
         var canAllUserView = await courtAuth.CanViewCourtReferencesAsync(allUser.Id);
         Assert.True(canAllUserView);
@@ -1366,7 +1378,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         });
         await db.SaveChangesAsync();
 
-        // 1. User with CourtReferences access ONLY: has court permission, but NOT Award workspace access
+        // 1. User with AwardView.Workstream on CourtReferences WS only: no CourtView → no court access
         var (_, courtOnlyUser) = await CreateUserWithPermissionsAsync(
             $"usr_court_only_nav_{Guid.NewGuid():N}",
             "UserPass123!",
@@ -1374,17 +1386,19 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             workstreamId: wsCourt.Id
         );
 
+        // CanViewAwardWorkspaceAsync still uses AwardView + Award WS membership; CourtReferences WS alone is NOT Award WS
         var canViewAwardWsCourtOnly = await courtAuth.CanViewAwardWorkspaceAsync(courtOnlyUser.Id);
         Assert.False(canViewAwardWsCourtOnly);
 
+        // Phase 2I: AwardView alone does not grant CourtView → nav returns null
         var navUrlCourtOnly = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, courtOnlyUser.Id);
         Assert.Null(navUrlCourtOnly);
 
-        // 2. User with both CourtReferences AND Award workspace access
+        // 2. User with CourtView.Workstream on CourtReferences AND AwardView.Workstream on Award WS
         var (_, dualUser) = await CreateUserWithPermissionsAsync(
             $"usr_dual_nav_{Guid.NewGuid():N}",
             "UserPass123!",
-            new[] { (PermissionCodes.AwardView, ScopeMode.Workstream) },
+            new[] { (PermissionCodes.CourtView, ScopeMode.Workstream), (PermissionCodes.AwardView, ScopeMode.Workstream) },
             workstreamId: wsCourt.Id
         );
 
@@ -1405,20 +1419,23 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var canViewAwardWsDual = await courtAuth.CanViewAwardWorkspaceAsync(dualUser.Id);
         Assert.True(canViewAwardWsDual);
 
+        // Phase 2I: nav URL is always /court-cases/{id}, not /awards/{id}
         var navUrlDual = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, dualUser.Id);
-        Assert.Equal($"/awards/{award.Id}", navUrlDual);
+        Assert.Equal($"/court-cases/{courtCase.Id}", navUrlDual);
 
-        // 3. User with ScopeMode.All
+        // 3. User with CourtView.All
         var (_, allUser) = await CreateUserWithPermissionsAsync(
             $"usr_all_nav_{Guid.NewGuid():N}",
             "UserPass123!",
-            new[] { (PermissionCodes.AwardView, ScopeMode.All) }
+            new[] { (PermissionCodes.CourtView, ScopeMode.All) }
         );
+        // AwardView not assigned, so CanViewAwardWorkspaceAsync = false
         var canViewAwardWsAll = await courtAuth.CanViewAwardWorkspaceAsync(allUser.Id);
-        Assert.True(canViewAwardWsAll);
+        Assert.False(canViewAwardWsAll);
 
+        // But CourtView.All grants court navigation
         var navUrlAll = await courtAuth.GetCourtCaseNavigationUrlAsync(courtCase.Id, allUser.Id);
-        Assert.Equal($"/awards/{award.Id}", navUrlAll);
+        Assert.Equal($"/court-cases/{courtCase.Id}", navUrlAll);
     }
 
     [Fact]
@@ -1989,24 +2006,24 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         Assert.DoesNotContain(teamAct.Items, i => i.EntityId == courtEvt.Id);
         Assert.DoesNotContain(teamAct.Items, i => (i.EntityTitle != null && i.EntityTitle.Contains(caseNumber)) || (i.EntityReferenceNumber != null && i.EntityReferenceNumber.Contains(caseNumber)));
 
-        // 8. Now grant valid Court References view authority (Award.View = All)
+        // 8. Now grant valid Court References view authority (Court.View = All, Phase 2I)
         using (var grantScope = _factory.Services.CreateScope())
         {
             var grantDb = grantScope.ServiceProvider.GetRequiredService<LacDbContext>();
             var userRole = await grantDb.UserRoles.FirstOrDefaultAsync(ur => ur.UserId == userNoCourt.Id);
             Assert.NotNull(userRole);
 
-            var awardViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardView);
-            if (awardViewPerm == null)
+            var courtViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtView);
+            if (courtViewPerm == null)
             {
-                awardViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.AwardView, Name = "Award View", Category = "Test" };
-                grantDb.Permissions.Add(awardViewPerm);
+                courtViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.CourtView, Name = "Court View", Category = "Test" };
+                grantDb.Permissions.Add(courtViewPerm);
             }
 
             grantDb.RolePermissions.Add(new RolePermission
             {
                 RoleId = userRole.RoleId,
-                PermissionId = awardViewPerm.Id,
+                PermissionId = courtViewPerm.Id,
                 ScopeMode = ScopeMode.All
             });
             await grantDb.SaveChangesAsync();
@@ -2245,24 +2262,24 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var manualUnlinkRes = await schedUserClient.DeleteAsync($"/api/scheduled-events/{manualEvt.Id}/work-item?expectedRevision={manualEvt.Revision}");
         Assert.Equal(HttpStatusCode.Forbidden, manualUnlinkRes.StatusCode);
 
-        // 7. Grant Court References view authority (Award.View = All)
+        // 7. Grant Court References view authority (Court.View = All, Phase 2I)
         using (var grantScope = _factory.Services.CreateScope())
         {
             var grantDb = grantScope.ServiceProvider.GetRequiredService<LacDbContext>();
             var userRole = await grantDb.UserRoles.FirstOrDefaultAsync(ur => ur.UserId == schedUser.Id);
             Assert.NotNull(userRole);
 
-            var awardViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.AwardView);
-            if (awardViewPerm == null)
+            var courtViewPerm = await grantDb.Permissions.FirstOrDefaultAsync(p => p.Code == PermissionCodes.CourtView);
+            if (courtViewPerm == null)
             {
-                awardViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.AwardView, Name = "Award View", Category = "Test" };
-                grantDb.Permissions.Add(awardViewPerm);
+                courtViewPerm = new Permission { Id = Guid.NewGuid(), Code = PermissionCodes.CourtView, Name = "Court View", Category = "Test" };
+                grantDb.Permissions.Add(courtViewPerm);
             }
 
             grantDb.RolePermissions.Add(new RolePermission
             {
                 RoleId = userRole.RoleId,
-                PermissionId = awardViewPerm.Id,
+                PermissionId = courtViewPerm.Id,
                 ScopeMode = ScopeMode.All
             });
             await grantDb.SaveChangesAsync();

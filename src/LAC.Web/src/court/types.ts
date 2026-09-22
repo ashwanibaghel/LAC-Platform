@@ -4,20 +4,32 @@ export interface CourtCaseListItemDto {
   courtName: string;
   caseTitle: string | null;
   caseType: string | null;
-  currentStatus: string | null;
   filedDate: string | null;
-  nextDate: string | null;
+  currentStatus: string | null;
+  disposedDate: string | null;
   responsibleOfficeDeskId: string | null;
   responsibleOfficeDeskName: string | null;
   assignedUserId: string | null;
   assignedUserDisplayName: string | null;
-  linkedAwardCount: number;
-  linkedMatterCount: number;
-  linkedDocumentCount: number;
-  revision: number;
-  hasUpcomingHearing: boolean;
-  createdAt: string;
-  updatedAt: string;
+  authoritativeNextDate: string | null;
+  activeScheduleNextDate: string | null;
+  isProjectedToCalendar: boolean;
+  activeScheduledEventId: string | null;
+  nextHearingDate: string | null;
+  lastHearingDate: string | null;
+  awardsCount: number | null;
+  khasrasCount: number | null;
+  mattersCount: number | null;
+  partiesCount: number;
+  documentsCount: number;
+  proceedingsCount: number;
+  lastActivityAt: string | null;
+  // Backward compatibility helpers
+  nextDate?: string | null;
+  linkedAwardCount?: number | null;
+  linkedMatterCount?: number | null;
+  linkedDocumentCount?: number;
+  hasUpcomingHearing?: boolean;
 }
 
 export interface CourtCaseListResponse {
@@ -27,28 +39,29 @@ export interface CourtCaseListResponse {
   pageSize: number;
 }
 
-export interface CourtFilterDeskOption {
+export interface CourtFilterOptionDto {
   id: string;
   name: string;
-  workstreamName: string;
+  displayName?: string;
+  workstreamName?: string | null;
 }
 
-export interface CourtFilterUserOption {
-  id: string;
-  displayName: string;
-}
+export type CourtFilterDeskOption = CourtFilterOptionDto;
+export type CourtFilterUserOption = CourtFilterOptionDto;
 
 export interface CourtFilterOptionsDto {
   courtNames: string[];
   statuses: string[];
-  desks: CourtFilterDeskOption[];
-  assignedUsers: CourtFilterUserOption[];
+  desks: CourtFilterOptionDto[];
+  officers?: CourtFilterOptionDto[];
+  assignedUsers?: CourtFilterOptionDto[];
 }
 
 export interface CourtCaseLinkedAwardDto {
   awardId: string;
   awardNumber: string;
-  awardDate: string | null;
+  projectName?: string | null;
+  awardDate?: string | null;
   villageNames: string[];
 }
 
@@ -65,30 +78,61 @@ export interface CourtCaseLinkedKhasraDto {
 export interface CourtCaseLinkedMatterDto {
   matterId: string;
   title: string;
-  matterType: string;
+  referenceNumber: string | null;
   status: string;
-  workstreamName: string;
-  draftCount: number;
-  workItemCount: number;
+  workstreamName: string | null;
+  draftsCount: number;
+  workItemsCount: number;
+  // Compatibility
+  draftCount?: number;
+  workItemCount?: number;
+  matterType?: string;
 }
 
 export interface CourtCasePartyDto {
   id: string;
-  partyType: string;
-  partyName: string;
-  advocateName: string | null;
-  contactDetails: string | null;
-  isPrimary: boolean;
+  courtCaseId: string;
+  partyId?: string | null;
+  displayName: string;
+  role: string;
+  fatherOrSpouseName?: string | null;
+  addressText?: string | null;
+  remarks?: string | null;
+  sequence?: number;
+  // Compatibility
+  partyName?: string;
+  partyType?: string;
+  advocateName?: string | null;
+  contactDetails?: string | null;
+  isPrimary?: boolean;
 }
 
 export interface CourtCaseRepresentativeDto {
   id: string;
+  courtCaseId: string;
+  courtCasePartyId?: string | null;
+  displayName: string;
   representativeType: string;
-  name: string;
-  designation: string | null;
-  barRegistrationNumber: string | null;
-  contactDetails: string | null;
-  isLeadCounsel: boolean;
+  representsRole?: string | null;
+  contactText?: string | null;
+  remarks?: string | null;
+  // Compatibility
+  name?: string;
+  designation?: string | null;
+  barRegistrationNumber?: string | null;
+  contactDetails?: string | null;
+  isLeadCounsel?: boolean;
+}
+
+export interface CourtCaseCapabilitiesDto {
+  canEdit: boolean;
+  canAssign: boolean;
+  canManageProceedings: boolean;
+  canManageDocuments: boolean;
+  canPromoteToCalendar: boolean;
+  canLinkAward: boolean;
+  canLinkKhasra: boolean;
+  canLinkMatter: boolean;
 }
 
 export interface CourtCaseDetailDto {
@@ -97,8 +141,8 @@ export interface CourtCaseDetailDto {
   courtName: string;
   caseTitle: string | null;
   caseType: string | null;
-  currentStatus: string | null;
   filedDate: string | null;
+  currentStatus: string | null;
   disposedDate: string | null;
   remarks: string | null;
   revision: number;
@@ -106,17 +150,33 @@ export interface CourtCaseDetailDto {
   responsibleOfficeDeskName: string | null;
   assignedUserId: string | null;
   assignedUserDisplayName: string | null;
-  nextHearingDate: string | null;
+  authoritativeNextDate: string | null;
+  activeScheduleNextDate: string | null;
+  isProjectedToCalendar: boolean;
   activeScheduledEventId: string | null;
-  latestProceedingSummary: string | null;
-  proceedingCount: number;
-  documentCount: number;
-  eventCount: number;
+  nextHearingDate: string | null;
+  lastHearingDate: string | null;
+  lastOrderType: string | null;
+  restraintNature: string | null;
+  lastSummary: string | null;
   awards: CourtCaseLinkedAwardDto[];
   khasras: CourtCaseLinkedKhasraDto[];
   matters: CourtCaseLinkedMatterDto[];
   parties: CourtCasePartyDto[];
   representatives: CourtCaseRepresentativeDto[];
+  awardsCount: number | null;
+  khasrasCount: number | null;
+  mattersCount: number | null;
+  partiesCount: number;
+  documentsCount: number;
+  proceedingsCount: number;
+  eventsCount: number;
+  capabilities: CourtCaseCapabilitiesDto;
+  // Compatibility
+  latestProceedingSummary?: string | null;
+  proceedingCount?: number;
+  documentCount?: number;
+  eventCount?: number;
 }
 
 export interface CourtProceedingDto {
@@ -127,34 +187,52 @@ export interface CourtProceedingDto {
   restraintNature: string | null;
   summary: string | null;
   nextDate: string | null;
-  isAuthoritativeNdoh: boolean;
-  createdByDisplayName: string | null;
   createdAt: string;
+  isAuthoritativeNdoh?: boolean;
+  createdByDisplayName?: string | null;
 }
 
 export interface CourtCaseDocumentDto {
   id: string;
+  courtCaseId: string;
   documentId: string;
-  documentRole: string | null;
-  displayName: string | null;
   originalFileName: string;
   documentType: string;
-  fileSizeBytes: number;
-  uploadedAt: string;
-  uploadedByDisplayName: string | null;
+  documentRole: string | null;
+  displayName: string | null;
   courtProceedingId: string | null;
+  fileSize?: number | null;
+  fileSizeBytes?: number | null;
+  mimeType?: string | null;
+  uploadedAt: string;
+  uploadedByDisplayName?: string | null;
 }
 
-export interface CourtCaseEventDto {
+export interface CourtCaseTimelineEventDto {
   id: string;
   sequenceNumber: number;
-  eventType: string;
-  description: string;
-  payloadJson: string | null;
-  actorUserId: string | null;
-  actorDisplayNameSnapshot: string | null;
-  createdAt: string;
+  action: string;
+  actionAt: string;
+  actorUserId: string;
+  actorDisplayName: string;
+  actorDesignation?: string | null;
+  sourceDeskName?: string | null;
+  targetDeskName?: string | null;
+  sourceUserName?: string | null;
+  targetUserName?: string | null;
+  oldStatus?: string | null;
+  newStatus?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  // Compatibility
+  eventType?: string;
+  description?: string;
+  payloadJson?: string | null;
+  actorDisplayNameSnapshot?: string | null;
+  createdAt?: string;
 }
+
+export type CourtCaseEventDto = CourtCaseTimelineEventDto;
 
 export interface CourtCaseLinkedWorkDto {
   matters: CourtCaseLinkedMatterDto[];

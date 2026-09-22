@@ -11,7 +11,7 @@ import "./court.css";
 export const CourtDirectory: React.FC = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
-  const canCreate = hasPermission("Court.Create") || hasPermission("Award.Edit");
+  const canCreate = hasPermission("Court.Create");
 
   const [items, setItems] = useState<CourtCaseListItemDto[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -33,7 +33,7 @@ export const CourtDirectory: React.FC = () => {
   const [newCourtName, setNewCourtName] = useState("");
   const [newCaseTitle, setNewCaseTitle] = useState("");
   const [newCaseType, setNewCaseType] = useState("");
-  const [newCurrentStatus, setNewCurrentStatus] = useState("Pending");
+  const [newCurrentStatus, setNewCurrentStatus] = useState("");
   const [newFiledDate, setNewFiledDate] = useState("");
   const [newDeskId, setNewDeskId] = useState("");
   const [newUserId, setNewUserId] = useState("");
@@ -272,27 +272,38 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px" }}>
-                    {c.nextDate ? (
-                      <span className={`court-badge ${c.hasUpcomingHearing ? "court-badge-urgent" : "court-badge-ndoh"}`}>
-                        📅 {c.nextDate}
-                      </span>
+                    {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate || c.nextDate ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span className="court-badge court-badge-ndoh">
+                          📅 {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate || c.nextDate}
+                        </span>
+                        {c.isProjectedToCalendar ? (
+                          <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 600 }}>● On Calendar</span>
+                        ) : (
+                          <span style={{ fontSize: "11px", color: "#94a3b8" }}>○ Not on Calendar</span>
+                        )}
+                      </div>
                     ) : (
                       <span style={{ color: "#94a3b8", fontSize: "13px" }}>—</span>
                     )}
                   </td>
 
                   <td style={{ padding: "12px 16px" }}>
-                    <span
-                      className={`court-badge ${
-                        c.currentStatus?.toLowerCase() === "disposed"
-                          ? "court-badge-status-disposed"
-                          : c.currentStatus?.toLowerCase() === "stay"
-                          ? "court-badge-status-stay"
-                          : "court-badge-status-pending"
-                      }`}
-                    >
-                      {c.currentStatus || "Pending"}
-                    </span>
+                    {c.currentStatus ? (
+                      <span
+                        className={`court-badge ${
+                          c.currentStatus.toLowerCase() === "disposed"
+                            ? "court-badge-status-disposed"
+                            : c.currentStatus.toLowerCase() === "stay"
+                            ? "court-badge-status-stay"
+                            : "court-badge-status-pending"
+                        }`}
+                      >
+                        {c.currentStatus}
+                      </span>
+                    ) : (
+                      <span style={{ color: "#94a3b8", fontSize: "13px" }}>—</span>
+                    )}
                   </td>
 
                   <td style={{ padding: "12px 16px", fontSize: "13px" }}>
@@ -307,8 +318,8 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px", fontSize: "12px", color: "#64748b" }}>
-                    <div>Awards: {c.linkedAwardCount}</div>
-                    <div>Matters: {c.linkedMatterCount}</div>
+                    <div>Awards: {c.awardsCount ?? c.linkedAwardCount ?? "—"}</div>
+                    <div>Matters: {c.mattersCount ?? c.linkedMatterCount ?? "—"}</div>
                   </td>
 
                   <td style={{ padding: "12px 16px", textAlign: "right" }}>
@@ -442,6 +453,7 @@ export const CourtDirectory: React.FC = () => {
                       value={newCurrentStatus}
                       onChange={(e) => setNewCurrentStatus(e.target.value)}
                     >
+                      <option value="">— Not Specified —</option>
                       <option value="Pending">Pending</option>
                       <option value="Stay Granted">Stay Granted</option>
                       <option value="Interim Order Active">Interim Order Active</option>
@@ -476,7 +488,7 @@ export const CourtDirectory: React.FC = () => {
                     >
                       <option value="">Unassigned</option>
                       {filterOptions?.desks.map((d) => (
-                        <option key={d.id} value={d.id}>{d.name} ({d.workstreamName})</option>
+                        <option key={d.id} value={d.id}>{d.name} {d.workstreamName ? `(${d.workstreamName})` : ""}</option>
                       ))}
                     </select>
                   </div>
@@ -493,8 +505,8 @@ export const CourtDirectory: React.FC = () => {
                     onChange={(e) => setNewUserId(e.target.value)}
                   >
                     <option value="">Unassigned</option>
-                    {filterOptions?.assignedUsers.map((u) => (
-                      <option key={u.id} value={u.id}>{u.displayName}</option>
+                    {(filterOptions?.officers || filterOptions?.assignedUsers || []).map((u) => (
+                      <option key={u.id} value={u.id}>{u.displayName || u.name}</option>
                     ))}
                   </select>
                 </div>

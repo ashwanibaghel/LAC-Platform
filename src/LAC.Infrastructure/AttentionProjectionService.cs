@@ -946,9 +946,31 @@ public sealed class AttentionProjectionService(
         if (!canView) return null;
 
         var isCourtLinked = evt.Origin == ScheduledEventOrigin.CourtProceeding || evt.CourtCaseId.HasValue || evt.CourtProceedingId.HasValue;
-        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
+        if (isCourtLinked)
         {
-            return null;
+            // Resolve the linked court case ID (may be via CourtProceedingId)
+            var linkedCourtCaseId = evt.CourtCaseId;
+            if (!linkedCourtCaseId.HasValue && evt.CourtProceedingId.HasValue)
+            {
+                linkedCourtCaseId = await db.CourtProceedings.AsNoTracking()
+                    .Where(p => p.Id == evt.CourtProceedingId.Value)
+                    .Select(p => (Guid?)p.CourtCaseId)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            bool courtAccessGranted;
+            if (linkedCourtCaseId.HasValue)
+            {
+                // Case-specific: Assigned-scope users with desk membership get access
+                courtAccessGranted = await courtAuth.CanViewCourtCaseAsync(linkedCourtCaseId.Value, userId, ct);
+            }
+            else
+            {
+                // No specific case resolved: require workspace-level court access
+                courtAccessGranted = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
+            }
+
+            if (!courtAccessGranted) return null;
         }
 
         var isCourtProceeding = evt.Origin == ScheduledEventOrigin.CourtProceeding;

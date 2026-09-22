@@ -16,6 +16,7 @@ public interface ICourtAuthorizationService
     Task<bool> CanAccessCourtCaseAsync(Guid courtCaseId, string permissionCode, Guid userId, CancellationToken ct = default);
     Task<bool> CanAccessCourtCaseAsync(CourtCase courtCase, string permissionCode, Guid userId, CancellationToken ct = default);
     Task<bool> CanCreateCourtCaseAsync(Guid userId, CancellationToken ct = default);
+    Task<bool> CanCreateCourtCaseAsync(Guid userId, Guid? initialDeskId, CancellationToken ct = default);
     Task<bool> CanEditCourtCaseAsync(Guid courtCaseId, Guid userId, CancellationToken ct = default);
     Task<bool> CanAssignCourtCaseAsync(Guid courtCaseId, Guid userId, CancellationToken ct = default);
     Task<bool> CanManageProceedingsAsync(Guid courtCaseId, Guid userId, CancellationToken ct = default);
@@ -23,10 +24,22 @@ public interface ICourtAuthorizationService
     Task<string?> GetCourtCaseNavigationUrlAsync(Guid courtCaseId, Guid userId, CancellationToken ct = default);
     Task<bool> CanViewAwardWorkspaceAsync(Guid userId, CancellationToken ct = default);
     Task<IQueryable<CourtCase>> AuthorizeListQueryAsync(IQueryable<CourtCase> query, Guid userId, CancellationToken ct = default);
+    Task<bool> HasCourtViewPermissionAsync(Guid userId, CancellationToken ct = default);
 }
 
 public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthorizationService
 {
+    public async Task<bool> HasCourtViewPermissionAsync(Guid userId, CancellationToken ct = default)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        var scopes = await GetUserScopesAsync(userId, PermissionCodes.CourtView, ct);
+        return scopes.Count > 0;
+    }
+
     public async Task<bool> CanViewCourtReferencesAsync(Guid userId, CancellationToken ct = default)
     {
         var isUserActive = await db.AppUsers.AsNoTracking()
@@ -35,11 +48,6 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
         if (!isUserActive) return false;
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.CourtView, ct);
-        if (scopes.Count == 0)
-        {
-            scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardView, ct);
-        }
-
         if (scopes.Count == 0) return false;
 
         if (scopes.Contains(ScopeMode.All)) return true;
@@ -56,19 +64,9 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
             if (isMember) return true;
         }
 
-        if (scopes.Contains(ScopeMode.Assigned) || scopes.Contains(ScopeMode.Own))
-        {
-            var userDeskIds = await db.UserDeskMemberships.AsNoTracking()
-                .Where(m => m.UserId == userId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
-                .Select(m => m.OfficeDeskId)
-                .ToListAsync(ct);
-
-            var hasAssignedCase = await db.CourtCases.AsNoTracking()
-                .AnyAsync(c => c.RecordStatus == RecordStatus.Active && (c.AssignedUserId == userId || (c.ResponsibleOfficeDeskId.HasValue && userDeskIds.Contains(c.ResponsibleOfficeDeskId.Value))), ct);
-
-            if (hasAssignedCase) return true;
-        }
-
+        // Assigned and Own scopes do NOT grant global workspace access.
+        // Assigned scope only grants case-specific access via CanViewCourtCaseAsync.
+        // Own scope fails closed.
         return false;
     }
 
@@ -83,10 +81,6 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
         if (scopes.Count == 0)
         {
             scopes = await GetUserScopesAsync(userId, PermissionCodes.CourtProceedingManage, ct);
-        }
-        if (scopes.Count == 0)
-        {
-            scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardEdit, ct);
         }
 
         if (scopes.Count == 0) return false;
@@ -110,17 +104,17 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
 
     public async Task<bool> CanCreateCourtCaseAsync(Guid userId, CancellationToken ct = default)
     {
+        return await CanCreateCourtCaseAsync(userId, (Guid?)null, ct);
+    }
+
+    public async Task<bool> CanCreateCourtCaseAsync(Guid userId, Guid? initialDeskId, CancellationToken ct = default)
+    {
         var isUserActive = await db.AppUsers.AsNoTracking()
             .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
 
         if (!isUserActive) return false;
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.CourtCreate, ct);
-        if (scopes.Count == 0)
-        {
-            scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardEdit, ct);
-        }
-
         if (scopes.Count == 0) return false;
 
         if (scopes.Contains(ScopeMode.All)) return true;
@@ -137,6 +131,49 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
             if (isMember) return true;
         }
 
+        if (scopes.Contains(ScopeMode.Assigned))
+        {
+            if (initialDeskId.HasValue)
+            {
+                var isDeskMemberInCourtWs = await (
+                    from m in db.UserDeskMemberships.AsNoTracking()
+                    join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                    join w in db.Workstreams.AsNoTracking() on d.WorkstreamId equals w.Id
+                    where m.UserId == userId
+                       && m.OfficeDeskId == initialDeskId.Value
+                       && m.IsActive
+                       && m.RemovedAt == null
+                       && m.RecordStatus == RecordStatus.Active
+                       && d.IsActive
+                       && d.RecordStatus == RecordStatus.Active
+                       && w.Code == WorkstreamCodes.CourtReferences
+                    select m
+                ).AnyAsync(ct);
+
+                if (isDeskMemberInCourtWs) return true;
+            }
+            else
+            {
+                // When called without desk specified, check if user belongs to any active desk in CourtReferences
+                var hasAnyCourtDesk = await (
+                    from m in db.UserDeskMemberships.AsNoTracking()
+                    join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                    join w in db.Workstreams.AsNoTracking() on d.WorkstreamId equals w.Id
+                    where m.UserId == userId
+                       && m.IsActive
+                       && m.RemovedAt == null
+                       && m.RecordStatus == RecordStatus.Active
+                       && d.IsActive
+                       && d.RecordStatus == RecordStatus.Active
+                       && w.Code == WorkstreamCodes.CourtReferences
+                    select m
+                ).AnyAsync(ct);
+
+                if (hasAnyCourtDesk) return true;
+            }
+        }
+
+        // Own scope fails closed
         return false;
     }
 
@@ -181,16 +218,6 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
         if (!isUserActive) return false;
 
         var scopes = await GetUserScopesAsync(userId, permissionCode, ct);
-
-        // Fallback for legacy permission codes if new Court.* not explicitly mapped
-        if (scopes.Count == 0)
-        {
-            if (permissionCode == PermissionCodes.CourtView)
-                scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardView, ct);
-            else if (permissionCode == PermissionCodes.CourtEdit || permissionCode == PermissionCodes.CourtProceedingManage || permissionCode == PermissionCodes.CourtDocumentManage)
-                scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardEdit, ct);
-        }
-
         if (scopes.Count == 0) return false;
 
         if (scopes.Contains(ScopeMode.All)) return true;
@@ -209,26 +236,31 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
 
         if (scopes.Contains(ScopeMode.Assigned))
         {
-            if (courtCase.AssignedUserId == userId) return true;
-
             if (courtCase.ResponsibleOfficeDeskId.HasValue)
             {
-                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                    .AnyAsync(m => m.UserId == userId
-                                && m.OfficeDeskId == courtCase.ResponsibleOfficeDeskId.Value
-                                && m.IsActive
-                                && m.RemovedAt == null
-                                && m.RecordStatus == RecordStatus.Active
-                                && m.OfficeDesk.IsActive
-                                && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+                var isDeskMember = await (
+                    from m in db.UserDeskMemberships.AsNoTracking()
+                    join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                    where m.UserId == userId
+                       && m.OfficeDeskId == courtCase.ResponsibleOfficeDeskId.Value
+                       && m.IsActive
+                       && m.RemovedAt == null
+                       && m.RecordStatus == RecordStatus.Active
+                       && d.IsActive
+                       && d.RecordStatus == RecordStatus.Active
+                    select m
+                ).AnyAsync(ct);
 
                 if (isDeskMember) return true;
             }
+
+            // CRITICAL INVARIANT: Named handler AssignedUserId is routing metadata only and NEVER grants ACL access!
         }
 
+        // Own scope fails closed
         if (scopes.Contains(ScopeMode.Own))
         {
-            if (courtCase.AssignedUserId == userId) return true;
+            return false;
         }
 
         return false;
@@ -239,22 +271,8 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
         var canView = await CanViewCourtCaseAsync(courtCaseId, userId, ct);
         if (!canView) return null;
 
-        // Caller must also be authorized for the actual Award workspace
-        var canViewAward = await CanViewAwardWorkspaceAsync(userId, ct);
-        if (!canViewAward) return null;
-
-        // Check if court case is linked to an Award
-        var linkedAward = await db.Set<CourtCaseAward>().AsNoTracking()
-            .Where(x => x.CourtCaseId == courtCaseId)
-            .Select(x => (Guid?)x.AwardId)
-            .FirstOrDefaultAsync(ct);
-
-        if (linkedAward.HasValue)
-        {
-            return $"/awards/{linkedAward.Value}";
-        }
-
-        return null;
+        // Directly return court case workspace URL without requiring Award.View or redirecting to Award
+        return $"/court-cases/{courtCaseId}";
     }
 
     public async Task<bool> CanViewAwardWorkspaceAsync(Guid userId, CancellationToken ct = default)
@@ -304,11 +322,6 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.CourtView, ct);
         if (scopes.Count == 0)
-        {
-            scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardView, ct);
-        }
-
-        if (scopes.Count == 0)
             return query.Where(_ => false);
 
         if (scopes.Contains(ScopeMode.All))
@@ -327,38 +340,25 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
                 return query;
         }
 
-        var deskIds = new List<Guid>();
         if (scopes.Contains(ScopeMode.Assigned))
         {
-            deskIds = await db.UserDeskMemberships.AsNoTracking()
-                .Where(m => m.UserId == userId
-                         && m.IsActive
-                         && m.RemovedAt == null
-                         && m.RecordStatus == RecordStatus.Active
-                         && m.OfficeDesk.IsActive
-                         && m.OfficeDesk.RecordStatus == RecordStatus.Active)
-                .Select(m => m.OfficeDeskId)
-                .ToListAsync(ct);
+            var deskIds = await (
+                from m in db.UserDeskMemberships.AsNoTracking()
+                join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                where m.UserId == userId
+                   && m.IsActive
+                   && m.RemovedAt == null
+                   && m.RecordStatus == RecordStatus.Active
+                   && d.IsActive
+                   && d.RecordStatus == RecordStatus.Active
+                select m.OfficeDeskId
+            ).ToListAsync(ct);
+
+            // Access strictly from current responsible-desk membership; AssignedUserId is NOT ACL
+            return query.Where(c => c.ResponsibleOfficeDeskId.HasValue && deskIds.Contains(c.ResponsibleOfficeDeskId.Value));
         }
 
-        var hasAssigned = scopes.Contains(ScopeMode.Assigned);
-        var hasOwn = scopes.Contains(ScopeMode.Own);
-
-        if (hasAssigned && hasOwn)
-        {
-            return query.Where(c => (c.ResponsibleOfficeDeskId.HasValue && deskIds.Contains(c.ResponsibleOfficeDeskId.Value))
-                                 || c.AssignedUserId == userId);
-        }
-        else if (hasAssigned)
-        {
-            return query.Where(c => (c.ResponsibleOfficeDeskId.HasValue && deskIds.Contains(c.ResponsibleOfficeDeskId.Value))
-                                 || c.AssignedUserId == userId);
-        }
-        else if (hasOwn)
-        {
-            return query.Where(c => c.AssignedUserId == userId);
-        }
-
+        // Own scope fails closed
         return query.Where(_ => false);
     }
 

@@ -10,6 +10,7 @@ public static class CourtCaseModelConfiguration
         // 1. CourtCase
         b.Entity<CourtCase>(entity =>
         {
+            entity.ToTable("CourtCases", t => t.HasCheckConstraint("CK_CourtCases_DisposedDate_After_FiledDate", "\"DisposedDate\" IS NULL OR \"FiledDate\" IS NULL OR \"DisposedDate\" >= \"FiledDate\""));
             entity.HasKey(x => x.Id);
 
             entity.Property(x => x.CaseNumber).HasMaxLength(128);

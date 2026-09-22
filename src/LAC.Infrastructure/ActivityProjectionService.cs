@@ -303,6 +303,14 @@ public sealed class ActivityProjectionService(
         var shouldIncludeCourt = string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "court" || normalizedEntityType == "courtcase" || normalizedEntityType == "litigation";
         var shouldIncludeReads = query.IncludeReads && (string.IsNullOrEmpty(normalizedEntityType) || normalizedEntityType == "document" || normalizedEntityType == "read");
 
+        var courtScopes = await (from ur in db.UserRoles
+                                 join r in db.Roles on ur.RoleId equals r.Id
+                                 join rp in db.RolePermissions on r.Id equals rp.RoleId
+                                 join p in db.Permissions on rp.PermissionId equals p.Id
+                                 where ur.UserId == currentUserId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == PermissionCodes.CourtView
+                                 select rp.ScopeMode).Distinct().ToListAsync(ct);
+        var hasCourtView = courtScopes.Count > 0;
+
         var allItems = new List<ActivityItemDto>();
         var totalCount = 0;
 
@@ -786,8 +794,7 @@ public sealed class ActivityProjectionService(
         {
             var q = db.RecordAccessEvents.AsNoTracking().Include(e => e.Document).AsQueryable();
 
-            var canViewCourtReads = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
-            if (!canViewCourtReads)
+            if (!hasCourtView)
             {
                 q = q.Where(e => e.ContextEntityType != "CourtCase");
             }
@@ -909,8 +916,7 @@ public sealed class ActivityProjectionService(
             {
                 q = q.Where(e => e.Action != ScheduledEventAction.ReminderAdded && e.Action != ScheduledEventAction.ReminderRemoved);
 
-                var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
-                if (!canViewCourt)
+                if (!hasCourtView)
                 {
                     q = q.Where(e => e.ScheduledEvent.Origin != ScheduledEventOrigin.CourtProceeding
                                   && e.ScheduledEvent.CourtCaseId == null
@@ -1030,48 +1036,68 @@ public sealed class ActivityProjectionService(
         // --------------------------------------------------------------------
         // G. COURT CASE EVENTS
         // --------------------------------------------------------------------
-        if (shouldIncludeCourt)
+        if (shouldIncludeCourt && hasCourtView)
         {
-            var canViewCourtFeed = await courtAuth.CanViewCourtReferencesAsync(currentUserId, ct);
-            if (canViewCourtFeed)
+            var q = db.CourtCaseEvents.AsNoTracking().Include(e => e.CourtCase).AsQueryable();
+
+            if (!isTeamActivity)
             {
-                var q = db.CourtCaseEvents.AsNoTracking().Include(e => e.CourtCase).AsQueryable();
+                q = q.Where(e => e.ActorUserId == currentUserId);
+            }
+            else
+            {
+                if (query.ActorUserId.HasValue)
+                    q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
 
-                if (!isTeamActivity)
-                {
-                    q = q.Where(e => e.ActorUserId == currentUserId);
-                }
-                else
-                {
-                    if (query.ActorUserId.HasValue)
-                        q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
+                var courtHasAll = courtScopes.Contains(ScopeMode.All);
+                var courtHasWs = courtScopes.Contains(ScopeMode.Workstream);
+                var courtHasAssigned = courtScopes.Contains(ScopeMode.Assigned);
 
-                    if (!hasAllScope)
+                if (!hasAllScope || !courtHasAll)
+                {
+                    var allowedWsIds = new HashSet<Guid>();
+                    if (hasWorkstreamScope || hasAllScope)
                     {
-                        var wsMatch = hasWorkstreamScope && callerWsIds.Count > 0;
-                        var deskMatch = hasAssignedScope && callerDeskIds.Count > 0;
-
-                        if (wsMatch && deskMatch)
+                        if (courtHasAll) allowedWsIds.UnionWith(callerWsIds);
+                        else if (courtHasWs)
                         {
-                            q = q.Where(e => (e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value))
-                                          || (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
-                                          || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
-                        }
-                        else if (wsMatch)
-                        {
-                            q = q.Where(e => e.WorkstreamIdSnapshot.HasValue && callerWsIds.Contains(e.WorkstreamIdSnapshot.Value));
-                        }
-                        else if (deskMatch)
-                        {
-                            q = q.Where(e => (e.TargetDeskId.HasValue && callerDeskIds.Contains(e.TargetDeskId.Value))
-                                          || (e.SourceDeskId.HasValue && callerDeskIds.Contains(e.SourceDeskId.Value)));
-                        }
-                        else
-                        {
-                            q = q.Where(_ => false);
+                            var courtWs = await db.Workstreams.AsNoTracking().FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences, ct);
+                            if (courtWs != null && (hasAllScope || callerWsIds.Contains(courtWs.Id)))
+                                allowedWsIds.Add(courtWs.Id);
                         }
                     }
+
+                    var allowedDeskIds = new HashSet<Guid>();
+                    if ((hasAssignedScope || hasAllScope || hasWorkstreamScope) && (courtHasAssigned || courtHasWs || courtHasAll))
+                    {
+                        allowedDeskIds.UnionWith(callerDeskIds);
+                    }
+
+                    if (courtHasAll && hasAllScope)
+                    {
+                        // unrestricted
+                    }
+                    else if (allowedWsIds.Count > 0 && allowedDeskIds.Count > 0)
+                    {
+                        q = q.Where(e => (e.WorkstreamIdSnapshot.HasValue && allowedWsIds.Contains(e.WorkstreamIdSnapshot.Value))
+                                      || (e.TargetDeskId.HasValue && allowedDeskIds.Contains(e.TargetDeskId.Value))
+                                      || (e.SourceDeskId.HasValue && allowedDeskIds.Contains(e.SourceDeskId.Value)));
+                    }
+                    else if (allowedWsIds.Count > 0)
+                    {
+                        q = q.Where(e => e.WorkstreamIdSnapshot.HasValue && allowedWsIds.Contains(e.WorkstreamIdSnapshot.Value));
+                    }
+                    else if (allowedDeskIds.Count > 0)
+                    {
+                        q = q.Where(e => (e.TargetDeskId.HasValue && allowedDeskIds.Contains(e.TargetDeskId.Value))
+                                      || (e.SourceDeskId.HasValue && allowedDeskIds.Contains(e.SourceDeskId.Value)));
+                    }
+                    else
+                    {
+                        q = q.Where(_ => false);
+                    }
                 }
+            }
 
                 if (dateFrom.HasValue) q = q.Where(e => e.ActionAt >= dateFrom.Value);
                 if (dateToExclusive.HasValue) q = q.Where(e => e.ActionAt < dateToExclusive.Value);
@@ -1148,7 +1174,6 @@ public sealed class ActivityProjectionService(
                         Metadata: new { e.Reason, e.Notes }
                     ));
                 }
-            }
         }
 
         // --------------------------------------------------------------------

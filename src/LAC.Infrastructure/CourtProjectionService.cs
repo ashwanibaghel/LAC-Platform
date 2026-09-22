@@ -35,11 +35,15 @@ public sealed record CourtCaseSummaryDto(
     string? ResponsibleOfficeDeskName,
     Guid? AssignedUserId,
     string? AssignedUserDisplayName,
+    DateOnly? AuthoritativeNextDate,
+    DateOnly? ActiveScheduleNextDate,
+    bool IsProjectedToCalendar,
+    Guid? ActiveScheduledEventId,
     DateOnly? NextHearingDate,
     DateOnly? LastHearingDate,
-    int AwardsCount,
-    int KhasrasCount,
-    int MattersCount,
+    int? AwardsCount,
+    int? KhasrasCount,
+    int? MattersCount,
     int PartiesCount,
     int DocumentsCount,
     int ProceedingsCount,
@@ -84,7 +88,11 @@ public sealed record CourtCaseCapabilitiesDto(
     bool CanEdit,
     bool CanAssign,
     bool CanManageProceedings,
-    bool CanManageDocuments
+    bool CanManageDocuments,
+    bool CanPromoteToCalendar,
+    bool CanLinkAward,
+    bool CanLinkKhasra,
+    bool CanLinkMatter
 );
 
 public sealed record CourtCaseDetailDto(
@@ -102,6 +110,10 @@ public sealed record CourtCaseDetailDto(
     string? ResponsibleOfficeDeskName,
     Guid? AssignedUserId,
     string? AssignedUserDisplayName,
+    DateOnly? AuthoritativeNextDate,
+    DateOnly? ActiveScheduleNextDate,
+    bool IsProjectedToCalendar,
+    Guid? ActiveScheduledEventId,
     DateOnly? NextHearingDate,
     DateOnly? LastHearingDate,
     string? LastOrderType,
@@ -112,6 +124,10 @@ public sealed record CourtCaseDetailDto(
     IReadOnlyList<CourtCaseLinkedMatterDto> Matters,
     IReadOnlyList<CourtCasePartyDto> Parties,
     IReadOnlyList<CourtCaseRepresentativeDto> Representatives,
+    int? AwardsCount,
+    int? KhasrasCount,
+    int? MattersCount,
+    int PartiesCount,
     int DocumentsCount,
     int ProceedingsCount,
     int EventsCount,
@@ -136,12 +152,24 @@ public sealed record CourtCaseTimelineEventDto(
     string? Notes
 );
 
+public sealed record CourtFilterOptionDto(
+    Guid Id,
+    string Name,
+    string? WorkstreamName = null
+)
+{
+    public string DisplayName => Name;
+}
+
 public sealed record CourtFilterOptionsDto(
     IReadOnlyList<string> CourtNames,
     IReadOnlyList<string> Statuses,
-    IReadOnlyList<FilterOptionDto> Desks,
-    IReadOnlyList<FilterOptionDto> Officers
-);
+    IReadOnlyList<CourtFilterOptionDto> Desks,
+    IReadOnlyList<CourtFilterOptionDto> Officers
+)
+{
+    public IReadOnlyList<CourtFilterOptionDto> AssignedUsers => Officers;
+}
 
 public interface ICourtProjectionService
 {
@@ -158,6 +186,25 @@ public sealed class CourtProjectionService(
     LacDbContext db,
     ICourtAuthorizationService courtAuth) : ICourtProjectionService
 {
+    private async Task<HashSet<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return [];
+
+        var codes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+            select p.Code
+        ).Distinct().ToListAsync(ct);
+
+        return codes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
     public async Task<PagedResult<CourtCaseSummaryDto>> GetCourtCasesAsync(CourtCaseFilterQuery query, Guid callerUserId, CancellationToken ct = default)
     {
         var rawQuery = db.CourtCases.AsNoTracking()
@@ -207,6 +254,12 @@ public sealed class CourtProjectionService(
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var skip = (page - 1) * pageSize;
 
+        var perms = await GetUserPermissionsAsync(callerUserId, ct);
+        var hasAwardView = perms.Contains(PermissionCodes.AwardView);
+        var hasKhasraView = perms.Contains(PermissionCodes.KhasraView);
+        var hasMatterView = perms.Contains(PermissionCodes.MatterView);
+        var hasScheduleView = perms.Contains(PermissionCodes.ScheduleView);
+
         var items = await authorizedQuery
             .OrderByDescending(c => c.UpdatedAt)
             .ThenByDescending(c => c.Id)
@@ -233,42 +286,57 @@ public sealed class CourtProjectionService(
                 DocumentsCount = c.Documents.Count(d => d.RecordStatus == RecordStatus.Active),
                 ProceedingsCount = c.Proceedings.Count(p => p.RecordStatus == RecordStatus.Active),
                 LastActivityAt = (DateTimeOffset?)c.UpdatedAt,
-                ActiveScheduleNextDate = db.ScheduledEvents
+                ActiveSchedule = db.ScheduledEvents
                     .Where(se => se.CourtCaseId == c.Id && se.Origin == ScheduledEventOrigin.CourtProceeding && se.Status == ScheduledEventStatus.Scheduled && se.RecordStatus == RecordStatus.Active)
-                    .Select(se => (DateOnly?)se.ScheduledDate)
+                    .Select(se => new { se.Id, se.ScheduledDate })
                     .FirstOrDefault(),
-                LatestProceedingDate = c.Proceedings
-                    .Where(p => p.RecordStatus == RecordStatus.Active && p.ProceedingDate.HasValue)
-                    .OrderByDescending(p => p.ProceedingDate)
+                LatestProceeding = c.Proceedings
+                    .Where(p => p.RecordStatus == RecordStatus.Active)
+                    .OrderByDescending(p => p.ProceedingDate.HasValue)
+                    .ThenByDescending(p => p.ProceedingDate)
                     .ThenByDescending(p => p.CreatedAt)
-                    .Select(p => p.ProceedingDate)
+                    .ThenByDescending(p => p.Id)
+                    .Select(p => new { p.ProceedingDate, p.NextDate })
                     .FirstOrDefault()
             })
             .ToListAsync(ct);
 
-        var resultList = items.Select(x => new CourtCaseSummaryDto(
-            x.Id,
-            x.CaseNumber,
-            x.CourtName,
-            x.CaseTitle,
-            x.CaseType,
-            x.FiledDate,
-            x.CurrentStatus,
-            x.DisposedDate,
-            x.ResponsibleOfficeDeskId,
-            x.ResponsibleOfficeDeskName,
-            x.AssignedUserId,
-            x.AssignedUserDisplayName,
-            x.ActiveScheduleNextDate,
-            x.LatestProceedingDate,
-            x.AwardsCount,
-            x.KhasrasCount,
-            x.MattersCount,
-            x.PartiesCount,
-            x.DocumentsCount,
-            x.ProceedingsCount,
-            x.LastActivityAt
-        )).ToList();
+        var resultList = items.Select(x =>
+        {
+            var authNextDate = x.LatestProceeding?.NextDate;
+            var activeScheduleNextDate = hasScheduleView ? x.ActiveSchedule?.ScheduledDate : null;
+            var activeScheduledEventId = hasScheduleView ? (Guid?)x.ActiveSchedule?.Id : null;
+            var isProjected = activeScheduledEventId.HasValue;
+            var nextHearingDate = activeScheduleNextDate ?? authNextDate;
+
+            return new CourtCaseSummaryDto(
+                x.Id,
+                x.CaseNumber,
+                x.CourtName,
+                x.CaseTitle,
+                x.CaseType,
+                x.FiledDate,
+                x.CurrentStatus,
+                x.DisposedDate,
+                x.ResponsibleOfficeDeskId,
+                x.ResponsibleOfficeDeskName,
+                x.AssignedUserId,
+                x.AssignedUserDisplayName,
+                authNextDate,
+                activeScheduleNextDate,
+                isProjected,
+                activeScheduledEventId,
+                nextHearingDate,
+                x.LatestProceeding?.ProceedingDate,
+                hasAwardView ? x.AwardsCount : null,
+                hasKhasraView ? x.KhasrasCount : null,
+                hasMatterView ? x.MattersCount : null,
+                x.PartiesCount,
+                x.DocumentsCount,
+                x.ProceedingsCount,
+                x.LastActivityAt
+            );
+        }).ToList();
 
         return new PagedResult<CourtCaseSummaryDto>(resultList, totalCount, page, pageSize);
     }
@@ -290,11 +358,22 @@ public sealed class CourtProjectionService(
 
         if (courtCase is null) return null;
 
-        var activeSchedule = await db.ScheduledEvents.AsNoTracking()
-            .FirstOrDefaultAsync(se => se.CourtCaseId == courtCaseId
-                                    && se.Origin == ScheduledEventOrigin.CourtProceeding
-                                    && se.Status == ScheduledEventStatus.Scheduled
-                                    && se.RecordStatus == RecordStatus.Active, ct);
+        var perms = await GetUserPermissionsAsync(callerUserId, ct);
+        var hasAwardView = perms.Contains(PermissionCodes.AwardView);
+        var hasKhasraView = perms.Contains(PermissionCodes.KhasraView);
+        var hasMatterView = perms.Contains(PermissionCodes.MatterView);
+        var hasScheduleView = perms.Contains(PermissionCodes.ScheduleView);
+        var hasDraftView = perms.Contains(PermissionCodes.DraftView);
+        var hasWorkItemView = perms.Contains(PermissionCodes.WorkItemView);
+        var hasScheduleCreate = perms.Contains(PermissionCodes.ScheduleCreate);
+
+        var activeSchedule = hasScheduleView
+            ? await db.ScheduledEvents.AsNoTracking()
+                .FirstOrDefaultAsync(se => se.CourtCaseId == courtCaseId
+                                        && se.Origin == ScheduledEventOrigin.CourtProceeding
+                                        && se.Status == ScheduledEventStatus.Scheduled
+                                        && se.RecordStatus == RecordStatus.Active, ct)
+            : null;
 
         var latestProceeding = await db.CourtProceedings.AsNoTracking()
             .Where(p => p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active)
@@ -313,45 +392,68 @@ public sealed class CourtProjectionService(
         var eventCount = await db.CourtCaseEvents.AsNoTracking()
             .CountAsync(e => e.CourtCaseId == courtCaseId, ct);
 
-        var awards = courtCase.Awards.Select(a => new CourtCaseLinkedAwardDto(
-            a.AwardId,
-            a.Award.AwardNumber,
-            null,
-            a.Award.VillageLinks.Select(v => v.Village.Name).Distinct().ToList()
-        )).ToList();
+        IReadOnlyList<CourtCaseLinkedAwardDto> awards = [];
+        int? awardsCount = null;
+        if (hasAwardView)
+        {
+            awards = courtCase.Awards.Select(a => new CourtCaseLinkedAwardDto(
+                a.AwardId,
+                a.Award.AwardNumber,
+                null,
+                a.Award.VillageLinks.Select(v => v.Village.Name).Distinct().ToList()
+            )).ToList();
+            awardsCount = awards.Count;
+        }
 
-        var khasras = courtCase.Khasras.Select(k => new CourtCaseLinkedKhasraDto(
-            k.KhasraId,
-            k.Khasra.VillageId,
-            k.Khasra.Village?.Name ?? "",
-            k.Khasra.NormalizedNumber,
-            k.Khasra.Qualifier,
-            k.Khasra.TotalArea,
-            k.Khasra.AreaUnit
-        )).ToList();
+        IReadOnlyList<CourtCaseLinkedKhasraDto> khasras = [];
+        int? khasrasCount = null;
+        if (hasKhasraView)
+        {
+            khasras = courtCase.Khasras.Select(k => new CourtCaseLinkedKhasraDto(
+                k.KhasraId,
+                k.Khasra.VillageId,
+                k.Khasra.Village?.Name ?? "",
+                k.Khasra.NormalizedNumber,
+                k.Khasra.Qualifier,
+                k.Khasra.TotalArea,
+                k.Khasra.AreaUnit
+            )).ToList();
+            khasrasCount = khasras.Count;
+        }
 
-        var linkedMatterIds = courtCase.Matters.Select(m => m.MatterId).ToList();
-        var draftsCountByMatter = await db.MatterDrafts.AsNoTracking()
-            .Where(d => linkedMatterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
-            .GroupBy(d => d.MatterId)
-            .Select(g => new { MatterId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct);
+        IReadOnlyList<CourtCaseLinkedMatterDto> matters = [];
+        int? mattersCount = null;
+        if (hasMatterView)
+        {
+            var linkedMatterIds = courtCase.Matters.Select(m => m.MatterId).ToList();
 
-        var workItemsCountByMatter = await db.Set<WorkItemMatterLink>().AsNoTracking()
-            .Where(w => linkedMatterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
-            .GroupBy(w => w.MatterId)
-            .Select(g => new { MatterId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct);
+            var draftsCountByMatter = hasDraftView
+                ? await db.MatterDrafts.AsNoTracking()
+                    .Where(d => linkedMatterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
+                    .GroupBy(d => d.MatterId)
+                    .Select(g => new { MatterId = g.Key, Count = g.Count() })
+                    .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
+                : new Dictionary<Guid, int>();
 
-        var matters = courtCase.Matters.Select(m => new CourtCaseLinkedMatterDto(
-            m.MatterId,
-            m.Matter.Title,
-            m.Matter.ReferenceNumber,
-            m.Matter.Status,
-            m.Matter.Workstream?.Name,
-            draftsCountByMatter.GetValueOrDefault(m.MatterId, 0),
-            workItemsCountByMatter.GetValueOrDefault(m.MatterId, 0)
-        )).ToList();
+            var workItemsCountByMatter = hasWorkItemView
+                ? await db.Set<WorkItemMatterLink>().AsNoTracking()
+                    .Where(w => linkedMatterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
+                    .GroupBy(w => w.MatterId)
+                    .Select(g => new { MatterId = g.Key, Count = g.Count() })
+                    .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
+                : new Dictionary<Guid, int>();
+
+            matters = courtCase.Matters.Select(m => new CourtCaseLinkedMatterDto(
+                m.MatterId,
+                m.Matter.Title,
+                m.Matter.ReferenceNumber,
+                m.Matter.Status,
+                m.Matter.Workstream?.Name,
+                draftsCountByMatter.GetValueOrDefault(m.MatterId, 0),
+                workItemsCountByMatter.GetValueOrDefault(m.MatterId, 0)
+            )).ToList();
+            mattersCount = matters.Count;
+        }
 
         var parties = courtCase.Parties
             .OrderBy(p => p.Sequence)
@@ -386,11 +488,22 @@ public sealed class CourtProjectionService(
         var canManageProc = await courtAuth.CanManageProceedingsAsync(courtCaseId, callerUserId, ct);
         var canManageDoc = await courtAuth.CanManageDocumentsAsync(courtCaseId, callerUserId, ct);
 
+        var authNextDate = latestProceeding?.NextDate;
+        var isProjected = activeSchedule != null;
+        var canPromote = authNextDate.HasValue && !isProjected && hasScheduleCreate && (canEdit || canManageProc);
+        var canLinkAward = canEdit && hasAwardView;
+        var canLinkKhasra = canEdit && hasKhasraView;
+        var canLinkMatter = canEdit && hasMatterView;
+
         var capabilities = new CourtCaseCapabilitiesDto(
             CanEdit: canEdit,
             CanAssign: canAssign,
             CanManageProceedings: canManageProc,
-            CanManageDocuments: canManageDoc
+            CanManageDocuments: canManageDoc,
+            CanPromoteToCalendar: canPromote,
+            CanLinkAward: canLinkAward,
+            CanLinkKhasra: canLinkKhasra,
+            CanLinkMatter: canLinkMatter
         );
 
         return new CourtCaseDetailDto(
@@ -408,7 +521,11 @@ public sealed class CourtProjectionService(
             courtCase.ResponsibleOfficeDesk?.Name,
             courtCase.AssignedUserId,
             courtCase.AssignedUser?.DisplayName,
-            activeSchedule?.ScheduledDate ?? latestProceeding?.NextDate,
+            authNextDate,
+            activeSchedule?.ScheduledDate,
+            isProjected,
+            activeSchedule?.Id,
+            activeSchedule?.ScheduledDate ?? authNextDate,
             latestProceeding?.ProceedingDate,
             latestProceeding?.OrderType,
             latestProceeding?.RestraintNature,
@@ -418,6 +535,10 @@ public sealed class CourtProjectionService(
             matters,
             parties,
             reps,
+            awardsCount,
+            khasrasCount,
+            mattersCount,
+            parties.Count,
             docCount,
             procCount,
             eventCount,
@@ -507,6 +628,13 @@ public sealed class CourtProjectionService(
         var canView = await courtAuth.CanViewCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canView) throw new UnauthorizedAccessException("Forbidden");
 
+        var perms = await GetUserPermissionsAsync(callerUserId, ct);
+        if (!perms.Contains(PermissionCodes.MatterView))
+            return [];
+
+        var hasDraftView = perms.Contains(PermissionCodes.DraftView);
+        var hasWorkItemView = perms.Contains(PermissionCodes.WorkItemView);
+
         var linkedMatters = await db.CourtCaseMatters.AsNoTracking()
             .Include(m => m.Matter).ThenInclude(mat => mat.Workstream)
             .Where(m => m.CourtCaseId == courtCaseId && m.RecordStatus == RecordStatus.Active)
@@ -514,17 +642,21 @@ public sealed class CourtProjectionService(
 
         var matterIds = linkedMatters.Select(m => m.MatterId).ToList();
 
-        var draftsCount = await db.MatterDrafts.AsNoTracking()
-            .Where(d => matterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
-            .GroupBy(d => d.MatterId)
-            .Select(g => new { MatterId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct);
+        var draftsCount = hasDraftView
+            ? await db.MatterDrafts.AsNoTracking()
+                .Where(d => matterIds.Contains(d.MatterId) && d.RecordStatus == RecordStatus.Active)
+                .GroupBy(d => d.MatterId)
+                .Select(g => new { MatterId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
+            : new Dictionary<Guid, int>();
 
-        var workItemsCount = await db.Set<WorkItemMatterLink>().AsNoTracking()
-            .Where(w => matterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
-            .GroupBy(w => w.MatterId)
-            .Select(g => new { MatterId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct);
+        var workItemsCount = hasWorkItemView
+            ? await db.Set<WorkItemMatterLink>().AsNoTracking()
+                .Where(w => matterIds.Contains(w.MatterId) && w.RecordStatus == RecordStatus.Active)
+                .GroupBy(w => w.MatterId)
+                .Select(g => new { MatterId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(g => g.MatterId, g => g.Count, ct)
+            : new Dictionary<Guid, int>();
 
         return linkedMatters.Select(m => new CourtCaseLinkedMatterDto(
             m.MatterId,
@@ -555,18 +687,26 @@ public sealed class CourtProjectionService(
             .OrderBy(s => s)
             .ToListAsync(ct);
 
-        var desks = await db.OfficeDesks.AsNoTracking()
-            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
+        var courtDesks = await db.OfficeDesks.AsNoTracking()
+            .Include(d => d.Workstream)
+            .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
+                     && d.Workstream != null && d.Workstream.Code == WorkstreamCodes.CourtReferences)
             .OrderBy(d => d.Name)
-            .Select(d => new FilterOptionDto(d.Id, d.Name))
+            .Select(d => new CourtFilterOptionDto(d.Id, d.Name, d.Workstream != null ? d.Workstream.Name : null))
             .ToListAsync(ct);
 
-        var officers = await db.AppUsers.AsNoTracking()
-            .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active)
+        var courtDeskIds = courtDesks.Select(d => d.Id).ToList();
+
+        var officers = await db.UserDeskMemberships.AsNoTracking()
+            .Where(m => courtDeskIds.Contains(m.OfficeDeskId)
+                     && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active
+                     && m.User.IsActive && m.User.RecordStatus == RecordStatus.Active)
+            .Select(m => m.User)
+            .Distinct()
             .OrderBy(u => u.DisplayName)
-            .Select(u => new FilterOptionDto(u.Id, u.DisplayName))
+            .Select(u => new CourtFilterOptionDto(u.Id, u.DisplayName, null))
             .ToListAsync(ct);
 
-        return new CourtFilterOptionsDto(courtNames, statuses, desks, officers);
+        return new CourtFilterOptionsDto(courtNames, statuses, courtDesks, officers);
     }
 }

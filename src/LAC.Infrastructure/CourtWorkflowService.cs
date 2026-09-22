@@ -30,11 +30,12 @@ public sealed record CreateCourtCasePartyDto(
     string? FatherOrSpouseName = null,
     string? AddressText = null,
     string? Remarks = null,
-    int Sequence = 0
+    int Sequence = 0,
+    int? ExpectedRevision = null
 )
 {
     public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (PartyName?.Trim() ?? "");
-    public string ResolvedRole => !string.IsNullOrWhiteSpace(Role) ? Role.Trim() : (PartyType?.Trim() ?? "Party");
+    public string ResolvedRole => !string.IsNullOrWhiteSpace(Role) ? Role.Trim() : (PartyType?.Trim() ?? "");
 }
 
 public sealed record CreateCourtCaseRepresentativeDto(
@@ -48,7 +49,8 @@ public sealed record CreateCourtCaseRepresentativeDto(
     string? ContactDetails = null,
     bool? IsLeadCounsel = null,
     string? Remarks = null,
-    Guid? CourtCasePartyId = null
+    Guid? CourtCasePartyId = null,
+    int? ExpectedRevision = null
 )
 {
     public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (Name?.Trim() ?? "");
@@ -62,6 +64,7 @@ public sealed record CreateCourtCaseCommand(
     string? CaseType = null,
     DateOnly? FiledDate = null,
     string? CurrentStatus = null,
+    DateOnly? DisposedDate = null,
     string? Remarks = null,
     Guid? ResponsibleOfficeDeskId = null,
     Guid? AssignedUserId = null,
@@ -104,7 +107,8 @@ public sealed record RecordCourtProceedingCommand(
     string? OrderType,
     string? RestraintNature,
     string? Summary,
-    DateOnly? NextDate
+    DateOnly? NextDate,
+    int? ExpectedRevision = null
 );
 
 public sealed record CourtProceedingDto(
@@ -161,21 +165,21 @@ public interface ICourtWorkflowService
     Task UpdateMetadataAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command, Guid callerUserId, CancellationToken ct = default);
     Task AssignAsync(Guid courtCaseId, AssignCourtCaseCommand command, Guid callerUserId, CancellationToken ct = default);
     Task<CourtProceedingDto> RecordProceedingAsync(Guid courtCaseId, RecordCourtProceedingCommand command, Guid callerUserId, CancellationToken ct = default);
-    Task LinkAwardAsync(Guid courtCaseId, Guid awardId, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, Guid callerUserId, CancellationToken ct = default);
-    Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, Guid callerUserId, CancellationToken ct = default);
-    Task LinkMatterAsync(Guid courtCaseId, Guid matterId, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, Guid callerUserId, CancellationToken ct = default);
+    Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCasePartyDto> AddPartyAsync(Guid courtCaseId, CreateCourtCasePartyDto dto, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCasePartyDto> UpdatePartyAsync(Guid courtCaseId, Guid partyEntryId, CreateCourtCasePartyDto dto, Guid callerUserId, CancellationToken ct = default);
-    Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, Guid callerUserId, CancellationToken ct = default);
+    Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCaseRepresentativeDto> AddRepresentativeAsync(Guid courtCaseId, CreateCourtCaseRepresentativeDto dto, Guid callerUserId, CancellationToken ct = default);
     Task<CourtCaseRepresentativeDto> UpdateRepresentativeAsync(Guid courtCaseId, Guid representativeId, CreateCourtCaseRepresentativeDto dto, Guid callerUserId, CancellationToken ct = default);
-    Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, Guid callerUserId, CancellationToken ct = default);
-    Task<CourtCaseDocumentDto> UploadDocumentAsync(Guid courtCaseId, Stream stream, string fileName, string? contentType, string? documentRole, string? displayName, Guid? proceedingId, Guid callerUserId, CancellationToken ct = default);
-    Task<CourtCaseDocumentDto> LinkDocumentAsync(Guid courtCaseId, Guid documentId, string? documentRole, string? displayName, Guid? proceedingId, Guid callerUserId, CancellationToken ct = default);
-    Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, Guid callerUserId, CancellationToken ct = default);
+    Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task<CourtCaseDocumentDto> UploadDocumentAsync(Guid courtCaseId, Stream stream, string fileName, string? contentType, string? documentRole, string? displayName, Guid? proceedingId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task<CourtCaseDocumentDto> LinkDocumentAsync(Guid courtCaseId, Guid documentId, string? documentRole, string? displayName, Guid? proceedingId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
+    Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default);
 }
 
 public sealed class CourtWorkflowService(
@@ -215,9 +219,27 @@ public sealed class CourtWorkflowService(
         return (actor, actor.DisplayName, actor.Designation?.Name);
     }
 
+    private async Task<bool> HasUserPermissionAsync(Guid userId, string permissionCode, CancellationToken ct)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+        if (!isUserActive) return false;
+
+        return await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId
+               && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && p.Code == permissionCode
+            select rp.Id
+        ).AnyAsync(ct);
+    }
+
     public async Task<Guid> CreateCourtCaseAsync(CreateCourtCaseCommand command, Guid callerUserId, CancellationToken ct = default)
     {
-        var canCreate = await courtAuth.CanCreateCourtCaseAsync(callerUserId, ct);
+        var canCreate = await courtAuth.CanCreateCourtCaseAsync(callerUserId, command.ResponsibleOfficeDeskId, ct);
         if (!canCreate)
             throw new CourtWorkflowException("You do not have permission to create court cases.", 403);
 
@@ -226,25 +248,91 @@ public sealed class CourtWorkflowService(
         if (string.IsNullOrWhiteSpace(command.CourtName))
             throw new CourtWorkflowException("CourtName is required.", 400);
 
+        if (command.DisposedDate.HasValue && command.FiledDate.HasValue && command.DisposedDate.Value < command.FiledDate.Value)
+            throw new CourtWorkflowException("DisposedDate cannot be earlier than FiledDate.", 400);
+
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
 
-        // Validate desk and user if supplied
+        // Validate desk responsibility: must belong to COURT_REFERENCES
         string? targetDeskName = null;
         if (command.ResponsibleOfficeDeskId.HasValue)
         {
             var desk = await db.OfficeDesks.AsNoTracking()
+                .Include(d => d.Workstream)
                 .FirstOrDefaultAsync(d => d.Id == command.ResponsibleOfficeDeskId.Value && d.IsActive && d.RecordStatus == RecordStatus.Active, ct)
                 ?? throw new CourtWorkflowException("Responsible office desk not found or inactive.", 400);
+
+            if (desk.Workstream?.Code != WorkstreamCodes.CourtReferences)
+                throw new CourtWorkflowException("Responsible office desk must belong to the Court References workstream.", 400);
+
             targetDeskName = desk.Name;
         }
 
+        // Validate assigned user: cannot assign without desk, and user must be active member of desk
         string? targetUserName = null;
         if (command.AssignedUserId.HasValue)
         {
+            if (!command.ResponsibleOfficeDeskId.HasValue)
+                throw new CourtWorkflowException("Cannot assign an officer without a responsible desk.", 400);
+
             var user = await db.AppUsers.AsNoTracking()
                 .FirstOrDefaultAsync(u => u.Id == command.AssignedUserId.Value && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
                 ?? throw new CourtWorkflowException("Assigned user not found or inactive.", 400);
+
+            var isMember = await db.UserDeskMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == command.AssignedUserId.Value
+                            && m.OfficeDeskId == command.ResponsibleOfficeDeskId.Value
+                            && m.IsActive
+                            && m.RemovedAt == null
+                            && m.RecordStatus == RecordStatus.Active
+                            && m.OfficeDesk.IsActive
+                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+
+            if (!isMember)
+                throw new CourtWorkflowException("Assigned officer must be an active member of the responsible desk.", 400);
+
             targetUserName = user.DisplayName;
+        }
+
+        // Validate cross-domain mutation authorization
+        if (command.AwardIds != null && command.AwardIds.Count > 0)
+        {
+            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
+                throw new CourtWorkflowException("You do not have permission to link awards.", 403);
+        }
+
+        if (command.KhasraIds != null && command.KhasraIds.Count > 0)
+        {
+            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
+                throw new CourtWorkflowException("You do not have permission to link khasras.", 403);
+        }
+
+        if (command.MatterIds != null && command.MatterIds.Count > 0)
+        {
+            if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
+                throw new CourtWorkflowException("You do not have permission to link matters.", 403);
+        }
+
+        // Validate Parties
+        if (command.Parties != null)
+        {
+            foreach (var p in command.Parties)
+            {
+                if (string.IsNullOrWhiteSpace(p.ResolvedDisplayName))
+                    throw new CourtWorkflowException("Party DisplayName is required.", 400);
+                if (string.IsNullOrWhiteSpace(p.ResolvedRole))
+                    throw new CourtWorkflowException("Party Role is required.", 400);
+            }
+        }
+
+        // Validate Representatives
+        if (command.Representatives != null)
+        {
+            foreach (var r in command.Representatives)
+            {
+                if (string.IsNullOrWhiteSpace(r.ResolvedDisplayName))
+                    throw new CourtWorkflowException("Representative DisplayName is required.", 400);
+            }
         }
 
         var caseId = Guid.NewGuid();
@@ -265,7 +353,8 @@ public sealed class CourtWorkflowService(
                 CaseTitle = string.IsNullOrWhiteSpace(command.CaseTitle) ? null : command.CaseTitle.Trim(),
                 CaseType = string.IsNullOrWhiteSpace(command.CaseType) ? null : command.CaseType.Trim(),
                 FiledDate = command.FiledDate,
-                CurrentStatus = string.IsNullOrWhiteSpace(command.CurrentStatus) ? "Pending" : command.CurrentStatus.Trim(),
+                CurrentStatus = string.IsNullOrWhiteSpace(command.CurrentStatus) ? null : command.CurrentStatus.Trim(),
+                DisposedDate = command.DisposedDate,
                 Remarks = string.IsNullOrWhiteSpace(command.Remarks) ? null : command.Remarks.Trim(),
                 ResponsibleOfficeDeskId = command.ResponsibleOfficeDeskId,
                 AssignedUserId = command.AssignedUserId,
@@ -356,18 +445,13 @@ public sealed class CourtWorkflowService(
                 var seq = 1;
                 foreach (var p in command.Parties)
                 {
-                    var pDisplayName = p.ResolvedDisplayName;
-                    var pRole = p.ResolvedRole;
-                    if (string.IsNullOrWhiteSpace(pDisplayName)) pDisplayName = "Party";
-                    if (string.IsNullOrWhiteSpace(pRole)) pRole = "Party";
-
                     db.CourtCaseParties.Add(new CourtCaseParty
                     {
                         Id = Guid.NewGuid(),
                         CourtCaseId = caseId,
                         PartyId = p.PartyId,
-                        DisplayName = pDisplayName,
-                        Role = pRole,
+                        DisplayName = p.ResolvedDisplayName,
+                        Role = p.ResolvedRole,
                         FatherOrSpouseName = p.FatherOrSpouseName?.Trim(),
                         AddressText = p.AddressText?.Trim(),
                         Remarks = p.Remarks?.Trim(),
@@ -385,15 +469,12 @@ public sealed class CourtWorkflowService(
             {
                 foreach (var r in command.Representatives)
                 {
-                    var rDisplayName = r.ResolvedDisplayName;
-                    if (string.IsNullOrWhiteSpace(rDisplayName)) rDisplayName = "Counsel";
-
                     db.CourtCaseRepresentatives.Add(new CourtCaseRepresentative
                     {
                         Id = Guid.NewGuid(),
                         CourtCaseId = caseId,
                         CourtCasePartyId = r.CourtCasePartyId,
-                        DisplayName = rDisplayName,
+                        DisplayName = r.ResolvedDisplayName,
                         RepresentativeType = r.ResolvedRepresentativeType,
                         RepresentsRole = r.RepresentsRole?.Trim(),
                         ContactText = r.ContactText?.Trim(),
@@ -416,6 +497,9 @@ public sealed class CourtWorkflowService(
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit)
             throw new CourtWorkflowException("You do not have permission to edit this court case.", 403);
+
+        if (command.DisposedDate.HasValue && command.FiledDate.HasValue && command.DisposedDate.Value < command.FiledDate.Value)
+            throw new CourtWorkflowException("DisposedDate cannot be earlier than FiledDate.", 400);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
 
@@ -445,7 +529,7 @@ public sealed class CourtWorkflowService(
             courtCase.CaseTitle = string.IsNullOrWhiteSpace(command.CaseTitle) ? null : command.CaseTitle.Trim();
             courtCase.CaseType = string.IsNullOrWhiteSpace(command.CaseType) ? null : command.CaseType.Trim();
             courtCase.FiledDate = command.FiledDate;
-            courtCase.CurrentStatus = string.IsNullOrWhiteSpace(command.CurrentStatus) ? "Pending" : command.CurrentStatus.Trim();
+            courtCase.CurrentStatus = string.IsNullOrWhiteSpace(command.CurrentStatus) ? null : command.CurrentStatus.Trim();
             courtCase.DisposedDate = command.DisposedDate;
             courtCase.Remarks = string.IsNullOrWhiteSpace(command.Remarks) ? null : command.Remarks.Trim();
             courtCase.Revision++;
@@ -473,7 +557,7 @@ public sealed class CourtWorkflowService(
                 WorkstreamNameSnapshot = courtWs?.Name ?? "Court References",
                 OldStatus = oldStatus,
                 NewStatus = courtCase.CurrentStatus,
-                Notes = statusChanged ? $"Status changed from {oldStatus} to {courtCase.CurrentStatus}" : "Metadata updated"
+                Notes = statusChanged ? $"Status changed from {oldStatus ?? "None"} to {courtCase.CurrentStatus ?? "None"}" : "Metadata updated"
             });
 
             await db.SaveChangesAsync(c);
@@ -497,17 +581,38 @@ public sealed class CourtWorkflowService(
         if (effectiveDeskId.HasValue)
         {
             var desk = await db.OfficeDesks.AsNoTracking()
+                .Include(d => d.Workstream)
                 .FirstOrDefaultAsync(d => d.Id == effectiveDeskId.Value && d.IsActive && d.RecordStatus == RecordStatus.Active, ct)
                 ?? throw new CourtWorkflowException("Target office desk not found or inactive.", 400);
+
+            if (desk.Workstream?.Code != WorkstreamCodes.CourtReferences)
+                throw new CourtWorkflowException("Target office desk must belong to the Court References workstream.", 400);
+
             targetDeskName = desk.Name;
         }
 
         string? targetUserName = null;
         if (effectiveUserId.HasValue)
         {
+            if (!effectiveDeskId.HasValue)
+                throw new CourtWorkflowException("Cannot assign an officer without a responsible desk.", 400);
+
             var user = await db.AppUsers.AsNoTracking()
                 .FirstOrDefaultAsync(u => u.Id == effectiveUserId.Value && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
                 ?? throw new CourtWorkflowException("Target assigned user not found or inactive.", 400);
+
+            var isMember = await db.UserDeskMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == effectiveUserId.Value
+                            && m.OfficeDeskId == effectiveDeskId.Value
+                            && m.IsActive
+                            && m.RemovedAt == null
+                            && m.RecordStatus == RecordStatus.Active
+                            && m.OfficeDesk.IsActive
+                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+
+            if (!isMember)
+                throw new CourtWorkflowException("Assigned officer must be an active member of the target desk.", 400);
+
             targetUserName = user.DisplayName;
         }
 
@@ -590,10 +695,6 @@ public sealed class CourtWorkflowService(
         if (!canManage)
             throw new CourtWorkflowException("You do not have permission to record court proceedings.", 403);
 
-        var courtCase = await db.CourtCases.AsNoTracking().FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct);
-        if (courtCase is null)
-            throw new CourtWorkflowException("Court case not found.", 404);
-
         if (command.NextDate.HasValue && command.ProceedingDate.HasValue && command.NextDate.Value < command.ProceedingDate.Value)
             throw new CourtWorkflowException("NextDate cannot be earlier than ProceedingDate.", 400);
 
@@ -613,7 +714,17 @@ public sealed class CourtWorkflowService(
                 return new CourtProceedingDto(p.Id, p.CourtCaseId, p.ProceedingDate, p.OrderType, p.RestraintNature, p.Summary, p.NextDate, p.CreatedAt);
             }
 
+            var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, c)
+                ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+            if (command.ExpectedRevision.HasValue && courtCase.Revision != command.ExpectedRevision.Value)
+                throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
             var now = DateTimeOffset.UtcNow;
+            courtCase.Revision++;
+            courtCase.UpdatedAt = now;
+            courtCase.UpdatedBy = actorDisplayName;
+
             var proceeding = new CourtProceeding
             {
                 Id = proceedingId,
@@ -669,6 +780,7 @@ public sealed class CourtWorkflowService(
                 .FirstOrDefault();
 
             // ONLY modify or close active ScheduledEvent if newly entered proceeding is the authoritative current proceeding
+            // INVARIANT: Do NOT auto-create ScheduledEvent on first proceeding! Explicit promotion is required.
             if (authoritative != null && authoritative.Id == proceedingId)
             {
                 var existingSchedule = await db.ScheduledEvents
@@ -677,7 +789,6 @@ public sealed class CourtWorkflowService(
                                            && e.Status == ScheduledEventStatus.Scheduled
                                            && e.RecordStatus == RecordStatus.Active, c);
 
-                var courtWsId = courtWs?.Id ?? Guid.Empty;
                 var courtWsName = courtWs?.Name ?? "Court References";
 
                 if (existingSchedule != null)
@@ -740,56 +851,9 @@ public sealed class CourtWorkflowService(
                             Notes = $"Terminal transition from Court Proceeding recorded on {now:yyyy-MM-dd HH:mm:ss} UTC"
                         });
                     }
-                }
-                else if (command.NextDate.HasValue)
-                {
-                    // Create new active ScheduledEvent for this authoritative NDOH
-                    var scheduledEvent = new ScheduledEvent
-                    {
-                        Id = Guid.NewGuid(),
-                        Title = $"Court Hearing: {courtCase.CaseNumber} - {courtCase.CourtName}",
-                        Description = $"Authoritative NDOH from proceeding on {command.ProceedingDate:yyyy-MM-dd}",
-                        ScheduledDate = command.NextDate.Value,
-                        ScheduledTime = null,
-                        EventKind = ScheduledEventKind.CourtHearing,
-                        Priority = ScheduledEventPriority.Urgent,
-                        Status = ScheduledEventStatus.Scheduled,
-                        Origin = ScheduledEventOrigin.CourtProceeding,
-                        WorkstreamId = courtWsId,
-                        ResponsibleOfficeDeskId = courtCase.ResponsibleOfficeDeskId,
-                        AssignedUserId = courtCase.AssignedUserId,
-                        CourtCaseId = courtCaseId,
-                        CourtProceedingId = proceeding.Id,
-                        CreatedByUserId = callerUserId,
-                        CreatedByDisplayNameSnapshot = actorDisplayName,
-                        CreatedByDesignationSnapshot = actorDesignation,
-                        LastActivityAt = now,
-                        RecordStatus = RecordStatus.Active,
-                        CreatedAt = now,
-                        UpdatedAt = now,
-                        Revision = 1
-                    };
-                    db.ScheduledEvents.Add(scheduledEvent);
 
-                    db.ScheduledEventEvents.Add(new ScheduledEventEvent
-                    {
-                        Id = Guid.NewGuid(),
-                        ScheduledEventId = scheduledEvent.Id,
-                        SequenceNumber = 1,
-                        Action = ScheduledEventAction.Created,
-                        ActionAt = now,
-                        ActorUserId = callerUserId,
-                        ActorDisplayNameSnapshot = actorDisplayName,
-                        ActorDesignationSnapshot = actorDesignation,
-                        WorkstreamIdSnapshot = courtWsId,
-                        WorkstreamNameSnapshot = courtWsName,
-                        NewScheduledDate = command.NextDate.Value,
-                        Reason = "Initial authoritative Court Hearing scheduled",
-                        Notes = $"Synchronized from Court Proceeding recorded on {now:yyyy-MM-dd HH:mm:ss} UTC"
-                    });
+                    await db.SaveChangesAsync(c);
                 }
-
-                await db.SaveChangesAsync(c);
             }
 
             return new CourtProceedingDto(
@@ -805,13 +869,19 @@ public sealed class CourtWorkflowService(
         }, verifySucceeded, ct);
     }
 
-    public async Task LinkAwardAsync(Guid courtCaseId, Guid awardId, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
+            throw new CourtWorkflowException("You do not have permission to view awards.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var awardExists = await db.Awards.AnyAsync(a => a.Id == awardId && a.RecordStatus == RecordStatus.Active, ct);
         if (!awardExists) throw new CourtWorkflowException("Award not found.", 404);
@@ -821,6 +891,10 @@ public sealed class CourtWorkflowService(
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         db.Set<CourtCaseAward>().Add(new CourtCaseAward
         {
@@ -851,19 +925,29 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkAwardAsync(Guid courtCaseId, Guid awardId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.AwardView, ct))
+            throw new CourtWorkflowException("You do not have permission to view awards.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var link = await db.Set<CourtCaseAward>().FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.AwardId == awardId, ct);
         if (link is null) return;
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         db.Set<CourtCaseAward>().Remove(link);
 
@@ -889,13 +973,19 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
+            throw new CourtWorkflowException("You do not have permission to view khasras.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var khasraExists = await db.Khasras.AnyAsync(k => k.Id == khasraId && k.RecordStatus == RecordStatus.Active, ct);
         if (!khasraExists) throw new CourtWorkflowException("Khasra not found.", 404);
@@ -905,6 +995,10 @@ public sealed class CourtWorkflowService(
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         db.Set<CourtCaseKhasra>().Add(new CourtCaseKhasra
         {
@@ -935,19 +1029,29 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkKhasraAsync(Guid courtCaseId, Guid khasraId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.KhasraView, ct))
+            throw new CourtWorkflowException("You do not have permission to view khasras.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var link = await db.Set<CourtCaseKhasra>().FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.KhasraId == khasraId, ct);
         if (link is null) return;
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         db.Set<CourtCaseKhasra>().Remove(link);
 
@@ -973,13 +1077,19 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task LinkMatterAsync(Guid courtCaseId, Guid matterId, Guid callerUserId, CancellationToken ct = default)
+    public async Task LinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
+            throw new CourtWorkflowException("You do not have permission to view matters.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var matterExists = await db.Matters.AnyAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
         if (!matterExists) throw new CourtWorkflowException("Matter not found.", 404);
@@ -987,6 +1097,10 @@ public sealed class CourtWorkflowService(
         var existing = await db.CourtCaseMatters.FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.MatterId == matterId, ct);
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         if (existing != null)
         {
@@ -1031,19 +1145,29 @@ public sealed class CourtWorkflowService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkMatterAsync(Guid courtCaseId, Guid matterId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
 
+        if (!await HasUserPermissionAsync(callerUserId, PermissionCodes.MatterView, ct))
+            throw new CourtWorkflowException("You do not have permission to view matters.", 403);
+
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var existing = await db.CourtCaseMatters.FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.MatterId == matterId && x.RecordStatus == RecordStatus.Active, ct);
         if (existing is null) return;
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         existing.RecordStatus = RecordStatus.Archived;
         existing.UpdatedAt = now;
@@ -1084,8 +1208,15 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         var party = new CourtCaseParty
         {
@@ -1141,11 +1272,18 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var party = await db.CourtCaseParties.FirstOrDefaultAsync(p => p.Id == partyEntryId && p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Party entry not found.", 404);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         party.DisplayName = displayName;
         party.Role = role;
@@ -1179,7 +1317,7 @@ public sealed class CourtWorkflowService(
         return new CourtCasePartyDto(party.Id, party.CourtCaseId, party.PartyId, party.DisplayName, party.Role, party.FatherOrSpouseName, party.AddressText, party.Remarks, party.Sequence);
     }
 
-    public async Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, Guid callerUserId, CancellationToken ct = default)
+    public async Task RemovePartyAsync(Guid courtCaseId, Guid partyEntryId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
@@ -1187,11 +1325,18 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var party = await db.CourtCaseParties.FirstOrDefaultAsync(p => p.Id == partyEntryId && p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Party entry not found.", 404);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         party.RecordStatus = RecordStatus.Archived;
         party.UpdatedAt = now;
@@ -1230,8 +1375,15 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         var rep = new CourtCaseRepresentative
         {
@@ -1284,11 +1436,18 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (dto.ExpectedRevision.HasValue && courtCase.Revision != dto.ExpectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var rep = await db.CourtCaseRepresentatives.FirstOrDefaultAsync(r => r.Id == representativeId && r.CourtCaseId == courtCaseId && r.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Representative not found.", 404);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         rep.DisplayName = displayName;
         rep.RepresentativeType = dto.ResolvedRepresentativeType;
@@ -1322,7 +1481,7 @@ public sealed class CourtWorkflowService(
         return new CourtCaseRepresentativeDto(rep.Id, rep.CourtCaseId, rep.CourtCasePartyId, rep.DisplayName, rep.RepresentativeType, rep.RepresentsRole, rep.ContactText, rep.Remarks);
     }
 
-    public async Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, Guid callerUserId, CancellationToken ct = default)
+    public async Task RemoveRepresentativeAsync(Guid courtCaseId, Guid representativeId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit) throw new CourtWorkflowException("Forbidden", 403);
@@ -1330,11 +1489,18 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var rep = await db.CourtCaseRepresentatives.FirstOrDefaultAsync(r => r.Id == representativeId && r.CourtCaseId == courtCaseId && r.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Representative not found.", 404);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         rep.RecordStatus = RecordStatus.Archived;
         rep.UpdatedAt = now;
@@ -1370,6 +1536,7 @@ public sealed class CourtWorkflowService(
         string? documentRole,
         string? displayName,
         Guid? proceedingId,
+        int? expectedRevision,
         Guid callerUserId,
         CancellationToken ct = default)
     {
@@ -1379,6 +1546,9 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         if (proceedingId.HasValue)
         {
             var procExists = await db.CourtProceedings.AnyAsync(p => p.Id == proceedingId.Value && p.CourtCaseId == courtCaseId, ct);
@@ -1387,6 +1557,10 @@ public sealed class CourtWorkflowService(
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         var storageResult = await storage.SaveAndHashAsync(stream, fileName, ct);
 
@@ -1465,6 +1639,7 @@ public sealed class CourtWorkflowService(
         string? documentRole,
         string? displayName,
         Guid? proceedingId,
+        int? expectedRevision,
         Guid callerUserId,
         CancellationToken ct = default)
     {
@@ -1473,6 +1648,9 @@ public sealed class CourtWorkflowService(
 
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
+
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var doc = await db.Documents.FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Document not found.", 404);
@@ -1486,6 +1664,10 @@ public sealed class CourtWorkflowService(
         var existing = await db.CourtCaseDocuments.FirstOrDefaultAsync(x => x.CourtCaseId == courtCaseId && x.DocumentId == documentId, ct);
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         CourtCaseDocument ccd;
         if (existing != null)
@@ -1557,7 +1739,7 @@ public sealed class CourtWorkflowService(
         );
     }
 
-    public async Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, Guid callerUserId, CancellationToken ct = default)
+    public async Task UnlinkDocumentAsync(Guid courtCaseId, Guid documentLinkId, int? expectedRevision, Guid callerUserId, CancellationToken ct = default)
     {
         var canManage = await courtAuth.CanManageDocumentsAsync(courtCaseId, callerUserId, ct);
         if (!canManage) throw new CourtWorkflowException("Forbidden", 403);
@@ -1565,11 +1747,18 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
+        if (expectedRevision.HasValue && courtCase.Revision != expectedRevision.Value)
+            throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
+
         var link = await db.CourtCaseDocuments.FirstOrDefaultAsync(d => d.Id == documentLinkId && d.CourtCaseId == courtCaseId && d.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Document link not found.", 404);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
         var now = DateTimeOffset.UtcNow;
+
+        courtCase.Revision++;
+        courtCase.UpdatedAt = now;
+        courtCase.UpdatedBy = actorDisplayName;
 
         link.RecordStatus = RecordStatus.Archived;
         link.UpdatedAt = now;

@@ -6,29 +6,39 @@ interface CourtOverviewTabProps {
 }
 
 export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase }) => {
+  const nextDate = courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate;
+  const summary = courtCase.lastSummary || courtCase.latestProceedingSummary;
+
   return (
     <div className="court-overview-tab">
-      {courtCase.nextHearingDate && (
+      {nextDate && (
         <div className="court-ndoh-alert-card">
           <div>
             <div style={{ fontSize: "12px", color: "#6d28d9", fontWeight: 600, textTransform: "uppercase" }}>
               Next Date of Hearing (NDOH)
             </div>
             <div style={{ fontSize: "20px", fontWeight: 700, color: "#4c1d95" }}>
-              {courtCase.nextHearingDate}
+              {nextDate}
             </div>
           </div>
-          <span className="court-badge court-badge-ndoh">Authoritative Schedule</span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <span className="court-badge court-badge-ndoh">Authoritative Proceeding</span>
+            {courtCase.isProjectedToCalendar ? (
+              <span className="court-badge" style={{ background: "#dcfce7", color: "#166534" }}>● On Calendar</span>
+            ) : (
+              <span className="court-badge" style={{ background: "#f1f5f9", color: "#64748b" }}>○ Not on Calendar</span>
+            )}
+          </div>
         </div>
       )}
 
-      {courtCase.latestProceedingSummary && (
+      {summary && (
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "16px", marginTop: "16px" }}>
           <div style={{ fontSize: "12px", fontWeight: 600, color: "#64748b", textTransform: "uppercase", marginBottom: "6px" }}>
             Latest Order / Proceeding Summary
           </div>
           <div style={{ fontSize: "14px", color: "#1e293b", lineHeight: 1.5 }}>
-            {courtCase.latestProceedingSummary}
+            {summary}
           </div>
         </div>
       )}
@@ -37,38 +47,46 @@ export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase })
         <div className="court-card">
           <div className="court-card-title">Status</div>
           <div className="court-card-value">
-            <span
-              className={`court-badge ${
-                courtCase.currentStatus?.toLowerCase() === "disposed"
-                  ? "court-badge-status-disposed"
-                  : courtCase.currentStatus?.toLowerCase() === "stay"
-                  ? "court-badge-status-stay"
-                  : "court-badge-status-pending"
-              }`}
-            >
-              {courtCase.currentStatus || "Pending"}
-            </span>
+            {courtCase.currentStatus ? (
+              <span
+                className={`court-badge ${
+                  courtCase.currentStatus.toLowerCase() === "disposed"
+                    ? "court-badge-status-disposed"
+                    : courtCase.currentStatus.toLowerCase() === "stay"
+                    ? "court-badge-status-stay"
+                    : "court-badge-status-pending"
+                }`}
+              >
+                {courtCase.currentStatus}
+              </span>
+            ) : (
+              <span style={{ color: "#94a3b8", fontSize: "14px" }}>—</span>
+            )}
           </div>
         </div>
 
         <div className="court-card">
           <div className="court-card-title">Proceedings</div>
-          <div className="court-card-value">{courtCase.proceedingCount}</div>
+          <div className="court-card-value">{courtCase.proceedingsCount ?? courtCase.proceedingCount ?? 0}</div>
         </div>
 
         <div className="court-card">
           <div className="court-card-title">Documents</div>
-          <div className="court-card-value">{courtCase.documentCount}</div>
+          <div className="court-card-value">{courtCase.documentsCount ?? courtCase.documentCount ?? 0}</div>
         </div>
 
         <div className="court-card">
           <div className="court-card-title">Linked Awards</div>
-          <div className="court-card-value">{courtCase.awards.length}</div>
+          <div className="court-card-value">
+            {courtCase.awardsCount !== null && courtCase.awardsCount !== undefined ? courtCase.awardsCount : "—"}
+          </div>
         </div>
 
         <div className="court-card">
           <div className="court-card-title">Linked Matters</div>
-          <div className="court-card-value">{courtCase.matters.length}</div>
+          <div className="court-card-value">
+            {courtCase.mattersCount !== null && courtCase.mattersCount !== undefined ? courtCase.mattersCount : "—"}
+          </div>
         </div>
       </div>
 

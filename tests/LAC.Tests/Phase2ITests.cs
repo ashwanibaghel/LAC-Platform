@@ -348,13 +348,18 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
     public async Task ReassignCase_RequiresCourtAssign_AndChecksRevision()
     {
         var admin = await CreateAdminClientAsync();
-        var ws = new Workstream { Code = $"WS_COURT_{Guid.NewGuid():N}", Name = "Court WS" };
-        var desk = new OfficeDesk { Workstream = ws, Name = "Legal Cell Desk" };
-
+        OfficeDesk desk;
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-            db.Workstreams.Add(ws);
+            var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+            if (courtWs == null)
+            {
+                courtWs = new Workstream { Code = WorkstreamCodes.CourtReferences, Name = "Court References" };
+                db.Workstreams.Add(courtWs);
+                await db.SaveChangesAsync();
+            }
+            desk = new OfficeDesk { WorkstreamId = courtWs.Id, Name = "Legal Cell Desk" };
             db.OfficeDesks.Add(desk);
             await db.SaveChangesAsync();
         }
@@ -368,8 +373,13 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         var forbidRes = await viewerClient.PostAsJsonAsync($"/api/court-cases/{caseId}/reassign", new { targetResponsibleDeskId = desk.Id, expectedRevision = 1 });
         Assert.Equal(HttpStatusCode.Forbidden, forbidRes.StatusCode);
 
-        // User with Court.Assign
-        var (assignerClient, targetUser) = await CreateUserWithPermissionsAsync($"usr_assign_{Guid.NewGuid():N}", "Pass123!", new[] { (PermissionCodes.CourtView, ScopeMode.All), (PermissionCodes.CourtAssign, ScopeMode.All) });
+        // User with Court.Assign, who is an active member of target desk
+        var (assignerClient, targetUser) = await CreateUserWithPermissionsAsync(
+            $"usr_assign_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.All), (PermissionCodes.CourtAssign, ScopeMode.All) },
+            deskId: desk.Id);
+
         var assignRes = await assignerClient.PostAsJsonAsync($"/api/court-cases/{caseId}/reassign", new
         {
             targetResponsibleDeskId = desk.Id,
@@ -451,8 +461,21 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         };
         var p1Res = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", proc1);
         Assert.Equal(HttpStatusCode.Created, p1Res.StatusCode);
+        var p1Json = await p1Res.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var p1Id = p1Json.GetProperty("id").GetGuid();
 
-        // Verify active ScheduledEvent was created
+        // INVARIANT (Audit Item 8): Proceeding does NOT automatically generate or mutate operational calendar items behind the caller's back!
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var sched = await db.ScheduledEvents.FirstOrDefaultAsync(s => s.CourtCaseId == caseId && s.Status == ScheduledEventStatus.Scheduled);
+            Assert.Null(sched);
+        }
+
+        // Explicit promotion creates the first schedule
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{p1Id}", new { title = "Hearing for WP" });
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -752,5 +775,562 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         // Remove Party
         var pDelRes = await admin.DeleteAsync($"/api/court-cases/{caseId}/parties/{partyId}");
         Assert.Equal(HttpStatusCode.OK, pDelRes.StatusCode);
+    }
+
+    // =========================================================================
+    // 9. AUDIT ITEM 1: ZERO RUNTIME FALLBACK FROM AWARD PERMISSIONS TO COURT
+    // =========================================================================
+
+    [Fact]
+    public async Task AwardPermissions_NoRuntimeFallbackToCourt_FailsForbidden()
+    {
+        var admin = await CreateAdminClientAsync();
+        var cmd = new { caseNumber = $"WP_NOFALLBACK_{Guid.NewGuid():N}", courtName = "Delhi High Court" };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        Assert.Equal(HttpStatusCode.Created, cRes.StatusCode);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Award.View and Award.Edit ONLY (ZERO Court permissions)
+        var (awardUserClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_award_nofallback_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.AwardView, ScopeMode.All),
+                (PermissionCodes.AwardEdit, ScopeMode.All)
+            }
+        );
+
+        // 1. Cannot list court cases
+        var listRes = await awardUserClient.GetAsync("/api/court-cases");
+        Assert.Equal(HttpStatusCode.Forbidden, listRes.StatusCode);
+
+        // 2. Cannot get court case detail
+        var detailRes = await awardUserClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.Forbidden, detailRes.StatusCode);
+
+        // 3. Cannot create court case
+        var createRes = await awardUserClient.PostAsJsonAsync("/api/court-cases", new { caseNumber = "WP_99", courtName = "HC" });
+        Assert.Equal(HttpStatusCode.Forbidden, createRes.StatusCode);
+
+        // 4. Cannot record proceeding
+        var procRes = await awardUserClient.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new { proceedingDate = "2026-06-01" });
+        Assert.Equal(HttpStatusCode.Forbidden, procRes.StatusCode);
+
+        // 5. Cannot get documents
+        var docRes = await awardUserClient.GetAsync($"/api/court-cases/{caseId}/documents");
+        Assert.Equal(HttpStatusCode.Forbidden, docRes.StatusCode);
+    }
+
+    // =========================================================================
+    // 10. AUDIT ITEM 2: SCOPE MODE ENFORCEMENT (OWN FAILS CLOSED, ASSIGNED REQUIRES DESK)
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtAuthorization_ScopeModeOwn_FailsClosed()
+    {
+        var admin = await CreateAdminClientAsync();
+        var cmd = new { caseNumber = $"WP_OWN_{Guid.NewGuid():N}", courtName = "Delhi High Court" };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        Assert.Equal(HttpStatusCode.Created, cRes.StatusCode);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Court.View and Court.Edit in ScopeMode.Own
+        var (ownUserClient, ownUser) = await CreateUserWithPermissionsAsync(
+            $"usr_court_own_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.CourtView, ScopeMode.Own),
+                (PermissionCodes.CourtEdit, ScopeMode.Own)
+            }
+        );
+
+        // ScopeMode.Own must fail closed: empty list
+        var listRes = await ownUserClient.GetAsync("/api/court-cases");
+        Assert.Equal(HttpStatusCode.OK, listRes.StatusCode);
+        var paged = await listRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var items = paged.GetProperty("items").EnumerateArray().ToList();
+        Assert.Empty(items);
+
+        // ScopeMode.Own detail access returns 403 Forbidden
+        var detailRes = await ownUserClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.Forbidden, detailRes.StatusCode);
+    }
+
+    [Fact]
+    public async Task CourtAuthorization_ScopeModeAssigned_StrictDeskMembershipRequired_AssignedUserNeverGrantsAcl()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        OfficeDesk deskA;
+        OfficeDesk deskB;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+            if (courtWs == null)
+            {
+                courtWs = new Workstream { Code = WorkstreamCodes.CourtReferences, Name = "Court References" };
+                db.Workstreams.Add(courtWs);
+                await db.SaveChangesAsync();
+            }
+            deskA = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"Desk_A_{Guid.NewGuid():N}" };
+            deskB = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"Desk_B_{Guid.NewGuid():N}" };
+            db.OfficeDesks.AddRange(deskA, deskB);
+            await db.SaveChangesAsync();
+        }
+
+        // Case assigned to Desk A
+        var cmd = new
+        {
+            caseNumber = $"WP_DESK_A_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            responsibleOfficeDeskId = deskA.Id
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        Assert.Equal(HttpStatusCode.Created, cRes.StatusCode);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User 1 is member of Desk B (NOT Desk A) with ScopeMode.Assigned
+        var (userBClient, userB) = await CreateUserWithPermissionsAsync(
+            $"usr_desk_b_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.Assigned) },
+            deskId: deskB.Id
+        );
+
+        // Assign userB as named handler (AssignedUserId) on the CourtCase in database
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var c = await db.CourtCases.FirstAsync(x => x.Id == caseId);
+            c.AssignedUserId = userB.Id; // Named routing handler ONLY
+            await db.SaveChangesAsync();
+        }
+
+        // INVARIANT (Audit Item 2): AssignedUserId is routing metadata and NEVER grants ACL access!
+        // userB is not a member of Desk A -> Access MUST be denied!
+        var userBDetailRes = await userBClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.Forbidden, userBDetailRes.StatusCode);
+
+        var userBListRes = await userBClient.GetAsync("/api/court-cases");
+        Assert.Equal(HttpStatusCode.OK, userBListRes.StatusCode);
+        var userBPaged = await userBListRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var userBItems = userBPaged.GetProperty("items").EnumerateArray().ToList();
+        Assert.DoesNotContain(userBItems, x => x.GetProperty("id").GetGuid() == caseId);
+
+        // User 2 is member of Desk A with ScopeMode.Assigned
+        var (userAClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_desk_a_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.Assigned) },
+            deskId: deskA.Id
+        );
+
+        // userA is a member of Desk A -> Access GRANTED!
+        var userADetailRes = await userAClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, userADetailRes.StatusCode);
+
+        var userAListRes = await userAClient.GetAsync("/api/court-cases");
+        Assert.Equal(HttpStatusCode.OK, userAListRes.StatusCode);
+        var userAPaged = await userAListRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var userAItems = userAPaged.GetProperty("items").EnumerateArray().ToList();
+        Assert.Contains(userAItems, x => x.GetProperty("id").GetGuid() == caseId);
+    }
+
+    // =========================================================================
+    // 11. AUDIT ITEMS 9 & 11: DISPOSED DATE >= FILED DATE VALIDATION & CHECK CONSTRAINT
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtCase_DisposedDateBeforeFiledDate_FailsValidation()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        // 1. Create with DisposedDate < FiledDate -> 400 Bad Request
+        var badCmd = new
+        {
+            caseNumber = $"WP_DATE_FAIL_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            filedDate = "2026-05-10",
+            disposedDate = "2026-05-01"
+        };
+        var badRes = await admin.PostAsJsonAsync("/api/court-cases", badCmd);
+        Assert.Equal(HttpStatusCode.BadRequest, badRes.StatusCode);
+
+        // 2. Create valid case
+        var validCmd = new
+        {
+            caseNumber = $"WP_DATE_OK_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            filedDate = "2026-05-10",
+            disposedDate = "2026-05-10"
+        };
+        var validRes = await admin.PostAsJsonAsync("/api/court-cases", validCmd);
+        Assert.Equal(HttpStatusCode.Created, validRes.StatusCode);
+        var caseId = (await validRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // 3. Update with DisposedDate < FiledDate -> 400 Bad Request
+        var badUpdate = new
+        {
+            caseTitle = "Updated Title",
+            filedDate = "2026-05-10",
+            disposedDate = "2026-04-30",
+            expectedRevision = 1
+        };
+        var badUpRes = await admin.PutAsJsonAsync($"/api/court-cases/{caseId}", badUpdate);
+        Assert.Equal(HttpStatusCode.BadRequest, badUpRes.StatusCode);
+
+        // 4. Update with DisposedDate >= FiledDate -> 200 OK
+        var goodUpdate = new
+        {
+            caseTitle = "Updated Title",
+            filedDate = "2026-05-10",
+            disposedDate = "2026-05-20",
+            expectedRevision = 1
+        };
+        var goodUpRes = await admin.PutAsJsonAsync($"/api/court-cases/{caseId}", goodUpdate);
+        Assert.Equal(HttpStatusCode.OK, goodUpRes.StatusCode);
+    }
+
+    // =========================================================================
+    // 12. AUDIT ITEM 12: PARTY & REPRESENTATIVE VALIDATION
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtCase_PartyAndRepresentativeValidation_RequiresDisplayNameAndRole()
+    {
+        var admin = await CreateAdminClientAsync();
+        var cmd = new { caseNumber = $"WP_PARTY_VAL_{Guid.NewGuid():N}", courtName = "Delhi High Court" };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // 1. Party with empty name -> 400
+        var emptyNameRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/parties", new
+        {
+            partyType = "Petitioner",
+            partyName = "   "
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, emptyNameRes.StatusCode);
+
+        // 2. Party with empty role -> 400
+        var emptyRoleRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/parties", new
+        {
+            partyType = "   ",
+            partyName = "Valid Name"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, emptyRoleRes.StatusCode);
+
+        // 3. Representative with empty name -> 400
+        var emptyRepRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/representatives", new
+        {
+            representativeType = "Standing Counsel",
+            name = "   "
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, emptyRepRes.StatusCode);
+    }
+
+    // =========================================================================
+    // 13. AUDIT ITEM 5: CONCURRENCY OPTIMISTIC LOCKING ON ALL MUTATIONS
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtCase_Concurrency_OptimisticLocking_ThrowsConflictOnStaleRevision()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, award, khasra) = await SeedVillageAwardKhasraAsync();
+
+        var cmd = new { caseNumber = $"WP_CONCUR_{Guid.NewGuid():N}", courtName = "Delhi High Court" };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // Stale revision = 99
+        // 1. Update Case
+        var upRes = await admin.PutAsJsonAsync($"/api/court-cases/{caseId}", new { caseTitle = "Conflict Test", expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, upRes.StatusCode);
+
+        // 2. Record Proceeding
+        var procRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new { proceedingDate = "2026-06-01", expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, procRes.StatusCode);
+
+        // 3. Link Award
+        var awRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/awards", new { awardId = award.Id, expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, awRes.StatusCode);
+
+        // 4. Link Khasra
+        var khRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/khasras", new { khasraId = khasra.Id, expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, khRes.StatusCode);
+
+        // 5. Add Party
+        var partyRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/parties", new { partyType = "Petitioner", partyName = "Party A", expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, partyRes.StatusCode);
+
+        // 6. Add Representative
+        var repRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/representatives", new { representativeType = "Counsel", name = "Counsel A", expectedRevision = 99 });
+        Assert.Equal(HttpStatusCode.Conflict, repRes.StatusCode);
+
+        // Successful mutation with matching revision (1) increments revision to 2
+        var okUpRes = await admin.PutAsJsonAsync($"/api/court-cases/{caseId}", new { caseTitle = "Updated Title", expectedRevision = 1 });
+        Assert.Equal(HttpStatusCode.OK, okUpRes.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var c = await db.CourtCases.FirstAsync(x => x.Id == caseId);
+            Assert.Equal(2, c.Revision);
+        }
+    }
+
+    // =========================================================================
+    // 14. AUDIT ITEMS 7 & 13: PROJECTION ISOLATION & CAPABILITY MATRIX
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtCase_ProjectionIsolation_PrivacyAndCapabilityMatrix()
+    {
+        var admin = await CreateAdminClientAsync();
+        var (village, award, khasra) = await SeedVillageAwardKhasraAsync();
+
+        // Seed Matter
+        Guid matterId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtWs = await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+            var m = new Matter
+            {
+                Title = $"Matter_{Guid.NewGuid():N}",
+                MatterType = "Litigation",
+                WorkstreamId = courtWs.Id
+            };
+            db.Matters.Add(m);
+            await db.SaveChangesAsync();
+            matterId = m.Id;
+        }
+
+        var cmd = new
+        {
+            caseNumber = $"WP_ISOLATION_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            awardIds = new[] { award.Id },
+            khasraIds = new[] { khasra.Id },
+            matterIds = new[] { matterId }
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        Assert.Equal(HttpStatusCode.Created, cRes.StatusCode);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Court.View ONLY (NO Award.View, NO Khasra.View, NO Matter.View)
+        var (courtOnlyClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_court_isolated_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.All) }
+        );
+
+        var detailRes = await courtOnlyClient.GetAsync($"/api/court-cases/{caseId}");
+        Assert.Equal(HttpStatusCode.OK, detailRes.StatusCode);
+        var detail = await detailRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+
+        // INVARIANT (Audit Item 7): Cross-domain counts MUST be null when caller lacks respective view permissions!
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("awardsCount").ValueKind);
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("khasrasCount").ValueKind);
+        Assert.Equal(JsonValueKind.Null, detail.GetProperty("mattersCount").ValueKind);
+
+        // Linked collections MUST be empty!
+        Assert.Empty(detail.GetProperty("awards").EnumerateArray());
+        Assert.Empty(detail.GetProperty("khasras").EnumerateArray());
+
+        // Capabilities must truthfully reflect missing permissions
+        var caps = detail.GetProperty("capabilities");
+        Assert.False(caps.GetProperty("canLinkAward").GetBoolean());
+        Assert.False(caps.GetProperty("canLinkKhasra").GetBoolean());
+        Assert.False(caps.GetProperty("canLinkMatter").GetBoolean());
+        Assert.False(caps.GetProperty("canEdit").GetBoolean());
+
+        // Work tab endpoint must return empty collection without Matter.View
+        var workRes = await courtOnlyClient.GetAsync($"/api/court-cases/{caseId}/work");
+        Assert.Equal(HttpStatusCode.OK, workRes.StatusCode);
+        var workItems = await workRes.Content.ReadFromJsonAsync<JsonElement[]>(JsonOpts);
+        Assert.Empty(workItems!);
+    }
+
+    // =========================================================================
+    // 15. AUDIT ITEM 14: FILTER OPTIONS RESTRICTED TO COURT REFERENCES WORKSTREAM
+    // =========================================================================
+
+    [Fact]
+    public async Task CourtCase_FilterOptions_RestrictedToCourtReferencesDesksAndActiveMembers()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        OfficeDesk courtDesk;
+        OfficeDesk otherDesk;
+        AppUser activeCourtMember;
+        AppUser inactiveCourtMember;
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+            if (courtWs == null)
+            {
+                courtWs = new Workstream { Code = WorkstreamCodes.CourtReferences, Name = "Court References" };
+                db.Workstreams.Add(courtWs);
+                await db.SaveChangesAsync();
+            }
+
+            var otherWs = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == WorkstreamCodes.Award);
+            courtDesk = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"CourtDesk_{Guid.NewGuid():N}" };
+            otherDesk = new OfficeDesk { WorkstreamId = otherWs!.Id, Name = $"OtherDesk_{Guid.NewGuid():N}" };
+            db.OfficeDesks.AddRange(courtDesk, otherDesk);
+            await db.SaveChangesAsync();
+
+            activeCourtMember = new AppUser { Username = $"officer_active_{Guid.NewGuid():N}", DisplayName = "Active Officer", IsActive = true };
+            inactiveCourtMember = new AppUser { Username = $"officer_inactive_{Guid.NewGuid():N}", DisplayName = "Inactive Officer", IsActive = false };
+            db.AppUsers.AddRange(activeCourtMember, inactiveCourtMember);
+            await db.SaveChangesAsync();
+
+            db.UserDeskMemberships.Add(new UserDeskMembership { UserId = activeCourtMember.Id, OfficeDeskId = courtDesk.Id, IsActive = true });
+            db.UserDeskMemberships.Add(new UserDeskMembership { UserId = inactiveCourtMember.Id, OfficeDeskId = courtDesk.Id, IsActive = false });
+            await db.SaveChangesAsync();
+        }
+
+        var res = await admin.GetAsync("/api/court-cases/filter-options");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var options = await res.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+
+        var desks = options.GetProperty("desks").EnumerateArray().Select(d => d.GetProperty("id").GetGuid()).ToList();
+        Assert.Contains(courtDesk.Id, desks);
+        Assert.DoesNotContain(otherDesk.Id, desks);
+
+        var officers = options.GetProperty("officers").EnumerateArray().Select(o => o.GetProperty("id").GetGuid()).ToList();
+        Assert.Contains(activeCourtMember.Id, officers);
+        Assert.DoesNotContain(inactiveCourtMember.Id, officers);
+    }
+
+    // =========================================================================
+    // 16. AUDIT ITEM 3: CASE-SPECIFIC SCHEDULE AUTHORIZATION
+    // =========================================================================
+
+    [Fact]
+    public async Task Schedule_CaseSpecificAuthorization_RequiresCourtCaseAccess()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        OfficeDesk deskA;
+        OfficeDesk deskB;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var courtWs = await db.Workstreams.FirstAsync(w => w.Code == WorkstreamCodes.CourtReferences);
+            deskA = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"DeskA_{Guid.NewGuid():N}" };
+            deskB = new OfficeDesk { WorkstreamId = courtWs.Id, Name = $"DeskB_{Guid.NewGuid():N}" };
+            db.OfficeDesks.AddRange(deskA, deskB);
+            await db.SaveChangesAsync();
+        }
+
+        // Create court case in Desk A
+        var cmd = new
+        {
+            caseNumber = $"WP_SCHED_AUTH_{Guid.NewGuid():N}",
+            courtName = "Delhi High Court",
+            responsibleOfficeDeskId = deskA.Id
+        };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // Record proceeding with NDOH
+        var pRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new
+        {
+            proceedingDate = "2026-06-01",
+            nextDate = "2026-07-15",
+            orderType = "Notice"
+        });
+        var procId = (await pRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // Promote to calendar — explicitly assign to deskA so userA's membership grants access
+        var promoteRes = await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", new { title = "Hearing on Notice", responsibleOfficeDeskId = deskA.Id });
+        Assert.Equal(HttpStatusCode.Created, promoteRes.StatusCode);
+        var eventId = (await promoteRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // User with Schedule.View & Court.View in ScopeMode.Assigned, belonging ONLY to Desk B
+        var (userBClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_sched_desk_b_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.CourtView, ScopeMode.Assigned)
+            },
+            deskId: deskB.Id
+        );
+
+        // INVARIANT (Audit Item 3): User cannot view court scheduled event because they cannot access case in Desk A!
+        var getRes = await userBClient.GetAsync($"/api/scheduled-events/{eventId}");
+        Assert.Equal(HttpStatusCode.NotFound, getRes.StatusCode);
+
+        // User belonging to Desk A CAN view it
+        var (userAClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_sched_desk_a_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.ScheduleView, ScopeMode.All),
+                (PermissionCodes.CourtView, ScopeMode.Assigned)
+            },
+            deskId: deskA.Id
+        );
+
+        var getARes = await userAClient.GetAsync($"/api/scheduled-events/{eventId}");
+        Assert.Equal(HttpStatusCode.OK, getARes.StatusCode);
+    }
+
+    // =========================================================================
+    // 17. AUDIT ITEM 18: ACTIVITY FEED ZERO COURT LEAK WITHOUT COURT.VIEW
+    // =========================================================================
+
+    [Fact]
+    public async Task ActivityFeed_ZeroCourtLeaksWhenLackingCourtView()
+    {
+        var admin = await CreateAdminClientAsync();
+
+        // 1. Admin creates a court case, adds a proceeding, uploads a document
+        var cmd = new { caseNumber = $"WP_FEED_{Guid.NewGuid():N}", courtName = "Delhi High Court" };
+        var cRes = await admin.PostAsJsonAsync("/api/court-cases", cmd);
+        var caseId = (await cRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        var pRes = await admin.PostAsJsonAsync($"/api/court-cases/{caseId}/proceedings", new
+        {
+            proceedingDate = "2026-06-01",
+            nextDate = "2026-07-15",
+            orderType = "Stay"
+        });
+        var procId = (await pRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts)).GetProperty("id").GetGuid();
+
+        // Promote to calendar
+        await admin.PostAsJsonAsync($"/api/scheduled-events/from-court-proceeding/{procId}", new { title = "Hearing for WP" });
+
+        // User with Audit.View (ScopeMode.All) but ZERO Court.View
+        var (auditOnlyClient, _) = await CreateUserWithPermissionsAsync(
+            $"usr_feed_audit_{Guid.NewGuid():N}",
+            "Pass123!",
+            new[]
+            {
+                (PermissionCodes.AuditView, ScopeMode.All)
+            }
+        );
+
+        // Query team activity feed
+        var feedRes = await auditOnlyClient.GetAsync("/api/activity/team");
+        Assert.Equal(HttpStatusCode.OK, feedRes.StatusCode);
+        var feed = await feedRes.Content.ReadFromJsonAsync<JsonElement>(JsonOpts);
+        var events = feed.GetProperty("items").EnumerateArray().ToList();
+
+        // Zero items referencing CourtCase or court hearing scheduled event
+        Assert.DoesNotContain(events, e =>
+            e.TryGetProperty("entityType", out var et) &&
+            (et.GetString()?.Equals("CourtCase", StringComparison.OrdinalIgnoreCase) == true ||
+             et.GetString()?.Equals("courtcase", StringComparison.OrdinalIgnoreCase) == true));
     }
 }

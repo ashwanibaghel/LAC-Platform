@@ -17,13 +17,14 @@ public sealed record CreateCourtProceedingApiRequest(
     string? OrderType,
     string? RestraintNature,
     string? Summary,
-    DateOnly? NextDate
+    DateOnly? NextDate,
+    int? ExpectedRevision = null
 );
 
-public sealed record LinkAwardApiRequest(Guid AwardId);
-public sealed record LinkKhasraApiRequest(Guid KhasraId);
-public sealed record LinkMatterApiRequest(Guid MatterId);
-public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId);
+public sealed record LinkAwardApiRequest(Guid AwardId, int? ExpectedRevision = null);
+public sealed record LinkKhasraApiRequest(Guid KhasraId, int? ExpectedRevision = null);
+public sealed record LinkMatterApiRequest(Guid MatterId, int? ExpectedRevision = null);
+public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId, int? ExpectedRevision = null);
 
 public static class CourtEndpoints
 {
@@ -53,13 +54,19 @@ public static class CourtEndpoints
             Guid? assignedUserId,
             Guid? awardId,
             Guid? villageId,
-            int page,
-            int pageSize,
+            int? page,
+            int? pageSize,
+            ICourtAuthorizationService courtAuth,
             ICourtProjectionService projection,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.HasCourtViewPermissionAsync(currentUser.UserId.Value, ct))
+                return Results.Forbid();
+
+            var p = page.GetValueOrDefault(1);
+            var ps = pageSize.GetValueOrDefault(25);
 
             var query = new CourtCaseFilterQuery(
                 Search: search,
@@ -71,8 +78,8 @@ public static class CourtEndpoints
                 AssignedUserId: assignedUserId,
                 AwardId: awardId,
                 VillageId: villageId,
-                Page: page > 0 ? page : 1,
-                PageSize: pageSize > 0 ? pageSize : 25
+                Page: p > 0 ? p : 1,
+                PageSize: ps > 0 ? ps : 25
             );
 
             var result = await projection.GetCourtCasesAsync(query, currentUser.UserId.Value, ct);
@@ -109,13 +116,17 @@ public static class CourtEndpoints
         // 4. Case Workspace Detail
         group.MapGet("/{id:guid}", async (
             Guid id,
+            ICourtAuthorizationService courtAuth,
             ICourtProjectionService projection,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct))
+                return Results.Forbid();
+
             var detail = await projection.GetCourtCaseDetailAsync(id, currentUser.UserId.Value, ct);
-            if (detail is null) return Results.NotFound(new { error = "Court case not found or access denied." });
+            if (detail is null) return Results.NotFound(new { error = "Court case not found." });
             return Results.Ok(detail);
         });
 
@@ -187,7 +198,8 @@ public static class CourtEndpoints
                     OrderType: req.OrderType,
                     RestraintNature: req.RestraintNature,
                     Summary: req.Summary,
-                    NextDate: req.NextDate
+                    NextDate: req.NextDate,
+                    ExpectedRevision: req.ExpectedRevision
                 );
                 var result = await workflow.RecordProceedingAsync(id, cmd, currentUser.UserId.Value, ct);
                 return Results.Created($"/api/court-cases/{id}/proceedings/{result.Id}", result);
@@ -228,6 +240,7 @@ public static class CourtEndpoints
             var documentRole = form["documentRole"].ToString();
             var displayName = form["displayName"].ToString();
             Guid? proceedingId = Guid.TryParse(form["courtProceedingId"].ToString(), out var pid) ? pid : null;
+            int? expectedRevision = int.TryParse(form["expectedRevision"].ToString(), out var rev) ? rev : null;
 
             try
             {
@@ -240,6 +253,7 @@ public static class CourtEndpoints
                     string.IsNullOrWhiteSpace(documentRole) ? null : documentRole,
                     string.IsNullOrWhiteSpace(displayName) ? null : displayName,
                     proceedingId,
+                    expectedRevision,
                     currentUser.UserId.Value,
                     ct
                 );
@@ -261,7 +275,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                var result = await workflow.LinkDocumentAsync(id, req.DocumentId, req.DocumentRole, req.DisplayName, req.CourtProceedingId, currentUser.UserId.Value, ct);
+                var result = await workflow.LinkDocumentAsync(id, req.DocumentId, req.DocumentRole, req.DisplayName, req.CourtProceedingId, req.ExpectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(result);
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -271,6 +285,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/documents/{documentLinkId:guid}", async (
             Guid id,
             Guid documentLinkId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -278,7 +293,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.UnlinkDocumentAsync(id, documentLinkId, currentUser.UserId.Value, ct);
+                await workflow.UnlinkDocumentAsync(id, documentLinkId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -349,7 +364,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.LinkAwardAsync(id, req.AwardId, currentUser.UserId.Value, ct);
+                await workflow.LinkAwardAsync(id, req.AwardId, req.ExpectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -359,6 +374,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/awards/{awardId:guid}", async (
             Guid id,
             Guid awardId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -366,7 +382,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.UnlinkAwardAsync(id, awardId, currentUser.UserId.Value, ct);
+                await workflow.UnlinkAwardAsync(id, awardId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -383,7 +399,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.LinkKhasraAsync(id, req.KhasraId, currentUser.UserId.Value, ct);
+                await workflow.LinkKhasraAsync(id, req.KhasraId, req.ExpectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -393,6 +409,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/khasras/{khasraId:guid}", async (
             Guid id,
             Guid khasraId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -400,7 +417,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.UnlinkKhasraAsync(id, khasraId, currentUser.UserId.Value, ct);
+                await workflow.UnlinkKhasraAsync(id, khasraId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -417,7 +434,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.LinkMatterAsync(id, req.MatterId, currentUser.UserId.Value, ct);
+                await workflow.LinkMatterAsync(id, req.MatterId, req.ExpectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -427,6 +444,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/matters/{matterId:guid}", async (
             Guid id,
             Guid matterId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -434,7 +452,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.UnlinkMatterAsync(id, matterId, currentUser.UserId.Value, ct);
+                await workflow.UnlinkMatterAsync(id, matterId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -479,6 +497,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/parties/{partyId:guid}", async (
             Guid id,
             Guid partyId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -486,7 +505,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.RemovePartyAsync(id, partyId, currentUser.UserId.Value, ct);
+                await workflow.RemovePartyAsync(id, partyId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -531,6 +550,7 @@ public static class CourtEndpoints
         group.MapDelete("/{id:guid}/representatives/{repId:guid}", async (
             Guid id,
             Guid repId,
+            int? expectedRevision,
             ICourtWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -538,7 +558,7 @@ public static class CourtEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try
             {
-                await workflow.RemoveRepresentativeAsync(id, repId, currentUser.UserId.Value, ct);
+                await workflow.RemoveRepresentativeAsync(id, repId, expectedRevision, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }

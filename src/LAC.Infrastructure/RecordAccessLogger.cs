@@ -115,6 +115,29 @@ public sealed class RecordAccessLogger(LacDbContext db) : IRecordAccessLogger
                     }
                 }
             }
+            else if (cType is "courtcase" or "court-case")
+            {
+                if (!deskId.HasValue || !workstreamId.HasValue)
+                {
+                    var courtInfo = await db.CourtCases.AsNoTracking()
+                        .Where(c => c.Id == cmd.ContextEntityId.Value)
+                        .Select(c => new { c.ResponsibleOfficeDeskId })
+                        .FirstOrDefaultAsync(ct);
+
+                    if (courtInfo != null)
+                    {
+                        deskId ??= courtInfo.ResponsibleOfficeDeskId;
+                    }
+
+                    if (!workstreamId.HasValue)
+                    {
+                        workstreamId = await db.Workstreams.AsNoTracking()
+                            .Where(w => w.Code == WorkstreamCodes.CourtReferences)
+                            .Select(w => (Guid?)w.Id)
+                            .FirstOrDefaultAsync(ct);
+                    }
+                }
+            }
         }
 
         // 4. Compute DeduplicationKey

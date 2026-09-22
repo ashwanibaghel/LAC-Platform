@@ -52,13 +52,24 @@ export const CourtTimelineTab: React.FC<CourtTimelineTabProps> = ({ courtCase })
               <div className="court-timeline-header">
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <span style={{ fontWeight: 700, color: "#1e293b" }}>#{evt.sequenceNumber}</span>
-                  <span className="court-badge court-badge-ndoh">{evt.eventType}</span>
+                  <span className="court-badge court-badge-ndoh">{evt.action || evt.eventType}</span>
                 </div>
-                <span>{new Date(evt.createdAt).toLocaleString()}</span>
+                <span>{new Date(evt.actionAt || evt.createdAt || "").toLocaleString()}</span>
               </div>
-              <div className="court-timeline-title">{evt.description}</div>
+              <div className="court-timeline-title">
+                {evt.notes || evt.reason || evt.description || evt.action}
+              </div>
+              {(evt.oldStatus || evt.newStatus) && (
+                <div style={{ fontSize: "13px", color: "#475569", marginTop: "4px" }}>
+                  Status: <strong>{evt.oldStatus || "None"}</strong> → <strong>{evt.newStatus || "None"}</strong>
+                </div>
+              )}
               <div style={{ fontSize: "12px", color: "#64748b", marginTop: "4px" }}>
-                By {evt.actorDisplayNameSnapshot || "System"}
+                By {evt.actorDisplayName || evt.actorDisplayNameSnapshot || "Officer"}
+                {evt.actorDesignation ? ` (${evt.actorDesignation})` : ""}
+                {(evt.sourceDeskName || evt.targetDeskName) && (
+                  <span> • Desk: {evt.sourceDeskName || "None"} → {evt.targetDeskName || "None"}</span>
+                )}
               </div>
             </div>
           ))}

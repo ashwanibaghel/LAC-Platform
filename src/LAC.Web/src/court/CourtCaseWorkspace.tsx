@@ -40,8 +40,8 @@ export const CourtCaseWorkspace: React.FC = () => {
   const [reassignUserId, setReassignUserId] = useState("");
   const [reassignNotes, setReassignNotes] = useState("");
 
-  const canEdit = hasPermission("Court.Edit") || hasPermission("Award.Edit");
-  const canAssign = hasPermission("Court.Assign") || hasPermission("Court.Edit");
+  const canEdit = courtCase?.capabilities?.canEdit ?? false;
+  const canAssign = courtCase?.capabilities?.canAssign ?? false;
 
   const fetchCaseDetail = useCallback(async () => {
     if (!id) return;
@@ -78,7 +78,7 @@ export const CourtCaseWorkspace: React.FC = () => {
     if (!courtCase) return;
     setEditTitle(courtCase.caseTitle || "");
     setEditType(courtCase.caseType || "");
-    setEditStatus(courtCase.currentStatus || "Pending");
+    setEditStatus(courtCase.currentStatus || "");
     setEditFiledDate(courtCase.filedDate || "");
     setEditDisposedDate(courtCase.disposedDate || "");
     setEditRemarks(courtCase.remarks || "");
@@ -190,17 +190,30 @@ export const CourtCaseWorkspace: React.FC = () => {
           <div>
             <h1 className="court-case-number-heading">
               <span>🏛 {courtCase.caseNumber}</span>
-              <span
-                className={`court-badge ${
-                  courtCase.currentStatus?.toLowerCase() === "disposed"
-                    ? "court-badge-status-disposed"
-                    : courtCase.currentStatus?.toLowerCase() === "stay"
-                    ? "court-badge-status-stay"
-                    : "court-badge-status-pending"
-                }`}
-              >
-                {courtCase.currentStatus || "Pending"}
-              </span>
+              {courtCase.currentStatus ? (
+                <span
+                  className={`court-badge ${
+                    courtCase.currentStatus.toLowerCase() === "disposed"
+                      ? "court-badge-status-disposed"
+                      : courtCase.currentStatus.toLowerCase() === "stay"
+                      ? "court-badge-status-stay"
+                      : "court-badge-status-pending"
+                  }`}
+                >
+                  {courtCase.currentStatus}
+                </span>
+              ) : (
+                <span style={{ color: "#94a3b8", fontSize: "13px" }}>—</span>
+              )}
+              {courtCase.isProjectedToCalendar ? (
+                <span className="court-badge" style={{ background: "#dcfce7", color: "#166534", fontSize: "11px" }}>
+                  ● On Calendar
+                </span>
+              ) : (
+                <span className="court-badge" style={{ background: "#f1f5f9", color: "#64748b", fontSize: "11px" }}>
+                  ○ Not on Calendar
+                </span>
+              )}
               <span className="court-badge court-badge-ndoh" style={{ fontSize: "11px" }}>
                 Rev {courtCase.revision}
               </span>
@@ -239,8 +252,8 @@ export const CourtCaseWorkspace: React.FC = () => {
           </div>
           <div className="court-meta-item">
             <span className="court-meta-label">Next Date (NDOH)</span>
-            <span className="court-meta-value" style={{ color: courtCase.nextHearingDate ? "#4338ca" : "#64748b", fontWeight: 700 }}>
-              {courtCase.nextHearingDate || "None Scheduled"}
+            <span className="court-meta-value" style={{ color: (courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate) ? "#4338ca" : "#64748b", fontWeight: 700 }}>
+              {courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate || "None Scheduled"}
             </span>
           </div>
           <div className="court-meta-item">
@@ -262,25 +275,25 @@ export const CourtCaseWorkspace: React.FC = () => {
           className={`court-tab-button ${activeTab === "proceedings" ? "active" : ""}`}
           onClick={() => setActiveTab("proceedings")}
         >
-          Proceedings & Orders ({courtCase.proceedingCount})
+          Proceedings & Orders ({courtCase.proceedingsCount ?? courtCase.proceedingCount ?? 0})
         </button>
         <button
           className={`court-tab-button ${activeTab === "documents" ? "active" : ""}`}
           onClick={() => setActiveTab("documents")}
         >
-          Documents ({courtCase.documentCount})
+          Documents ({courtCase.documentsCount ?? courtCase.documentCount ?? 0})
         </button>
         <button
           className={`court-tab-button ${activeTab === "records" ? "active" : ""}`}
           onClick={() => setActiveTab("records")}
         >
-          Linked Records ({courtCase.awards.length + courtCase.khasras.length + courtCase.parties.length})
+          Linked Records ({(courtCase.awardsCount ?? courtCase.awards.length) + (courtCase.khasrasCount ?? courtCase.khasras.length) + courtCase.parties.length})
         </button>
         <button
           className={`court-tab-button ${activeTab === "work" ? "active" : ""}`}
           onClick={() => setActiveTab("work")}
         >
-          Connected Work ({courtCase.matters.length})
+          Connected Work ({courtCase.mattersCount ?? courtCase.matters.length})
         </button>
         <button
           className={`court-tab-button ${activeTab === "timeline" ? "active" : ""}`}
@@ -322,6 +335,7 @@ export const CourtCaseWorkspace: React.FC = () => {
                 <div>
                   <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Status</label>
                   <select className="form-input" style={{ width: "100%" }} value={editStatus} onChange={(e) => setEditStatus(e.target.value)}>
+                    <option value="">— Not Specified —</option>
                     <option value="Pending">Pending</option>
                     <option value="Disposed">Disposed</option>
                     <option value="Stay Granted">Stay Granted</option>
@@ -371,7 +385,7 @@ export const CourtCaseWorkspace: React.FC = () => {
                     <option value="">Unassigned</option>
                     {filterOptions?.desks.map((d) => (
                       <option key={d.id} value={d.id}>
-                        {d.name} ({d.workstreamName})
+                        {d.name} {d.workstreamName ? `(${d.workstreamName})` : ""}
                       </option>
                     ))}
                   </select>
@@ -380,9 +394,9 @@ export const CourtCaseWorkspace: React.FC = () => {
                   <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Assigned Officer</label>
                   <select className="form-input" style={{ width: "100%" }} value={reassignUserId} onChange={(e) => setReassignUserId(e.target.value)}>
                     <option value="">Unassigned</option>
-                    {filterOptions?.assignedUsers.map((u) => (
+                    {(filterOptions?.officers || filterOptions?.assignedUsers || []).map((u) => (
                       <option key={u.id} value={u.id}>
-                        {u.displayName}
+                        {u.displayName || u.name}
                       </option>
                     ))}
                   </select>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { CourtCaseDetailDto, CourtCaseDocumentDto } from "./types";
-import { useAuth } from "../auth/AuthProvider";
 
 interface CourtDocumentsTabProps {
   courtCase: CourtCaseDetailDto;
@@ -8,8 +7,7 @@ interface CourtDocumentsTabProps {
 }
 
 export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase, onRefresh }) => {
-  const { hasPermission } = useAuth();
-  const canManage = hasPermission("Court.Document.Manage") || hasPermission("Court.Edit") || hasPermission("Award.Edit");
+  const canManage = courtCase.capabilities?.canManageDocuments ?? false;
 
   const [documents, setDocuments] = useState<CourtCaseDocumentDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,7 +16,7 @@ export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase,
 
   // Form state
   const [file, setFile] = useState<File | null>(null);
-  const [documentRole, setDocumentRole] = useState("Order");
+  const [documentRole, setDocumentRole] = useState("Court Order");
   const [displayName, setDisplayName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -59,6 +57,7 @@ export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase,
       formData.append("file", file);
       formData.append("documentRole", documentRole);
       if (displayName) formData.append("displayName", displayName);
+      if (courtCase.revision != null) formData.append("expectedRevision", courtCase.revision.toString());
 
       const res = await fetch(`/api/court-cases/${courtCase.id}/documents`, {
         method: "POST",
@@ -70,7 +69,7 @@ export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase,
         setShowUploadModal(false);
         setFile(null);
         setDisplayName("");
-        setDocumentRole("Order");
+        setDocumentRole("Court Order");
         await fetchDocuments();
         onRefresh();
       } else {
@@ -87,7 +86,10 @@ export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase,
   const handleUnlink = async (docRelationshipId: string) => {
     if (!window.confirm("Are you sure you want to remove this document link from the court case?")) return;
     try {
-      const res = await fetch(`/api/court-cases/${courtCase.id}/documents/${docRelationshipId}`, {
+      const url = courtCase.revision != null
+        ? `/api/court-cases/${courtCase.id}/documents/${docRelationshipId}?expectedRevision=${courtCase.revision}`
+        : `/api/court-cases/${courtCase.id}/documents/${docRelationshipId}`;
+      const res = await fetch(url, {
         method: "DELETE",
         credentials: "include",
       });

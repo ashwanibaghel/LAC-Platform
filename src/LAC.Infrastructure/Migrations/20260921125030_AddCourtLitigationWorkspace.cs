@@ -508,6 +508,11 @@ namespace LAC.Infrastructure.Migrations
                       WHERE existing.""RoleId"" = rp.""RoleId"" AND existing.""PermissionId"" = target_perm.""Id""
                   );
             ");
+
+            migrationBuilder.CreateCheckConstraint(
+                name: "CK_CourtCases_DisposedDate_After_FiledDate",
+                table: "CourtCases",
+                sql: "\"DisposedDate\" IS NULL OR \"FiledDate\" IS NULL OR \"DisposedDate\" >= \"FiledDate\"");
         }
 
         /// <inheritdoc />
@@ -665,6 +670,10 @@ namespace LAC.Infrastructure.Migrations
                 oldClrType: typeof(string),
                 oldType: "character varying(128)",
                 oldMaxLength: 128);
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_CourtCases_DisposedDate_After_FiledDate",
+                table: "CourtCases");
 
             migrationBuilder.Sql(@"
                 DROP TRIGGER IF EXISTS trg_court_case_events_immutable ON ""CourtCaseEvents"";

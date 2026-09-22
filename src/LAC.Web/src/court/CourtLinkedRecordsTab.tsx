@@ -5,7 +5,6 @@ import type {
   CourtCasePartyDto,
   CourtCaseRepresentativeDto,
 } from "./types";
-import { useAuth } from "../auth/AuthProvider";
 
 interface CourtLinkedRecordsTabProps {
   courtCase: CourtCaseDetailDto;
@@ -13,8 +12,9 @@ interface CourtLinkedRecordsTabProps {
 }
 
 export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ courtCase, onRefresh }) => {
-  const { hasPermission } = useAuth();
-  const canEdit = hasPermission("Court.Edit") || hasPermission("Award.Edit");
+  const canLinkAward = courtCase.capabilities?.canLinkAward ?? false;
+  const canLinkKhasra = courtCase.capabilities?.canLinkKhasra ?? false;
+  const canEdit = courtCase.capabilities?.canEdit ?? false;
 
   // Sub-modals state
   const [showAwardModal, setShowAwardModal] = useState(false);
@@ -53,7 +53,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ awardId: awardIdInput.trim() }),
+        body: JSON.stringify({
+          awardId: awardIdInput.trim(),
+          expectedRevision: courtCase.revision,
+        }),
       });
       if (res.ok) {
         setShowAwardModal(false);
@@ -73,7 +76,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   const handleUnlinkAward = async (awardId: string) => {
     if (!window.confirm("Are you sure you want to unlink this Award from the court case?")) return;
     try {
-      const res = await fetch(`/api/court-cases/${courtCase.id}/awards/${awardId}`, {
+      const url = courtCase.revision != null
+        ? `/api/court-cases/${courtCase.id}/awards/${awardId}?expectedRevision=${courtCase.revision}`
+        : `/api/court-cases/${courtCase.id}/awards/${awardId}`;
+      const res = await fetch(url, {
         method: "DELETE",
         credentials: "include",
       });
@@ -94,7 +100,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ khasraId: khasraIdInput.trim() }),
+        body: JSON.stringify({
+          khasraId: khasraIdInput.trim(),
+          expectedRevision: courtCase.revision,
+        }),
       });
       if (res.ok) {
         setShowKhasraModal(false);
@@ -114,7 +123,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   const handleUnlinkKhasra = async (khasraId: string) => {
     if (!window.confirm("Are you sure you want to unlink this Khasra from the court case?")) return;
     try {
-      const res = await fetch(`/api/court-cases/${courtCase.id}/khasras/${khasraId}`, {
+      const url = courtCase.revision != null
+        ? `/api/court-cases/${courtCase.id}/khasras/${khasraId}?expectedRevision=${courtCase.revision}`
+        : `/api/court-cases/${courtCase.id}/khasras/${khasraId}`;
+      const res = await fetch(url, {
         method: "DELETE",
         credentials: "include",
       });
@@ -164,10 +176,13 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         credentials: "include",
         body: JSON.stringify({
           partyType,
-          partyName,
-          advocateName: advocateName || null,
-          contactDetails: partyContact || null,
+          displayName: partyName.trim(),
+          role: partyType,
+          partyName: partyName.trim(),
+          advocateName: advocateName ? advocateName.trim() : null,
+          contactDetails: partyContact ? partyContact.trim() : null,
           isPrimary: isPrimaryParty,
+          expectedRevision: courtCase.revision,
         }),
       });
 
@@ -188,7 +203,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   const handleRemoveParty = async (partyId: string) => {
     if (!window.confirm("Remove this party from the case?")) return;
     try {
-      const res = await fetch(`/api/court-cases/${courtCase.id}/parties/${partyId}`, {
+      const url = courtCase.revision != null
+        ? `/api/court-cases/${courtCase.id}/parties/${partyId}?expectedRevision=${courtCase.revision}`
+        : `/api/court-cases/${courtCase.id}/parties/${partyId}`;
+      const res = await fetch(url, {
         method: "DELETE",
         credentials: "include",
       });
@@ -240,11 +258,13 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         credentials: "include",
         body: JSON.stringify({
           representativeType: repType,
-          name: repName,
-          designation: repDesignation || null,
-          barRegistrationNumber: barRegNumber || null,
-          contactDetails: repContact || null,
+          displayName: repName.trim(),
+          name: repName.trim(),
+          designation: repDesignation ? repDesignation.trim() : null,
+          barRegistrationNumber: barRegNumber ? barRegNumber.trim() : null,
+          contactDetails: repContact ? repContact.trim() : null,
           isLeadCounsel,
+          expectedRevision: courtCase.revision,
         }),
       });
 
@@ -265,7 +285,10 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   const handleRemoveRep = async (repId: string) => {
     if (!window.confirm("Remove this representative from the case?")) return;
     try {
-      const res = await fetch(`/api/court-cases/${courtCase.id}/representatives/${repId}`, {
+      const url = courtCase.revision != null
+        ? `/api/court-cases/${courtCase.id}/representatives/${repId}?expectedRevision=${courtCase.revision}`
+        : `/api/court-cases/${courtCase.id}/representatives/${repId}`;
+      const res = await fetch(url, {
         method: "DELETE",
         credentials: "include",
       });
@@ -276,26 +299,35 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
     }
   };
 
+  const awards = courtCase.awards ?? [];
+  const khasras = courtCase.khasras ?? [];
+  const parties = courtCase.parties ?? [];
+  const reps = courtCase.representatives ?? [];
+
   return (
     <div className="court-linked-records-tab" style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
       {/* 1. Linked Awards */}
       <div>
         <div className="court-section-header">
-          <h3>Linked Awards ({courtCase.awards.length})</h3>
-          {canEdit && (
+          <h3>Linked Awards {courtCase.awardsCount !== null ? `(${courtCase.awardsCount ?? awards.length})` : ""}</h3>
+          {canLinkAward && (
             <button className="secondary-button" onClick={() => { setModalError(null); setAwardIdInput(""); setShowAwardModal(true); }}>
               + Link Award
             </button>
           )}
         </div>
 
-        {courtCase.awards.length === 0 ? (
+        {courtCase.awardsCount === null ? (
+          <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
+            You do not have permission to view linked awards.
+          </div>
+        ) : awards.length === 0 ? (
           <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
             No awards linked to this court case.
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
-            {courtCase.awards.map((aw) => (
+            {awards.map((aw) => (
               <div
                 key={aw.awardId}
                 style={{
@@ -315,7 +347,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                   >
                     Award No. {aw.awardNumber}
                   </Link>
-                  {aw.villageNames.length > 0 && (
+                  {aw.villageNames && aw.villageNames.length > 0 && (
                     <div style={{ fontSize: "13px", color: "#475569", marginTop: "4px" }}>
                       Villages: {aw.villageNames.join(", ")}
                     </div>
@@ -326,7 +358,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                     </div>
                   )}
                 </div>
-                {canEdit && (
+                {canLinkAward && (
                   <button
                     className="quiet-button"
                     style={{ color: "#dc2626" }}
@@ -345,15 +377,19 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
       {/* 2. Linked Khasras */}
       <div>
         <div className="court-section-header">
-          <h3>Linked Khasras ({courtCase.khasras.length})</h3>
-          {canEdit && (
+          <h3>Linked Khasras {courtCase.khasrasCount !== null ? `(${courtCase.khasrasCount ?? khasras.length})` : ""}</h3>
+          {canLinkKhasra && (
             <button className="secondary-button" onClick={() => { setModalError(null); setKhasraIdInput(""); setShowKhasraModal(true); }}>
               + Link Khasra
             </button>
           )}
         </div>
 
-        {courtCase.khasras.length === 0 ? (
+        {courtCase.khasrasCount === null ? (
+          <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
+            You do not have permission to view linked khasras.
+          </div>
+        ) : khasras.length === 0 ? (
           <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
             No specific khasras linked to this court case.
           </div>
@@ -369,7 +405,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                 </tr>
               </thead>
               <tbody>
-                {courtCase.khasras.map((kh) => (
+                {khasras.map((kh) => (
                   <tr key={kh.khasraId} style={{ borderBottom: "1px solid #f1f5f9" }}>
                     <td style={{ padding: "10px 16px", color: "#334155" }}>{kh.villageName}</td>
                     <td style={{ padding: "10px 16px" }}>
@@ -381,7 +417,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                       {kh.recordedArea != null ? `${kh.recordedArea} ${kh.areaUnit || ""}` : "—"}
                     </td>
                     <td style={{ padding: "10px 16px", textAlign: "right" }}>
-                      {canEdit && (
+                      {canLinkKhasra && (
                         <button
                           className="quiet-button"
                           style={{ color: "#dc2626" }}
@@ -403,7 +439,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
       {/* 3. Parties */}
       <div>
         <div className="court-section-header">
-          <h3>Parties to Litigation ({courtCase.parties.length})</h3>
+          <h3>Parties to Litigation ({parties.length})</h3>
           {canEdit && (
             <button className="secondary-button" onClick={openAddPartyModal}>
               + Add Party
@@ -411,13 +447,13 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
           )}
         </div>
 
-        {courtCase.parties.length === 0 ? (
+        {parties.length === 0 ? (
           <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
             No parties recorded for this court case.
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
-            {courtCase.parties.map((p) => (
+            {parties.map((p) => (
               <div
                 key={p.id}
                 style={{
@@ -473,7 +509,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
       {/* 4. Representatives / Counsel */}
       <div>
         <div className="court-section-header">
-          <h3>Standing Counsel & Representatives ({courtCase.representatives.length})</h3>
+          <h3>Standing Counsel & Representatives ({reps.length})</h3>
           {canEdit && (
             <button className="secondary-button" onClick={openAddRepModal}>
               + Add Counsel
@@ -481,13 +517,13 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
           )}
         </div>
 
-        {courtCase.representatives.length === 0 ? (
+        {reps.length === 0 ? (
           <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "20px", color: "#64748b" }}>
             No legal counsel or government representatives assigned.
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "12px" }}>
-            {courtCase.representatives.map((r) => (
+            {reps.map((r) => (
               <div
                 key={r.id}
                 style={{

@@ -115,9 +115,31 @@ public sealed class ScheduleAuthorizationService(
                          || evt.CourtCaseId.HasValue
                          || evt.CourtProceedingId.HasValue;
 
-        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(userId, ct))
+        if (isCourtLinked)
         {
-            return false;
+            var courtCaseId = evt.CourtCaseId;
+            if (!courtCaseId.HasValue && evt.CourtProceedingId.HasValue)
+            {
+                courtCaseId = await db.CourtProceedings.AsNoTracking()
+                    .Where(p => p.Id == evt.CourtProceedingId.Value)
+                    .Select(p => (Guid?)p.CourtCaseId)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            if (courtCaseId.HasValue)
+            {
+                if (!await courtAuth.CanViewCourtCaseAsync(courtCaseId.Value, userId, ct))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!await courtAuth.CanViewCourtReferencesAsync(userId, ct))
+                {
+                    return false;
+                }
+            }
         }
 
         var scopes = await (
@@ -149,14 +171,18 @@ public sealed class ScheduleAuthorizationService(
 
         if (scopes.Contains(ScopeMode.Assigned) && evt.ResponsibleOfficeDeskId.HasValue)
         {
-            var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId
-                            && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
-                            && m.IsActive
-                            && m.RemovedAt == null
-                            && m.RecordStatus == RecordStatus.Active
-                            && m.OfficeDesk.IsActive
-                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+            var isDeskMember = await (
+                from m in db.UserDeskMemberships.AsNoTracking()
+                join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                where m.UserId == userId
+                   && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
+                   && m.IsActive
+                   && m.RemovedAt == null
+                   && m.RecordStatus == RecordStatus.Active
+                   && d.IsActive
+                   && d.RecordStatus == RecordStatus.Active
+                select m
+            ).AnyAsync(ct);
 
             if (isDeskMember) return true;
         }
@@ -238,14 +264,18 @@ public sealed class ScheduleAuthorizationService(
 
         if (scopes.Contains(ScopeMode.Assigned) && targetDeskId.HasValue)
         {
-            var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == callerUserId
-                            && m.OfficeDeskId == targetDeskId.Value
-                            && m.IsActive
-                            && m.RemovedAt == null
-                            && m.RecordStatus == RecordStatus.Active
-                            && m.OfficeDesk.IsActive
-                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+            var isDeskMember = await (
+                from m in db.UserDeskMemberships.AsNoTracking()
+                join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                where m.UserId == callerUserId
+                   && m.OfficeDeskId == targetDeskId.Value
+                   && m.IsActive
+                   && m.RemovedAt == null
+                   && m.RecordStatus == RecordStatus.Active
+                   && d.IsActive
+                   && d.RecordStatus == RecordStatus.Active
+                select m
+            ).AnyAsync(ct);
 
             if (isDeskMember) return true;
         }
@@ -272,9 +302,31 @@ public sealed class ScheduleAuthorizationService(
                          || evt.CourtCaseId.HasValue
                          || evt.CourtProceedingId.HasValue;
 
-        if (isCourtLinked && !await courtAuth.CanViewCourtReferencesAsync(callerUserId, ct))
+        if (isCourtLinked)
         {
-            return false;
+            var courtCaseId = evt.CourtCaseId;
+            if (!courtCaseId.HasValue && evt.CourtProceedingId.HasValue)
+            {
+                courtCaseId = await db.CourtProceedings.AsNoTracking()
+                    .Where(p => p.Id == evt.CourtProceedingId.Value)
+                    .Select(p => (Guid?)p.CourtCaseId)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            if (courtCaseId.HasValue)
+            {
+                if (!await courtAuth.CanViewCourtCaseAsync(courtCaseId.Value, callerUserId, ct))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!await courtAuth.CanViewCourtReferencesAsync(callerUserId, ct))
+                {
+                    return false;
+                }
+            }
         }
 
         // Verify target desk & handler validity if provided
@@ -334,14 +386,18 @@ public sealed class ScheduleAuthorizationService(
 
         if (scopes.Contains(ScopeMode.Assigned) && evt.ResponsibleOfficeDeskId.HasValue)
         {
-            var isSourceDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == callerUserId
-                            && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
-                            && m.IsActive
-                            && m.RemovedAt == null
-                            && m.RecordStatus == RecordStatus.Active
-                            && m.OfficeDesk.IsActive
-                            && m.OfficeDesk.RecordStatus == RecordStatus.Active, ct);
+            var isSourceDeskMember = await (
+                from m in db.UserDeskMemberships.AsNoTracking()
+                join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                where m.UserId == callerUserId
+                   && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
+                   && m.IsActive
+                   && m.RemovedAt == null
+                   && m.RecordStatus == RecordStatus.Active
+                   && d.IsActive
+                   && d.RecordStatus == RecordStatus.Active
+                select m
+            ).AnyAsync(ct);
 
             if (isSourceDeskMember) return true;
         }
@@ -407,10 +463,17 @@ public sealed class ScheduleAuthorizationService(
         HashSet<Guid> deskIds = [];
         if (scopes.Contains(ScopeMode.Assigned))
         {
-            var desks = await db.UserDeskMemberships.AsNoTracking()
-                .Where(m => m.UserId == userId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
-                .Select(m => m.OfficeDeskId)
-                .ToListAsync(ct);
+            var desks = await (
+                from m in db.UserDeskMemberships.AsNoTracking()
+                join d in db.OfficeDesks.AsNoTracking() on m.OfficeDeskId equals d.Id
+                where m.UserId == userId
+                   && m.IsActive
+                   && m.RemovedAt == null
+                   && m.RecordStatus == RecordStatus.Active
+                   && d.IsActive
+                   && d.RecordStatus == RecordStatus.Active
+                select m.OfficeDeskId
+            ).ToListAsync(ct);
             deskIds = new HashSet<Guid>(desks);
         }
 
