@@ -301,37 +301,35 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                     No source coverage status recorded.
                   </td>
                 </tr>
-              ) : (
-                sources.map((s) => (
-                  <tr key={s.sourceType}>
-                    <td>
-                      <span style={{ fontWeight: 650 }}>{s.sourceType}</span>
-                    </td>
-                    <td>
-                      <span
-                        className={`status-badge status-${
-                          s.status === "Loaded" ? "committed" : "draft"
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    </td>
-                    <td>
-                      <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
-                    </td>
-                    <td>
-                      <Link
-                        to={`/villages/${villageId}?tab=core-records`}
-                        className="text-action"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                      >
-                        <span>Core Records</span>
-                        <IconChevronRight size={14} />
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              )}
+              ) : sources.map((s) => (
+                <tr key={s.sourceType}>
+                  <td>
+                    <span style={{ fontWeight: 650 }}>{s.sourceType}</span>
+                  </td>
+                  <td>
+                    <span
+                      className={`status-badge status-${
+                        s.status === "Loaded" ? "committed" : "draft"
+                      }`}
+                    >
+                      {s.status}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
+                  </td>
+                  <td>
+                    <Link
+                      to={`/villages/${villageId}?tab=core-records`}
+                      className="text-action"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                    >
+                      <span>Core Records</span>
+                      <IconChevronRight size={14} />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
