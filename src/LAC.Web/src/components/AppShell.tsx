@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -21,184 +21,98 @@ import {
   IconSearch,
   IconMenu,
   IconLogOut,
-  IconChevronRight
+  IconChevronRight,
+  IconPlus
 } from "./Icons";
 
 const api = "/api";
 
-function GlobalSearchInput() {
-  const [term, setTerm] = useState("");
-  const [delayed, setDelayed] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDelayed(term.trim()), 250);
-    return () => window.clearTimeout(timer);
-  }, [term]);
-
-  useEffect(() => {
-    if (delayed.length < 2) {
-      setResults([]);
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    setLoading(true);
-    fetch(`${api}/search?q=${encodeURIComponent(delayed)}`, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data) => {
-        if (active) {
-          setResults(data);
-          setLoading(false);
-          setOpen(true);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setResults([]);
-          setLoading(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [delayed]);
-
-  const choose = (target: string) => {
-    setTerm("");
-    setOpen(false);
-    navigate(target);
-  };
-
-  return (
-    <div className="lac-topbar-search">
-      <div className="lac-search-box">
-        <IconSearch size={16} className="text-slate-400" />
-        <input
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-          onFocus={() => term.length >= 2 && setOpen(true)}
-          placeholder="Search village, khasra, award, or record…"
-        />
-        <span className="lac-search-shortcut">Ctrl + K</span>
-      </div>
-
-      {open && term.length >= 2 && (
-        <div className="lac-search-results-dropdown" onMouseLeave={() => setOpen(false)}>
-          {loading && (
-            <div className="p-3 text-xs text-slate-500">Searching records…</div>
-          )}
-          {!loading && results.length === 0 && (
-            <div className="p-3 text-xs text-slate-500">No matching records found.</div>
-          )}
-          {!loading &&
-            results.map((result: any, idx: number) => (
-              <button
-                key={`${result.type}-${result.id}-${idx}`}
-                className="lac-search-item"
-                onClick={() => choose(result.route)}
-              >
-                <span className="lac-search-type-badge">{result.type}</span>
-                <div className="lac-search-item-info">
-                  <span className="lac-search-item-title">{result.label}</span>
-                  {result.context && (
-                    <span className="lac-search-item-context">{result.context}</span>
-                  )}
-                </div>
-              </button>
-            ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface NavItemConfig {
-  label: string;
-  to: string;
+interface ModuleConfig {
+  id: string;
+  title: string;
+  description: string;
   icon: React.ReactNode;
   permission?: string;
-  exact?: boolean;
-}
-
-interface NavGroupConfig {
-  title: string;
-  items: NavItemConfig[];
+  links: { label: string; to: string; permission?: string }[];
 }
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
 
+  // Launcher & Search State
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Studio full-screen mode for draft editor
   if (location.pathname.startsWith("/matter-drafts/")) {
     return <main className="studio-root" id="main-content" tabIndex={-1}>{children}</main>;
   }
 
-  const navGroups: NavGroupConfig[] = [
-    {
-      title: "Overview",
-      items: [{ label: "Home", to: "/", icon: <IconHome size={18} />, exact: true }]
-    },
-    {
-      title: "My Day",
-      items: [
-        { label: "My Desk", to: "/my-desk", icon: <IconDesk size={18} />, permission: "Dak.View" },
-        { label: "My Work", to: "/my-work", icon: <IconWorkItem size={18} />, permission: "WorkItem.View" },
-        { label: "Needs Attention", to: "/my-attention", icon: <IconAttention size={18} />, permission: "Schedule.View" },
-        { label: "Calendar", to: "/calendar", icon: <IconCalendar size={18} />, permission: "Schedule.View" }
-      ]
-    },
-    {
-      title: "Correspondence",
-      items: [
-        { label: "Dak / Inward", to: "/dak", icon: <IconDak size={18} />, permission: "Dak.View" },
-        { label: "Outward / Dispatch", to: "/outward", icon: <IconOutward size={18} />, permission: "Outward.View" }
-      ]
-    },
-    {
-      title: "Matters & Files",
-      items: [
-        { label: "Matters", to: "/matters", icon: <IconMatters size={18} />, permission: "Matter.View" }
-      ]
-    },
-    {
-      title: "Land Records",
-      items: [
-        { label: "Land Records", to: "/land-records", icon: <IconLand size={18} /> },
-        { label: "Villages", to: "/villages", icon: <IconLand size={18} /> },
-        { label: "Awards", to: "/awards", icon: <IconLand size={18} /> },
-        { label: "LR Registers", to: "/imports/lr", icon: <IconLand size={18} /> }
-      ]
-    },
-    {
-      title: "Court & Litigation",
-      items: [
-        { label: "Court Cases", to: "/court-cases", icon: <IconCourt size={18} />, permission: "Court.View" }
-      ]
-    },
-    {
-      title: "Oversight",
-      items: [
-        { label: "Branch Pulse", to: "/branch-pulse", icon: <IconPulse size={18} />, permission: "WorkItem.View" },
-        { label: "My History", to: "/my-history", icon: <IconHistory size={18} /> },
-        { label: "Team Activity", to: "/team-activity", icon: <IconTeam size={18} />, permission: "Audit.View" }
-      ]
-    },
-    {
-      title: "Administration",
-      items: [
-        { label: "Users", to: "/admin/users", icon: <IconUsers size={18} />, permission: "Users.Manage" },
-        { label: "Access & Roles", to: "/admin/access", icon: <IconShield size={18} />, permission: "Access.Manage" },
-        { label: "Audit Trail", to: "/admin/audit-logs", icon: <IconAudit size={18} />, permission: "Audit.View" }
-      ]
-    }
-  ];
+  // Handle Ctrl+K / Cmd+K and Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 50);
+      }
+      if (e.key === "Escape") {
+        setSearchOpen(false);
+        setLauncherOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
-  // User initials
+  // Debounced Search API call
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (term.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    let active = true;
+    setSearchLoading(true);
+    const timer = setTimeout(() => {
+      fetch(`${api}/search?q=${encodeURIComponent(term)}`, { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data) => {
+          if (active) {
+            setSearchResults(data);
+            setSearchLoading(false);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setSearchResults([]);
+            setSearchLoading(false);
+          }
+        });
+    }, 200);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchTerm]);
+
+  const selectSearchResult = (route: string) => {
+    setSearchTerm("");
+    setSearchOpen(false);
+    navigate(route);
+  };
+
+  // User Initials
   const userDisplayName = user?.displayName || user?.username || "Officer";
   const userInitials = userDisplayName
     .split(" ")
@@ -207,96 +121,319 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .join("")
     .toUpperCase();
 
+  // Module Launcher Configuration
+  const modules: ModuleConfig[] = [
+    {
+      id: "land",
+      title: "Land Records",
+      description: "Villages, khasras, awards, and khatauni registers",
+      icon: <IconLand size={20} />,
+      links: [
+        { label: "Administrative Hierarchy", to: "/land-records" },
+        { label: "Village Directory", to: "/villages" },
+        { label: "Awards Register", to: "/awards" },
+        { label: "LR Import Registers", to: "/imports/lr" }
+      ]
+    },
+    {
+      id: "matters",
+      title: "Matters & Files",
+      description: "Acquisition matters, note sheets, and draft files",
+      icon: <IconMatters size={20} />,
+      permission: "Matter.View",
+      links: [
+        { label: "Matters Directory", to: "/matters", permission: "Matter.View" }
+      ]
+    },
+    {
+      id: "correspondence",
+      title: "Correspondence",
+      description: "Inward dak, desk movement, and outward dispatch",
+      icon: <IconDak size={20} />,
+      permission: "Dak.View",
+      links: [
+        { label: "Dak / Inward", to: "/dak", permission: "Dak.View" },
+        { label: "Register New Inward", to: "/dak/register", permission: "Dak.Register" },
+        { label: "Outward Dispatch", to: "/outward", permission: "Outward.View" }
+      ]
+    },
+    {
+      id: "court",
+      title: "Court & Litigation",
+      description: "Court cases, hearing dates, order sheets, and references",
+      icon: <IconCourt size={20} />,
+      permission: "Court.View",
+      links: [
+        { label: "Court Cases Directory", to: "/court-cases", permission: "Court.View" }
+      ]
+    },
+    {
+      id: "oversight",
+      title: "Oversight",
+      description: "Branch pulse, handler workloads, and team activity",
+      icon: <IconPulse size={20} />,
+      links: [
+        { label: "Branch Pulse", to: "/branch-pulse", permission: "WorkItem.View" },
+        { label: "My History", to: "/my-history" },
+        { label: "Team Activity", to: "/team-activity", permission: "Audit.View" }
+      ]
+    },
+    {
+      id: "admin",
+      title: "Administration",
+      description: "User management, access roles, and audit trail",
+      icon: <IconShield size={20} />,
+      links: [
+        { label: "User Management", to: "/admin/users", permission: "Users.Manage" },
+        { label: "Access & Roles", to: "/admin/access", permission: "Access.Manage" },
+        { label: "System Audit Trail", to: "/admin/audit-logs", permission: "Audit.View" }
+      ]
+    }
+  ];
+
+  // Determine active Contextual Navigation Sub-header
+  const path = location.pathname;
+  let contextualNav: { categoryTitle: string; links: { label: string; to: string; permission?: string }[] } | null = null;
+
+  if (path.startsWith("/land-records") || path.startsWith("/subdivisions") || path.startsWith("/districts") || path.startsWith("/villages") || path.startsWith("/khasras") || path.startsWith("/khatauni") || path.startsWith("/awards") || path.startsWith("/imports/lr")) {
+    contextualNav = {
+      categoryTitle: "Land Records",
+      links: [
+        { label: "Hierarchy Overview", to: "/land-records" },
+        { label: "Villages", to: "/villages" },
+        { label: "Awards", to: "/awards" },
+        { label: "LR Registers", to: "/imports/lr" }
+      ]
+    };
+  } else if (path.startsWith("/dak") || path.startsWith("/my-desk") || path.startsWith("/outward")) {
+    contextualNav = {
+      categoryTitle: "Correspondence",
+      links: [
+        { label: "My Desk", to: "/my-desk", permission: "Dak.View" },
+        { label: "Dak / Inward", to: "/dak", permission: "Dak.View" },
+        { label: "Outward / Dispatch", to: "/outward", permission: "Outward.View" }
+      ]
+    };
+  } else if (path.startsWith("/matters") || path.startsWith("/my-work")) {
+    contextualNav = {
+      categoryTitle: "Matters & Work",
+      links: [
+        { label: "My Work Queue", to: "/my-work", permission: "WorkItem.View" },
+        { label: "Matters Directory", to: "/matters", permission: "Matter.View" }
+      ]
+    };
+  } else if (path.startsWith("/court-cases") || path.startsWith("/court")) {
+    contextualNav = {
+      categoryTitle: "Court & Litigation",
+      links: [
+        { label: "Court Case Directory", to: "/court-cases", permission: "Court.View" }
+      ]
+    };
+  } else if (path.startsWith("/branch-pulse") || path.startsWith("/my-history") || path.startsWith("/team-activity")) {
+    contextualNav = {
+      categoryTitle: "Oversight",
+      links: [
+        { label: "Branch Pulse", to: "/branch-pulse", permission: "WorkItem.View" },
+        { label: "My History", to: "/my-history" },
+        { label: "Team Activity", to: "/team-activity", permission: "Audit.View" }
+      ]
+    };
+  } else if (path.startsWith("/admin")) {
+    contextualNav = {
+      categoryTitle: "Administration",
+      links: [
+        { label: "Users", to: "/admin/users", permission: "Users.Manage" },
+        { label: "Access & Roles", to: "/admin/access", permission: "Access.Manage" },
+        { label: "Audit Trail", to: "/admin/audit-logs", permission: "Audit.View" }
+      ]
+    };
+  }
+
   return (
-    <div className="app-shell-v2">
-      {/* Sidebar / Left Rail Navigation */}
-      <aside className={`lac-sidebar ${collapsed ? "lac-sidebar-collapsed" : ""}`}>
-        <div className="lac-sidebar-brand">
-          <Link to="/" className="lac-brand-logo">
-            <span className="lac-brand-badge">LAC</span>
-            {!collapsed && (
-              <div className="lac-brand-text">
-                <span className="lac-brand-title">LAC Platform</span>
-                <span className="lac-brand-subtitle">Govt Workspace</span>
-              </div>
-            )}
+    <div className="lac-shell-root">
+      {/* Topbar Header (~54px) */}
+      <header className="lac-header">
+        <div className="lac-header-left">
+          <Link to="/" className="lac-header-brand" title="LAC Home">
+            <span className="lac-header-badge">LAC</span>
+            <span className="lac-header-title">LAC Platform</span>
           </Link>
+
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) => `lac-header-link ${isActive ? "active" : ""}`}
+          >
+            <IconHome size={16} />
+            <span>Home</span>
+          </NavLink>
+
           <button
-            className="lac-sidebar-toggle"
-            onClick={() => setCollapsed(!collapsed)}
-            title={collapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-label="Toggle navigation"
+            className={`lac-launcher-trigger ${launcherOpen ? "active" : ""}`}
+            onClick={() => setLauncherOpen(!launcherOpen)}
+            title="Open Applications & Modules Launcher"
           >
             <IconMenu size={16} />
+            <span>Apps</span>
           </button>
         </div>
 
-        <div className="lac-sidebar-scroll">
-          {navGroups.map((group, gIdx) => {
-            const visibleItems = group.items.filter(
-              (item) => !item.permission || hasPermission(item.permission)
-            );
-            if (visibleItems.length === 0) return null;
-
-            return (
-              <div key={`group-${gIdx}`} className="lac-nav-group">
-                <span className="lac-nav-group-title">{group.title}</span>
-                {visibleItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.exact}
-                    className={({ isActive }) =>
-                      `lac-nav-link ${isActive ? "active" : ""}`
-                    }
-                    title={collapsed ? item.label : undefined}
-                  >
-                    <span className="lac-nav-icon">{item.icon}</span>
-                    <span className="lac-nav-label">{item.label}</span>
-                  </NavLink>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* Main Workspace Workspace */}
-      <div className="lac-workspace-v2">
-        <header className="lac-topbar-v2">
-          <div className="lac-topbar-brand-title">
-            <h1>Land Acquisition Cell</h1>
-            <span>District Administrative Workspace</span>
+        {/* Center: Global Search */}
+        <div className="lac-header-search-wrap">
+          <div className="lac-header-search-box">
+            <IconSearch size={15} className="lac-search-icon" />
+            <input
+              ref={searchInputRef}
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setSearchOpen(true);
+              }}
+              onFocus={() => setSearchOpen(true)}
+              placeholder="Search village, khasra, award, or file…"
+            />
+            <span className="lac-search-shortcut">Ctrl + K</span>
           </div>
 
-          <GlobalSearchInput />
+          {/* Search Dropdown */}
+          {searchOpen && searchTerm.trim().length >= 2 && (
+            <div className="lac-search-dropdown">
+              {searchLoading && <div className="lac-search-status">Searching records…</div>}
+              {!searchLoading && searchResults.length === 0 && (
+                <div className="lac-search-status">No matching records found.</div>
+              )}
+              {!searchLoading &&
+                searchResults.map((result: any, idx: number) => (
+                  <button
+                    key={`${result.type}-${result.id}-${idx}`}
+                    className="lac-search-dropdown-item"
+                    onClick={() => selectSearchResult(result.route)}
+                  >
+                    <span className="lac-search-tag">{result.type}</span>
+                    <div className="lac-search-text">
+                      <span className="lac-search-label">{result.label}</span>
+                      {result.context && (
+                        <span className="lac-search-sub">{result.context}</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
 
-          <div className="lac-topbar-user">
-            <div className="lac-user-badge-wrap">
-              <div className="lac-user-avatar">{userInitials}</div>
-              <div className="lac-user-details">
-                <span className="lac-user-name">{userDisplayName}</span>
-                <span className="lac-user-role-pill">
-                  {user?.designation?.name || "LAC Officer"}
-                </span>
-              </div>
+        {/* Right: Actions & User Identity */}
+        <div className="lac-header-right">
+          {hasPermission("Schedule.View") && (
+            <Link to="/my-attention" className="lac-header-attention-btn" title="Needs Attention">
+              <IconAttention size={17} />
+              <span>Attention</span>
+            </Link>
+          )}
+
+          <div className="lac-user-chip">
+            <span className="lac-user-avatar">{userInitials}</span>
+            <div className="lac-user-info">
+              <span className="lac-user-name">{userDisplayName}</span>
+              <span className="lac-user-role">{user?.designation?.name || "Official Handler"}</span>
+            </div>
+          </div>
+
+          <button
+            className="lac-logout-icon-btn"
+            onClick={() => void logout()}
+            title="Sign Out"
+          >
+            <IconLogOut size={15} />
+          </button>
+        </div>
+      </header>
+
+      {/* Floating Module Launcher Popover */}
+      {launcherOpen && (
+        <div className="lac-launcher-backdrop" onClick={() => setLauncherOpen(false)}>
+          <div className="lac-launcher-popover" onClick={(e) => e.stopPropagation()}>
+            <div className="lac-launcher-header">
+              <h3>Office Modules & Applications</h3>
+              <button
+                className="lac-launcher-close"
+                onClick={() => setLauncherOpen(false)}
+                title="Close"
+              >
+                &times;
+              </button>
             </div>
 
-            <button
-              className="lac-logout-btn"
-              onClick={() => void logout()}
-              title="Sign Out"
-            >
-              <IconLogOut size={15} />
-              <span>Sign Out</span>
-            </button>
-          </div>
-        </header>
+            <div className="lac-launcher-grid">
+              {modules.map((mod) => {
+                if (mod.permission && !hasPermission(mod.permission)) return null;
 
-        <main className="lac-main-content-v2" id="main-content" tabIndex={-1}>
-          {children}
-        </main>
-      </div>
+                const validLinks = mod.links.filter(
+                  (l) => !l.permission || hasPermission(l.permission)
+                );
+                if (validLinks.length === 0) return null;
+
+                return (
+                  <div key={mod.id} className="lac-launcher-card">
+                    <div className="lac-launcher-card-head">
+                      <span className="lac-launcher-icon">{mod.icon}</span>
+                      <div>
+                        <h4>{mod.title}</h4>
+                        <p>{mod.description}</p>
+                      </div>
+                    </div>
+
+                    <div className="lac-launcher-card-links">
+                      {validLinks.map((link) => (
+                        <Link
+                          key={link.to}
+                          to={link.to}
+                          className="lac-launcher-link"
+                          onClick={() => setLauncherOpen(false)}
+                        >
+                          <span>{link.label}</span>
+                          <IconChevronRight size={13} />
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contextual Sub-Header Navigation */}
+      {contextualNav && (
+        <div className="lac-contextual-bar">
+          <div className="lac-contextual-container">
+            <span className="lac-contextual-category">{contextualNav.categoryTitle}:</span>
+            <nav className="lac-contextual-nav">
+              {contextualNav.links.map((link) => {
+                if (link.permission && !hasPermission(link.permission)) return null;
+                return (
+                  <NavLink
+                    key={link.to}
+                    to={link.to}
+                    end={link.to === path}
+                    className={({ isActive }) =>
+                      `lac-contextual-tab ${isActive ? "active" : ""}`
+                    }
+                  >
+                    {link.label}
+                  </NavLink>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
+      )}
+
+      {/* Main Workspace Content */}
+      <main className="lac-body-content" id="main-content" tabIndex={-1}>
+        {children}
+      </main>
     </div>
   );
 };
