@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { IconPlus, IconChevronRight, IconClose } from "../components/Icons";
+import { IconPlus, IconChevronRight, IconClose, IconFileText } from "../components/Icons";
 import "./land.css";
 
 const api = "/api";
@@ -189,34 +189,34 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     <div className="village-core-records-tab">
       <div className="section-heading" style={{ marginBottom: "20px" }}>
         <div>
-          <h2>Core Records Matrix</h2>
-          <span>Presence of authoritative documents across acquisition awards.</span>
+          <h2>Core Records Completeness Matrix</h2>
+          <span>Authoritative foundational document availability across land acquisition awards.</span>
         </div>
         {canAddAward && (
           <button className="primary-button" onClick={() => setAddAwardModalOpen(true)}>
-            <IconPlus size={16} /> Add Award
+            <IconPlus size={15} /> Add Award
           </button>
         )}
       </div>
 
-      <div className="table-wrap">
-        <table>
+      <div className="core-matrix-wrap">
+        <table className="core-matrix-table">
           <thead>
             <tr>
-              <th scope="col">Award Reference</th>
-              <th scope="col">Award Date</th>
+              <th scope="col" style={{ width: "20%" }}>Award Reference</th>
+              <th scope="col" style={{ width: "12%" }}>Award Date</th>
               {CORE_ROLES.map((role) => (
-                <th scope="col" key={role.key}>
+                <th scope="col" key={role.key} style={{ width: "16%" }}>
                   {role.label}
                 </th>
               ))}
-              <th scope="col">Action</th>
+              <th scope="col" style={{ width: "12%", textAlign: "right" }}>Action</th>
             </tr>
           </thead>
           <tbody>
             {records.length === 0 ? (
               <tr>
-                <td colSpan={3 + CORE_ROLES.length} style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                <td colSpan={3 + CORE_ROLES.length} style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
                   No awards linked to this village yet.
                 </td>
               </tr>
@@ -224,15 +224,24 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
               records.map((award) => (
                 <tr key={award.id}>
                   <td>
-                    {canViewAward ? (
-                      <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
-                        Award #{award.awardNumber}
-                      </Link>
-                    ) : (
-                      <span style={{ fontWeight: 700 }}>Award #{award.awardNumber}</span>
-                    )}
+                    <div>
+                      {canViewAward ? (
+                        <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700, fontSize: "14px" }}>
+                          Award #{award.awardNumber}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 700, fontSize: "14px" }}>Award #{award.awardNumber}</span>
+                      )}
+                      {award.awardType && (
+                        <div style={{ fontSize: "11.5px", color: "#64748b", marginTop: "2px" }}>
+                          {award.awardType}
+                        </div>
+                      )}
+                    </div>
                   </td>
-                  <td>{date(award.awardDate)}</td>
+                  <td>
+                    <span style={{ fontSize: "13px", color: "#334155" }}>{date(award.awardDate)}</span>
+                  </td>
 
                   {CORE_ROLES.map(({ key }) => {
                     const roleInfo = award.roles?.find((r) => r.role === key);
@@ -242,32 +251,30 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                     return (
                       <td key={key}>
                         {isAvailable ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span style={{ fontSize: "13px", fontWeight: 600, color: "#16a34a" }}>
-                              ✓ Available {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
-                            </span>
-                            {doc?.originalFileName && (
-                              <span style={{ fontSize: "11px", color: "#64748b" }}>{doc.originalFileName}</span>
-                            )}
+                          <div className="core-doc-pill available">
+                            <IconFileText size={14} />
+                            <div className="core-doc-info">
+                              <span className="doc-status-lbl">
+                                Verified {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
+                              </span>
+                              {doc?.originalFileName && (
+                                <span className="doc-filename" title={doc.originalFileName}>
+                                  {doc.originalFileName}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          <div>
-                            <span style={{ fontSize: "12px", color: "#94a3b8" }}>Missing</span>
+                          <div className="core-doc-pill missing">
+                            <span className="doc-missing-lbl">Missing</span>
                             {canUploadCore && (
                               <button
-                                className="text-action"
-                                style={{
-                                  display: "inline-block",
-                                  marginLeft: "8px",
-                                  fontSize: "12px",
-                                  background: "none",
-                                  border: "none",
-                                  padding: 0,
-                                  cursor: "pointer",
-                                }}
+                                type="button"
+                                className="core-add-btn"
                                 onClick={() => openUploadModal(award.id, award.awardNumber, key)}
+                                title={`Add ${key} document`}
                               >
-                                Upload
+                                + Add
                               </button>
                             )}
                           </div>
@@ -276,18 +283,18 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                     );
                   })}
 
-                  <td>
+                  <td style={{ textAlign: "right" }}>
                     {canViewAward ? (
                       <Link
                         to={`/awards/${award.id}`}
                         className="text-action"
                         style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
                       >
-                        <span>Open Workspace</span>
+                        <span>Workspace</span>
                         <IconChevronRight size={14} />
                       </Link>
                     ) : (
-                      <span style={{ fontSize: "13px", color: "#64748b" }}>Read-only</span>
+                      <span style={{ fontSize: "12.5px", color: "#94a3b8" }}>Read-only</span>
                     )}
                   </td>
                 </tr>

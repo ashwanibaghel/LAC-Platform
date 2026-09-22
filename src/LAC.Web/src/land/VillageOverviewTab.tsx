@@ -121,41 +121,49 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
 
   return (
     <div className="village-overview-tab">
-      {/* Official / Committed Data Section */}
-      <section className="section" style={{ marginBottom: "28px" }}>
-        <div className="section-heading">
-          <div>
-            <h2>Official / Committed Data</h2>
-            <span>Canonical records and committed facts for {data.village?.name || "this village"}.</span>
+      {/* Top Command Summary Panel */}
+      {official && (
+        <div className="command-summary-card">
+          <div className="cmd-header">
+            <h3>Canonical Village Summary</h3>
+            <span className="cmd-sub">Committed facts and active records for {data.village?.name || "this village"}</span>
+          </div>
+          <div className="cmd-metrics-grid">
+            <div className="cmd-metric">
+              <span className="cmd-val">{official.khasraCount ?? 0}</span>
+              <span className="cmd-lbl">Khasras</span>
+            </div>
+            <div className="cmd-metric">
+              <span className="cmd-val">{official.awardCount ?? 0}</span>
+              <span className="cmd-lbl">Awards</span>
+            </div>
+            <div className="cmd-metric">
+              <span className="cmd-val">{official.notificationCount ?? 0}</span>
+              <span className="cmd-lbl">Notifications</span>
+            </div>
+            <div className="cmd-metric">
+              <span className="cmd-val">{official.possessionEventCount ?? 0}</span>
+              <span className="cmd-lbl">Possessions</span>
+            </div>
+            <div className="cmd-metric">
+              <span className="cmd-val">{official.courtCaseCount ?? 0}</span>
+              <span className="cmd-lbl">Court Cases</span>
+            </div>
           </div>
         </div>
+      )}
 
-        {official && (
-          <div className="summary-strip" style={{ marginBottom: "20px" }}>
-            <div className="metric">
-              <strong>{official.khasraCount ?? 0}</strong>
-              <span>Khasras</span>
+      {/* Linked Awards Section */}
+      {awards.length > 0 && (
+        <section className="section" style={{ marginBottom: "24px" }}>
+          <div className="section-heading">
+            <div>
+              <h2>Active Acquisition Awards</h2>
+              <span>Authoritative land acquisition awards associated with {data.village?.name || "this village"}.</span>
             </div>
-            <div className="metric">
-              <strong>{official.awardCount ?? 0}</strong>
-              <span>Awards</span>
-            </div>
-            <div className="metric">
-              <strong>{official.notificationCount ?? 0}</strong>
-              <span>Notifications</span>
-            </div>
-            <div className="metric">
-              <strong>{official.possessionEventCount ?? 0}</strong>
-              <span>Possession Events</span>
-            </div>
-            <div className="metric">
-              <strong>{official.courtCaseCount ?? 0}</strong>
-              <span>Court Cases</span>
-            </div>
+            <span>{awards.length} Award(s)</span>
           </div>
-        )}
 
-        {awards.length > 0 && (
           <div className="table-wrap">
             <table>
               <thead>
@@ -199,23 +207,25 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
               </tbody>
             </table>
           </div>
-        )}
-      </section>
+        </section>
+      )}
 
       {/* Pending Review Findings Section */}
-      <section className="section" style={{ marginBottom: "28px" }}>
+      <section className="section" style={{ marginBottom: "24px" }}>
         <div className="section-heading">
           <div>
             <h2>Pending Review Queue</h2>
-            <span>Source-extracted findings pending human review. Unresolved findings are not committed village facts.</span>
+            <span>Unresolved findings extracted from source documents pending human validation.</span>
           </div>
-          <span>{pending.length} session(s)</span>
+          <span className="v-count-badge">{pending.length} session(s)</span>
         </div>
 
         {pending.length === 0 ? (
-          <div className="state empty">
+          <div className="state empty" style={{ padding: "20px", textAlign: "center" }}>
             <strong>No pending review items</strong>
-            <span>No pending review sessions are currently recorded for this village.</span>
+            <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "13px" }}>
+              No pending review sessions are currently recorded for this village.
+            </p>
           </div>
         ) : (
           <div className="table-wrap">
@@ -237,15 +247,16 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                     </td>
                     <td>{p.awardNumber ? `Award #${p.awardNumber}` : "Unlinked"}</td>
                     <td>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        <span style={{ fontWeight: 600, color: "#d97706", fontSize: "13px" }}>
-                          Total Unresolved: {p.pendingCandidateCount}
+                      <div className="candidate-breakdown-wrap">
+                        <span className="unresolved-badge">
+                          {p.pendingCandidateCount} Total
                         </span>
-                        {p.candidateCounts?.length > 0 && (
-                          <div style={{ fontSize: "12px", color: "#64748b" }}>
-                            {p.candidateCounts.map((c) => `${c.candidateType}: ${c.count}`).join(" • ")}
-                          </div>
-                        )}
+                        {p.candidateCounts?.map((c) => (
+                          <span key={c.candidateType} className="candidate-chip">
+                            <span className="chip-name">{c.candidateType}</span>
+                            <span className="chip-count">{c.count}</span>
+                          </span>
+                        ))}
                       </div>
                     </td>
                     <td>
@@ -280,7 +291,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
         <div className="section-heading">
           <div>
             <h2>Source Coverage Grid</h2>
-            <span>Digitization and ingestion status across source document categories.</span>
+            <span>Digitization and ingestion status across foundational source document categories.</span>
           </div>
         </div>
 
@@ -301,35 +312,37 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                     No source coverage status recorded.
                   </td>
                 </tr>
-              ) : sources.map((s) => (
-                <tr key={s.sourceType}>
-                  <td>
-                    <span style={{ fontWeight: 650 }}>{s.sourceType}</span>
-                  </td>
-                  <td>
-                    <span
-                      className={`status-badge status-${
-                        s.status === "Loaded" ? "committed" : "draft"
-                      }`}
-                    >
-                      {s.status}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
-                  </td>
-                  <td>
-                    <Link
-                      to={`/villages/${villageId}?tab=core-records`}
-                      className="text-action"
-                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    >
-                      <span>Core Records</span>
-                      <IconChevronRight size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              ) : (
+                sources.map((s) => (
+                  <tr key={s.sourceType}>
+                    <td>
+                      <span style={{ fontWeight: 650 }}>{s.sourceType}</span>
+                    </td>
+                    <td>
+                      <span
+                        className={`status-badge status-${
+                          s.status === "Loaded" ? "committed" : "draft"
+                        }`}
+                      >
+                        {s.status}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
+                    </td>
+                    <td>
+                      <Link
+                        to={`/villages/${villageId}?tab=core-records`}
+                        className="text-action"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <span>Core Records</span>
+                        <IconChevronRight size={14} />
+                      </Link>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

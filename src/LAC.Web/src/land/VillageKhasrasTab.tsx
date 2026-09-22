@@ -198,158 +198,136 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
     setPanel(true);
   };
 
-  const openEditModal = (item: any) => {
-    setEdit(item);
+  const openEditModal = (khasra: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEdit(khasra);
     setPanel(true);
   };
 
-  const lastPage = data ? Math.max(0, Math.ceil(data.totalCount / data.pageSize) - 1) : 0;
+  const handleRowClick = (khasraId: string) => {
+    setQuickId(khasraId);
+  };
 
-  // Group items by rectangle
-  const rectangleGroups: { [key: string]: any[] } = {};
-  if (data?.items) {
-    data.items.forEach((item) => {
-      const rect = item.rectangleNumber || "Other";
-      if (!rectangleGroups[rect]) rectangleGroups[rect] = [];
-      rectangleGroups[rect].push(item);
-    });
-  }
+  // Group items by rectangle for clean visual grouping
+  const items = data?.items || [];
+  const grouped = items.reduce<Record<string, any[]>>((acc, item) => {
+    const rect = item.rectangleNumber || "Unassigned";
+    if (!acc[rect]) acc[rect] = [];
+    acc[rect].push(item);
+    return acc;
+  }, {});
 
   return (
     <div className="village-khasras-tab">
-      {/* Header Toolbar */}
-      <div className="section-heading" style={{ marginBottom: "20px" }}>
+      <div className="section-heading" style={{ marginBottom: "16px" }}>
         <div>
           <h2>Canonical Khasras Directory</h2>
-          <span>Master land records and rectangle groupings for this village.</span>
+          <span>Master land parcel directory for this village, organized by rectangle records.</span>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <ExportMenu villageId={villageId} />
           {canEditKhasra && (
-            <>
-              <button className="primary-button" onClick={openAddModal}>
-                <IconPlus size={16} /> Add Khasra
-              </button>
-              <label className="secondary-button" style={{ cursor: "pointer", margin: 0 }}>
-                Import Excel
-                <input
-                  type="file"
-                  style={{ display: "none" }}
-                  accept=".xlsx"
-                  onChange={(e) => e.target.files?.[0] && setImportFile(e.target.files[0])}
-                />
-              </label>
-            </>
+            <button className="primary-button" onClick={openAddModal}>
+              <IconPlus size={15} /> Add Khasra
+            </button>
           )}
-
-          <a className="secondary-button" href={`${api}/villages/${villageId}/khasras/import-template`} download>
-            Download Template
-          </a>
-          <ExportMenu baseUrl={`${api}/villages/${villageId}/khasras/export`} query={query} />
-
-          <div className="lac-header-search-box" style={{ width: "220px" }}>
-            <IconSearch size={14} className="lac-search-icon" />
-            <input
-              value={query}
-              onChange={(e) => {
-                setPage(0);
-                setQuery(e.target.value);
-              }}
-              placeholder="Search Khasras…"
-            />
-          </div>
         </div>
       </div>
 
-      {importFile && (
-        <KhasraImportModal
-          villageId={villageId}
-          file={importFile}
-          onClose={() => setImportFile(null)}
-          onSaved={changed}
-        />
-      )}
-
-      {panel && (
-        <KhasraEntryPanelModal
-          villageId={villageId}
-          edit={edit}
-          onClose={() => {
-            setPanel(false);
-            setEdit(null);
-          }}
-          onSaved={changed}
-        />
-      )}
+      {/* Filter / Search Bar */}
+      <div className="khasras-filter-bar">
+        <div className="search-input-wrap">
+          <IconSearch size={15} className="search-icon" />
+          <input
+            type="text"
+            className="form-input search-input"
+            placeholder="Search khasra number, rectangle, or killa…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(0);
+            }}
+          />
+        </div>
+        <span className="v-count-badge">{data?.totalCount ?? 0} Total Khasras</span>
+      </div>
 
       {loading ? (
-        <div className="state loading">Loading Khasras…</div>
+        <div className="state loading">Loading khasras directory…</div>
       ) : error ? (
         <div className="state error">{error}</div>
-      ) : !data || data.items.length === 0 ? (
-        <div className="state empty">
-          <strong>No Khasra records found</strong>
-          <span>{query ? "No khasras match your search query." : "Add khasras to initialize this village master."}</span>
+      ) : items.length === 0 ? (
+        <div className="state empty" style={{ padding: "24px", textAlign: "center" }}>
+          <strong>No khasra records found</strong>
+          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "13px" }}>
+            {query ? `No results matching "${query}".` : "No khasra parcels registered for this village yet."}
+          </p>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {Object.entries(rectangleGroups).map(([rect, items]) => (
-            <div key={rect} className="section" style={{ padding: "16px" }}>
-              <h3 style={{ margin: "0 0 14px 0", fontSize: "16px", fontWeight: 700 }}>
-                {rect !== "Other" ? `Rectangle ${rect}` : "Unclassified / Other Rectangles"} ({items.length})
-              </h3>
-
+        <div className="khasra-grouped-container">
+          {Object.entries(grouped).map(([rectName, rectItems]) => (
+            <div key={rectName} className="rect-group-card">
+              <div className="rect-group-header">
+                <span className="rect-title">Rectangle {rectName}</span>
+                <span className="rect-count">{rectItems.length} parcel(s)</span>
+              </div>
               <div className="table-wrap">
                 <table>
                   <thead>
                     <tr>
-                      <th scope="col">Khasra Number</th>
-                      <th scope="col">Canonical Area</th>
-                      <th scope="col">Linked Awards</th>
-                      <th scope="col">Action</th>
+                      <th scope="col" style={{ width: "25%" }}>Khasra Number</th>
+                      <th scope="col" style={{ width: "35%" }}>Canonical Area</th>
+                      <th scope="col" style={{ width: "25%" }}>Linked Award</th>
+                      <th scope="col" style={{ width: "15%", textAlign: "right" }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((k) => (
-                      <tr key={k.id}>
+                    {rectItems.map((k) => (
+                      <tr
+                        key={k.id}
+                        className="khasra-row-interactive"
+                        onClick={() => handleRowClick(k.id)}
+                        title="Click to inspect Khasra details"
+                      >
                         <td>
-                          <button
-                            className="text-action"
-                            style={{
-                              fontWeight: 700,
-                              background: "none",
-                              border: "none",
-                              padding: 0,
-                              cursor: "pointer",
-                            }}
-                            onClick={() => setQuickId(k.id)}
-                          >
-                            {k.displayNumber}
-                          </button>
+                          <span className="khasra-num-highlight">
+                            {k.displayNumber || k.normalizedNumber || k.id}
+                          </span>
                         </td>
                         <td>
-                          {k.areaBigha != null ? `${k.areaBigha} B ${k.areaBiswa ?? 0} Bis ${k.areaBiswansi ?? 0} Bisw` : "—"}
+                          <span style={{ fontSize: "13px", color: "#1e293b", fontWeight: 600 }}>
+                            {k.areaBigha != null
+                              ? `${k.areaBigha} Bigha ${k.areaBiswa ?? 0} Biswa ${k.areaBiswansi ?? 0} Biswansi`
+                              : k.totalArea != null
+                              ? `${k.totalArea} ${k.areaUnit || ""}`
+                              : "—"}
+                          </span>
                         </td>
                         <td>
-                          {k.awards?.length ? (
-                            <span>{k.awards.map((a: any) => `Award #${a.awardNumber}`).join(", ")}</span>
+                          {k.awards?.length > 0 ? (
+                            <span className="khasra-award-pill">
+                              Award #{k.awards[0].awardNumber}
+                            </span>
                           ) : (
-                            <span style={{ color: "#94a3b8" }}>None</span>
+                            <span style={{ fontSize: "12px", color: "#94a3b8" }}>Unlinked</span>
                           )}
                         </td>
-                        <td>
-                          <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                        <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
                             <button
+                              type="button"
                               className="text-action"
-                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                              onClick={() => setQuickId(k.id)}
+                              onClick={() => handleRowClick(k.id)}
+                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "12.5px" }}
                             >
-                              Quick View
+                              Inspect
                             </button>
                             {canEditKhasra && (
                               <button
-                                className="secondary-button"
-                                style={{ padding: "4px 8px", fontSize: "12px" }}
-                                onClick={() => openEditModal(k)}
+                                type="button"
+                                className="text-action"
+                                onClick={(e) => openEditModal(k, e)}
+                                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "12.5px", color: "#475569" }}
                               >
                                 Edit
                               </button>
@@ -364,96 +342,122 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
             </div>
           ))}
 
-          {data.totalCount > data.pageSize && (
-            <div className="pagination">
-              <span>
-                Showing {data.page * data.pageSize + 1}–
-                {Math.min((data.page + 1) * data.pageSize, data.totalCount)} of {data.totalCount} Khasras
+          {/* Pagination Controls */}
+          {data && data.totalCount > 25 && (
+            <div className="pagination-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "16px" }}>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={page === 0}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Previous Page
+              </button>
+              <span style={{ fontSize: "13px", color: "#64748b" }}>
+                Page {page + 1} of {Math.ceil(data.totalCount / 25)}
               </span>
-              <div>
-                <button disabled={page === 0} onClick={() => setPage(page - 1)}>
-                  Previous
-                </button>
-                <button disabled={page >= lastPage} onClick={() => setPage(page + 1)}>
-                  Next
-                </button>
-              </div>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={(page + 1) * 25 >= data.totalCount}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next Page
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Quick View Drawer */}
-      {quickId && <KhasraQuickViewDrawer id={quickId} villageId={villageId} onClose={() => setQuickId("")} />}
+      {/* Add / Edit Modal */}
+      {panel && (
+        <KhasraEditModal
+          villageId={villageId}
+          khasra={edit}
+          onClose={() => setPanel(false)}
+          onSuccess={() => {
+            setPanel(false);
+            changed();
+          }}
+        />
+      )}
+
+      {/* Right-Side Inspector Drawer */}
+      {quickId && (
+        <KhasraRightInspectorDrawer
+          id={quickId}
+          villageId={villageId}
+          onClose={() => setQuickId("")}
+        />
+      )}
     </div>
   );
 };
 
-// Add/Edit Khasra Modal
-function KhasraEntryPanelModal({
-  villageId,
-  edit,
-  onClose,
-  onSaved,
-}: {
+/* =========================================================
+   Add / Edit Modal
+   ========================================================= */
+interface KhasraEditModalProps {
   villageId: string;
-  edit: any;
+  khasra?: any;
   onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [khasraNumber, setKhasraNumber] = useState(edit?.displayNumber || edit?.khasraNumber || "");
-  const [bigha, setBigha] = useState(edit?.areaBigha?.toString() ?? edit?.bigha?.toString() ?? "");
-  const [biswa, setBiswa] = useState(edit?.areaBiswa?.toString() ?? edit?.biswa?.toString() ?? "");
-  const [biswansi, setBiswansi] = useState(edit?.areaBiswansi?.toString() ?? edit?.biswansi?.toString() ?? "");
-  const [awardNumber, setAwardNumber] = useState(edit?.awards?.[0]?.awardNumber || edit?.awardNumber || "");
-  const [awardDate, setAwardDate] = useState(edit?.awards?.[0]?.awardDate || edit?.awardDate || "");
-  const [rectangleNumber, setRectangleNumber] = useState(edit?.rectangleNumber || "");
-  const [qualifier, setQualifier] = useState(edit?.qualifier || "");
+  onSuccess: () => void;
+}
+
+const KhasraEditModal: React.FC<KhasraEditModalProps> = ({ villageId, khasra, onClose, onSuccess }) => {
+  const isEditing = Boolean(khasra);
+  const [displayNumber, setDisplayNumber] = useState(khasra?.displayNumber || khasra?.normalizedNumber || "");
+  const [rectangleNumber, setRectangleNumber] = useState(khasra?.rectangleNumber || "");
+  const [killaNumber, setKillaNumber] = useState(khasra?.killaNumber || "");
+  const [subdivisionNumber, setSubdivisionNumber] = useState(khasra?.subdivisionNumber || "");
+  const [bigha, setBigha] = useState(khasra?.areaBigha?.toString() || "");
+  const [biswa, setBiswa] = useState(khasra?.areaBiswa?.toString() || "");
+  const [biswansi, setBiswansi] = useState(khasra?.areaBiswansi?.toString() || "");
+  const [remarks, setRemarks] = useState(khasra?.remarks || "");
 
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [err, setErr] = useState<string | null>(null);
 
-  const save = async () => {
-    if (!khasraNumber.trim()) {
-      setError("Khasra number is required.");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!displayNumber.trim()) {
+      setErr("Khasra number is required.");
       return;
     }
-    setBusy(true);
-    setError("");
 
-    const payload: KhasraWorkspaceRow = {
-      khasraNumber: khasraNumber.trim(),
-      bigha: bigha === "" ? null : Number(bigha),
-      biswa: biswa === "" ? null : Number(biswa),
-      biswansi: biswansi === "" ? null : Number(biswansi),
-      awardNumber: awardNumber.trim() || null,
-      awardDate: awardDate || null,
-      rectangleNumber: rectangleNumber.trim() || null,
-      qualifier: qualifier.trim() || null,
-    };
+    setBusy(true);
+    setErr(null);
 
     try {
-      if (edit?.id) {
-        const res = await fetch(`${api}/khasras/${edit.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          credentials: "include",
-        });
-        if (!res.ok) throw new Error("Failed to update Khasra.");
-      } else {
-        const res = await fetch(`${api}/villages/${villageId}/khasras/batch`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows: [payload] }),
-          credentials: "include",
-        });
-        if (!res.ok) throw new Error("Failed to add Khasra.");
+      const payload = {
+        displayNumber: displayNumber.trim(),
+        rectangleNumber: rectangleNumber.trim() || null,
+        killaNumber: killaNumber.trim() || null,
+        subdivisionNumber: subdivisionNumber.trim() || null,
+        areaBigha: bigha ? parseInt(bigha, 10) : null,
+        areaBiswa: biswa ? parseInt(biswa, 10) : null,
+        areaBiswansi: biswansi ? parseInt(biswansi, 10) : null,
+        remarks: remarks.trim() || null,
+      };
+
+      const url = isEditing ? `${api}/khasras/${khasra.id}` : `${api}/villages/${villageId}/khasras`;
+      const method = isEditing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.message || "Failed to save Khasra.");
       }
-      onSaved();
-      onClose();
+
+      onSuccess();
     } catch (e: any) {
-      setError(e?.message || "Could not save Khasra.");
+      setErr(e?.message || "Failed to save Khasra.");
     } finally {
       setBusy(false);
     }
@@ -461,289 +465,140 @@ function KhasraEntryPanelModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
+      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "520px" }}>
         <div className="modal-header">
-          <h3>{edit ? "Edit Khasra Record" : "Add Khasra Record"}</h3>
+          <h3>{isEditing ? `Edit Khasra #${displayNumber}` : "Add Khasra Parcel"}</h3>
           <button className="icon-button" onClick={onClose}>
             <IconClose size={18} />
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {error && <div className="state error">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {err && <div className="state error">{err}</div>}
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
             <div className="form-group">
               <label className="form-label required">Khasra Number</label>
               <input
                 type="text"
                 className="form-input"
-                placeholder="e.g. 12//14/2"
-                value={khasraNumber}
-                onChange={(e) => setKhasraNumber(e.target.value)}
+                placeholder="e.g. 12//14"
+                value={displayNumber}
+                onChange={(e) => setDisplayNumber(e.target.value)}
                 required
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Rectangle Number</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. 12"
-                value={rectangleNumber}
-                onChange={(e) => setRectangleNumber(e.target.value)}
-              />
-            </div>
-          </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
-            <div className="form-group">
-              <label className="form-label">Bigha</label>
-              <input
-                type="number"
-                className="form-input"
-                value={bigha}
-                onChange={(e) => setBigha(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Biswa</label>
-              <input
-                type="number"
-                className="form-input"
-                value={biswa}
-                onChange={(e) => setBiswa(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Biswansi</label>
-              <input
-                type="number"
-                className="form-input"
-                value={biswansi}
-                onChange={(e) => setBiswansi(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div className="form-group">
-              <label className="form-label">Award Number</label>
-              <input
-                type="text"
-                className="form-input"
-                placeholder="e.g. 15/2021-22"
-                value={awardNumber}
-                onChange={(e) => setAwardNumber(e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Award Date</label>
-              <input
-                type="date"
-                className="form-input"
-                value={awardDate}
-                onChange={(e) => setAwardDate(e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          <button type="button" className="secondary-button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>
-            {busy ? "Saving…" : edit ? "Save Changes" : "Add Khasra"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Excel Import Modal
-function KhasraImportModal({
-  villageId,
-  file,
-  onClose,
-  onSaved,
-}: {
-  villageId: string;
-  file: File;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [busy, setBusy] = useState(true);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<KhasraImportPreview | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const form = new FormData();
-    form.append("file", file);
-
-    fetch(`${api}/villages/${villageId}/khasras/import-preview`, {
-      method: "POST",
-      body: form,
-      credentials: "include",
-    })
-      .then(async (r) => {
-        if (!r.ok) throw new Error("Could not parse Excel template.");
-        return r.json() as Promise<KhasraImportPreview>;
-      })
-      .then((d) => {
-        if (active) {
-          setPreview(d);
-          setBusy(false);
-        }
-      })
-      .catch((e: any) => {
-        if (active) {
-          setError(e?.message || "Failed to preview import.");
-          setBusy(false);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [file, villageId]);
-
-  const commit = async () => {
-    if (!preview?.importableRows?.length) return;
-    setBusy(true);
-    setError("");
-    try {
-      const res = await fetch(`${api}/villages/${villageId}/khasras/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: preview.importableRows }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to import Khasras.");
-      onSaved();
-      onClose();
-    } catch (e: any) {
-      setError(e?.message || "Import failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "780px" }}>
-        <div className="modal-header">
-          <h3>Import Khasras Preview</h3>
-          <button className="icon-button" onClick={onClose}>
-            <IconClose size={18} />
-          </button>
-        </div>
-
-        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {error && <div className="state error">{error}</div>}
-
-          {busy ? (
-            <div className="state loading">Parsing spreadsheet file…</div>
-          ) : preview ? (
-            <div>
-              <div className="summary-strip" style={{ marginBottom: "16px" }}>
-                <div className="metric">
-                  <strong>{preview.totalRows}</strong>
-                  <span>Total Rows</span>
-                </div>
-                <div className="metric">
-                  <strong style={{ color: "#16a34a" }}>{preview.validRows}</strong>
-                  <span>Valid Rows</span>
-                </div>
-                <div className="metric">
-                  <strong style={{ color: "#e11d48" }}>{preview.invalidRows}</strong>
-                  <span>Invalid Rows</span>
-                </div>
-                <div className="metric">
-                  <strong>{preview.newKhasras}</strong>
-                  <span>New Khasras</span>
-                </div>
-                <div className="metric">
-                  <strong>{preview.existingKhasras}</strong>
-                  <span>Existing Khasras</span>
-                </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+              <div className="form-group">
+                <label className="form-label">Rectangle</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 12"
+                  value={rectangleNumber}
+                  onChange={(e) => setRectangleNumber(e.target.value)}
+                />
               </div>
-
-              {preview.rows?.length > 0 && (
-                <div className="table-wrap" style={{ maxHeight: "300px", overflowY: "auto" }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Row #</th>
-                        <th>Khasra</th>
-                        <th>Bigha/Biswa</th>
-                        <th>Award Ref</th>
-                        <th>Khasra Status</th>
-                        <th>Award/Link Status</th>
-                        <th>Result</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {preview.rows.map((r, idx) => (
-                        <tr key={idx}>
-                          <td>{r.rowNumber}</td>
-                          <td style={{ fontWeight: 650 }}>{r.khasraNumber || "—"}</td>
-                          <td>
-                            {r.row?.bigha != null ? `${r.row.bigha}B ${r.row.biswa ?? 0}Bis` : "—"}
-                          </td>
-                          <td>{r.row?.awardNumber || "—"}</td>
-                          <td>{r.khasraStatus}</td>
-                          <td>{r.awardLinkStatus || r.awardStatus}</td>
-                          <td>
-                            <span
-                              style={{
-                                color: r.canImport ? "#16a34a" : "#e11d48",
-                                fontWeight: 600,
-                                fontSize: "12px",
-                              }}
-                            >
-                              {r.result} {r.message ? `(${r.message})` : ""}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <div className="form-group">
+                <label className="form-label">Killa</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 14"
+                  value={killaNumber}
+                  onChange={(e) => setKillaNumber(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Sub-division</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 1"
+                  value={subdivisionNumber}
+                  onChange={(e) => setSubdivisionNumber(e.target.value)}
+                />
+              </div>
             </div>
-          ) : null}
-        </div>
 
-        <div className="modal-footer">
-          <button type="button" className="secondary-button" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="primary-button"
-            disabled={busy || !preview?.importableRows?.length}
-            onClick={() => void commit()}
-          >
-            {busy ? "Importing…" : `Commit ${preview?.importableRows?.length ?? 0} Valid Rows`}
-          </button>
-        </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
+              <div className="form-group">
+                <label className="form-label">Bigha</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  value={bigha}
+                  onChange={(e) => setBigha(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Biswa</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  value={biswa}
+                  onChange={(e) => setBiswa(e.target.value)}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Biswansi</label>
+                <input
+                  type="number"
+                  min="0"
+                  className="form-input"
+                  value={biswansi}
+                  onChange={(e) => setBiswansi(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Remarks</label>
+              <textarea
+                className="form-input"
+                rows={2}
+                placeholder="Optional parcel remarks…"
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="modal-footer">
+            <button type="button" className="secondary-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="primary-button" disabled={busy || !displayNumber.trim()}>
+              {busy ? "Saving…" : isEditing ? "Update Khasra" : "Create Khasra"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
+};
+
+/* =========================================================
+   Right-Side Inspector Drawer
+   ========================================================= */
+interface KhasraRightInspectorDrawerProps {
+  id: string;
+  villageId: string;
+  onClose: () => void;
 }
 
-// Khasra Quick View Drawer
-function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; villageId: string; onClose: () => void }) {
+const KhasraRightInspectorDrawer: React.FC<KhasraRightInspectorDrawerProps> = ({ id, villageId, onClose }) => {
   const { hasPermission } = useAuth();
   const canViewAward = hasPermission("Award.View");
   const canViewLr = hasPermission("LR.View");
 
-  const [detail, setDetail] = useState<KhasraDetail | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [ownership, setOwnership] = useState<{ data?: RecordedOwnershipResult; forbidden?: boolean; error?: boolean }>({});
   const [loading, setLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<KhasraDetail | null>(null);
+  const [ownership, setOwnership] = useState<{ forbidden?: boolean; error?: boolean; data?: RecordedOwnershipResult }>({});
 
   useEffect(() => {
     let active = true;
@@ -786,190 +641,171 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
     };
   }, [id]);
 
-  if (loading) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-container" style={{ maxWidth: "450px" }} onClick={(e) => e.stopPropagation()}>
-          <div className="state loading">Loading Khasra details…</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (detailError || !detail) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-container" style={{ maxWidth: "450px" }} onClick={(e) => e.stopPropagation()}>
-          <div className="modal-header">
-            <h3>Khasra Record</h3>
-            <button className="icon-button" onClick={onClose}>
-              <IconClose size={18} />
-            </button>
-          </div>
-          <div className="modal-body">
-            <div className="state error">{detailError || "Khasra record unavailable."}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const k = detail;
-  const notifications = k.notifications || [];
-  const awards = k.awards || [];
-  const lrEntries = k.lrEntries || [];
-  const oData = ownership.data;
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "480px" }}>
-        <div className="modal-header">
+    <div className="khasra-drawer-backdrop" onClick={onClose}>
+      <div className="khasra-drawer-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="khasra-drawer-header">
           <div>
-            <h3 style={{ margin: 0 }}>Khasra #{k.displayNumber || id}</h3>
-            <span style={{ fontSize: "12px", color: "#64748b" }}>
-              {k.village?.name} • Sub-division: {k.village?.subDivision?.name || "—"}
-            </span>
+            <span className="v-eyebrow">PARCEL INSPECTOR</span>
+            <h3 style={{ margin: "2px 0 0", fontSize: "18px", fontWeight: 800 }}>
+              Khasra #{detail?.displayNumber || id}
+            </h3>
           </div>
-          <button className="icon-button" onClick={onClose}>
+          <button className="icon-button" onClick={onClose} title="Close Inspector">
             <IconClose size={18} />
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          {/* Canonical Area */}
-          <div style={{ background: "#f8fafc", padding: "12px 16px", borderRadius: "8px" }}>
-            <h4 style={{ margin: "0 0 4px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>
-              Canonical Master Area
-            </h4>
-            <div style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a" }}>
-              {k.areaBigha != null ? `${k.areaBigha} Bigha ${k.areaBiswa ?? 0} Biswa ${k.areaBiswansi ?? 0} Biswansi` : k.totalArea != null ? `${k.totalArea} ${k.areaUnit || ""}` : "Not recorded"}
+        {loading ? (
+          <div className="state loading" style={{ margin: "24px 0" }}>Loading parcel details…</div>
+        ) : detailError || !detail ? (
+          <div className="state error" style={{ margin: "24px 0" }}>{detailError || "Khasra record unavailable."}</div>
+        ) : (
+          <div className="khasra-drawer-body">
+            {/* Village & Rectangle Context */}
+            <div className="drawer-section-card">
+              <span className="drawer-card-lbl">LOCATION CONTEXT</span>
+              <div className="drawer-card-val">
+                {detail.village?.name || "Village Record"}
+              </div>
+              <span className="drawer-card-sub">
+                Sub-division: {detail.village?.subDivision?.name || "—"} • Rectangle: {detail.rectangleNumber || "—"}
+              </span>
+            </div>
+
+            {/* Canonical Master Area */}
+            <div className="drawer-section-card">
+              <span className="drawer-card-lbl">CANONICAL MASTER AREA</span>
+              <div className="drawer-card-val-lg">
+                {detail.areaBigha != null
+                  ? `${detail.areaBigha} Bigha ${detail.areaBiswa ?? 0} Biswa ${detail.areaBiswansi ?? 0} Biswansi`
+                  : detail.totalArea != null
+                  ? `${detail.totalArea} ${detail.areaUnit || ""}`
+                  : "Not recorded"}
+              </div>
+            </div>
+
+            {/* Recorded Owners */}
+            <div className="drawer-section">
+              <h4 className="drawer-section-title">Recorded Owners</h4>
+              {ownership.forbidden ? (
+                <p className="drawer-text-muted">Ownership details not available with current access</p>
+              ) : ownership.error ? (
+                <p className="drawer-text-muted">Ownership status unavailable</p>
+              ) : ownership.data?.isAmbiguous ? (
+                <p className="drawer-text-warn">
+                  {ownership.data.message || "Recorded ownership is ambiguous and pending verification."}
+                </p>
+              ) : !ownership.data?.found ? (
+                <p className="drawer-text-muted">
+                  {ownership.data?.message || "No verified recorded ownership is available for this context."}
+                </p>
+              ) : ownership.data.owners?.length > 0 ? (
+                <div className="drawer-owners-list">
+                  {ownership.data.owners.map((owner, idx) => {
+                    const shareStr = owner.rawShareText
+                      ? owner.rawShareText
+                      : owner.numerator != null && owner.denominator != null
+                      ? `${owner.numerator}/${owner.denominator}`
+                      : null;
+
+                    return (
+                      <div key={idx} className="drawer-owner-item">
+                        <span className="owner-name">{owner.displayName}</span>
+                        {shareStr && <span className="owner-share">Share: {shareStr}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="drawer-text-muted">
+                  {ownership.data?.message || "No verified recorded ownership is available for this context."}
+                </p>
+              )}
+            </div>
+
+            {/* Linked Acquisition Awards */}
+            <div className="drawer-section">
+              <h4 className="drawer-section-title">Linked Acquisition Awards</h4>
+              {detail.awards && detail.awards.length > 0 ? (
+                <div className="drawer-links-list">
+                  {detail.awards.map((a) => (
+                    <div key={a.id} className="drawer-link-item">
+                      {canViewAward ? (
+                        <Link to={`/awards/${a.id}`} className="entity-link" style={{ fontWeight: 650 }}>
+                          Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 650 }}>
+                          Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="drawer-text-muted">No linked awards</p>
+              )}
+            </div>
+
+            {/* Relevant Notifications */}
+            <div className="drawer-section">
+              <h4 className="drawer-section-title">Relevant Notifications</h4>
+              {detail.notifications && detail.notifications.length > 0 ? (
+                <div className="drawer-links-list">
+                  {detail.notifications.map((n) => (
+                    <div key={n.id} className="drawer-link-item">
+                      {canViewAward ? (
+                        <Link to={`/notifications/${n.id}`} className="entity-link" style={{ fontWeight: 650 }}>
+                          {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 650 }}>
+                          {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="drawer-text-muted">No linked notifications</p>
+              )}
+            </div>
+
+            {/* LR Source Entries */}
+            <div className="drawer-section">
+              <h4 className="drawer-section-title">LR Source Entries</h4>
+              {detail.lrEntries && detail.lrEntries.length > 0 ? (
+                <div className="drawer-links-list">
+                  {detail.lrEntries.map((e) => (
+                    <div key={e.id} className="drawer-link-item" style={{ justifyContent: "space-between" }}>
+                      {canViewLr ? (
+                        <Link to={`/villages/${detail.village?.id || villageId}/lr/${e.villageLrId}`} className="entity-link">
+                          Source Entry ({e.rawKhasraText || "Khasra"})
+                        </Link>
+                      ) : (
+                        <span>Source Entry ({e.rawKhasraText || "Khasra"})</span>
+                      )}
+                      <span className="status-badge status-draft">{e.verificationStatus}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="drawer-text-muted">No linked LR entries</p>
+              )}
             </div>
           </div>
+        )}
 
-          {/* Recorded Owners */}
-          <div>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Recorded Owners</h4>
-            {ownership.forbidden ? (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b", fontStyle: "italic" }}>
-                Ownership details not available with current access
-              </p>
-            ) : ownership.error ? (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Ownership status unavailable</p>
-            ) : oData?.isAmbiguous ? (
-              <p style={{ margin: 0, fontSize: "13px", color: "#d97706", fontWeight: 600 }}>
-                {oData.message || "Recorded ownership is ambiguous and pending verification."}
-              </p>
-            ) : !oData?.found ? (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
-                {oData?.message || "No verified recorded ownership is available for this context."}
-              </p>
-            ) : oData.owners?.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {oData.owners.map((owner, idx) => {
-                  const shareStr = owner.rawShareText
-                    ? owner.rawShareText
-                    : owner.numerator != null && owner.denominator != null
-                    ? `${owner.numerator}/${owner.denominator}`
-                    : null;
-
-                  return (
-                    <div key={idx} style={{ fontSize: "13px", borderBottom: "1px solid #f1f5f9", paddingBottom: "4px" }}>
-                      <span style={{ fontWeight: 650 }}>{owner.displayName}</span>
-                      {shareStr && <span style={{ color: "#64748b", marginLeft: "8px" }}>({shareStr})</span>}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
-                {oData?.message || "No verified recorded ownership is available for this context."}
-              </p>
-            )}
-          </div>
-
-          {/* Linked Acquisition Awards */}
-          <div>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Linked Acquisition Awards</h4>
-            {awards.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {awards.map((a) => (
-                  <div key={a.id} style={{ fontSize: "13px" }}>
-                    {canViewAward ? (
-                      <Link to={`/awards/${a.id}`} className="entity-link">
-                        Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
-                      </Link>
-                    ) : (
-                      <span style={{ fontWeight: 600 }}>
-                        Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>No linked awards</p>
-            )}
-          </div>
-
-          {/* Relevant Notifications */}
-          <div>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Relevant Notifications</h4>
-            {notifications.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {notifications.map((n) => (
-                  <div key={n.id} style={{ fontSize: "13px" }}>
-                    {canViewAward ? (
-                      <Link to={`/notifications/${n.id}`} className="entity-link">
-                        {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
-                      </Link>
-                    ) : (
-                      <span style={{ fontWeight: 600 }}>
-                        {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>No linked notifications</p>
-            )}
-          </div>
-
-          {/* LR Source Entries */}
-          <div>
-            <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>LR Source Entries</h4>
-            {lrEntries.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {lrEntries.map((e) => (
-                  <div key={e.id} style={{ fontSize: "13px", color: "#334155", display: "flex", justifyContent: "space-between" }}>
-                    {canViewLr ? (
-                      <Link to={`/villages/${k.village?.id || villageId}/lr/${e.villageLrId}`} className="entity-link">
-                        Source Entry ({e.rawKhasraText || "Khasra"})
-                      </Link>
-                    ) : (
-                      <span>Source Entry ({e.rawKhasraText || "Khasra"})</span>
-                    )}
-                    <span className="status-badge status-draft" style={{ fontSize: "11px" }}>
-                      {e.verificationStatus}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>No linked LR entries</p>
-            )}
-          </div>
-        </div>
-
-        <div className="modal-footer" style={{ justifyContent: "space-between" }}>
+        <div className="khasra-drawer-footer">
           <Link to={`/khasras/${id}`} className="primary-button" style={{ textDecoration: "none" }}>
             Open Full Khasra Record →
           </Link>
           <button type="button" className="secondary-button" onClick={onClose}>
-            Close
+            Close Inspector
           </button>
         </div>
       </div>
     </div>
   );
-}
+};

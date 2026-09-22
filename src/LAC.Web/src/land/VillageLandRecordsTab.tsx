@@ -86,35 +86,61 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
     );
   }
 
+  const verifiedCommitted = (progress?.verified ?? 0) + (progress?.committed ?? 0);
+  const totalRows = progress?.totalRows ?? 0;
+  const progressPct = totalRows > 0 ? Math.min(100, Math.round((verifiedCommitted / totalRows) * 100)) : 0;
+
   return (
     <div className="land-records-tab-container">
-      {/* Progress metrics strip */}
-      {progress && (
-        <div className="summary-strip" style={{ marginBottom: "24px" }}>
-          <div className="metric">
-            <strong>{progress.totalRows}</strong>
-            <span>Total LR Rows</span>
+      {/* Adaptive LR Verification Progress Banner */}
+      <div className="lr-progress-card">
+        <div className="lr-prog-header">
+          <div>
+            <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 800 }}>LR Register Verification Progress</h3>
+            <span style={{ fontSize: "12.5px", color: "#64748b" }}>
+              {totalRows === 0
+                ? "0 entries · Not started"
+                : `${verifiedCommitted} verified / ${totalRows} total entries (${progressPct}% complete)`}
+            </span>
           </div>
-          <div className="metric">
-            <strong style={{ color: "#64748b" }}>{progress.draft}</strong>
-            <span>Draft</span>
-          </div>
-          <div className="metric">
-            <strong style={{ color: "#d97706" }}>{progress.needsReview}</strong>
-            <span>Needs Review</span>
-          </div>
-          <div className="metric">
-            <strong style={{ color: "#2563eb" }}>{progress.verified}</strong>
-            <span>Verified</span>
-          </div>
-          <div className="metric">
-            <strong style={{ color: "#16a34a" }}>{progress.committed}</strong>
-            <span>Committed</span>
-          </div>
+          {totalRows > 0 && (
+            <span className="lr-prog-percent">{progressPct}%</span>
+          )}
         </div>
-      )}
 
-      {/* LR Registers Table */}
+        {totalRows > 0 && (
+          <div className="lr-prog-track">
+            <div className="lr-prog-fill" style={{ width: `${progressPct}%` }} />
+          </div>
+        )}
+
+        {progress && totalRows > 0 && (
+          <div className="lr-metrics-row">
+            <div className="lr-m-item">
+              <span className="lr-m-num">{progress.totalRows}</span>
+              <span className="lr-m-lbl">Total Rows</span>
+            </div>
+            <div className="lr-m-item">
+              <span className="lr-m-num" style={{ color: "#64748b" }}>{progress.draft}</span>
+              <span className="lr-m-lbl">Draft</span>
+            </div>
+            <div className="lr-m-item">
+              <span className="lr-m-num" style={{ color: "#d97706" }}>{progress.needsReview}</span>
+              <span className="lr-m-lbl">Needs Review</span>
+            </div>
+            <div className="lr-m-item">
+              <span className="lr-m-num" style={{ color: "#2563eb" }}>{progress.verified}</span>
+              <span className="lr-m-lbl">Verified</span>
+            </div>
+            <div className="lr-m-item">
+              <span className="lr-m-num" style={{ color: "#16a34a" }}>{progress.committed}</span>
+              <span className="lr-m-lbl">Committed</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* LR Registers Section */}
       <section className="section" style={{ marginBottom: "32px" }}>
         <div className="section-heading">
           <div>
@@ -122,8 +148,8 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
             <span>Land record registers imported or created for this village.</span>
           </div>
           <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-            <span>{registers.length} registers</span>
-            <Link to="/imports/lr" className="secondary-button" style={{ padding: "6px 12px", fontSize: "13px" }}>
+            <span className="v-count-badge">{registers.length} register(s)</span>
+            <Link to="/imports/lr" className="secondary-button" style={{ padding: "6px 12px", fontSize: "12.5px" }}>
               Import Workspace
             </Link>
           </div>
@@ -141,7 +167,7 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
             <tbody>
               {registers.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                  <td colSpan={3} style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                     No LR registers found for this village.
                   </td>
                 </tr>
@@ -172,38 +198,39 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
         </div>
       </section>
 
-      {/* Khatauni Revenue Records Table */}
+      {/* Khatauni Revenue Records Section */}
       <section className="section">
         <div className="section-heading">
           <div>
             <h2>Khatauni Revenue Records</h2>
-            <span>Official Khatauni records and owner holdings.</span>
+            <span>Official Khatauni records and recorded owner holdings.</span>
           </div>
-          <span>{khataunis.length} records</span>
+          <span className="v-count-badge">{khataunis.length} record(s)</span>
         </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Reference Number</th>
-                <th scope="col">Record Year</th>
-                <th scope="col">As Of Date</th>
-                <th scope="col">Khatas Count</th>
-                <th scope="col">Recorded Khasras</th>
-                <th scope="col">Status</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {khataunis.length === 0 ? (
+        {khataunis.length === 0 ? (
+          <div className="state empty" style={{ padding: "24px", textAlign: "center" }}>
+            <strong>No Khatauni records loaded yet.</strong>
+            <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "13px" }}>
+              No official Khatauni revenue records registered for this village.
+            </p>
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td colSpan={7} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
-                    No Khatauni revenue records registered for this village.
-                  </td>
+                  <th scope="col">Reference Number</th>
+                  <th scope="col">Record Year</th>
+                  <th scope="col">As Of Date</th>
+                  <th scope="col">Khatas Count</th>
+                  <th scope="col">Recorded Khasras</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Action</th>
                 </tr>
-              ) : (
-                khataunis.map((kh) => (
+              </thead>
+              <tbody>
+                {khataunis.map((kh) => (
                   <tr key={kh.id}>
                     <td>
                       <span style={{ fontWeight: 650 }}>{kh.referenceNumber || "—"}</span>
@@ -228,11 +255,11 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
                       </Link>
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

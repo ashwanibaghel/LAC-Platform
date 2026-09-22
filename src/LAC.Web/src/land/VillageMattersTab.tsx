@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { IconPlus, IconChevronRight, IconClose } from "../components/Icons";
+import { IconPlus, IconChevronRight, IconClose, IconAward } from "../components/Icons";
 import "./land.css";
 
 const api = "/api";
@@ -225,7 +225,7 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         </div>
         {canCreateMatter && (
           <button className="primary-button" onClick={handleOpenModal}>
-            <IconPlus size={16} /> New Matter
+            <IconPlus size={15} /> New Matter
           </button>
         )}
       </div>
@@ -234,7 +234,46 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         <div className="state loading">Loading village matters…</div>
       ) : error ? (
         <div className="state error">{error}</div>
+      ) : matters.length === 0 ? (
+        <div className="state empty" style={{ padding: "24px", textAlign: "center" }}>
+          <strong>No active matters</strong>
+          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: "13px" }}>
+            No active legal or acquisition matters associated with this village.
+          </p>
+        </div>
+      ) : matters.length <= 3 ? (
+        /* Adaptive Card View for low volume */
+        <div className="matters-card-grid">
+          {matters.map((m) => (
+            <div key={m.id} className="matter-item-card">
+              <div className="matter-card-header">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <IconAward size={16} className="matter-icon" />
+                  <Link to={`/matters/${m.id}`} className="entity-link" style={{ fontWeight: 700, fontSize: "14px" }}>
+                    {m.title}
+                  </Link>
+                </div>
+                <span className={`status-badge status-${m.status.toLowerCase()}`}>
+                  {m.status}
+                </span>
+              </div>
+              <div className="matter-card-meta">
+                <span><strong>Workstream:</strong> {m.workstreamName || m.workstreamCode || "—"}</span>
+                <span><strong>Type:</strong> {m.matterType || "General"}</span>
+                <span><strong>Award Ref:</strong> {m.award?.awardNumber ? `Award #${m.award.awardNumber}` : "—"}</span>
+                {m.referenceNumber && <span><strong>Ref:</strong> {m.referenceNumber}</span>}
+              </div>
+              <div className="matter-card-footer">
+                <Link to={`/matters/${m.id}`} className="text-action" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                  <span>Open Matter</span>
+                  <IconChevronRight size={14} />
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
+        /* Dense Table View for higher volume */
         <div className="table-wrap">
           <table>
             <thead>
@@ -248,48 +287,40 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
               </tr>
             </thead>
             <tbody>
-              {matters.length === 0 ? (
-                <tr>
-                  <td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
-                    No active matters associated with this village.
+              {matters.map((m) => (
+                <tr key={m.id}>
+                  <td>
+                    <div>
+                      <Link to={`/matters/${m.id}`} className="entity-link" style={{ fontWeight: 650 }}>
+                        {m.title}
+                      </Link>
+                      {m.referenceNumber && (
+                        <div style={{ fontSize: "12px", color: "#64748b" }}>
+                          Ref: {m.referenceNumber}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                  <td>{m.workstreamName || m.workstreamCode || "—"}</td>
+                  <td>{m.matterType || "General"}</td>
+                  <td>{m.award?.awardNumber ? `Award #${m.award.awardNumber}` : "—"}</td>
+                  <td>
+                    <span className={`status-badge status-${m.status.toLowerCase()}`}>
+                      {m.status}
+                    </span>
+                  </td>
+                  <td>
+                    <Link
+                      to={`/matters/${m.id}`}
+                      className="text-action"
+                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                    >
+                      <span>Open Matter</span>
+                      <IconChevronRight size={14} />
+                    </Link>
                   </td>
                 </tr>
-              ) : (
-                matters.map((m) => (
-                  <tr key={m.id}>
-                    <td>
-                      <div>
-                        <Link to={`/matters/${m.id}`} className="entity-link" style={{ fontWeight: 650 }}>
-                          {m.title}
-                        </Link>
-                        {m.referenceNumber && (
-                          <div style={{ fontSize: "12px", color: "#64748b" }}>
-                            Ref: {m.referenceNumber}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td>{m.workstreamName || m.workstreamCode || "—"}</td>
-                    <td>{m.matterType || "General"}</td>
-                    <td>{m.award?.awardNumber ? `Award #${m.award.awardNumber}` : "—"}</td>
-                    <td>
-                      <span className={`status-badge status-${m.status.toLowerCase()}`}>
-                        {m.status}
-                      </span>
-                    </td>
-                    <td>
-                      <Link
-                        to={`/matters/${m.id}`}
-                        className="text-action"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                      >
-                        <span>Open Matter</span>
-                        <IconChevronRight size={14} />
-                      </Link>
-                    </td>
-                  </tr>
-                ))
-              )}
+              ))}
             </tbody>
           </table>
         </div>
