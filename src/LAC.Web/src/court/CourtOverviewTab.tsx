@@ -7,7 +7,7 @@ interface CourtOverviewTabProps {
 
 export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase }) => {
   const nextDate = courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate;
-  const summary = courtCase.lastSummary || courtCase.latestProceedingSummary;
+  const summary = courtCase.lastSummary;
 
   return (
     <div className="court-overview-tab">
