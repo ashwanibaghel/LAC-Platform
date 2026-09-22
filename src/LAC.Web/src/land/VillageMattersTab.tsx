@@ -48,6 +48,8 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
 
   // New Matter Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState<string | null>(null);
   const [workstreams, setWorkstreams] = useState<WorkstreamOption[]>([]);
   const [matterTypes, setMatterTypes] = useState<string[]>([]);
   const [awards, setAwards] = useState<AwardOption[]>([]);
@@ -73,8 +75,8 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         if (res.status === 403) throw new Error("Access denied: You do not have permission to view matters.");
         throw new Error("Failed to fetch village matters.");
       }
-      const data = await res.json() as Promise<MatterItem[]>;
-      setMatters(await data);
+      const data = (await res.json()) as MatterItem[];
+      setMatters(data);
     } catch (err: any) {
       setError(err?.message || "Error loading matters.");
     } finally {
@@ -83,18 +85,27 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
   };
 
   const loadModalContext = async () => {
+    setContextLoading(true);
+    setContextError(null);
     setAwardAccessForbidden(false);
     try {
       // Load context for workstreams & matterTypes
       const ctxRes = await fetch(`${api}/matters/context`, { credentials: "include" });
-      if (ctxRes.ok) {
+      if (!ctxRes.ok) {
+        setContextError("Matter creation context is not available for your current access.");
+        setWorkstreams([]);
+        setMatterTypes([]);
+      } else {
         const ctxData = (await ctxRes.json()) as MatterContextResponse;
         if (ctxData.workstreams?.length) {
           setWorkstreams(ctxData.workstreams);
           if (!workstreamId) {
             setWorkstreamId(ctxData.workstreams[0].id);
           }
+        } else {
+          setContextError("Matter creation context is not available for your current access.");
         }
+
         if (ctxData.matterTypes?.length) {
           setMatterTypes(ctxData.matterTypes);
           if (!matterType) {
@@ -112,7 +123,9 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         setAwards(awData.items || []);
       }
     } catch (e) {
-      console.error("Failed to load modal context", e);
+      setContextError("Matter creation context is not available for your current access.");
+    } finally {
+      setContextLoading(false);
     }
   };
 
@@ -123,6 +136,8 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
 
   const handleOpenModal = () => {
     setTitle("");
+    setWorkstreamId("");
+    setMatterType("");
     setAwardId("");
     setKhasraReferenceText("");
     setReferenceNumber("");
@@ -270,114 +285,127 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
             <form onSubmit={handleCreateMatter}>
               <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 {formError && <div className="state error">{formError}</div>}
+                {contextError && <div className="state error">{contextError}</div>}
 
-                <div className="form-group">
-                  <label className="form-label required">Matter Title</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Compensation Appeal Case 25/2024"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    required
-                  />
-                </div>
+                {contextLoading ? (
+                  <div className="state loading">Loading matter creation context…</div>
+                ) : (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label required">Matter Title</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Compensation Appeal Case 25/2024"
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        required
+                      />
+                    </div>
 
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                  <div className="form-group">
-                    <label className="form-label required">Workstream</label>
-                    <select
-                      className="form-input"
-                      value={workstreamId}
-                      onChange={(e) => setWorkstreamId(e.target.value)}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select Workstream…
-                      </option>
-                      {workstreams.map((ws) => (
-                        <option key={ws.id} value={ws.id}>
-                          {ws.name} ({ws.code})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Matter Type</label>
-                    <select
-                      className="form-input"
-                      value={matterType}
-                      onChange={(e) => setMatterType(e.target.value)}
-                    >
-                      {(matterTypes.length ? matterTypes : ["Court Case", "Compensation", "Land Acquisition", "General", "Other"]).map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-                  <div className="form-group">
-                    <label className="form-label">Award Reference</label>
-                    {awardAccessForbidden ? (
-                      <div style={{ fontSize: "12px", color: "#64748b", fontStyle: "italic", paddingTop: "6px" }}>
-                        Award references are not available with current access
-                      </div>
-                    ) : (
-                      <select className="form-input" value={awardId} onChange={(e) => setAwardId(e.target.value)}>
-                        <option value="">No Award Link</option>
-                        {awards.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            Award #{a.awardNumber}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      <div className="form-group">
+                        <label className="form-label required">Workstream</label>
+                        <select
+                          className="form-input"
+                          value={workstreamId}
+                          onChange={(e) => setWorkstreamId(e.target.value)}
+                          required
+                          disabled={workstreams.length === 0}
+                        >
+                          <option value="" disabled>
+                            {workstreams.length === 0 ? "No Workstreams available" : "Select Workstream…"}
                           </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
+                          {workstreams.map((ws) => (
+                            <option key={ws.id} value={ws.id}>
+                              {ws.name} ({ws.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Reference Number</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      placeholder="e.g. LAC/2024/104"
-                      value={referenceNumber}
-                      onChange={(e) => setReferenceNumber(e.target.value)}
-                    />
-                  </div>
-                </div>
+                      <div className="form-group">
+                        <label className="form-label">Matter Type</label>
+                        <select
+                          className="form-input"
+                          value={matterType}
+                          onChange={(e) => setMatterType(e.target.value)}
+                          disabled={matterTypes.length === 0}
+                        >
+                          {matterTypes.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
 
-                <div className="form-group">
-                  <label className="form-label">Khasra Reference Text</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Khasra 12//14, 15//1"
-                    value={khasraReferenceText}
-                    onChange={(e) => setKhasraReferenceText(e.target.value)}
-                  />
-                </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      <div className="form-group">
+                        <label className="form-label">Award Reference</label>
+                        {awardAccessForbidden ? (
+                          <div style={{ fontSize: "12px", color: "#64748b", fontStyle: "italic", paddingTop: "6px" }}>
+                            Award references are not available with current access
+                          </div>
+                        ) : (
+                          <select className="form-input" value={awardId} onChange={(e) => setAwardId(e.target.value)}>
+                            <option value="">No Award Link</option>
+                            {awards.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                Award #{a.awardNumber}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
 
-                <div className="form-group">
-                  <label className="form-label">Remarks</label>
-                  <textarea
-                    className="form-input"
-                    rows={3}
-                    placeholder="Additional context or background remarks…"
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                  />
-                </div>
+                      <div className="form-group">
+                        <label className="form-label">Reference Number</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="e.g. LAC/2024/104"
+                          value={referenceNumber}
+                          onChange={(e) => setReferenceNumber(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Khasra Reference Text</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. Khasra 12//14, 15//1"
+                        value={khasraReferenceText}
+                        onChange={(e) => setKhasraReferenceText(e.target.value)}
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label">Remarks</label>
+                      <textarea
+                        className="form-input"
+                        rows={3}
+                        placeholder="Additional context or background remarks…"
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="modal-footer">
                 <button type="button" className="secondary-button" onClick={() => setIsModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="primary-button" disabled={submitting}>
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={submitting || contextLoading || !workstreamId}
+                >
                   {submitting ? "Creating…" : "Create Matter"}
                 </button>
               </div>

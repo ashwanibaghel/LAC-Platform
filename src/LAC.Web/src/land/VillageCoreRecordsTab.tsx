@@ -49,7 +49,7 @@ export interface VillageCoreRecordsTabProps {
 
 export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId }) => {
   const { hasPermission } = useAuth();
-  // Exact permission codes as required
+  const canViewAward = hasPermission("Award.View");
   const canAddAward = hasPermission("Award.Create");
   const canUploadCore = hasPermission("Award.CoreDocument.Upload");
 
@@ -224,9 +224,13 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
               records.map((award) => (
                 <tr key={award.id}>
                   <td>
-                    <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
-                      Award #{award.awardNumber}
-                    </Link>
+                    {canViewAward ? (
+                      <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
+                        Award #{award.awardNumber}
+                      </Link>
+                    ) : (
+                      <span style={{ fontWeight: 700 }}>Award #{award.awardNumber}</span>
+                    )}
                   </td>
                   <td>{date(award.awardDate)}</td>
 
@@ -273,14 +277,18 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                   })}
 
                   <td>
-                    <Link
-                      to={`/awards/${award.id}`}
-                      className="text-action"
-                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    >
-                      <span>Open Workspace</span>
-                      <IconChevronRight size={14} />
-                    </Link>
+                    {canViewAward ? (
+                      <Link
+                        to={`/awards/${award.id}`}
+                        className="text-action"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                      >
+                        <span>Open Workspace</span>
+                        <IconChevronRight size={14} />
+                      </Link>
+                    ) : (
+                      <span style={{ fontSize: "13px", color: "#64748b" }}>Read-only</span>
+                    )}
                   </td>
                 </tr>
               ))

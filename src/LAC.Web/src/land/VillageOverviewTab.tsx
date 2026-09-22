@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { IconChevronRight } from "../components/Icons";
 import "./land.css";
 
@@ -66,6 +67,9 @@ export interface VillageOverviewTabProps {
 }
 
 export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageId }) => {
+  const { hasPermission } = useAuth();
+  const canViewAward = hasPermission("Award.View");
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<VillageOverviewResponse | null>(null);
@@ -166,21 +170,29 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                 {awards.map((a: any) => (
                   <tr key={a.id}>
                     <td>
-                      <Link to={`/awards/${a.id}`} className="entity-link" style={{ fontWeight: 650 }}>
-                        Award #{a.awardNumber}
-                      </Link>
+                      {canViewAward ? (
+                        <Link to={`/awards/${a.id}`} className="entity-link" style={{ fontWeight: 650 }}>
+                          Award #{a.awardNumber}
+                        </Link>
+                      ) : (
+                        <span style={{ fontWeight: 650 }}>Award #{a.awardNumber}</span>
+                      )}
                     </td>
                     <td>{date(a.awardDate)}</td>
                     <td>{a.khasraCount ?? 0} khasras</td>
                     <td>
-                      <Link
-                        to={`/awards/${a.id}`}
-                        className="text-action"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                      >
-                        <span>View Award</span>
-                        <IconChevronRight size={14} />
-                      </Link>
+                      {canViewAward ? (
+                        <Link
+                          to={`/awards/${a.id}`}
+                          className="text-action"
+                          style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                        >
+                          <span>View Award</span>
+                          <IconChevronRight size={14} />
+                        </Link>
+                      ) : (
+                        <span style={{ fontSize: "13px", color: "#64748b" }}>Read-only</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -203,7 +215,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
         {pending.length === 0 ? (
           <div className="state empty">
             <strong>No pending review items</strong>
-            <span>All source findings for this village are verified or up to date.</span>
+            <span>No pending review sessions are currently recorded for this village.</span>
           </div>
         ) : (
           <div className="table-wrap">
@@ -240,7 +252,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                       <span className="status-badge status-draft">{p.status}</span>
                     </td>
                     <td>
-                      {p.awardId ? (
+                      {p.awardId && canViewAward ? (
                         <Link
                           to={`/awards/${p.awardId}/ingestion/${p.sessionId}`}
                           className="text-action"
@@ -250,7 +262,9 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                           <IconChevronRight size={14} />
                         </Link>
                       ) : (
-                        <span style={{ fontSize: "13px", color: "#64748b" }}>Award link required</span>
+                        <span style={{ fontSize: "13px", color: "#64748b" }}>
+                          {p.awardId ? "View access restricted" : "Award link required"}
+                        </span>
                       )}
                     </td>
                   </tr>

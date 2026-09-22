@@ -87,6 +87,23 @@ export interface LrEntryItem {
   verificationStatus: string;
 }
 
+export interface RecordedOwner {
+  partyId: string;
+  displayName: string;
+  rawShareText?: string | null;
+  numerator?: number | null;
+  denominator?: number | null;
+}
+
+export interface RecordedOwnershipResult {
+  found: boolean;
+  isAmbiguous: boolean;
+  message?: string | null;
+  khatauniRecordId?: string | null;
+  khataId?: string | null;
+  owners: RecordedOwner[];
+}
+
 export interface KhasraDetail {
   id: string;
   displayNumber: string;
@@ -372,7 +389,7 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
   );
 };
 
-// Add/Edit Khasra Modal with exact KhasraWorkspaceRow payload and restored Award capability
+// Add/Edit Khasra Modal
 function KhasraEntryPanelModal({
   villageId,
   edit,
@@ -545,7 +562,7 @@ function KhasraEntryPanelModal({
   );
 }
 
-// Excel Import Modal with exact KhasraImportPreview contract
+// Excel Import Modal
 function KhasraImportModal({
   villageId,
   file,
@@ -717,11 +734,15 @@ function KhasraImportModal({
   );
 }
 
-// Khasra Quick View Drawer with exact DTO fields and failure semantics
+// Khasra Quick View Drawer
 function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; villageId: string; onClose: () => void }) {
+  const { hasPermission } = useAuth();
+  const canViewAward = hasPermission("Award.View");
+  const canViewLr = hasPermission("LR.View");
+
   const [detail, setDetail] = useState<KhasraDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [ownership, setOwnership] = useState<{ data?: any; forbidden?: boolean; error?: boolean }>({});
+  const [ownership, setOwnership] = useState<{ data?: RecordedOwnershipResult; forbidden?: boolean; error?: boolean }>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -734,21 +755,21 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
         if (!r.ok) throw new Error("Could not load Khasra details.");
         return r.json() as Promise<KhasraDetail>;
       }),
-      fetch(`${api}/khasras/${id}/ownership`, { credentials: "include" }).then((r) => {
+      fetch(`${api}/khasras/${id}/ownership`, { credentials: "include" }).then(async (r) => {
         if (r.status === 403) return { forbidden: true };
         if (!r.ok) return { error: true };
-        return r.json();
+        return r.json() as Promise<RecordedOwnershipResult>;
       }),
     ])
       .then(([d, o]) => {
         if (active) {
           setDetail(d);
-          if (o?.forbidden) {
+          if (o && "forbidden" in o && o.forbidden) {
             setOwnership({ forbidden: true });
-          } else if (o?.error) {
+          } else if (o && "error" in o && o.error) {
             setOwnership({ error: true });
           } else {
-            setOwnership({ data: o });
+            setOwnership({ data: o as RecordedOwnershipResult });
           }
           setLoading(false);
         }
@@ -797,7 +818,7 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
   const notifications = k.notifications || [];
   const awards = k.awards || [];
   const lrEntries = k.lrEntries || [];
-  const owners = ownership.data?.owners || [];
+  const oData = ownership.data;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -834,17 +855,35 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
               </p>
             ) : ownership.error ? (
               <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Ownership status unavailable</p>
-            ) : owners.length > 0 ? (
+            ) : oData?.isAmbiguous ? (
+              <p style={{ margin: 0, fontSize: "13px", color: "#d97706", fontWeight: 600 }}>
+                {oData.message || "Recorded ownership is ambiguous and pending verification."}
+              </p>
+            ) : !oData?.found ? (
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+                {oData?.message || "No verified recorded ownership is available for this context."}
+              </p>
+            ) : oData.owners?.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {owners.map((o: any, idx: number) => (
-                  <div key={idx} style={{ fontSize: "13px", borderBottom: "1px solid #f1f5f9", paddingBottom: "4px" }}>
-                    <span style={{ fontWeight: 650 }}>{o.displayName || o.name}</span>
-                    {o.shareText && <span style={{ color: "#64748b", marginLeft: "8px" }}>({o.shareText})</span>}
-                  </div>
-                ))}
+                {oData.owners.map((owner, idx) => {
+                  const shareStr = owner.rawShareText
+                    ? owner.rawShareText
+                    : owner.numerator != null && owner.denominator != null
+                    ? `${owner.numerator}/${owner.denominator}`
+                    : null;
+
+                  return (
+                    <div key={idx} style={{ fontSize: "13px", borderBottom: "1px solid #f1f5f9", paddingBottom: "4px" }}>
+                      <span style={{ fontWeight: 650 }}>{owner.displayName}</span>
+                      {shareStr && <span style={{ color: "#64748b", marginLeft: "8px" }}>({shareStr})</span>}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Not recorded</p>
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+                {oData?.message || "No verified recorded ownership is available for this context."}
+              </p>
             )}
           </div>
 
@@ -854,9 +893,17 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
             {awards.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {awards.map((a) => (
-                  <Link key={a.id} to={`/awards/${a.id}`} className="entity-link" style={{ fontSize: "13px" }}>
-                    Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
-                  </Link>
+                  <div key={a.id} style={{ fontSize: "13px" }}>
+                    {canViewAward ? (
+                      <Link to={`/awards/${a.id}`} className="entity-link">
+                        Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
+                      </Link>
+                    ) : (
+                      <span style={{ fontWeight: 600 }}>
+                        Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -870,9 +917,17 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
             {notifications.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {notifications.map((n) => (
-                  <Link key={n.id} to={`/notifications/${n.id}`} className="entity-link" style={{ fontSize: "13px" }}>
-                    {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
-                  </Link>
+                  <div key={n.id} style={{ fontSize: "13px" }}>
+                    {canViewAward ? (
+                      <Link to={`/notifications/${n.id}`} className="entity-link">
+                        {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
+                      </Link>
+                    ) : (
+                      <span style={{ fontWeight: 600 }}>
+                        {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
             ) : (
@@ -887,9 +942,13 @@ function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; village
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {lrEntries.map((e) => (
                   <div key={e.id} style={{ fontSize: "13px", color: "#334155", display: "flex", justifyContent: "space-between" }}>
-                    <Link to={`/villages/${k.village?.id || villageId}/lr/${e.villageLrId}`} className="entity-link">
-                      Source Entry ({e.rawKhasraText || "Khasra"})
-                    </Link>
+                    {canViewLr ? (
+                      <Link to={`/villages/${k.village?.id || villageId}/lr/${e.villageLrId}`} className="entity-link">
+                        Source Entry ({e.rawKhasraText || "Khasra"})
+                      </Link>
+                    ) : (
+                      <span>Source Entry ({e.rawKhasraText || "Khasra"})</span>
+                    )}
                     <span className="status-badge status-draft" style={{ fontSize: "11px" }}>
                       {e.verificationStatus}
                     </span>

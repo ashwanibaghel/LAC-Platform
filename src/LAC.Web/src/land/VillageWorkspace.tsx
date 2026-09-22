@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { IconLand, IconAward, IconFileText, IconShield } from "../components/Icons";
 import { VillageOverviewTab } from "./VillageOverviewTab";
 import { VillageCoreRecordsTab } from "./VillageCoreRecordsTab";
@@ -32,7 +33,18 @@ interface VillageData {
 export const VillageWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const currentTab = searchParams.get("tab") || "overview";
+  const { hasPermission } = useAuth();
+
+  const canViewKhasras = hasPermission("Khasra.View");
+  const canViewLr = hasPermission("LR.View");
+  const canViewMatters = hasPermission("Matter.View") || hasPermission("Matter.Create");
+
+  let currentTab = searchParams.get("tab") || "overview";
+
+  // If active tab is hidden due to permissions, fall back to overview
+  if (currentTab === "khasras" && !canViewKhasras) currentTab = "overview";
+  if (currentTab === "lr" && !canViewLr) currentTab = "overview";
+  if (currentTab === "matters" && !canViewMatters) currentTab = "overview";
 
   const [village, setVillage] = useState<VillageData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,7 +70,7 @@ export const VillageWorkspace: React.FC = () => {
           setLoading(false);
         }
       })
-      .catch((err) => {
+      .catch((err: any) => {
         if (active) {
           setError(err?.message || "Could not fetch village workspace.");
           setLoading(false);
@@ -135,33 +147,39 @@ export const VillageWorkspace: React.FC = () => {
         >
           <IconFileText size={16} /> Core Records
         </button>
-        <button
-          className={`land-tab-button ${currentTab === "khasras" ? "active" : ""}`}
-          onClick={() => handleTabChange("khasras")}
-        >
-          <IconLand size={16} /> Khasras
-        </button>
-        <button
-          className={`land-tab-button ${currentTab === "lr" ? "active" : ""}`}
-          onClick={() => handleTabChange("lr")}
-        >
-          <IconLand size={16} /> LR & Ownership
-        </button>
-        <button
-          className={`land-tab-button ${currentTab === "matters" ? "active" : ""}`}
-          onClick={() => handleTabChange("matters")}
-        >
-          <IconAward size={16} /> Matters
-        </button>
+        {canViewKhasras && (
+          <button
+            className={`land-tab-button ${currentTab === "khasras" ? "active" : ""}`}
+            onClick={() => handleTabChange("khasras")}
+          >
+            <IconLand size={16} /> Khasras
+          </button>
+        )}
+        {canViewLr && (
+          <button
+            className={`land-tab-button ${currentTab === "lr" ? "active" : ""}`}
+            onClick={() => handleTabChange("lr")}
+          >
+            <IconLand size={16} /> LR & Ownership
+          </button>
+        )}
+        {canViewMatters && (
+          <button
+            className={`land-tab-button ${currentTab === "matters" ? "active" : ""}`}
+            onClick={() => handleTabChange("matters")}
+          >
+            <IconAward size={16} /> Matters
+          </button>
+        )}
       </div>
 
       {/* Active Tab Panel */}
       <div className="land-tab-content">
         {currentTab === "overview" && <VillageOverviewTab villageId={id} />}
         {currentTab === "core-records" && <VillageCoreRecordsTab villageId={id} />}
-        {currentTab === "khasras" && <VillageKhasrasTab villageId={id} />}
-        {currentTab === "lr" && <VillageLandRecordsTab villageId={id} />}
-        {currentTab === "matters" && <VillageMattersTab villageId={id} />}
+        {currentTab === "khasras" && canViewKhasras && <VillageKhasrasTab villageId={id} />}
+        {currentTab === "lr" && canViewLr && <VillageLandRecordsTab villageId={id} />}
+        {currentTab === "matters" && canViewMatters && <VillageMattersTab villageId={id} />}
       </div>
     </div>
   );
