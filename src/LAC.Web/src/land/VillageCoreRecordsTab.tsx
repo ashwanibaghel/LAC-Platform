@@ -21,17 +21,40 @@ const CORE_ROLES = [
   { key: "PossessionProceeding", label: "Possession Proceedings" },
 ] as const;
 
+export interface CoreRecordRole {
+  role: string;
+  count: number;
+  available: boolean;
+}
+
+export interface CoreRecordDocument {
+  documentId: string;
+  coreDocumentRole: string;
+  originalFileName: string;
+  uploadedAt: string;
+}
+
+export interface CoreRecordAward {
+  id: string;
+  awardNumber: string;
+  awardDate?: string | null;
+  awardType?: string | null;
+  roles?: CoreRecordRole[];
+  documents?: CoreRecordDocument[];
+}
+
 export interface VillageCoreRecordsTabProps {
   villageId: string;
 }
 
 export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId }) => {
   const { hasPermission } = useAuth();
-  const canAddAward = hasPermission("Award.Create") || hasPermission("Award.Edit");
-  const canUploadCore = hasPermission("Award.CoreDocumentUpload") || hasPermission("Award.CoreDocument.Upload") || hasPermission("Award.Edit");
+  // Exact permission codes as required
+  const canAddAward = hasPermission("Award.Create");
+  const canUploadCore = hasPermission("Award.CoreDocument.Upload");
 
   const [refresh, setRefresh] = useState(0);
-  const [records, setRecords] = useState<any[]>([]);
+  const [records, setRecords] = useState<CoreRecordAward[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +82,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           if (r.status === 403) throw new Error("Access denied: You do not have permission to view core records.");
           throw new Error("Could not load core records.");
         }
-        return r.json();
+        return r.json() as Promise<CoreRecordAward[]>;
       })
       .then((d) => {
         if (active) {
@@ -67,7 +90,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           setLoading(false);
         }
       })
-      .catch((e) => {
+      .catch((e: any) => {
         if (active) {
           setError(e?.message || "Core records unavailable.");
           setLoading(false);
@@ -193,12 +216,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           <tbody>
             {records.length === 0 ? (
               <tr>
-                <td colSpan={3 + CORE_ROLES.length} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                <td colSpan={3 + CORE_ROLES.length} style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                   No awards linked to this village yet.
                 </td>
               </tr>
             ) : (
-              records.map((award: any) => (
+              records.map((award) => (
                 <tr key={award.id}>
                   <td>
                     <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700 }}>
@@ -208,15 +231,20 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                   <td>{date(award.awardDate)}</td>
 
                   {CORE_ROLES.map(({ key }) => {
-                    const doc = award.documents?.[key];
+                    const roleInfo = award.roles?.find((r) => r.role === key);
+                    const doc = award.documents?.find((d) => d.coreDocumentRole === key);
+                    const isAvailable = roleInfo?.available ?? false;
+
                     return (
                       <td key={key}>
-                        {doc ? (
+                        {isAvailable ? (
                           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                             <span style={{ fontSize: "13px", fontWeight: 600, color: "#16a34a" }}>
-                              ✓ Present
+                              ✓ Available {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
                             </span>
-                            <span style={{ fontSize: "11px", color: "#64748b" }}>{doc.fileName}</span>
+                            {doc?.originalFileName && (
+                              <span style={{ fontSize: "11px", color: "#64748b" }}>{doc.originalFileName}</span>
+                            )}
                           </div>
                         ) : (
                           <div>

@@ -13,19 +13,52 @@ function date(value?: string | null) {
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
 }
 
-function reviewSectionName(candidateType: string) {
-  switch (candidateType) {
-    case "Khasra":
-      return "Khasra findings";
-    case "RecordedPerson":
-      return "Recorded person findings";
-    case "PossessionEvent":
-      return "Possession findings";
-    case "CourtCase":
-      return "Court case findings";
-    default:
-      return `${candidateType} findings`;
-  }
+export interface VillageOfficialSummary {
+  khasraCount: number;
+  awardCount: number;
+  notificationCount: number;
+  possessionEventCount: number;
+  courtCaseCount: number;
+  valuationRuleCount: number;
+  compensationRuleCount: number;
+  claimCount: number;
+}
+
+export interface PendingCandidateTypeCount {
+  candidateType: string;
+  count: number;
+}
+
+export interface VillagePendingReviewItem {
+  sessionId: string;
+  awardId?: string | null;
+  awardNumber?: string | null;
+  sourceDocumentName: string;
+  status: string;
+  pendingCandidateCount: number;
+  candidateCounts: PendingCandidateTypeCount[];
+}
+
+export interface VillageSourceStatusItem {
+  sourceType: string;
+  status: string;
+  detail: string;
+}
+
+export interface VillageOverviewResponse {
+  village?: {
+    id: string;
+    name: string;
+    subDivision?: {
+      id: string;
+      name: string;
+    };
+  };
+  official?: VillageOfficialSummary;
+  awards?: any[];
+  notifications?: any[];
+  pendingReview?: VillagePendingReviewItem[];
+  sources?: VillageSourceStatusItem[];
 }
 
 export interface VillageOverviewTabProps {
@@ -35,7 +68,7 @@ export interface VillageOverviewTabProps {
 export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageId }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<VillageOverviewResponse | null>(null);
 
   useEffect(() => {
     if (!villageId) return;
@@ -49,7 +82,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
           if (r.status === 403) throw new Error("Access denied: You do not have permission to view this village overview.");
           throw new Error("Could not load village overview.");
         }
-        return r.json();
+        return r.json() as Promise<VillageOverviewResponse>;
       })
       .then((d) => {
         if (active) {
@@ -57,7 +90,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
           setLoading(false);
         }
       })
-      .catch((e) => {
+      .catch((e: any) => {
         if (active) {
           setError(e?.message || "Overview unavailable.");
           setLoading(false);
@@ -77,42 +110,46 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
       </div>
     );
 
-  const official = data.official || {};
-  const awards: any[] = data.awards || [];
-  const pending: any[] = data.pendingReview || [];
-  const sources: any[] = data.sources || [];
+  const official = data.official;
+  const awards = data.awards || [];
+  const pending = data.pendingReview || [];
+  const sources = data.sources || [];
 
   return (
     <div className="village-overview-tab">
-      {/* Official Committed Facts Section */}
+      {/* Official / Committed Data Section */}
       <section className="section" style={{ marginBottom: "28px" }}>
         <div className="section-heading">
           <div>
-            <h2>Official Committed Facts</h2>
-            <span>Verified, committed facts for {data.village?.name || "this village"}.</span>
+            <h2>Official / Committed Data</h2>
+            <span>Canonical records and committed facts for {data.village?.name || "this village"}.</span>
           </div>
         </div>
 
-        <div className="summary-strip" style={{ marginBottom: "20px" }}>
-          <div className="metric">
-            <strong>{official.khasraCount ?? 0}</strong>
-            <span>Official Khasras</span>
+        {official && (
+          <div className="summary-strip" style={{ marginBottom: "20px" }}>
+            <div className="metric">
+              <strong>{official.khasraCount ?? 0}</strong>
+              <span>Khasras</span>
+            </div>
+            <div className="metric">
+              <strong>{official.awardCount ?? 0}</strong>
+              <span>Awards</span>
+            </div>
+            <div className="metric">
+              <strong>{official.notificationCount ?? 0}</strong>
+              <span>Notifications</span>
+            </div>
+            <div className="metric">
+              <strong>{official.possessionEventCount ?? 0}</strong>
+              <span>Possession Events</span>
+            </div>
+            <div className="metric">
+              <strong>{official.courtCaseCount ?? 0}</strong>
+              <span>Court Cases</span>
+            </div>
           </div>
-          <div className="metric">
-            <strong>
-              {official.totalVerifiedBigha ?? 0} B {official.totalVerifiedBiswa ?? 0} Bis
-            </strong>
-            <span>Verified Area</span>
-          </div>
-          <div className="metric">
-            <strong>{official.totalAwardsCount ?? 0}</strong>
-            <span>Total Awards</span>
-          </div>
-          <div className="metric">
-            <strong>{official.totalRecordedOwnersCount ?? 0}</strong>
-            <span>Recorded Owners</span>
-          </div>
-        </div>
+        )}
 
         {awards.length > 0 && (
           <div className="table-wrap">
@@ -158,9 +195,9 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
         <div className="section-heading">
           <div>
             <h2>Pending Review Queue</h2>
-            <span>Source-extracted findings pending human review and verification.</span>
+            <span>Source-extracted findings pending human review. Unresolved findings are not committed village facts.</span>
           </div>
-          <span>{pending.length} queues</span>
+          <span>{pending.length} session(s)</span>
         </div>
 
         {pending.length === 0 ? (
@@ -173,32 +210,47 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
             <table>
               <thead>
                 <tr>
-                  <th scope="col">Finding Stream</th>
-                  <th scope="col">Pending Count</th>
+                  <th scope="col">Source Document</th>
+                  <th scope="col">Award Ref</th>
+                  <th scope="col">Pending Findings Breakdown</th>
+                  <th scope="col">Status</th>
                   <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {pending.map((p: any) => (
-                  <tr key={p.candidateType}>
+                {pending.map((p) => (
+                  <tr key={p.sessionId}>
                     <td>
-                      <span style={{ fontWeight: 650 }}>{reviewSectionName(p.candidateType)}</span>
+                      <span style={{ fontWeight: 650 }}>{p.sourceDocumentName}</span>
+                    </td>
+                    <td>{p.awardNumber ? `Award #${p.awardNumber}` : "Unlinked"}</td>
+                    <td>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ fontWeight: 600, color: "#d97706", fontSize: "13px" }}>
+                          Total Unresolved: {p.pendingCandidateCount}
+                        </span>
+                        {p.candidateCounts?.length > 0 && (
+                          <div style={{ fontSize: "12px", color: "#64748b" }}>
+                            {p.candidateCounts.map((c) => `${c.candidateType}: ${c.count}`).join(" • ")}
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td>
-                      <span style={{ fontWeight: 600, color: "#d97706" }}>{p.count}</span> items
+                      <span className="status-badge status-draft">{p.status}</span>
                     </td>
                     <td>
-                      {p.targetUrl ? (
+                      {p.awardId ? (
                         <Link
-                          to={p.targetUrl}
+                          to={`/awards/${p.awardId}/ingestion/${p.sessionId}`}
                           className="text-action"
                           style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
                         >
-                          <span>Review Queue</span>
+                          <span>Review Session</span>
                           <IconChevronRight size={14} />
                         </Link>
                       ) : (
-                        <span style={{ fontSize: "13px", color: "#64748b" }}>Queue not available</span>
+                        <span style={{ fontSize: "13px", color: "#64748b" }}>Award link required</span>
                       )}
                     </td>
                   </tr>
@@ -214,7 +266,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
         <div className="section-heading">
           <div>
             <h2>Source Coverage Grid</h2>
-            <span>Document availability and digitization status across core record categories.</span>
+            <span>Digitization and ingestion status across source document categories.</span>
           </div>
         </div>
 
@@ -222,31 +274,37 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
           <table>
             <thead>
               <tr>
-                <th scope="col">Category</th>
+                <th scope="col">Source Category</th>
                 <th scope="col">Status</th>
-                <th scope="col">Document Count</th>
+                <th scope="col">Coverage Detail</th>
                 <th scope="col">Action</th>
               </tr>
             </thead>
             <tbody>
               {sources.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-center-muted" style={{ padding: "16px", textAlign: "center", color: "#64748b" }}>
+                  <td colSpan={4} style={{ padding: "16px", textAlign: "center", color: "#64748b" }}>
                     No source coverage status recorded.
                   </td>
                 </tr>
               ) : (
-                sources.map((s: any) => (
-                  <tr key={s.category}>
+                sources.map((s) => (
+                  <tr key={s.sourceType}>
                     <td>
-                      <span style={{ fontWeight: 650 }}>{s.category}</span>
+                      <span style={{ fontWeight: 650 }}>{s.sourceType}</span>
                     </td>
                     <td>
-                      <span className={`status-badge status-${s.hasDocuments ? "committed" : "draft"}`}>
-                        {s.hasDocuments ? "Available" : "Missing / Pending"}
+                      <span
+                        className={`status-badge status-${
+                          s.status === "Loaded" ? "committed" : "draft"
+                        }`}
+                      >
+                        {s.status}
                       </span>
                     </td>
-                    <td>{s.documentCount ?? 0} docs</td>
+                    <td>
+                      <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
+                    </td>
                     <td>
                       <Link
                         to={`/villages/${villageId}?tab=core-records`}
@@ -258,7 +316,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                       </Link>
                     </td>
                   </tr>
-                ))
+                ))}
               )}
             </tbody>
           </table>

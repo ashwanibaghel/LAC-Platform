@@ -14,30 +14,103 @@ type Page<T> = {
   totalCount: number;
 };
 
-type KhasraRow = {
+export interface KhasraWorkspaceRow {
   khasraNumber: string;
-  bigha: string;
-  biswa: string;
-  biswansi: string;
+  bigha?: number | null;
+  biswa?: number | null;
+  biswansi?: number | null;
+  awardNumber?: string | null;
+  awardDate?: string | null;
+  rectangleNumber?: string | null;
+  qualifier?: string | null;
+}
+
+export interface KhasraImportProblem {
+  rowNumber: number;
+  khasraNumber?: string | null;
+  message: string;
+}
+
+export interface KhasraImportRowPreview {
+  rowNumber: number;
+  khasraNumber?: string | null;
+  khasraStatus: string;
+  areaStatus: string;
+  awardStatus: string;
+  awardLinkStatus: string;
+  result: string;
+  message?: string | null;
+  canImport: boolean;
+  row?: KhasraWorkspaceRow | null;
+}
+
+export interface KhasraImportPreview {
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  newKhasras: number;
+  existingKhasras: number;
+  newAwards: number;
+  existingAwards: number;
+  ambiguousAwards: number;
+  newAwardLinks: number;
+  existingAwardLinks: number;
+  skippedRows: number;
+  problems: KhasraImportProblem[];
+  importableRows: KhasraWorkspaceRow[];
+  rows: KhasraImportRowPreview[];
+}
+
+export interface NotificationLinkItem {
+  id: string;
+  notificationNumber?: string | null;
+  sectionType?: string | null;
+  notificationDate?: string | null;
+  area?: number | null;
+  areaUnit?: string | null;
+}
+
+export interface AwardLinkItem {
+  id: string;
   awardNumber: string;
-  awardDate: string;
-};
+  acquisitionStatus?: string | null;
+  acquiredArea?: number | null;
+  areaUnit?: string | null;
+}
 
-const blankKhasra = (): KhasraRow => ({
-  khasraNumber: "",
-  bigha: "",
-  biswa: "",
-  biswansi: "",
-  awardNumber: "",
-  awardDate: "",
-});
+export interface LrEntryItem {
+  id: string;
+  villageLrId: string;
+  rawKhasraText?: string | null;
+  rawAreaText?: string | null;
+  rawRemarks?: string | null;
+  verificationStatus: string;
+}
 
-function date(value?: string | null) {
-  if (!value) return "—";
-  const raw = String(value);
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw + "T00:00:00" : raw);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
+export interface KhasraDetail {
+  id: string;
+  displayNumber: string;
+  normalizedNumber: string;
+  rectangleNumber?: string | null;
+  killaNumber?: string | null;
+  subdivisionNumber?: string | null;
+  totalArea?: number | null;
+  areaUnit?: string | null;
+  areaBigha?: number | null;
+  areaBiswa?: number | null;
+  areaBiswansi?: number | null;
+  remarks?: string | null;
+  village?: {
+    id: string;
+    name: string;
+    subDivision?: {
+      id: string;
+      name: string;
+    };
+  };
+  notifications?: NotificationLinkItem[];
+  awards?: AwardLinkItem[];
+  lrEntries?: LrEntryItem[];
 }
 
 export interface VillageKhasrasTabProps {
@@ -87,7 +160,7 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
           setLoading(false);
         }
       })
-      .catch((err) => {
+      .catch((err: any) => {
         if (active) {
           setError(err?.message || "Failed to load Khasras.");
           setLoading(false);
@@ -294,12 +367,12 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
       )}
 
       {/* Quick View Drawer */}
-      {quickId && <KhasraQuickViewDrawer id={quickId} onClose={() => setQuickId("")} />}
+      {quickId && <KhasraQuickViewDrawer id={quickId} villageId={villageId} onClose={() => setQuickId("")} />}
     </div>
   );
 };
 
-// Modal Components
+// Add/Edit Khasra Modal with exact KhasraWorkspaceRow payload and restored Award capability
 function KhasraEntryPanelModal({
   villageId,
   edit,
@@ -311,39 +384,43 @@ function KhasraEntryPanelModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [row, setRow] = useState<KhasraRow>(
-    edit
-      ? {
-          khasraNumber: edit.displayNumber || "",
-          bigha: edit.areaBigha?.toString() || "",
-          biswa: edit.areaBiswa?.toString() || "",
-          biswansi: edit.areaBiswansi?.toString() || "",
-          awardNumber: edit.awards?.[0]?.awardNumber || "",
-          awardDate: edit.awards?.[0]?.awardDate || "",
-        }
-      : blankKhasra()
-  );
+  const [khasraNumber, setKhasraNumber] = useState(edit?.displayNumber || edit?.khasraNumber || "");
+  const [bigha, setBigha] = useState(edit?.areaBigha?.toString() ?? edit?.bigha?.toString() ?? "");
+  const [biswa, setBiswa] = useState(edit?.areaBiswa?.toString() ?? edit?.biswa?.toString() ?? "");
+  const [biswansi, setBiswansi] = useState(edit?.areaBiswansi?.toString() ?? edit?.biswansi?.toString() ?? "");
+  const [awardNumber, setAwardNumber] = useState(edit?.awards?.[0]?.awardNumber || edit?.awardNumber || "");
+  const [awardDate, setAwardDate] = useState(edit?.awards?.[0]?.awardDate || edit?.awardDate || "");
+  const [rectangleNumber, setRectangleNumber] = useState(edit?.rectangleNumber || "");
+  const [qualifier, setQualifier] = useState(edit?.qualifier || "");
+
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const save = async () => {
-    if (!row.khasraNumber.trim()) {
+    if (!khasraNumber.trim()) {
       setError("Khasra number is required.");
       return;
     }
     setBusy(true);
     setError("");
+
+    const payload: KhasraWorkspaceRow = {
+      khasraNumber: khasraNumber.trim(),
+      bigha: bigha === "" ? null : Number(bigha),
+      biswa: biswa === "" ? null : Number(biswa),
+      biswansi: biswansi === "" ? null : Number(biswansi),
+      awardNumber: awardNumber.trim() || null,
+      awardDate: awardDate || null,
+      rectangleNumber: rectangleNumber.trim() || null,
+      qualifier: qualifier.trim() || null,
+    };
+
     try {
-      if (edit) {
+      if (edit?.id) {
         const res = await fetch(`${api}/khasras/${edit.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            displayNumber: row.khasraNumber.trim(),
-            bigha: row.bigha === "" ? null : Number(row.bigha),
-            biswa: row.biswa === "" ? null : Number(row.biswa),
-            biswansi: row.biswansi === "" ? null : Number(row.biswansi),
-          }),
+          body: JSON.stringify(payload),
           credentials: "include",
         });
         if (!res.ok) throw new Error("Failed to update Khasra.");
@@ -351,14 +428,7 @@ function KhasraEntryPanelModal({
         const res = await fetch(`${api}/villages/${villageId}/khasras/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rows: [row].map((r) => ({
-            khasraNumber: r.khasraNumber,
-            bigha: r.bigha === "" ? null : Number(r.bigha),
-            biswa: r.biswa === "" ? null : Number(r.biswa),
-            biswansi: r.biswansi === "" ? null : Number(r.biswansi),
-            awardNumber: r.awardNumber || null,
-            awardDate: r.awardDate || null,
-          })) }),
+          body: JSON.stringify({ rows: [payload] }),
           credentials: "include",
         });
         if (!res.ok) throw new Error("Failed to add Khasra.");
@@ -385,16 +455,28 @@ function KhasraEntryPanelModal({
         <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           {error && <div className="state error">{error}</div>}
 
-          <div className="form-group">
-            <label className="form-label required">Khasra Number</label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="e.g. 12//14/2"
-              value={row.khasraNumber}
-              onChange={(e) => setRow({ ...row, khasraNumber: e.target.value })}
-              required
-            />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="form-group">
+              <label className="form-label required">Khasra Number</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. 12//14/2"
+                value={khasraNumber}
+                onChange={(e) => setKhasraNumber(e.target.value)}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Rectangle Number</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. 12"
+                value={rectangleNumber}
+                onChange={(e) => setRectangleNumber(e.target.value)}
+              />
+            </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px" }}>
@@ -403,8 +485,8 @@ function KhasraEntryPanelModal({
               <input
                 type="number"
                 className="form-input"
-                value={row.bigha}
-                onChange={(e) => setRow({ ...row, bigha: e.target.value })}
+                value={bigha}
+                onChange={(e) => setBigha(e.target.value)}
               />
             </div>
             <div className="form-group">
@@ -412,8 +494,8 @@ function KhasraEntryPanelModal({
               <input
                 type="number"
                 className="form-input"
-                value={row.biswa}
-                onChange={(e) => setRow({ ...row, biswa: e.target.value })}
+                value={biswa}
+                onChange={(e) => setBiswa(e.target.value)}
               />
             </div>
             <div className="form-group">
@@ -421,8 +503,30 @@ function KhasraEntryPanelModal({
               <input
                 type="number"
                 className="form-input"
-                value={row.biswansi}
-                onChange={(e) => setRow({ ...row, biswansi: e.target.value })}
+                value={biswansi}
+                onChange={(e) => setBiswansi(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+            <div className="form-group">
+              <label className="form-label">Award Number</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. 15/2021-22"
+                value={awardNumber}
+                onChange={(e) => setAwardNumber(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Award Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={awardDate}
+                onChange={(e) => setAwardDate(e.target.value)}
               />
             </div>
           </div>
@@ -441,6 +545,7 @@ function KhasraEntryPanelModal({
   );
 }
 
+// Excel Import Modal with exact KhasraImportPreview contract
 function KhasraImportModal({
   villageId,
   file,
@@ -454,7 +559,7 @@ function KhasraImportModal({
 }) {
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<any>(null);
+  const [preview, setPreview] = useState<KhasraImportPreview | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -468,7 +573,7 @@ function KhasraImportModal({
     })
       .then(async (r) => {
         if (!r.ok) throw new Error("Could not parse Excel template.");
-        return r.json();
+        return r.json() as Promise<KhasraImportPreview>;
       })
       .then((d) => {
         if (active) {
@@ -476,7 +581,7 @@ function KhasraImportModal({
           setBusy(false);
         }
       })
-      .catch((e) => {
+      .catch((e: any) => {
         if (active) {
           setError(e?.message || "Failed to preview import.");
           setBusy(false);
@@ -488,14 +593,14 @@ function KhasraImportModal({
   }, [file, villageId]);
 
   const commit = async () => {
-    if (!preview?.validRows?.length) return;
+    if (!preview?.importableRows?.length) return;
     setBusy(true);
     setError("");
     try {
       const res = await fetch(`${api}/villages/${villageId}/khasras/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: preview.validRows }),
+        body: JSON.stringify({ rows: preview.importableRows }),
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to import Khasras.");
@@ -510,7 +615,7 @@ function KhasraImportModal({
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "700px" }}>
+      <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "780px" }}>
         <div className="modal-header">
           <h3>Import Khasras Preview</h3>
           <button className="icon-button" onClick={onClose}>
@@ -527,33 +632,63 @@ function KhasraImportModal({
             <div>
               <div className="summary-strip" style={{ marginBottom: "16px" }}>
                 <div className="metric">
-                  <strong>{preview.validRows?.length ?? 0}</strong>
+                  <strong>{preview.totalRows}</strong>
+                  <span>Total Rows</span>
+                </div>
+                <div className="metric">
+                  <strong style={{ color: "#16a34a" }}>{preview.validRows}</strong>
                   <span>Valid Rows</span>
                 </div>
                 <div className="metric">
-                  <strong style={{ color: "#e11d48" }}>{preview.invalidRows?.length ?? 0}</strong>
+                  <strong style={{ color: "#e11d48" }}>{preview.invalidRows}</strong>
                   <span>Invalid Rows</span>
+                </div>
+                <div className="metric">
+                  <strong>{preview.newKhasras}</strong>
+                  <span>New Khasras</span>
+                </div>
+                <div className="metric">
+                  <strong>{preview.existingKhasras}</strong>
+                  <span>Existing Khasras</span>
                 </div>
               </div>
 
-              {preview.validRows?.length > 0 && (
-                <div className="table-wrap">
+              {preview.rows?.length > 0 && (
+                <div className="table-wrap" style={{ maxHeight: "300px", overflowY: "auto" }}>
                   <table>
                     <thead>
                       <tr>
-                        <th>Khasra Number</th>
-                        <th>Bigha</th>
-                        <th>Biswa</th>
-                        <th>Biswansi</th>
+                        <th>Row #</th>
+                        <th>Khasra</th>
+                        <th>Bigha/Biswa</th>
+                        <th>Award Ref</th>
+                        <th>Khasra Status</th>
+                        <th>Award/Link Status</th>
+                        <th>Result</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {preview.validRows.slice(0, 10).map((r: any, idx: number) => (
+                      {preview.rows.map((r, idx) => (
                         <tr key={idx}>
-                          <td>{r.khasraNumber}</td>
-                          <td>{r.bigha ?? 0}</td>
-                          <td>{r.biswa ?? 0}</td>
-                          <td>{r.biswansi ?? 0}</td>
+                          <td>{r.rowNumber}</td>
+                          <td style={{ fontWeight: 650 }}>{r.khasraNumber || "—"}</td>
+                          <td>
+                            {r.row?.bigha != null ? `${r.row.bigha}B ${r.row.biswa ?? 0}Bis` : "—"}
+                          </td>
+                          <td>{r.row?.awardNumber || "—"}</td>
+                          <td>{r.khasraStatus}</td>
+                          <td>{r.awardLinkStatus || r.awardStatus}</td>
+                          <td>
+                            <span
+                              style={{
+                                color: r.canImport ? "#16a34a" : "#e11d48",
+                                fontWeight: 600,
+                                fontSize: "12px",
+                              }}
+                            >
+                              {r.result} {r.message ? `(${r.message})` : ""}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -571,10 +706,10 @@ function KhasraImportModal({
           <button
             type="button"
             className="primary-button"
-            disabled={busy || !preview?.validRows?.length}
+            disabled={busy || !preview?.importableRows?.length}
             onClick={() => void commit()}
           >
-            {busy ? "Importing…" : "Commit Valid Rows"}
+            {busy ? "Importing…" : `Commit ${preview?.importableRows?.length ?? 0} Valid Rows`}
           </button>
         </div>
       </div>
@@ -582,33 +717,48 @@ function KhasraImportModal({
   );
 }
 
-// Quick View Drawer with exact backend fields and permission-aware ownership state
-function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => void }) {
-  const [detail, setDetail] = useState<any>(null);
-  const [ownership, setOwnership] = useState<{ data?: any; forbidden?: boolean }>({});
+// Khasra Quick View Drawer with exact DTO fields and failure semantics
+function KhasraQuickViewDrawer({ id, villageId, onClose }: { id: string; villageId: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<KhasraDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [ownership, setOwnership] = useState<{ data?: any; forbidden?: boolean; error?: boolean }>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setDetailError(null);
 
     Promise.all([
-      fetch(`${api}/khasras/${id}`, { credentials: "include" }).then((r) => (r.ok ? r.json() : null)),
+      fetch(`${api}/khasras/${id}`, { credentials: "include" }).then(async (r) => {
+        if (!r.ok) throw new Error("Could not load Khasra details.");
+        return r.json() as Promise<KhasraDetail>;
+      }),
       fetch(`${api}/khasras/${id}/ownership`, { credentials: "include" }).then((r) => {
         if (r.status === 403) return { forbidden: true };
-        return r.ok ? r.json() : null;
+        if (!r.ok) return { error: true };
+        return r.json();
       }),
-    ]).then(([d, o]) => {
-      if (active) {
-        setDetail(d);
-        if (o?.forbidden) {
-          setOwnership({ forbidden: true });
-        } else {
-          setOwnership({ data: o });
+    ])
+      .then(([d, o]) => {
+        if (active) {
+          setDetail(d);
+          if (o?.forbidden) {
+            setOwnership({ forbidden: true });
+          } else if (o?.error) {
+            setOwnership({ error: true });
+          } else {
+            setOwnership({ data: o });
+          }
+          setLoading(false);
         }
-        setLoading(false);
-      }
-    });
+      })
+      .catch((e: any) => {
+        if (active) {
+          setDetailError(e?.message || "Khasra record unavailable.");
+          setLoading(false);
+        }
+      });
 
     return () => {
       active = false;
@@ -617,19 +767,37 @@ function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => voi
 
   if (loading) {
     return (
-      <aside className="modal-overlay" onClick={onClose}>
+      <div className="modal-overlay" onClick={onClose}>
         <div className="modal-container" style={{ maxWidth: "450px" }} onClick={(e) => e.stopPropagation()}>
           <div className="state loading">Loading Khasra details…</div>
         </div>
-      </aside>
+      </div>
     );
   }
 
-  const k = detail || {};
-  const notifications: any[] = k.notifications || [];
-  const awards: any[] = k.awards || [];
-  const lrEntries: any[] = k.lrEntries || [];
-  const owners: any[] = ownership.data?.owners || [];
+  if (detailError || !detail) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-container" style={{ maxWidth: "450px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h3>Khasra Record</h3>
+            <button className="icon-button" onClick={onClose}>
+              <IconClose size={18} />
+            </button>
+          </div>
+          <div className="modal-body">
+            <div className="state error">{detailError || "Khasra record unavailable."}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const k = detail;
+  const notifications = k.notifications || [];
+  const awards = k.awards || [];
+  const lrEntries = k.lrEntries || [];
+  const owners = ownership.data?.owners || [];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -661,9 +829,11 @@ function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => voi
           <div>
             <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Recorded Owners</h4>
             {ownership.forbidden ? (
-              <p style={{ margin: 0, fontSize: "13px", color: "#64748b", italic: "true" }}>
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b", fontStyle: "italic" }}>
                 Ownership details not available with current access
               </p>
+            ) : ownership.error ? (
+              <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>Ownership status unavailable</p>
             ) : owners.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {owners.map((o: any, idx: number) => (
@@ -678,14 +848,14 @@ function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => voi
             )}
           </div>
 
-          {/* Linked Awards */}
+          {/* Linked Acquisition Awards */}
           <div>
             <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Linked Acquisition Awards</h4>
             {awards.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {awards.map((a: any) => (
+                {awards.map((a) => (
                   <Link key={a.id} to={`/awards/${a.id}`} className="entity-link" style={{ fontSize: "13px" }}>
-                    Award #{a.awardNumber} ({date(a.awardDate)})
+                    Award #{a.awardNumber} {a.acquisitionStatus ? `(${a.acquisitionStatus})` : ""}
                   </Link>
                 ))}
               </div>
@@ -699,9 +869,9 @@ function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => voi
             <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>Relevant Notifications</h4>
             {notifications.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {notifications.map((n: any) => (
+                {notifications.map((n) => (
                   <Link key={n.id} to={`/notifications/${n.id}`} className="entity-link" style={{ fontSize: "13px" }}>
-                    {n.notificationType || "Notification"} #{n.notificationNumber || n.id}
+                    {n.sectionType || "Notification"} #{n.notificationNumber || n.id}
                   </Link>
                 ))}
               </div>
@@ -715,9 +885,14 @@ function KhasraQuickViewDrawer({ id, onClose }: { id: string; onClose: () => voi
             <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: 700 }}>LR Source Entries</h4>
             {lrEntries.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                {lrEntries.map((e: any, idx: number) => (
-                  <div key={idx} style={{ fontSize: "13px", color: "#334155" }}>
-                    <span style={{ fontWeight: 600 }}>{e.registerReference || "LR Register"}:</span> {e.rawKhasraText || e.status}
+                {lrEntries.map((e) => (
+                  <div key={e.id} style={{ fontSize: "13px", color: "#334155", display: "flex", justifyContent: "space-between" }}>
+                    <Link to={`/villages/${k.village?.id || villageId}/lr/${e.villageLrId}`} className="entity-link">
+                      Source Entry ({e.rawKhasraText || "Khasra"})
+                    </Link>
+                    <span className="status-badge status-draft" style={{ fontSize: "11px" }}>
+                      {e.verificationStatus}
+                    </span>
                   </div>
                 ))}
               </div>

@@ -6,7 +6,7 @@ import "./land.css";
 
 const api = "/api";
 
-interface MatterItem {
+export interface MatterItem {
   id: string;
   title: string;
   matterType?: string;
@@ -18,15 +18,20 @@ interface MatterItem {
   award?: { awardId: string; awardNumber: string } | null;
 }
 
-interface WorkstreamOption {
+export interface WorkstreamOption {
   id: string;
   name: string;
   code: string;
 }
 
-interface AwardOption {
+export interface AwardOption {
   id: string;
   awardNumber: string;
+}
+
+export interface MatterContextResponse {
+  workstreams?: WorkstreamOption[];
+  matterTypes?: string[];
 }
 
 export interface VillageMattersTabProps {
@@ -46,6 +51,7 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
   const [workstreams, setWorkstreams] = useState<WorkstreamOption[]>([]);
   const [matterTypes, setMatterTypes] = useState<string[]>([]);
   const [awards, setAwards] = useState<AwardOption[]>([]);
+  const [awardAccessForbidden, setAwardAccessForbidden] = useState(false);
 
   // Form state
   const [title, setTitle] = useState("");
@@ -67,8 +73,8 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         if (res.status === 403) throw new Error("Access denied: You do not have permission to view matters.");
         throw new Error("Failed to fetch village matters.");
       }
-      const data = await res.json();
-      setMatters(data);
+      const data = await res.json() as Promise<MatterItem[]>;
+      setMatters(await data);
     } catch (err: any) {
       setError(err?.message || "Error loading matters.");
     } finally {
@@ -77,11 +83,12 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
   };
 
   const loadModalContext = async () => {
+    setAwardAccessForbidden(false);
     try {
       // Load context for workstreams & matterTypes
       const ctxRes = await fetch(`${api}/matters/context`, { credentials: "include" });
       if (ctxRes.ok) {
-        const ctxData = await ctxRes.json();
+        const ctxData = (await ctxRes.json()) as MatterContextResponse;
         if (ctxData.workstreams?.length) {
           setWorkstreams(ctxData.workstreams);
           if (!workstreamId) {
@@ -98,7 +105,9 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
 
       // Load awards for this village with required page=0
       const awRes = await fetch(`${api}/villages/${villageId}/awards?page=0&pageSize=100`, { credentials: "include" });
-      if (awRes.ok) {
+      if (awRes.status === 403) {
+        setAwardAccessForbidden(true);
+      } else if (awRes.ok) {
         const awData = await awRes.json();
         setAwards(awData.items || []);
       }
@@ -202,7 +211,7 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
             <tbody>
               {matters.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center-muted" style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
+                  <td colSpan={6} style={{ padding: "20px", textAlign: "center", color: "#64748b" }}>
                     No active matters associated with this village.
                   </td>
                 </tr>
@@ -313,14 +322,20 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                   <div className="form-group">
                     <label className="form-label">Award Reference</label>
-                    <select className="form-input" value={awardId} onChange={(e) => setAwardId(e.target.value)}>
-                      <option value="">No Award Link</option>
-                      {awards.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          Award #{a.awardNumber}
-                        </option>
-                      ))}
-                    </select>
+                    {awardAccessForbidden ? (
+                      <div style={{ fontSize: "12px", color: "#64748b", fontStyle: "italic", paddingTop: "6px" }}>
+                        Award references are not available with current access
+                      </div>
+                    ) : (
+                      <select className="form-input" value={awardId} onChange={(e) => setAwardId(e.target.value)}>
+                        <option value="">No Award Link</option>
+                        {awards.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            Award #{a.awardNumber}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
                   <div className="form-group">
