@@ -263,3 +263,12 @@
     align-items: flex-start;
   }
 }
+
+/* Motion Accessibility Support */
+@media (prefers-reduced-motion: reduce) {
+  .home-myday-card:hover,
+  .home-clean-card:hover,
+  .home-compact-btn:hover {
+    transform: none !important;
+  }
+}

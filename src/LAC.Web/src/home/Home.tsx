@@ -53,7 +53,27 @@ export const Home: React.FC = () => {
   const canAccessOversight = () => hasPermission("WorkItem.View") || hasPermission("Audit.View");
   const canAccessAdmin = () => hasPermission("Users.Manage") || hasPermission("Access.Manage") || hasPermission("Audit.View");
 
-  // Fetch summary counts using exact authoritative endpoints & keys
+  // Dynamic Primary Destination Resolvers (Permission-Aware)
+  const getCorrespondenceTarget = () => {
+    if (hasPermission("Dak.View") || hasPermission("Dak.Register")) return "/dak";
+    if (hasPermission("Outward.View") || hasPermission("Outward.Create")) return "/outward";
+    return "/dak";
+  };
+
+  const getOversightTarget = () => {
+    if (hasPermission("WorkItem.View")) return "/branch-pulse";
+    if (hasPermission("Audit.View")) return "/team-activity";
+    return "/branch-pulse";
+  };
+
+  const getAdminTarget = () => {
+    if (hasPermission("Users.Manage")) return "/admin/users";
+    if (hasPermission("Access.Manage")) return "/admin/access";
+    if (hasPermission("Audit.View")) return "/admin/audit-logs";
+    return "/admin/users";
+  };
+
+  // Fetch summary counts asynchronously using exact authoritative endpoints & keys
   useEffect(() => {
     let active = true;
 
@@ -262,9 +282,9 @@ export const Home: React.FC = () => {
             </Link>
           )}
 
-          {/* Module 3: Correspondence */}
+          {/* Module 3: Correspondence (Dynamic Landing) */}
           {canAccessCorrespondence() && (
-            <Link to="/dak" className="home-clean-card">
+            <Link to={getCorrespondenceTarget()} className="home-clean-card">
               <div className="home-clean-card-head">
                 <div className="home-clean-icon">
                   <IconDak size={18} />
@@ -300,9 +320,9 @@ export const Home: React.FC = () => {
             </Link>
           )}
 
-          {/* Module 5: Branch Oversight */}
+          {/* Module 5: Branch Oversight (Dynamic Landing) */}
           {canAccessOversight() && (
-            <Link to="/branch-pulse" className="home-clean-card">
+            <Link to={getOversightTarget()} className="home-clean-card">
               <div className="home-clean-card-head">
                 <div className="home-clean-icon">
                   <IconPulse size={18} />
@@ -319,9 +339,9 @@ export const Home: React.FC = () => {
             </Link>
           )}
 
-          {/* Module 6: Administration */}
+          {/* Module 6: Administration (Dynamic Landing) */}
           {canAccessAdmin() && (
-            <Link to="/admin/users" className="home-clean-card">
+            <Link to={getAdminTarget()} className="home-clean-card">
               <div className="home-clean-card-head">
                 <div className="home-clean-icon">
                   <IconShield size={18} />
