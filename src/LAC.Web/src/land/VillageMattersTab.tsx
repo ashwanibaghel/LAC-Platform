@@ -88,6 +88,14 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
     setContextLoading(true);
     setContextError(null);
     setAwardAccessForbidden(false);
+
+    setWorkstreams([]);
+    setMatterTypes([]);
+    setAwards([]);
+    setWorkstreamId("");
+    setMatterType("");
+    setAwardId("");
+
     try {
       // Load context for workstreams & matterTypes
       const ctxRes = await fetch(`${api}/matters/context`, { credentials: "include" });
@@ -95,22 +103,30 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
         setContextError("Matter creation context is not available for your current access.");
         setWorkstreams([]);
         setMatterTypes([]);
+        setWorkstreamId("");
+        setMatterType("");
       } else {
         const ctxData = (await ctxRes.json()) as MatterContextResponse;
-        if (ctxData.workstreams?.length) {
-          setWorkstreams(ctxData.workstreams);
-          if (!workstreamId) {
-            setWorkstreamId(ctxData.workstreams[0].id);
-          }
+        const loadedWorkstreams = ctxData.workstreams || [];
+        const loadedMatterTypes = ctxData.matterTypes || [];
+
+        setWorkstreams(loadedWorkstreams);
+        setMatterTypes(loadedMatterTypes);
+
+        if (loadedWorkstreams.length > 0) {
+          setWorkstreamId(loadedWorkstreams[0].id);
         } else {
-          setContextError("Matter creation context is not available for your current access.");
+          setWorkstreamId("");
         }
 
-        if (ctxData.matterTypes?.length) {
-          setMatterTypes(ctxData.matterTypes);
-          if (!matterType) {
-            setMatterType(ctxData.matterTypes[0]);
-          }
+        if (loadedMatterTypes.length > 0) {
+          setMatterType(loadedMatterTypes[0]);
+        } else {
+          setMatterType("");
+        }
+
+        if (loadedWorkstreams.length === 0 || loadedMatterTypes.length === 0) {
+          setContextError("Matter creation context is not available for your current access.");
         }
       }
 
@@ -124,6 +140,10 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
       }
     } catch (e) {
       setContextError("Matter creation context is not available for your current access.");
+      setWorkstreams([]);
+      setMatterTypes([]);
+      setWorkstreamId("");
+      setMatterType("");
     } finally {
       setContextLoading(false);
     }
@@ -157,6 +177,10 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
       setFormError("Workstream selection is required.");
       return;
     }
+    if (!matterType) {
+      setFormError("Matter type selection is required.");
+      return;
+    }
 
     setSubmitting(true);
     setFormError(null);
@@ -164,7 +188,7 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
       const payload = {
         title: title.trim(),
         workstreamId: workstreamId,
-        matterType: matterType || "Court Case",
+        matterType: matterType,
         awardId: awardId || null,
         khasraReferenceText: khasraReferenceText.trim() || null,
         referenceNumber: referenceNumber.trim() || null,
@@ -325,13 +349,17 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
                       </div>
 
                       <div className="form-group">
-                        <label className="form-label">Matter Type</label>
+                        <label className="form-label required">Matter Type</label>
                         <select
                           className="form-input"
                           value={matterType}
                           onChange={(e) => setMatterType(e.target.value)}
+                          required
                           disabled={matterTypes.length === 0}
                         >
+                          <option value="" disabled>
+                            {matterTypes.length === 0 ? "No Matter Types available" : "Select Matter Type…"}
+                          </option>
                           {matterTypes.map((t) => (
                             <option key={t} value={t}>
                               {t}
@@ -404,7 +432,7 @@ export const VillageMattersTab: React.FC<VillageMattersTabProps> = ({ villageId 
                 <button
                   type="submit"
                   className="primary-button"
-                  disabled={submitting || contextLoading || !workstreamId}
+                  disabled={submitting || contextLoading || Boolean(contextError) || !workstreamId || !matterType}
                 >
                   {submitting ? "Creating…" : "Create Matter"}
                 </button>
