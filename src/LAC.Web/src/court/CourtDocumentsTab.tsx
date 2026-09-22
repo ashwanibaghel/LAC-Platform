@@ -163,11 +163,11 @@ export const CourtDocumentsTab: React.FC<CourtDocumentsTabProps> = ({ courtCase,
                     {doc.documentType}
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: "13px", color: "#64748b" }}>
-                    {formatFileSize(doc.fileSizeBytes)}
+                    {formatFileSize(doc.fileSize ?? doc.fileSizeBytes ?? 0)}
                   </td>
                   <td style={{ padding: "12px 16px", fontSize: "13px", color: "#64748b" }}>
                     <div>{new Date(doc.uploadedAt).toLocaleDateString()}</div>
-                    <div style={{ fontSize: "11px", color: "#94a3b8" }}>{doc.uploadedByDisplayName || "Officer"}</div>
+                    {doc.uploadedByDisplayName && <div style={{ fontSize: "11px", color: "#94a3b8" }}>{doc.uploadedByDisplayName}</div>}
                   </td>
                   <td style={{ padding: "12px 16px", textAlign: "right" }}>
                     <div style={{ display: "inline-flex", gap: "8px" }}>

@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 public interface ICourtAuthorizationService
 {
@@ -34,7 +35,11 @@ public interface ICourtAuthorizationService
     Task<bool> CanAccessScheduleAsync(Guid scheduleId, Guid userId, CancellationToken ct = default);
 }
 
-public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthorizationService
+public sealed class CourtAuthorizationService(
+    LacDbContext db,
+    IWorkItemAuthorizationService workItemAuth,
+    IMatterAuthorizationService matterAuth,
+    IServiceProvider serviceProvider) : ICourtAuthorizationService
 {
     public async Task<bool> HasCourtViewPermissionAsync(Guid userId, CancellationToken ct = default)
     {
@@ -458,147 +463,23 @@ public sealed class CourtAuthorizationService(LacDbContext db) : ICourtAuthoriza
 
     public async Task<bool> CanAccessMatterAsync(Guid matterId, Guid userId, CancellationToken ct = default)
     {
-        var isUserActive = await db.AppUsers.AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
-        if (!isUserActive) return false;
-
-        var matter = await db.Matters.AsNoTracking().FirstOrDefaultAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
-        if (matter is null) return false;
-
-        var scopes = await GetUserScopesAsync(userId, PermissionCodes.MatterView, ct);
-        if (scopes.Count == 0) return false;
-
-        if (scopes.Contains(ScopeMode.All)) return true;
-
-        if (scopes.Contains(ScopeMode.Workstream))
-        {
-            if (!matter.WorkstreamId.HasValue) return false;
-            return await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId
-                            && m.WorkstreamId == matter.WorkstreamId.Value
-                            && m.IsActive
-                            && m.Workstream.IsActive
-                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
-        }
-
-        return false;
+        return await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterView, userId, ct);
     }
 
     public async Task<bool> CanAccessWorkItemAsync(Guid workItemId, Guid userId, CancellationToken ct = default)
     {
-        var isUserActive = await db.AppUsers.AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
-        if (!isUserActive) return false;
-
-        var item = await db.WorkItems.AsNoTracking().FirstOrDefaultAsync(w => w.Id == workItemId && w.RecordStatus == RecordStatus.Active, ct);
-        if (item is null) return false;
-
-        var scopes = await GetUserScopesAsync(userId, PermissionCodes.WorkItemView, ct);
-        if (scopes.Count == 0) return false;
-
-        if (scopes.Contains(ScopeMode.All)) return true;
-
-        if (scopes.Contains(ScopeMode.Workstream))
-        {
-            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId
-                            && m.WorkstreamId == item.WorkstreamId
-                            && m.IsActive
-                            && m.Workstream.IsActive
-                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
-            if (isMember) return true;
-        }
-
-        if (scopes.Contains(ScopeMode.Assigned))
-        {
-            var activeAssignment = await db.WorkItemAssignments.AsNoTracking()
-                .FirstOrDefaultAsync(a => a.WorkItemId == workItemId && a.IsActive && a.RecordStatus == RecordStatus.Active, ct);
-
-            if (activeAssignment != null)
-            {
-                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                    .AnyAsync(m => m.UserId == userId
-                                && m.OfficeDeskId == activeAssignment.OfficeDeskId
-                                && m.IsActive
-                                && m.RemovedAt == null
-                                && m.RecordStatus == RecordStatus.Active, ct);
-                if (isDeskMember) return true;
-
-                if (activeAssignment.AssignedUserId == userId) return true;
-            }
-
-            var isContributor = await db.WorkItemContributors.AsNoTracking()
-                .AnyAsync(c => c.WorkItemId == workItemId && c.UserId == userId && c.RecordStatus == RecordStatus.Active, ct);
-            if (isContributor) return true;
-        }
-
-        return false;
+        return await workItemAuth.CanAccessWorkItemAsync(workItemId, PermissionCodes.WorkItemView, userId, ct);
     }
 
     public async Task<bool> CanAccessDraftAsync(Guid draftId, Guid userId, CancellationToken ct = default)
     {
-        var isUserActive = await db.AppUsers.AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
-        if (!isUserActive) return false;
-
-        var draft = await db.MatterDrafts.AsNoTracking().FirstOrDefaultAsync(d => d.Id == draftId && d.RecordStatus == RecordStatus.Active, ct);
-        if (draft is null) return false;
-
-        var scopes = await GetUserScopesAsync(userId, PermissionCodes.DraftView, ct);
-        if (scopes.Count == 0) return false;
-
-        if (scopes.Contains(ScopeMode.All)) return true;
-
-        if (scopes.Contains(ScopeMode.Workstream))
-        {
-            return await CanAccessMatterAsync(draft.MatterId, userId, ct);
-        }
-
-        return false;
+        return await matterAuth.CanAccessDraftAsync(draftId, PermissionCodes.DraftView, userId, ct);
     }
 
     public async Task<bool> CanAccessScheduleAsync(Guid scheduleId, Guid userId, CancellationToken ct = default)
     {
-        var isUserActive = await db.AppUsers.AsNoTracking()
-            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
-        if (!isUserActive) return false;
-
-        var evt = await db.ScheduledEvents.AsNoTracking().FirstOrDefaultAsync(e => e.Id == scheduleId && e.RecordStatus == RecordStatus.Active, ct);
-        if (evt is null) return false;
-
-        var scopes = await GetUserScopesAsync(userId, PermissionCodes.ScheduleView, ct);
-        if (scopes.Count == 0) return false;
-
-        if (scopes.Contains(ScopeMode.All)) return true;
-
-        if (scopes.Contains(ScopeMode.Workstream))
-        {
-            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
-                .AnyAsync(m => m.UserId == userId
-                            && m.WorkstreamId == evt.WorkstreamId
-                            && m.IsActive
-                            && m.Workstream.IsActive
-                            && m.Workstream.RecordStatus == RecordStatus.Active, ct);
-            if (isMember) return true;
-        }
-
-        if (scopes.Contains(ScopeMode.Assigned))
-        {
-            if (evt.ResponsibleOfficeDeskId.HasValue)
-            {
-                var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
-                    .AnyAsync(m => m.UserId == userId
-                                && m.OfficeDeskId == evt.ResponsibleOfficeDeskId.Value
-                                && m.IsActive
-                                && m.RemovedAt == null
-                                && m.RecordStatus == RecordStatus.Active, ct);
-                if (isDeskMember) return true;
-            }
-
-            if (evt.AssignedUserId == userId || evt.CreatedByUserId == userId) return true;
-        }
-
-        return false;
+        var scheduleAuth = serviceProvider.GetRequiredService<IScheduleAuthorizationService>();
+        return await scheduleAuth.CanAccessScheduledEventAsync(scheduleId, PermissionCodes.ScheduleView, userId, ct);
     }
 
     private async Task<List<ScopeMode>> GetUserScopesAsync(Guid userId, string permissionCode, CancellationToken ct)

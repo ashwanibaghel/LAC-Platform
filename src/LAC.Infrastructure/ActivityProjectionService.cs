@@ -311,6 +311,9 @@ public sealed class ActivityProjectionService(
                                  select rp.ScopeMode).Distinct().ToListAsync(ct);
         var hasCourtView = courtScopes.Count > 0;
 
+        var authorizedCourtCaseQuery = await courtAuth.AuthorizeListQueryAsync(db.CourtCases.AsNoTracking(), currentUserId, ct);
+        var authorizedCourtCaseIds = await authorizedCourtCaseQuery.Select(c => c.Id).ToListAsync(ct);
+
         var allItems = new List<ActivityItemDto>();
         var totalCount = 0;
 
@@ -798,6 +801,11 @@ public sealed class ActivityProjectionService(
             {
                 q = q.Where(e => e.ContextEntityType != "CourtCase");
             }
+            else
+            {
+                q = q.Where(e => e.ContextEntityType != "CourtCase"
+                              || (e.ContextEntityId.HasValue && authorizedCourtCaseIds.Contains(e.ContextEntityId.Value)));
+            }
 
             if (!isTeamActivity)
             {
@@ -922,6 +930,13 @@ public sealed class ActivityProjectionService(
                                   && e.ScheduledEvent.CourtCaseId == null
                                   && e.ScheduledEvent.CourtProceedingId == null);
                 }
+                else
+                {
+                    q = q.Where(e => (e.ScheduledEvent.Origin != ScheduledEventOrigin.CourtProceeding
+                                   && e.ScheduledEvent.CourtCaseId == null
+                                   && e.ScheduledEvent.CourtProceedingId == null)
+                                  || (e.ScheduledEvent.CourtCaseId.HasValue && authorizedCourtCaseIds.Contains(e.ScheduledEvent.CourtCaseId.Value)));
+                }
 
                 if (query.ActorUserId.HasValue)
                     q = q.Where(e => e.ActorUserId == query.ActorUserId.Value);
@@ -1039,6 +1054,7 @@ public sealed class ActivityProjectionService(
         if (shouldIncludeCourt && hasCourtView)
         {
             var q = db.CourtCaseEvents.AsNoTracking().Include(e => e.CourtCase).AsQueryable();
+            q = q.Where(e => authorizedCourtCaseIds.Contains(e.CourtCaseId));
 
             if (!isTeamActivity)
             {

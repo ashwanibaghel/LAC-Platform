@@ -120,11 +120,11 @@ export const CourtWorkTab: React.FC<CourtWorkTabProps> = ({ courtCase, onRefresh
             </div>
             <div className="court-card">
               <div className="court-card-title">Active Legal Drafts</div>
-              <div className="court-card-value">{workData?.totalDraftCount ?? 0}</div>
+              <div className="court-card-value">{workData?.totalDraftsCount ?? 0}</div>
             </div>
             <div className="court-card">
               <div className="court-card-title">Related Work Items</div>
-              <div className="court-card-value">{workData?.totalWorkItemCount ?? 0}</div>
+              <div className="court-card-value">{workData?.totalWorkItemsCount ?? 0}</div>
             </div>
           </div>
 
@@ -155,7 +155,6 @@ export const CourtWorkTab: React.FC<CourtWorkTabProps> = ({ courtCase, onRefresh
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
                       <span className="court-badge court-badge-ndoh">{m.workstreamName}</span>
-                      <span className="court-badge court-badge-authoritative">{m.matterType}</span>
                       <span style={{ fontSize: "12px", color: "#64748b" }}>Status: {m.status}</span>
                     </div>
                     <Link
@@ -165,8 +164,8 @@ export const CourtWorkTab: React.FC<CourtWorkTabProps> = ({ courtCase, onRefresh
                       {m.title}
                     </Link>
                     <div style={{ display: "flex", gap: "16px", marginTop: "6px", fontSize: "13px", color: "#475569" }}>
-                      <span>📝 {m.draftCount} Drafts</span>
-                      <span>⚙ {m.workItemCount} Work Items</span>
+                      <span>📝 {m.draftsCount} Drafts</span>
+                      <span>⚙ {m.workItemsCount} Work Items</span>
                     </div>
                   </div>
 

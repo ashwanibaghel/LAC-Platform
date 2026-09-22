@@ -310,13 +310,13 @@ public sealed class AttentionProjectionService(
                 }
             }
 
-            var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
-            if (!canViewCourt)
-            {
-                eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
-                                                && e.CourtCaseId == null
-                                                && e.CourtProceedingId == null);
-            }
+            var authorizedCourtCaseQuery = await courtAuth.AuthorizeListQueryAsync(db.CourtCases.AsNoTracking(), userId, ct);
+            var authorizedCourtCaseIds = await authorizedCourtCaseQuery.Select(c => c.Id).ToListAsync(ct);
+
+            eventQuery = eventQuery.Where(e =>
+                (e.Origin != ScheduledEventOrigin.CourtProceeding && e.CourtCaseId == null && e.CourtProceedingId == null)
+                || (e.CourtCaseId.HasValue && authorizedCourtCaseIds.Contains(e.CourtCaseId.Value))
+            );
 
             var events = await eventQuery.ToListAsync(ct);
             foreach (var e in events)
@@ -580,13 +580,13 @@ public sealed class AttentionProjectionService(
                 );
             }
 
-            var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
-            if (!canViewCourt)
-            {
-                eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
-                                                && e.CourtCaseId == null
-                                                && e.CourtProceedingId == null);
-            }
+            var authorizedCourtCaseQuery = await courtAuth.AuthorizeListQueryAsync(db.CourtCases.AsNoTracking(), userId, ct);
+            var authorizedCourtCaseIds = await authorizedCourtCaseQuery.Select(c => c.Id).ToListAsync(ct);
+
+            eventQuery = eventQuery.Where(e =>
+                (e.Origin != ScheduledEventOrigin.CourtProceeding && e.CourtCaseId == null && e.CourtProceedingId == null)
+                || (e.CourtCaseId.HasValue && authorizedCourtCaseIds.Contains(e.CourtCaseId.Value))
+            );
 
             var events = await eventQuery.ToListAsync(ct);
             foreach (var e in events)
@@ -809,13 +809,13 @@ public sealed class AttentionProjectionService(
             );
         }
 
-        var canViewCourt = await courtAuth.CanViewCourtReferencesAsync(userId, ct);
-        if (!canViewCourt)
-        {
-            eventQuery = eventQuery.Where(e => e.Origin != ScheduledEventOrigin.CourtProceeding
-                                            && e.CourtCaseId == null
-                                            && e.CourtProceedingId == null);
-        }
+        var authorizedCourtCaseQuery = await courtAuth.AuthorizeListQueryAsync(db.CourtCases.AsNoTracking(), userId, ct);
+        var authorizedCourtCaseIds = await authorizedCourtCaseQuery.Select(c => c.Id).ToListAsync(ct);
+
+        eventQuery = eventQuery.Where(e =>
+            (e.Origin != ScheduledEventOrigin.CourtProceeding && e.CourtCaseId == null && e.CourtProceedingId == null)
+            || (e.CourtCaseId.HasValue && authorizedCourtCaseIds.Contains(e.CourtCaseId.Value))
+        );
 
         // Bounded date range filters
         if (query.FromDate.HasValue) eventQuery = eventQuery.Where(e => e.ScheduledDate >= query.FromDate.Value);

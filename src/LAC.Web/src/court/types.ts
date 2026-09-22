@@ -24,12 +24,6 @@ export interface CourtCaseListItemDto {
   documentsCount: number;
   proceedingsCount: number;
   lastActivityAt: string | null;
-  // Backward compatibility helpers
-  nextDate?: string | null;
-  linkedAwardCount?: number | null;
-  linkedMatterCount?: number | null;
-  linkedDocumentCount?: number;
-  hasUpcomingHearing?: boolean;
 }
 
 export interface CourtCaseListResponse {
@@ -83,10 +77,6 @@ export interface CourtCaseLinkedMatterDto {
   workstreamName: string | null;
   draftsCount: number;
   workItemsCount: number;
-  // Compatibility
-  draftCount?: number;
-  workItemCount?: number;
-  matterType?: string;
 }
 
 export interface CourtCasePartyDto {
@@ -99,12 +89,6 @@ export interface CourtCasePartyDto {
   addressText?: string | null;
   remarks?: string | null;
   sequence?: number;
-  // Compatibility
-  partyName?: string;
-  partyType?: string;
-  advocateName?: string | null;
-  contactDetails?: string | null;
-  isPrimary?: boolean;
 }
 
 export interface CourtCaseRepresentativeDto {
@@ -116,12 +100,6 @@ export interface CourtCaseRepresentativeDto {
   representsRole?: string | null;
   contactText?: string | null;
   remarks?: string | null;
-  // Compatibility
-  name?: string;
-  designation?: string | null;
-  barRegistrationNumber?: string | null;
-  contactDetails?: string | null;
-  isLeadCounsel?: boolean;
 }
 
 export interface CourtCaseCapabilitiesDto {
@@ -172,11 +150,6 @@ export interface CourtCaseDetailDto {
   proceedingsCount: number;
   eventsCount: number;
   capabilities: CourtCaseCapabilitiesDto;
-  // Compatibility
-  latestProceedingSummary?: string | null;
-  proceedingCount?: number;
-  documentCount?: number;
-  eventCount?: number;
 }
 
 export interface CourtProceedingDto {
@@ -189,7 +162,6 @@ export interface CourtProceedingDto {
   nextDate: string | null;
   createdAt: string;
   isAuthoritative?: boolean;
-  isAuthoritativeNdoh?: boolean;
   createdByDisplayName?: string | null;
 }
 
@@ -203,7 +175,6 @@ export interface CourtCaseDocumentDto {
   displayName: string | null;
   courtProceedingId: string | null;
   fileSize?: number | null;
-  fileSizeBytes?: number | null;
   mimeType?: string | null;
   uploadedAt: string;
   uploadedByDisplayName?: string | null;
@@ -225,18 +196,12 @@ export interface CourtCaseTimelineEventDto {
   newStatus?: string | null;
   reason?: string | null;
   notes?: string | null;
-  // Compatibility
-  eventType?: string;
-  description?: string;
-  payloadJson?: string | null;
-  actorDisplayNameSnapshot?: string | null;
-  createdAt?: string;
 }
 
 export type CourtCaseEventDto = CourtCaseTimelineEventDto;
 
 export interface CourtCaseLinkedWorkDto {
   matters: CourtCaseLinkedMatterDto[];
-  totalDraftCount: number;
-  totalWorkItemCount: number;
+  totalDraftsCount: number;
+  totalWorkItemsCount: number;
 }

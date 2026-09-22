@@ -25,20 +25,21 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
 
   const [showPartyModal, setShowPartyModal] = useState(false);
   const [editingParty, setEditingParty] = useState<CourtCasePartyDto | null>(null);
-  const [partyType, setPartyType] = useState("Petitioner");
-  const [partyName, setPartyName] = useState("");
-  const [advocateName, setAdvocateName] = useState("");
-  const [partyContact, setPartyContact] = useState("");
-  const [isPrimaryParty, setIsPrimaryParty] = useState(false);
+  const [partyDisplayName, setPartyDisplayName] = useState("");
+  const [partyRole, setPartyRole] = useState("Petitioner");
+  const [fatherOrSpouseName, setFatherOrSpouseName] = useState("");
+  const [addressText, setAddressText] = useState("");
+  const [partyRemarks, setPartyRemarks] = useState("");
+  const [sequence, setSequence] = useState(0);
 
   const [showRepModal, setShowRepModal] = useState(false);
   const [editingRep, setEditingRep] = useState<CourtCaseRepresentativeDto | null>(null);
-  const [repType, setRepType] = useState("Standing Counsel");
-  const [repName, setRepName] = useState("");
-  const [repDesignation, setRepDesignation] = useState("");
-  const [barRegNumber, setBarRegNumber] = useState("");
-  const [repContact, setRepContact] = useState("");
-  const [isLeadCounsel, setIsLeadCounsel] = useState(false);
+  const [repDisplayName, setRepDisplayName] = useState("");
+  const [representativeType, setRepresentativeType] = useState("Counsel");
+  const [representsRole, setRepresentsRole] = useState("");
+  const [contactText, setContactText] = useState("");
+  const [repRemarks, setRepRemarks] = useState("");
+  const [courtCasePartyId, setCourtCasePartyId] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -140,22 +141,24 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   // Party CRUD
   const openAddPartyModal = () => {
     setEditingParty(null);
-    setPartyType("Petitioner");
-    setPartyName("");
-    setAdvocateName("");
-    setPartyContact("");
-    setIsPrimaryParty(false);
+    setPartyDisplayName("");
+    setPartyRole("Petitioner");
+    setFatherOrSpouseName("");
+    setAddressText("");
+    setPartyRemarks("");
+    setSequence(0);
     setModalError(null);
     setShowPartyModal(true);
   };
 
   const openEditPartyModal = (p: CourtCasePartyDto) => {
     setEditingParty(p);
-    setPartyType(p.partyType);
-    setPartyName(p.partyName);
-    setAdvocateName(p.advocateName || "");
-    setPartyContact(p.contactDetails || "");
-    setIsPrimaryParty(p.isPrimary);
+    setPartyDisplayName(p.displayName);
+    setPartyRole(p.role);
+    setFatherOrSpouseName(p.fatherOrSpouseName || "");
+    setAddressText(p.addressText || "");
+    setPartyRemarks(p.remarks || "");
+    setSequence(p.sequence || 0);
     setModalError(null);
     setShowPartyModal(true);
   };
@@ -175,13 +178,12 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          partyType,
-          displayName: partyName.trim(),
-          role: partyType,
-          partyName: partyName.trim(),
-          advocateName: advocateName ? advocateName.trim() : null,
-          contactDetails: partyContact ? partyContact.trim() : null,
-          isPrimary: isPrimaryParty,
+          displayName: partyDisplayName.trim(),
+          role: partyRole,
+          fatherOrSpouseName: fatherOrSpouseName ? fatherOrSpouseName.trim() : null,
+          addressText: addressText ? addressText.trim() : null,
+          remarks: partyRemarks ? partyRemarks.trim() : null,
+          sequence,
           expectedRevision: courtCase.revision,
         }),
       });
@@ -220,24 +222,24 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
   // Representative CRUD
   const openAddRepModal = () => {
     setEditingRep(null);
-    setRepType("Standing Counsel");
-    setRepName("");
-    setRepDesignation("");
-    setBarRegNumber("");
-    setRepContact("");
-    setIsLeadCounsel(false);
+    setRepDisplayName("");
+    setRepresentativeType("Counsel");
+    setRepresentsRole("");
+    setContactText("");
+    setRepRemarks("");
+    setCourtCasePartyId(null);
     setModalError(null);
     setShowRepModal(true);
   };
 
   const openEditRepModal = (r: CourtCaseRepresentativeDto) => {
     setEditingRep(r);
-    setRepType(r.representativeType);
-    setRepName(r.name);
-    setRepDesignation(r.designation || "");
-    setBarRegNumber(r.barRegistrationNumber || "");
-    setRepContact(r.contactDetails || "");
-    setIsLeadCounsel(r.isLeadCounsel);
+    setRepDisplayName(r.displayName);
+    setRepresentativeType(r.representativeType);
+    setRepresentsRole(r.representsRole || "");
+    setContactText(r.contactText || "");
+    setRepRemarks(r.remarks || "");
+    setCourtCasePartyId(r.courtCasePartyId || null);
     setModalError(null);
     setShowRepModal(true);
   };
@@ -257,13 +259,12 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          representativeType: repType,
-          displayName: repName.trim(),
-          name: repName.trim(),
-          designation: repDesignation ? repDesignation.trim() : null,
-          barRegistrationNumber: barRegNumber ? barRegNumber.trim() : null,
-          contactDetails: repContact ? repContact.trim() : null,
-          isLeadCounsel,
+          displayName: repDisplayName.trim(),
+          representativeType,
+          representsRole: representsRole ? representsRole.trim() : null,
+          contactText: contactText ? contactText.trim() : null,
+          remarks: repRemarks ? repRemarks.trim() : null,
+          courtCasePartyId: courtCasePartyId || null,
           expectedRevision: courtCase.revision,
         }),
       });
@@ -468,20 +469,24 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
               >
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span className="court-badge court-badge-ndoh">{p.partyType}</span>
-                    {p.isPrimary && <span className="court-badge court-badge-authoritative">Primary</span>}
+                    <span className="court-badge court-badge-ndoh">{p.role}</span>
                   </div>
                   <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "6px" }}>
-                    {p.partyName}
+                    {p.displayName}
                   </div>
-                  {p.advocateName && (
+                  {p.fatherOrSpouseName && (
                     <div style={{ fontSize: "13px", color: "#475569", marginTop: "4px" }}>
-                      Advocate: {p.advocateName}
+                      Father/Spouse: {p.fatherOrSpouseName}
                     </div>
                   )}
-                  {p.contactDetails && (
+                  {p.addressText && (
+                    <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+                      Address: {p.addressText}
+                    </div>
+                  )}
+                  {p.remarks && (
                     <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
-                      Contact: {p.contactDetails}
+                      {p.remarks}
                     </div>
                   )}
                 </div>
@@ -539,24 +544,23 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <span className="court-badge court-badge-ndoh">{r.representativeType}</span>
-                    {r.isLeadCounsel && <span className="court-badge court-badge-authoritative">Lead</span>}
                   </div>
                   <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "6px" }}>
-                    {r.name}
+                    {r.displayName}
                   </div>
-                  {r.designation && (
+                  {r.representsRole && (
                     <div style={{ fontSize: "13px", color: "#475569", marginTop: "2px" }}>
-                      {r.designation}
+                      Represents: {r.representsRole}
                     </div>
                   )}
-                  {r.barRegistrationNumber && (
+                  {r.contactText && (
                     <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
-                      Bar Reg: {r.barRegistrationNumber}
+                      Contact: {r.contactText}
                     </div>
                   )}
-                  {r.contactDetails && (
+                  {r.remarks && (
                     <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "2px" }}>
-                      Contact: {r.contactDetails}
+                      {r.remarks}
                     </div>
                   )}
                 </div>
@@ -664,7 +668,7 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                 {modalError && <div style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px", borderRadius: "6px" }}>{modalError}</div>}
                 <div>
                   <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Party Role</label>
-                  <select className="form-input" style={{ width: "100%" }} value={partyType} onChange={(e) => setPartyType(e.target.value)}>
+                  <select className="form-input" style={{ width: "100%" }} value={partyRole} onChange={(e) => setPartyRole(e.target.value)}>
                     <option value="Petitioner">Petitioner</option>
                     <option value="Respondent">Respondent</option>
                     <option value="Proforma Respondent">Proforma Respondent</option>
@@ -675,20 +679,20 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Party Name *</label>
-                  <input type="text" required className="form-input" style={{ width: "100%" }} value={partyName} onChange={(e) => setPartyName(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Display Name *</label>
+                  <input type="text" required className="form-input" style={{ width: "100%" }} value={partyDisplayName} onChange={(e) => setPartyDisplayName(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Advocate / Counsel Name</label>
-                  <input type="text" className="form-input" style={{ width: "100%" }} value={advocateName} onChange={(e) => setAdvocateName(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Father / Spouse Name</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={fatherOrSpouseName} onChange={(e) => setFatherOrSpouseName(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Contact Details</label>
-                  <input type="text" className="form-input" style={{ width: "100%" }} value={partyContact} onChange={(e) => setPartyContact(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Address Text</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={addressText} onChange={(e) => setAddressText(e.target.value)} />
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <input type="checkbox" id="chkPrimary" checked={isPrimaryParty} onChange={(e) => setIsPrimaryParty(e.target.checked)} />
-                  <label htmlFor="chkPrimary" style={{ fontSize: "14px", color: "#334155" }}>Primary party on this side</label>
+                <div>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Remarks</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={partyRemarks} onChange={(e) => setPartyRemarks(e.target.value)} />
                 </div>
               </div>
               <div className="court-modal-footer">
@@ -712,8 +716,9 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
               <div className="court-modal-body">
                 {modalError && <div style={{ color: "#b91c1c", background: "#fef2f2", padding: "10px", borderRadius: "6px" }}>{modalError}</div>}
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Role / Designation</label>
-                  <select className="form-input" style={{ width: "100%" }} value={repType} onChange={(e) => setRepType(e.target.value)}>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Representative Type</label>
+                  <select className="form-input" style={{ width: "100%" }} value={representativeType} onChange={(e) => setRepresentativeType(e.target.value)}>
+                    <option value="Counsel">Counsel</option>
                     <option value="Standing Counsel">Standing Counsel (Govt)</option>
                     <option value="Additional Standing Counsel">Additional Standing Counsel</option>
                     <option value="Government Pleader">Government Pleader</option>
@@ -723,24 +728,20 @@ export const CourtLinkedRecordsTab: React.FC<CourtLinkedRecordsTabProps> = ({ co
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Advocate Name *</label>
-                  <input type="text" required className="form-input" style={{ width: "100%" }} value={repName} onChange={(e) => setRepName(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Display Name *</label>
+                  <input type="text" required className="form-input" style={{ width: "100%" }} value={repDisplayName} onChange={(e) => setRepDisplayName(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Official Designation</label>
-                  <input type="text" className="form-input" style={{ width: "100%" }} value={repDesignation} onChange={(e) => setRepDesignation(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Represents Role</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={representsRole} onChange={(e) => setRepresentsRole(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Bar Registration Number</label>
-                  <input type="text" className="form-input" style={{ width: "100%" }} value={barRegNumber} onChange={(e) => setBarRegNumber(e.target.value)} />
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Contact Text</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={contactText} onChange={(e) => setContactText(e.target.value)} />
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Contact Details</label>
-                  <input type="text" className="form-input" style={{ width: "100%" }} value={repContact} onChange={(e) => setRepContact(e.target.value)} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <input type="checkbox" id="chkLead" checked={isLeadCounsel} onChange={(e) => setIsLeadCounsel(e.target.checked)} />
-                  <label htmlFor="chkLead" style={{ fontSize: "14px", color: "#334155" }}>Designated Lead Counsel</label>
+                  <label style={{ display: "block", fontSize: "13px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>Remarks</label>
+                  <input type="text" className="form-input" style={{ width: "100%" }} value={repRemarks} onChange={(e) => setRepRemarks(e.target.value)} />
                 </div>
               </div>
               <div className="court-modal-footer">

@@ -151,7 +151,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
               key={p.id}
               style={{
                 background: "#fff",
-                border: (p.isAuthoritative || p.isAuthoritativeNdoh) ? "2px solid #818cf8" : "1px solid #e2e8f0",
+                border: p.isAuthoritative ? "2px solid #818cf8" : "1px solid #e2e8f0",
                 borderRadius: "8px",
                 padding: "16px 20px",
               }}
@@ -167,7 +167,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                       ⚠ {p.restraintNature}
                     </span>
                   )}
-                  {(p.isAuthoritative || p.isAuthoritativeNdoh) && (
+                  {p.isAuthoritative && (
                     <span className="court-badge court-badge-authoritative">
                       Authoritative NDOH Source
                     </span>
@@ -184,7 +184,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                       <span className="court-badge" style={{ background: "#dcfce7", color: "#166534", fontSize: "11px" }}>
                         ● On Calendar
                       </span>
-                    ) : courtCase.capabilities.canPromoteToCalendar ? (
+                    ) : (p.isAuthoritative === true && !!p.nextDate && courtCase.capabilities?.canPromoteToCalendar) ? (
                       <button
                         type="button"
                         className="secondary-button"

@@ -18,13 +18,13 @@ public sealed record CreateCourtProceedingApiRequest(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    int ExpectedRevision
+    int? ExpectedRevision
 );
 
-public sealed record LinkAwardApiRequest(Guid AwardId, int ExpectedRevision);
-public sealed record LinkKhasraApiRequest(Guid KhasraId, int ExpectedRevision);
-public sealed record LinkMatterApiRequest(Guid MatterId, int ExpectedRevision);
-public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId, int ExpectedRevision);
+public sealed record LinkAwardApiRequest(Guid AwardId, int? ExpectedRevision);
+public sealed record LinkKhasraApiRequest(Guid KhasraId, int? ExpectedRevision);
+public sealed record LinkMatterApiRequest(Guid MatterId, int? ExpectedRevision);
+public sealed record LinkDocumentApiRequest(Guid DocumentId, string? DocumentRole, string? DisplayName, Guid? CourtProceedingId, int? ExpectedRevision);
 
 public static class CourtEndpoints
 {
@@ -139,6 +139,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!cmd.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 await workflow.UpdateMetadataAsync(id, cmd, currentUser.UserId.Value, ct);
@@ -156,6 +157,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!cmd.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 await workflow.AssignAsync(id, cmd, currentUser.UserId.Value, ct);
@@ -187,10 +189,13 @@ public static class CourtEndpoints
             Guid id,
             CreateCourtProceedingApiRequest req,
             ICourtWorkflowService workflow,
+            ICourtAuthorizationService courtAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanManageProceedingsAsync(id, currentUser.UserId.Value, ct) && !await courtAuth.CanEditCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            if (!req.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 var cmd = new RecordCourtProceedingCommand(
@@ -274,9 +279,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!req.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
-                var result = await workflow.LinkDocumentAsync(id, req.DocumentId, req.DocumentRole, req.DisplayName, req.CourtProceedingId, req.ExpectedRevision, currentUser.UserId.Value, ct);
+                var result = await workflow.LinkDocumentAsync(id, req.DocumentId, req.DocumentRole, req.DisplayName, req.CourtProceedingId, req.ExpectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(result);
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -364,9 +370,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!req.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
-                await workflow.LinkAwardAsync(id, req.AwardId, req.ExpectedRevision, currentUser.UserId.Value, ct);
+                await workflow.LinkAwardAsync(id, req.AwardId, req.ExpectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -400,9 +407,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!req.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
-                await workflow.LinkKhasraAsync(id, req.KhasraId, req.ExpectedRevision, currentUser.UserId.Value, ct);
+                await workflow.LinkKhasraAsync(id, req.KhasraId, req.ExpectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -436,9 +444,10 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!req.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
-                await workflow.LinkMatterAsync(id, req.MatterId, req.ExpectedRevision, currentUser.UserId.Value, ct);
+                await workflow.LinkMatterAsync(id, req.MatterId, req.ExpectedRevision.Value, currentUser.UserId.Value, ct);
                 return Results.Ok(new { success = true });
             }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
@@ -472,6 +481,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!dto.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 var result = await workflow.AddPartyAsync(id, dto, currentUser.UserId.Value, ct);
@@ -490,6 +500,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!dto.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 var result = await workflow.UpdatePartyAsync(id, partyId, dto, currentUser.UserId.Value, ct);
@@ -526,6 +537,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!dto.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 var result = await workflow.AddRepresentativeAsync(id, dto, currentUser.UserId.Value, ct);
@@ -544,6 +556,7 @@ public static class CourtEndpoints
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!dto.ExpectedRevision.HasValue) return Results.BadRequest(new { error = "ExpectedRevision is required." });
             try
             {
                 var result = await workflow.UpdateRepresentativeAsync(id, repId, dto, currentUser.UserId.Value, ct);

@@ -29,7 +29,7 @@ public sealed record CreateCourtCasePartyDto(
     string? AddressText = null,
     string? Remarks = null,
     int Sequence = 0,
-    int ExpectedRevision = 0
+    int? ExpectedRevision = null
 )
 {
     public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (!string.IsNullOrWhiteSpace(PartyName) ? PartyName.Trim() : "");
@@ -44,7 +44,7 @@ public sealed record CreateCourtCaseRepresentativeDto(
     string? ContactText = null,
     string? Remarks = null,
     Guid? CourtCasePartyId = null,
-    int ExpectedRevision = 0
+    int? ExpectedRevision = null
 )
 {
     public string ResolvedDisplayName => !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName.Trim() : (!string.IsNullOrWhiteSpace(Name) ? Name.Trim() : "");
@@ -78,7 +78,7 @@ public sealed record UpdateCourtCaseMetadataCommand(
     string? CurrentStatus,
     DateOnly? DisposedDate,
     string? Remarks,
-    int ExpectedRevision
+    int? ExpectedRevision
 );
 
 public sealed record AssignCourtCaseCommand(
@@ -88,7 +88,7 @@ public sealed record AssignCourtCaseCommand(
     Guid? TargetAssignedUserId = null,
     string? Reason = null,
     string? ReassignmentNotes = null,
-    int ExpectedRevision = 0
+    int? ExpectedRevision = null
 )
 {
     public Guid? EffectiveDeskId => ResponsibleOfficeDeskId ?? TargetResponsibleDeskId;
@@ -102,7 +102,7 @@ public sealed record RecordCourtProceedingCommand(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    int ExpectedRevision = 0
+    int? ExpectedRevision = null
 );
 
 public sealed record CourtProceedingDto(
@@ -520,7 +520,10 @@ public sealed class CourtWorkflowService(
             var courtCase = await db.CourtCases.FirstOrDefaultAsync(x => x.Id == courtCaseId && x.RecordStatus == RecordStatus.Active, c)
                 ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-            if (courtCase.Revision != command.ExpectedRevision)
+            if (!command.ExpectedRevision.HasValue)
+                throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+            if (courtCase.Revision != command.ExpectedRevision.Value)
                 throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
             var now = DateTimeOffset.UtcNow;
@@ -636,7 +639,10 @@ public sealed class CourtWorkflowService(
                 .FirstOrDefaultAsync(x => x.Id == courtCaseId && x.RecordStatus == RecordStatus.Active, c)
                 ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-            if (courtCase.Revision != command.ExpectedRevision)
+            if (!command.ExpectedRevision.HasValue)
+                throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+            if (courtCase.Revision != command.ExpectedRevision.Value)
                 throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
             var now = DateTimeOffset.UtcNow;
@@ -722,7 +728,10 @@ public sealed class CourtWorkflowService(
             var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, c)
                 ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-            if (courtCase.Revision != command.ExpectedRevision)
+            if (!command.ExpectedRevision.HasValue)
+                throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+            if (courtCase.Revision != command.ExpectedRevision.Value)
                 throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
             var now = DateTimeOffset.UtcNow;
@@ -1207,7 +1216,10 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (courtCase.Revision != dto.ExpectedRevision)
+        if (!dto.ExpectedRevision.HasValue)
+            throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+        if (courtCase.Revision != dto.ExpectedRevision.Value)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
@@ -1271,7 +1283,10 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (courtCase.Revision != dto.ExpectedRevision)
+        if (!dto.ExpectedRevision.HasValue)
+            throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+        if (courtCase.Revision != dto.ExpectedRevision.Value)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var party = await db.CourtCaseParties.FirstOrDefaultAsync(p => p.Id == partyEntryId && p.CourtCaseId == courtCaseId && p.RecordStatus == RecordStatus.Active, ct)
@@ -1374,7 +1389,10 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (courtCase.Revision != dto.ExpectedRevision)
+        if (!dto.ExpectedRevision.HasValue)
+            throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+        if (courtCase.Revision != dto.ExpectedRevision.Value)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var (_, actorDisplayName, actorDesignation) = await ResolveActorAsync(callerUserId, ct);
@@ -1435,7 +1453,10 @@ public sealed class CourtWorkflowService(
         var courtCase = await db.CourtCases.FirstOrDefaultAsync(c => c.Id == courtCaseId && c.RecordStatus == RecordStatus.Active, ct)
             ?? throw new CourtWorkflowException("Court case not found.", 404);
 
-        if (courtCase.Revision != dto.ExpectedRevision)
+        if (!dto.ExpectedRevision.HasValue)
+            throw new CourtWorkflowException("ExpectedRevision is required.", 400);
+
+        if (courtCase.Revision != dto.ExpectedRevision.Value)
             throw new CourtWorkflowException("Conflict: Court case was modified by another user. Please reload.", 409);
 
         var rep = await db.CourtCaseRepresentatives.FirstOrDefaultAsync(r => r.Id == representativeId && r.CourtCaseId == courtCaseId && r.RecordStatus == RecordStatus.Active, ct)

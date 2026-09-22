@@ -265,13 +265,12 @@ public sealed class CourtProjectionService(
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var skip = (page - 1) * pageSize;
 
-        var perms = await GetUserPermissionsAsync(callerUserId, ct);
-        var hasAwardView = perms.Contains(PermissionCodes.AwardView);
-        var hasKhasraView = perms.Contains(PermissionCodes.KhasraView);
-        var hasMatterView = perms.Contains(PermissionCodes.MatterView);
-        var hasScheduleView = perms.Contains(PermissionCodes.ScheduleView);
+        var hasAwardViewCap = await HasEffectivePermissionAsync(callerUserId, PermissionCodes.AwardView, ct);
+        var hasKhasraViewCap = await HasEffectivePermissionAsync(callerUserId, PermissionCodes.KhasraView, ct);
+        var hasMatterViewCap = await HasEffectivePermissionAsync(callerUserId, PermissionCodes.MatterView, ct);
+        var hasScheduleViewCap = await HasEffectivePermissionAsync(callerUserId, PermissionCodes.ScheduleView, ct);
 
-        var items = await authorizedQuery
+        var rawItems = await authorizedQuery
             .OrderByDescending(c => c.UpdatedAt)
             .ThenByDescending(c => c.Id)
             .Skip(skip)
@@ -290,9 +289,9 @@ public sealed class CourtProjectionService(
                 ResponsibleOfficeDeskName = c.ResponsibleOfficeDesk != null ? c.ResponsibleOfficeDesk.Name : null,
                 c.AssignedUserId,
                 AssignedUserDisplayName = c.AssignedUser != null ? c.AssignedUser.DisplayName : null,
-                AwardsCount = c.Awards.Count,
-                KhasrasCount = c.Khasras.Count,
-                MattersCount = c.Matters.Count(m => m.RecordStatus == RecordStatus.Active),
+                AwardIds = c.Awards.Select(a => a.AwardId).ToList(),
+                KhasraIds = c.Khasras.Select(k => k.KhasraId).ToList(),
+                MatterIds = c.Matters.Where(m => m.RecordStatus == RecordStatus.Active).Select(m => m.MatterId).ToList(),
                 PartiesCount = c.Parties.Count(p => p.RecordStatus == RecordStatus.Active),
                 DocumentsCount = c.Documents.Count(d => d.RecordStatus == RecordStatus.Active),
                 ProceedingsCount = c.Proceedings.Count(p => p.RecordStatus == RecordStatus.Active),
@@ -312,15 +311,59 @@ public sealed class CourtProjectionService(
             })
             .ToListAsync(ct);
 
-        var resultList = items.Select(x =>
+        var resultList = new List<CourtCaseSummaryDto>();
+        foreach (var x in rawItems)
         {
             var authNextDate = x.LatestProceeding?.NextDate;
-            var activeScheduleNextDate = hasScheduleView ? x.ActiveSchedule?.ScheduledDate : null;
-            var activeScheduledEventId = hasScheduleView ? (Guid?)x.ActiveSchedule?.Id : null;
+
+            DateOnly? activeScheduleNextDate = null;
+            Guid? activeScheduledEventId = null;
+            if (hasScheduleViewCap && x.ActiveSchedule != null)
+            {
+                if (await scheduleAuth.CanAccessScheduledEventAsync(x.ActiveSchedule.Id, PermissionCodes.ScheduleView, callerUserId, ct))
+                {
+                    activeScheduleNextDate = x.ActiveSchedule.ScheduledDate;
+                    activeScheduledEventId = x.ActiveSchedule.Id;
+                }
+            }
+
             var isProjected = activeScheduledEventId.HasValue;
             var nextHearingDate = activeScheduleNextDate ?? authNextDate;
 
-            return new CourtCaseSummaryDto(
+            int? awardsCount = null;
+            if (hasAwardViewCap)
+            {
+                var cnt = 0;
+                foreach (var aid in x.AwardIds)
+                {
+                    if (await courtAuth.CanAccessAwardAsync(aid, callerUserId, ct)) cnt++;
+                }
+                awardsCount = cnt;
+            }
+
+            int? khasrasCount = null;
+            if (hasKhasraViewCap)
+            {
+                var cnt = 0;
+                foreach (var kid in x.KhasraIds)
+                {
+                    if (await courtAuth.CanAccessKhasraAsync(kid, callerUserId, ct)) cnt++;
+                }
+                khasrasCount = cnt;
+            }
+
+            int? mattersCount = null;
+            if (hasMatterViewCap)
+            {
+                var cnt = 0;
+                foreach (var mid in x.MatterIds)
+                {
+                    if (await courtAuth.CanAccessMatterAsync(mid, callerUserId, ct)) cnt++;
+                }
+                mattersCount = cnt;
+            }
+
+            resultList.Add(new CourtCaseSummaryDto(
                 x.Id,
                 x.CaseNumber,
                 x.CourtName,
@@ -339,17 +382,55 @@ public sealed class CourtProjectionService(
                 activeScheduledEventId,
                 nextHearingDate,
                 x.LatestProceeding?.ProceedingDate,
-                hasAwardView ? x.AwardsCount : null,
-                hasKhasraView ? x.KhasrasCount : null,
-                hasMatterView ? x.MattersCount : null,
+                awardsCount,
+                khasrasCount,
+                mattersCount,
                 x.PartiesCount,
                 x.DocumentsCount,
                 x.ProceedingsCount,
                 x.LastActivityAt
-            );
-        }).ToList();
+            ));
+        }
 
         return new PagedResult<CourtCaseSummaryDto>(resultList, totalCount, page, pageSize);
+    }
+
+    private async Task<bool> HasEffectivePermissionAsync(Guid userId, string permissionCode, CancellationToken ct)
+    {
+        var isUserActive = await db.AppUsers.AsNoTracking()
+            .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
+
+        if (!isUserActive) return false;
+
+        var scopes = await GetUserPermissionsAsync(userId, ct);
+        if (!scopes.Contains(permissionCode)) return false;
+
+        var scopeModes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == userId && r.IsActive && r.RecordStatus == RecordStatus.Active && p.Code == permissionCode
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        if (scopeModes.Contains(ScopeMode.All)) return true;
+
+        if (scopeModes.Contains(ScopeMode.Workstream))
+        {
+            var isMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active, ct);
+            if (isMember) return true;
+        }
+
+        if (scopeModes.Contains(ScopeMode.Assigned))
+        {
+            var isDeskMember = await db.UserDeskMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == userId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active, ct);
+            if (isDeskMember) return true;
+        }
+
+        return false;
     }
 
     public async Task<CourtCaseDetailDto?> GetCourtCaseDetailAsync(Guid courtCaseId, Guid callerUserId, CancellationToken ct = default)
@@ -761,10 +842,46 @@ public sealed class CourtProjectionService(
             .OrderBy(s => s)
             .ToListAsync(ct);
 
-        var courtDesks = await db.OfficeDesks.AsNoTracking()
+        var courtScopes = await (
+            from ur in db.UserRoles
+            join r in db.Roles on ur.RoleId equals r.Id
+            join rp in db.RolePermissions on r.Id equals rp.RoleId
+            join p in db.Permissions on rp.PermissionId equals p.Id
+            where ur.UserId == callerUserId && r.IsActive && r.RecordStatus == RecordStatus.Active
+               && (p.Code == PermissionCodes.CourtView || p.Code == PermissionCodes.CourtCreate || p.Code == PermissionCodes.CourtAssign)
+            select rp.ScopeMode
+        ).Distinct().ToListAsync(ct);
+
+        var allDesksQuery = db.OfficeDesks.AsNoTracking()
             .Include(d => d.Workstream)
             .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
-                     && d.Workstream != null && d.Workstream.Code == WorkstreamCodes.CourtReferences)
+                     && d.Workstream != null && d.Workstream.Code == WorkstreamCodes.CourtReferences);
+
+        if (!courtScopes.Contains(ScopeMode.All))
+        {
+            var isCourtWsMember = await db.UserWorkstreamMemberships.AsNoTracking()
+                .AnyAsync(m => m.UserId == callerUserId && m.IsActive && m.Workstream.IsActive && m.Workstream.RecordStatus == RecordStatus.Active && m.Workstream.Code == WorkstreamCodes.CourtReferences, ct);
+
+            if (courtScopes.Contains(ScopeMode.Workstream) && isCourtWsMember)
+            {
+                // Full workstream desks
+            }
+            else if (courtScopes.Contains(ScopeMode.Assigned))
+            {
+                var userDeskIds = await db.UserDeskMemberships.AsNoTracking()
+                    .Where(m => m.UserId == callerUserId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active)
+                    .Select(m => m.OfficeDeskId)
+                    .ToListAsync(ct);
+
+                allDesksQuery = allDesksQuery.Where(d => userDeskIds.Contains(d.Id));
+            }
+            else
+            {
+                allDesksQuery = allDesksQuery.Where(_ => false);
+            }
+        }
+
+        var courtDesks = await allDesksQuery
             .OrderBy(d => d.Name)
             .Select(d => new CourtFilterOptionDto(d.Id, d.Name, d.Workstream != null ? d.Workstream.Name : null))
             .ToListAsync(ct);
