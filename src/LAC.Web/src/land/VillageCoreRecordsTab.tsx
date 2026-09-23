@@ -436,6 +436,50 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     }
   };
 
+  // Compute active analysis job progress info for real-time banner
+  const activeJobInfo = React.useMemo(() => {
+    for (const award of records) {
+      for (const doc of award.documents || []) {
+        const jobStatus = doc.extractionStatus || (doc.coreDocumentRole === "Award" ? award.extractionStatus : null);
+        const isRunning = (analyzingDocId === doc.documentId || analyzingDocId === award.id) ||
+          (Boolean(jobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus!));
+
+        if (isRunning) {
+          const totalPages = doc.totalPages ?? award.totalPages ?? null;
+          const processedPages = doc.processedPages ?? award.processedPages ?? 0;
+          const stage = doc.currentStage || award.currentStage || "Extracting pages & analyzing Khasra tables";
+          const percent = totalPages && totalPages > 0
+            ? Math.min(100, Math.round((processedPages / totalPages) * 100))
+            : (analyzingDocId ? 15 : 35);
+
+          let eta = "Measuring pace…";
+          if (totalPages && totalPages > processedPages) {
+            const remPages = totalPages - processedPages;
+            const remSec = Math.round(remPages * 2.2);
+            eta = remSec < 60 ? `~${Math.max(2, remSec)} sec left` : `~${Math.ceil(remSec / 60)} min left`;
+          } else if (processedPages === 0) {
+            eta = "~1–2 min estimated";
+          } else {
+            eta = "Finalizing staging…";
+          }
+
+          return {
+            awardId: award.id,
+            awardNumber: award.awardNumber,
+            docId: doc.documentId,
+            fileName: doc.originalFileName,
+            totalPages,
+            processedPages,
+            stage,
+            percent,
+            eta,
+          };
+        }
+      }
+    }
+    return null;
+  }, [records, analyzingDocId]);
+
   if (loading) return <div className="state loading">Loading core records matrix…</div>;
   if (error) return <div className="state error">{error}</div>;
 
@@ -453,7 +497,47 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         )}
       </div>
 
-      {message && (
+      {/* Real-time Analysis Progress Card */}
+      {activeJobInfo && (
+        <div className="core-analysis-progress-card">
+          <div className="progress-card-header">
+            <div className="progress-card-title-group">
+              <span className="live-status-pill">
+                <span className="pulse-dot-active" /> Document Intelligence Engine Active
+              </span>
+              <h3>Analyzing {activeJobInfo.fileName || `Award #${activeJobInfo.awardNumber}`}</h3>
+              <p className="stage-description">
+                {activeJobInfo.awardNumber ? `Award #${activeJobInfo.awardNumber} · ` : ""}
+                {activeJobInfo.stage}
+              </p>
+            </div>
+            <div className="progress-card-stats">
+              <div className="stat-pill">
+                <span className="stat-value">
+                  {activeJobInfo.totalPages ? `${activeJobInfo.processedPages} / ${activeJobInfo.totalPages}` : `${activeJobInfo.processedPages} pages`}
+                </span>
+                <span className="stat-label">Pages Processed</span>
+              </div>
+              <div className="stat-pill">
+                <span className="stat-value">{activeJobInfo.percent}%</span>
+                <span className="stat-label">Completion</span>
+              </div>
+              <div className="stat-pill highlight">
+                <span className="stat-value">{activeJobInfo.eta}</span>
+                <span className="stat-label">Estimated Time</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="progress-bar-container">
+            <div className="progress-bar-fill" style={{ width: `${Math.max(4, activeJobInfo.percent)}%` }}>
+              <span className="progress-bar-glow" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {message && !activeJobInfo && (
         <div
           className="core-records-alert-banner"
           style={{
@@ -579,8 +663,14 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                   Analysis module not available yet
                                 </span>
                               ) : isRunning ? (
-                                <span className="doc-analysis-subtag running" title="Extraction & analysis in progress">
-                                  <span className="pulse-dot" /> Analyzing…
+                                <span
+                                  className="doc-analysis-subtag running"
+                                  title={`Stage: ${doc.currentStage || award.currentStage || "Analyzing"} (${doc.processedPages ?? award.processedPages ?? 0}/${doc.totalPages ?? award.totalPages ?? "?"} pages)`}
+                                >
+                                  <span className="pulse-dot" />{" "}
+                                  {(doc.totalPages ?? award.totalPages) && (doc.totalPages ?? award.totalPages)! > 0
+                                    ? `${Math.min(100, Math.round(((doc.processedPages ?? award.processedPages ?? 0) / (doc.totalPages ?? award.totalPages)!) * 100))}% · ${doc.processedPages ?? award.processedPages ?? 0}/${doc.totalPages ?? award.totalPages} pages`
+                                    : "Analyzing…"}
                                 </span>
                               ) : sessionId ? (
                                 pending > 0 ? (
