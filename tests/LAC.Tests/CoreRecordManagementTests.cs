@@ -344,4 +344,174 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         var extractRes = await authClient.PostAsync($"/api/awards/{award.Id}/extract?villageId={village.Id}", null);
         Assert.Equal(HttpStatusCode.NotFound, extractRes.StatusCode);
     }
+
+    [Fact]
+    public async Task Core_records_projection_returns_exact_candidate_status_counts()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Counts Test Village" };
+        var award = new Award { AwardNumber = "AWD-COUNTS-TEST" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "counts_doc.pdf", StoragePath = "/tmp/counts.pdf" };
+        db.Documents.Add(doc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+
+        var session = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            SourceDocumentId = doc.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            Status = AwardIngestionSessionStatus.Parsed,
+            Candidates = new List<AwardIngestionCandidate>()
+        };
+        db.AwardIngestionSessions.Add(session);
+
+        // 1 NeedsReview (Unresolved)
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.NeedsReview,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+        // 1 Ready with VerifiedAt != null (Verified waiting commit)
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.Ready,
+            VerifiedAt = DateTimeOffset.UtcNow,
+            VerifiedBy = "Tester",
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+        // 1 Committed
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.Committed,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+        // 1 Skipped
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.Skipped,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+        // 1 Rejected
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.Rejected,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+        var res = await authClient.GetAsync($"/api/villages/{village.Id}/core-records");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement[]>();
+        Assert.NotNull(json);
+        Assert.Single(json);
+
+        var awardElem = json[0];
+        Assert.Equal(5, awardElem.GetProperty("totalCandidates").GetInt32());
+        Assert.Equal(1, awardElem.GetProperty("unresolvedCandidates").GetInt32());
+        Assert.Equal(1, awardElem.GetProperty("verifiedWaitingCommit").GetInt32());
+        Assert.Equal(1, awardElem.GetProperty("committedCandidates").GetInt32());
+        Assert.Equal(1, awardElem.GetProperty("skippedCandidates").GetInt32());
+        Assert.Equal(1, awardElem.GetProperty("rejectedCandidates").GetInt32());
+
+        var docElem = awardElem.GetProperty("documents").EnumerateArray().First();
+        Assert.Equal(5, docElem.GetProperty("totalCandidates").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("unresolvedCandidates").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("verifiedWaitingCommit").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("committedCandidates").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("skippedCandidates").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("rejectedCandidates").GetInt32());
+    }
+
+    [Fact]
+    public async Task Ingestion_mutation_endpoints_override_client_actor_with_authenticated_user_context()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Actor Override Village" };
+        var award = new Award { AwardNumber = "AWD-ACTOR-TEST" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "actor_test.pdf", StoragePath = "/tmp/actor.pdf" };
+        db.Documents.Add(doc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+
+        var job = new AwardDocumentExtractionJob
+        {
+            DocumentId = doc.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            TotalPages = 1,
+            ProcessedPages = 1,
+            Status = AwardDocumentExtractionJobStatus.NeedsReview
+        };
+        db.AwardDocumentExtractionJobs.Add(job);
+
+        var session = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            SourceDocumentId = doc.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            Status = AwardIngestionSessionStatus.Parsed
+        };
+        db.AwardIngestionSessions.Add(session);
+
+        var candidate = new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardVillage,
+            Status = AwardIngestionCandidateStatus.NeedsReview,
+            SourcePage = 1,
+            StructuredPayloadJson = System.Text.Json.JsonSerializer.Serialize(new AwardVillageCandidate("OCR Name", null)),
+            SourceLocatorJson = "{\"page\":1}"
+        };
+        db.AwardIngestionCandidates.Add(candidate);
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync(); // Logged in as "Core Record Test Administrator"
+
+        // Submit verification request with spoofed actor "Hacker Name"
+        var request = new VerifyExtractedFactRequest(
+            VerifiedBy: "Hacker Name",
+            CorrectedPayloadJson: System.Text.Json.JsonSerializer.Serialize(new AwardVillageCandidate(village.Name, village.Name))
+        );
+
+        var response = await authClient.PostAsJsonAsync($"/api/award-ingestion-candidates/{candidate.Id}/verify", request);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        using var scope2 = _factory.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
+        var updatedCandidate = await db2.AwardIngestionCandidates.FindAsync(candidate.Id);
+        Assert.NotNull(updatedCandidate);
+        Assert.Equal("Core Record Test Administrator", updatedCandidate.VerifiedBy);
+        Assert.NotEqual("Hacker Name", updatedCandidate.VerifiedBy);
+    }
 }

@@ -526,14 +526,13 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
         .OrderByDescending(s => s.CreatedAt)
         .ToListAsync(ct);
 
-    static bool IsPending(AwardIngestionCandidate c) =>
+    static bool IsUnresolved(AwardIngestionCandidate c) =>
         c.Status is AwardIngestionCandidateStatus.NeedsReview
                  or AwardIngestionCandidateStatus.Conflict
                  or AwardIngestionCandidateStatus.Ambiguous
                  or AwardIngestionCandidateStatus.Invalid
                  or AwardIngestionCandidateStatus.New
                  or AwardIngestionCandidateStatus.DuplicateInBatch
-                 or AwardIngestionCandidateStatus.Ready
                  or AwardIngestionCandidateStatus.LinkRequired;
 
     return Results.Ok(awards.Select(a =>
@@ -542,8 +541,13 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
         var latestJob = jobs.FirstOrDefault(j => activeDocIds.Contains(j.DocumentId));
         var latestSession = sessions.FirstOrDefault(s => s.SourceDocumentId != null && activeDocIds.Contains(s.SourceDocumentId.Value));
 
-        var totalCandidates = latestSession?.Candidates.Count ?? 0;
-        var pendingCandidates = latestSession?.Candidates.Count(IsPending) ?? 0;
+        var awardCandidates = latestSession?.Candidates ?? (ICollection<AwardIngestionCandidate>)Array.Empty<AwardIngestionCandidate>();
+        var awardTotal = awardCandidates.Count;
+        var awardUnresolved = awardCandidates.Count(IsUnresolved);
+        var awardVerifiedWaiting = awardCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Ready && c.VerifiedAt != null);
+        var awardCommitted = awardCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Committed);
+        var awardSkipped = awardCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Skipped);
+        var awardRejected = awardCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Rejected);
 
         return new
         {
@@ -558,8 +562,13 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
             currentStage = latestJob?.CurrentStage,
             ingestionSessionId = latestSession?.Id,
             ingestionStatus = latestSession?.Status.ToString(),
-            totalCandidates,
-            pendingCandidates,
+            totalCandidates = awardTotal,
+            unresolvedCandidates = awardUnresolved,
+            verifiedWaitingCommit = awardVerifiedWaiting,
+            committedCandidates = awardCommitted,
+            skippedCandidates = awardSkipped,
+            rejectedCandidates = awardRejected,
+            pendingCandidates = awardUnresolved,
             roles = new[] { "Award", "NM", "StatementA", "PossessionProceeding" }.Select(role => new
             {
                 role,
@@ -570,8 +579,13 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
             {
                 var docJob = jobs.FirstOrDefault(j => j.DocumentId == d.DocumentId);
                 var docSession = sessions.FirstOrDefault(s => s.SourceDocumentId == d.DocumentId);
-                var docTotal = docSession?.Candidates.Count ?? 0;
-                var docPending = docSession?.Candidates.Count(IsPending) ?? 0;
+                var docCandidates = docSession?.Candidates ?? (ICollection<AwardIngestionCandidate>)Array.Empty<AwardIngestionCandidate>();
+                var docTotal = docCandidates.Count;
+                var docUnresolved = docCandidates.Count(IsUnresolved);
+                var docVerifiedWaiting = docCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Ready && c.VerifiedAt != null);
+                var docCommitted = docCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Committed);
+                var docSkipped = docCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Skipped);
+                var docRejected = docCandidates.Count(c => c.Status == AwardIngestionCandidateStatus.Rejected);
 
                 return new
                 {
@@ -587,7 +601,12 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
                     ingestionSessionId = docSession?.Id,
                     ingestionStatus = docSession?.Status.ToString(),
                     totalCandidates = docTotal,
-                    pendingCandidates = docPending
+                    unresolvedCandidates = docUnresolved,
+                    verifiedWaitingCommit = docVerifiedWaiting,
+                    committedCandidates = docCommitted,
+                    skippedCandidates = docSkipped,
+                    rejectedCandidates = docRejected,
+                    pendingCandidates = docUnresolved
                 };
             })
         };
@@ -1077,11 +1096,11 @@ api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext 
 api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/awards/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardId==id || (x.AwardKhasra!=null && x.AwardKhasra.AwardId==id) || (x.PossessionEvent!=null && x.PossessionEvent.AwardId==id) || (x.NotificationId!=null && db.AwardNotifications.Any(n=>n.AwardId==id && n.NotificationId==x.NotificationId)),page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.VerifyAwardKhasraFieldAsync(id, request, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,ICurrentUserContext currentUser,CancellationToken ct) => {try{var actor=currentUser.DisplayName??currentUser.Username??request.VerifiedBy;if(!string.IsNullOrWhiteSpace(actor))request=request with {VerifiedBy=actor};await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,ICurrentUserContext currentUser,CancellationToken ct) => {try{var actor=currentUser.DisplayName??currentUser.Username??request.VerifiedBy;if(!string.IsNullOrWhiteSpace(actor))request=request with {VerifiedBy=actor};return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,ICurrentUserContext currentUser,CancellationToken ct) => {try{var actor=currentUser.DisplayName??currentUser.Username??request.VerifiedBy;if(!string.IsNullOrWhiteSpace(actor))request=request with {VerifiedBy=actor};return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,ICurrentUserContext currentUser,CancellationToken ct) => {try{var actor=currentUser.DisplayName??currentUser.Username??request.VerifiedBy;if(!string.IsNullOrWhiteSpace(actor))request=request with {VerifiedBy=actor};await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, ICurrentUserContext currentUser, CancellationToken ct) => { try { var actor=currentUser.DisplayName??currentUser.Username??request.VerifiedBy;if(!string.IsNullOrWhiteSpace(actor))request=request with {VerifiedBy=actor};await ingestion.VerifyAwardKhasraFieldAsync(id, request, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/award-ingestion-candidates/{id:guid}/source-crop", async (Guid id, string? fieldRole, DocumentSourceCropService crops, CancellationToken ct) => { try { return Results.File(await crops.CreateAsync(id, fieldRole, ct), "image/png"); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId, Guid? selectedVillageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {

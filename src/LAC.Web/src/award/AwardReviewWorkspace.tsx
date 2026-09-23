@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import { IconChevronLeft, IconChevronRight, IconCheck, IconClose, IconFileText } from "../components/Icons";
 import "./award.css";
 
@@ -95,11 +96,21 @@ function getRequiredRoles(candidate: IngestionCandidate, payload: any): string[]
   const roles: string[] = ["Khasra"];
   let locator: any = {};
   try { locator = JSON.parse(candidate.sourceLocatorJson || "{}"); } catch {}
-  const sourceCells = locator.structuredPayload?.sourceCells || locator.sourceCells || {};
 
-  if (sourceCells.recordedArea || payload.recordedAreaBigha != null) roles.push("RecordedArea");
-  if (sourceCells.awardedArea || payload.awardedAreaBigha != null) roles.push("AwardedArea");
-  if (payload.qualifier) roles.push("Qualifier");
+  const structPayload = locator.structuredPayload || locator.StructuredPayload || {};
+  const sourceCells = structPayload.sourceCells || locator.sourceCells || {};
+
+  const recordedCell = sourceCells.recordedArea || sourceCells.RecordedArea;
+  const awardedCell = sourceCells.awardedArea || sourceCells.AwardedArea;
+
+  const hasRecordedRegion = Boolean(recordedCell && (recordedCell.sourceRegion != null || recordedCell.SourceRegion != null));
+  const hasAwardedRegion = Boolean(awardedCell && (awardedCell.sourceRegion != null || awardedCell.SourceRegion != null));
+
+  if (hasRecordedRegion) roles.push("RecordedArea");
+  if (hasAwardedRegion) roles.push("AwardedArea");
+  if (payload && payload.qualifier && String(payload.qualifier).trim().length > 0) {
+    roles.push("Qualifier");
+  }
 
   return roles;
 }
@@ -112,9 +123,26 @@ function getFieldDecisions(candidate: IngestionCandidate): Array<{ fieldRole: st
   }
 }
 
+function getCropFieldRoleKey(role: string): string {
+  switch (role) {
+    case "RecordedArea":
+      return "recordedArea";
+    case "AwardedArea":
+      return "awardedArea";
+    case "Khasra":
+    case "Qualifier":
+    default:
+      return "khasra";
+  }
+}
+
 export const AwardReviewWorkspace: React.FC = () => {
   const { id: routeAwardId, sessionId = "" } = useParams();
   const navigate = useNavigate();
+
+  const { hasPermission, user } = useAuth();
+  const canEditAward = hasPermission("Award.Edit");
+  const officerName = user?.displayName || user?.username || "Authorized Officer";
 
   const [refresh, setRefresh] = useState(0);
   const [overview, setOverview] = useState<IngestionSessionOverview | null>(null);
@@ -133,12 +161,9 @@ export const AwardReviewWorkspace: React.FC = () => {
   const [candidates, setCandidates] = useState<IngestionCandidate[]>([]);
   const [candidateIndex, setCandidateIndex] = useState<number>(0);
 
-  // Reviewer & Active Role State
-  const [reviewer, setReviewer] = useState<string>(
-    () => sessionStorage.getItem("lac.reviewOfficer") || ""
-  );
+  // Reviewer & Active Field Role State
   const [viewMode, setViewMode] = useState<"crop" | "pdf">("crop");
-  const [activeRole, setActiveRole] = useState<string>("Khasra"); // "Khasra", "Qualifier", "RecordedArea", "AwardedArea"
+  const [activeRole, setActiveRole] = useState<string>("Khasra");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
 
@@ -152,7 +177,7 @@ export const AwardReviewWorkspace: React.FC = () => {
 
   const activeCandidate = candidates[candidateIndex] || null;
 
-  // Reset page when filters change
+  // Reset page & index when filters change
   useEffect(() => {
     setPage(0);
     setCandidateIndex(0);
@@ -204,11 +229,11 @@ export const AwardReviewWorkspace: React.FC = () => {
       })
       .then((resData) => {
         if (active) {
-          const items = resData.items || [];
+          const items: IngestionCandidate[] = resData.items || [];
           setCandidates(items);
           setTotalCandidatesCount(resData.totalCount ?? items.length);
-          if (candidateIndex >= items.length && items.length > 0) {
-            setCandidateIndex(0);
+          if (candidateIndex >= items.length) {
+            setCandidateIndex(items.length > 0 ? items.length - 1 : 0);
           }
         }
       })
@@ -219,33 +244,45 @@ export const AwardReviewWorkspace: React.FC = () => {
     return () => { active = false; };
   }, [sessionId, page, pageSize, bucket, category, sourcePageFilter, refresh]);
 
-  // Sync Form Data when Active Candidate Changes
+  // Sync Form Data and Select FIRST Unconfirmed Required Field when Active Candidate Changes
   useEffect(() => {
     if (!activeCandidate) {
       setFormData({});
       return;
     }
+    let parsedPayload: any = {};
     try {
-      setFormData(JSON.parse(activeCandidate.payloadJson || "{}"));
+      parsedPayload = JSON.parse(activeCandidate.payloadJson || "{}");
     } catch {
-      setFormData({});
+      parsedPayload = {};
     }
-    setActiveRole("Khasra");
-  }, [activeCandidate]);
+    setFormData(parsedPayload);
 
-  // Persist Reviewer Name
-  const handleReviewerChange = (name: string) => {
-    setReviewer(name);
-    sessionStorage.setItem("lac.reviewOfficer", name);
-  };
+    if (activeCandidate.candidateType === "AwardKhasra") {
+      const required = getRequiredRoles(activeCandidate, parsedPayload);
+      const decisions = getFieldDecisions(activeCandidate);
+      const sequenceOrder = ["Khasra", "RecordedArea", "AwardedArea", "Qualifier"];
+
+      // Find first required role that is not Confirmed or Corrected
+      const unconfirmedRole = sequenceOrder.find((role) => {
+        if (!required.includes(role)) return false;
+        const d = decisions.find((x: any) => (x.fieldRole || x.FieldRole) === role);
+        return !d || (d.decision !== "Confirm" && d.decision !== "Correct");
+      });
+
+      setActiveRole(unconfirmedRole || "Khasra");
+    } else {
+      setActiveRole("Khasra");
+    }
+  }, [activeCandidate]);
 
   // Perform Verification Action
   const handleVerifyAction = useCallback(async (action: "Confirm" | "Uncertain" | "Skip" | "Correct") => {
-    if (!activeCandidate) return;
-    if (!reviewer.trim()) {
-      setMessage("Please enter your name as the verifying officer.");
+    if (!canEditAward) {
+      setMessage("Read-only mode: You do not have permission to verify or edit findings.");
       return;
     }
+    if (!activeCandidate) return;
 
     try {
       setBusy(true);
@@ -266,7 +303,7 @@ export const AwardReviewWorkspace: React.FC = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            verifiedBy: reviewer.trim(),
+            verifiedBy: officerName,
             fieldRole: activeRole,
             humanValue: humanVal,
             decision: action,
@@ -279,35 +316,40 @@ export const AwardReviewWorkspace: React.FC = () => {
           throw new Error(err.detail || err.message || "Field verification failed.");
         }
 
-        // On success, refresh the overview & candidates
+        // On success, refresh overview & candidates
         setRefresh((r) => r + 1);
 
-        // Check field completion for current candidate
+        // Check if all required fields are resolved
         const requiredRoles = getRequiredRoles(activeCandidate, formData);
         const existingDecisions = getFieldDecisions(activeCandidate);
         const updatedDecisions = existingDecisions.filter(d => (d.fieldRole || (d as any).FieldRole) !== activeRole);
         updatedDecisions.push({ fieldRole: activeRole, decision: action, humanValue: humanVal || undefined });
 
-        const unconfirmedRole = requiredRoles.find(role => {
-          const d = updatedDecisions.find(x => (x.fieldRole || (x as any).FieldRole) === role);
+        const sequenceOrder = ["Khasra", "RecordedArea", "AwardedArea", "Qualifier"];
+        const unconfirmedRole = sequenceOrder.find((role) => {
+          if (!requiredRoles.includes(role)) return false;
+          const d = updatedDecisions.find((x: any) => (x.fieldRole || x.FieldRole) === role);
           return !d || (d.decision !== "Confirm" && d.decision !== "Correct");
         });
 
         if (unconfirmedRole) {
-          // Stay on current candidate and move to next unconfirmed field
+          // Stay on current candidate and move activeRole to next unconfirmed required field
           setActiveRole(unconfirmedRole);
           setMessage(`Saved decision for ${activeRole}. Next field: ${unconfirmedRole}.`);
         } else {
-          // All required fields verified -> advance candidate
-          if (candidateIndex < candidates.length - 1) {
-            setCandidateIndex((prev) => prev + 1);
-            setActiveRole("Khasra");
-          } else if ((page + 1) * pageSize < totalCandidatesCount) {
-            setPage((prev) => prev + 1);
-            setCandidateIndex(0);
-            setActiveRole("Khasra");
+          // All required fields verified for this candidate -> advance candidate stably!
+          setMessage(`Candidate fully verified!`);
+          if (bucket === "") {
+            // Unfiltered mode: move to next item index
+            if (candidateIndex < candidates.length - 1) {
+              setCandidateIndex((prev) => prev + 1);
+            } else if ((page + 1) * pageSize < totalCandidatesCount) {
+              setPage((prev) => prev + 1);
+              setCandidateIndex(0);
+            }
           } else {
-            setMessage("Candidate fully verified! Reached end of current list.");
+            // Filtered mode: after refresh, current candidate is removed from bucket query,
+            // so next candidate slides into candidateIndex automatically. Do NOT increment candidateIndex!
           }
         }
       } else {
@@ -315,7 +357,7 @@ export const AwardReviewWorkspace: React.FC = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            verifiedBy: reviewer.trim(),
+            verifiedBy: officerName,
             correctedPayloadJson: JSON.stringify(formData),
             action,
           }),
@@ -328,11 +370,15 @@ export const AwardReviewWorkspace: React.FC = () => {
         }
 
         setRefresh((r) => r + 1);
-        if (candidateIndex < candidates.length - 1) {
-          setCandidateIndex((prev) => prev + 1);
-        } else if ((page + 1) * pageSize < totalCandidatesCount) {
-          setPage((prev) => prev + 1);
-          setCandidateIndex(0);
+        if (bucket === "") {
+          if (candidateIndex < candidates.length - 1) {
+            setCandidateIndex((prev) => prev + 1);
+          } else if ((page + 1) * pageSize < totalCandidatesCount) {
+            setPage((prev) => prev + 1);
+            setCandidateIndex(0);
+          }
+        } else {
+          // Filtered mode: candidate slides out of bucket, next candidate takes candidateIndex
         }
       }
     } catch (e: any) {
@@ -341,12 +387,12 @@ export const AwardReviewWorkspace: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [activeCandidate, reviewer, activeRole, formData, candidateIndex, candidates.length, page, pageSize, totalCandidatesCount]);
+  }, [canEditAward, activeCandidate, officerName, activeRole, formData, bucket, candidateIndex, candidates.length, page, pageSize, totalCandidatesCount]);
 
   // Handle Commit Verified Action
   const handleCommitVerified = async () => {
-    if (!reviewer.trim()) {
-      setCommitError("Please enter your name as the verifying officer.");
+    if (!canEditAward) {
+      setCommitError("Read-only mode: You do not have permission to commit verified findings.");
       return;
     }
     try {
@@ -356,7 +402,7 @@ export const AwardReviewWorkspace: React.FC = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          verifiedBy: reviewer.trim(),
+          verifiedBy: officerName,
           expectedCount: verifiedCount,
         }),
         credentials: "include",
@@ -399,13 +445,13 @@ export const AwardReviewWorkspace: React.FC = () => {
           setPage((p) => p - 1);
           setCandidateIndex(pageSize - 1);
         }
-      } else if (e.key === "Enter" || e.key.toLowerCase() === "c") {
+      } else if (canEditAward && (e.key === "Enter" || e.key.toLowerCase() === "c")) {
         e.preventDefault();
         void handleVerifyAction("Confirm");
-      } else if (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "s") {
+      } else if (canEditAward && (e.key.toLowerCase() === "r" || e.key.toLowerCase() === "s")) {
         e.preventDefault();
         void handleVerifyAction("Skip");
-      } else if (e.key.toLowerCase() === "u") {
+      } else if (canEditAward && e.key.toLowerCase() === "u") {
         e.preventDefault();
         void handleVerifyAction("Uncertain");
       }
@@ -413,7 +459,7 @@ export const AwardReviewWorkspace: React.FC = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [candidates.length, candidateIndex, page, pageSize, totalCandidatesCount, handleVerifyAction]);
+  }, [canEditAward, candidates.length, candidateIndex, page, pageSize, totalCandidatesCount, handleVerifyAction]);
 
   if (loading) return <div className="state loading" style={{ padding: "40px", textAlign: "center" }}>Loading document workstation…</div>;
   if (error || !overview) return <div className="state error" style={{ padding: "40px" }}>{error || "Session not found."}</div>;
@@ -441,7 +487,7 @@ export const AwardReviewWorkspace: React.FC = () => {
   const sourcePage = activeCandidate?.sourceLocatorJson ? (locator.Page || locator.page || 1) : 1;
   const rawOcr = activeCandidate?.rawSourceText || locator.RawOcr || locator.rawOcr || "";
   const cropUrl = activeCandidate
-    ? `${api}/award-ingestion-candidates/${activeCandidate.id}/source-crop?fieldRole=${encodeURIComponent(activeRole.toLowerCase())}`
+    ? `${api}/award-ingestion-candidates/${activeCandidate.id}/source-crop?fieldRole=${encodeURIComponent(getCropFieldRoleKey(activeRole))}`
     : undefined;
   const pdfUrl = overview.sourceDocumentId
     ? `${api}/documents/${overview.sourceDocumentId}/content#page=${sourcePage}`
@@ -455,7 +501,14 @@ export const AwardReviewWorkspace: React.FC = () => {
       <div className="review-header-bar">
         <div className="review-header-top">
           <div className="review-title-group">
-            <h1>{overview.documentName || "Award Document Review Workstation"}</h1>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <h1>{overview.documentName || "Award Document Review Workstation"}</h1>
+              {!canEditAward && (
+                <span style={{ background: "#f1f5f9", color: "#475569", border: "1px solid #cbd5e1", padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>
+                  Read-Only Mode
+                </span>
+              )}
+            </div>
             <p>
               {overview.awardNumber ? `Award #${overview.awardNumber}` : "Award Context Pending"}
               {overview.villageName ? ` · Village ${overview.villageName}` : ""}
@@ -464,7 +517,7 @@ export const AwardReviewWorkspace: React.FC = () => {
           </div>
 
           <div className="review-header-actions">
-            {verifiedCount > 0 && (
+            {canEditAward && verifiedCount > 0 && (
               <button
                 type="button"
                 className="action-btn btn-confirm"
@@ -475,15 +528,10 @@ export const AwardReviewWorkspace: React.FC = () => {
               </button>
             )}
 
+            {/* Authenticated Officer Identity Tag (Read-Only Display) */}
             <div className="officer-input-pill">
-              <label htmlFor="officer-name">Verifying Officer:</label>
-              <input
-                id="officer-name"
-                type="text"
-                value={reviewer}
-                onChange={(e) => handleReviewerChange(e.target.value)}
-                placeholder="Your Name"
-              />
+              <label>Verifying Officer:</label>
+              <span style={{ fontWeight: 700, color: "#0f172a" }}>{officerName}</span>
             </div>
             {targetAwardId && (
               <Link to={`/awards/${targetAwardId}`} className="action-btn btn-quiet">
@@ -645,6 +693,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                           </div>
                           <input
                             type="text"
+                            readOnly={!canEditAward}
                             value={formData.khasraNumber || ""}
                             onChange={(e) => setFormData({ ...formData, khasraNumber: e.target.value })}
                             onFocus={() => setActiveRole("Khasra")}
@@ -658,6 +707,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                           </div>
                           <input
                             type="text"
+                            readOnly={!canEditAward}
                             value={formData.qualifier || ""}
                             onChange={(e) => setFormData({ ...formData, qualifier: e.target.value })}
                             onFocus={() => setActiveRole("Qualifier")}
@@ -672,6 +722,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                           <div style={{ display: "flex", gap: "6px" }}>
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Bigha"
                               value={formData.recordedAreaBigha ?? ""}
                               onChange={(e) => setFormData({ ...formData, recordedAreaBigha: e.target.value === "" ? null : Number(e.target.value) })}
@@ -679,6 +730,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                             />
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Biswa"
                               value={formData.recordedAreaBiswa ?? ""}
                               onChange={(e) => setFormData({ ...formData, recordedAreaBiswa: e.target.value === "" ? null : Number(e.target.value) })}
@@ -686,6 +738,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                             />
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Biswansi"
                               value={formData.recordedAreaBiswansi ?? ""}
                               onChange={(e) => setFormData({ ...formData, recordedAreaBiswansi: e.target.value === "" ? null : Number(e.target.value) })}
@@ -702,6 +755,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                           <div style={{ display: "flex", gap: "6px" }}>
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Bigha"
                               value={formData.awardedAreaBigha ?? ""}
                               onChange={(e) => setFormData({ ...formData, awardedAreaBigha: e.target.value === "" ? null : Number(e.target.value) })}
@@ -709,6 +763,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                             />
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Biswa"
                               value={formData.awardedAreaBiswa ?? ""}
                               onChange={(e) => setFormData({ ...formData, awardedAreaBiswa: e.target.value === "" ? null : Number(e.target.value) })}
@@ -716,6 +771,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                             />
                             <input
                               type="number"
+                              readOnly={!canEditAward}
                               placeholder="Biswansi"
                               value={formData.awardedAreaBiswansi ?? ""}
                               onChange={(e) => setFormData({ ...formData, awardedAreaBiswansi: e.target.value === "" ? null : Number(e.target.value) })}
@@ -732,6 +788,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                       {key.replace(/([A-Z])/g, " $1")}:
                       <input
                         type="text"
+                        readOnly={!canEditAward}
                         value={formData[key] ?? ""}
                         onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
                       />
@@ -786,38 +843,40 @@ export const AwardReviewWorkspace: React.FC = () => {
               </button>
             </div>
 
-            <div className="action-btn-group">
-              <button
-                type="button"
-                className="action-btn btn-uncertain"
-                disabled={busy || !activeCandidate}
-                onClick={() => handleVerifyAction("Uncertain")}
-              >
-                {activeCandidate?.candidateType === "AwardKhasra" ? "Mark Field Uncertain" : "Mark Uncertain"}
-              </button>
-              <button
-                type="button"
-                className="action-btn btn-reject"
-                disabled={busy || !activeCandidate}
-                onClick={() => handleVerifyAction("Skip")}
-              >
-                {activeCandidate?.candidateType === "AwardKhasra" ? "Skip Field" : "Skip Finding"}
-              </button>
-              <button
-                type="button"
-                className="action-btn btn-confirm"
-                disabled={busy || !activeCandidate}
-                onClick={() => handleVerifyAction("Confirm")}
-              >
-                <IconCheck size={16} /> {activeCandidate?.candidateType === "AwardKhasra" ? `Confirm Field (${activeRole})` : "Confirm Finding & Next"}
-              </button>
-            </div>
+            {canEditAward && (
+              <div className="action-btn-group">
+                <button
+                  type="button"
+                  className="action-btn btn-uncertain"
+                  disabled={busy || !activeCandidate}
+                  onClick={() => handleVerifyAction("Uncertain")}
+                >
+                  {activeCandidate?.candidateType === "AwardKhasra" ? "Mark Field Uncertain" : "Mark Uncertain"}
+                </button>
+                <button
+                  type="button"
+                  className="action-btn btn-reject"
+                  disabled={busy || !activeCandidate}
+                  onClick={() => handleVerifyAction("Skip")}
+                >
+                  {activeCandidate?.candidateType === "AwardKhasra" ? "Skip Field" : "Skip Finding"}
+                </button>
+                <button
+                  type="button"
+                  className="action-btn btn-confirm"
+                  disabled={busy || !activeCandidate}
+                  onClick={() => handleVerifyAction("Confirm")}
+                >
+                  <IconCheck size={16} /> {activeCandidate?.candidateType === "AwardKhasra" ? `Confirm Field (${activeRole})` : "Confirm Finding & Next"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
       {/* Commit Verified Modal */}
-      {showCommitModal && (
+      {canEditAward && showCommitModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#ffffff", borderRadius: "8px", width: "480px", maxWidth: "90vw", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
             <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", marginBottom: "8px" }}>
@@ -829,15 +888,11 @@ export const AwardReviewWorkspace: React.FC = () => {
 
             <div style={{ marginBottom: "16px" }}>
               <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-                Verifying Officer Name:
+                Verifying Officer Identity:
               </label>
-              <input
-                type="text"
-                value={reviewer}
-                onChange={(e) => handleReviewerChange(e.target.value)}
-                placeholder="Enter Officer Name"
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
-              />
+              <div style={{ padding: "8px 12px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>
+                {officerName}
+              </div>
             </div>
 
             {commitError && (
@@ -859,7 +914,7 @@ export const AwardReviewWorkspace: React.FC = () => {
                 type="button"
                 className="action-btn btn-confirm"
                 style={{ background: "#16a34a", color: "#ffffff" }}
-                disabled={commitBusy || !reviewer.trim()}
+                disabled={commitBusy}
                 onClick={handleCommitVerified}
               >
                 {commitBusy ? "Committing…" : `Confirm & Commit (${verifiedCount})`}

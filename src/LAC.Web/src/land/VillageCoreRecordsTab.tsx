@@ -1,74 +1,169 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthProvider";
-import { IconPlus, IconChevronRight, IconClose, IconFileText, IconMoreVertical } from "../components/Icons";
-import { CoreDocumentUploadModal } from "./CoreDocumentUploadModal";
-import { AddAwardModal } from "./AddAwardModal";
+import { useAuth } from "../context/AuthContext";
+import { IconFileText, IconMoreVertical, IconChevronLeft } from "../components/Icons";
 import "./land.css";
 
 const api = "/api";
 
-function date(value?: string | null) {
-  if (!value) return "—";
-  const raw = String(value);
-  const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw + "T00:00:00" : raw);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(parsed);
+export interface VillageCoreRecordsTabProps {
+  villageId: string;
+  villageName?: string;
 }
 
-function formatDateInput(value?: string | null) {
-  if (!value) return "";
-  const raw = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return parsed.toISOString().split("T")[0];
-}
-
-const CORE_ROLES = [
-  { key: "Award", label: "Award PDF" },
-  { key: "NM", label: "NM / ENM Register" },
-  { key: "StatementA", label: "Statement-A" },
-  { key: "PossessionProceeding", label: "Possession Proceedings" },
-] as const;
-
-export interface CoreRecordRole {
-  role: string;
-  count: number;
-  available: boolean;
-}
-
-export interface CoreRecordDocument {
+export interface CoreDocumentItem {
   documentId: string;
   coreDocumentRole: string;
-  originalFileName: string;
-  uploadedAt: string;
+  originalFileName?: string | null;
+  uploadedAt?: string | null;
   extractionJobId?: string | null;
   extractionStatus?: string | null;
+  totalPages?: number | null;
+  processedPages?: number;
+  currentStage?: string | null;
   ingestionSessionId?: string | null;
   ingestionStatus?: string | null;
   totalCandidates?: number;
+  unresolvedCandidates?: number;
+  verifiedWaitingCommit?: number;
+  committedCandidates?: number;
+  skippedCandidates?: number;
+  rejectedCandidates?: number;
   pendingCandidates?: number;
 }
 
-export interface CoreRecordAward {
+export interface VillageAwardRecord {
   id: string;
   awardNumber: string;
   awardDate?: string | null;
   awardType?: string | null;
   extractionJobId?: string | null;
   extractionStatus?: string | null;
+  totalPages?: number | null;
+  processedPages?: number;
+  currentStage?: string | null;
   ingestionSessionId?: string | null;
   ingestionStatus?: string | null;
   totalCandidates?: number;
+  unresolvedCandidates?: number;
+  verifiedWaitingCommit?: number;
+  committedCandidates?: number;
+  skippedCandidates?: number;
+  rejectedCandidates?: number;
   pendingCandidates?: number;
-  roles?: CoreRecordRole[];
-  documents?: CoreRecordDocument[];
+  roles: Array<{
+    role: string;
+    count: number;
+    available: boolean;
+  }>;
+  documents: CoreDocumentItem[];
 }
 
-export interface VillageCoreRecordsTabProps {
-  villageId: string;
-  villageName?: string;
+function renderDocumentStatusTag(
+  doc: CoreDocumentItem | { documentId?: string; extractionStatus?: string | null; ingestionSessionId?: string | null; totalCandidates?: number; unresolvedCandidates?: number; verifiedWaitingCommit?: number; committedCandidates?: number; pendingCandidates?: number; totalPages?: number | null; processedPages?: number; currentStage?: string | null },
+  award: VillageAwardRecord,
+  key: string,
+  canEditAward: boolean,
+  analyzingDocId: string | null,
+  triggerAnalyze: (awardId: string, documentId: string) => void,
+  setActiveMenuId: (id: string | null) => void,
+  isPopover: boolean = false
+) {
+  const docJobStatus = doc.extractionStatus || (key === "Award" ? award.extractionStatus : null);
+  const sessionId = doc.ingestionSessionId || (key === "Award" ? award.ingestionSessionId : null);
+  const isRunning = (analyzingDocId === doc.documentId || analyzingDocId === award.id) || (Boolean(docJobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(docJobStatus!));
+
+  const total = doc.totalCandidates ?? (key === "Award" ? award.totalCandidates : 0);
+  const unresolved = doc.unresolvedCandidates ?? doc.pendingCandidates ?? (key === "Award" ? (award.unresolvedCandidates ?? award.pendingCandidates) : 0);
+  const verifiedWaiting = doc.verifiedWaitingCommit ?? (key === "Award" ? award.verifiedWaitingCommit : 0);
+  const committed = doc.committedCandidates ?? (key === "Award" ? award.committedCandidates : 0);
+
+  if (key === "StatementA" || key === "PossessionProceeding") {
+    return (
+      <span className="doc-analysis-subtag neutral" title="Analysis module not available yet" style={isPopover ? { fontSize: "11px" } : undefined}>
+        Analysis module not available yet
+      </span>
+    );
+  }
+
+  if (isRunning) {
+    const totalPages = doc.totalPages ?? award.totalPages;
+    const processedPages = doc.processedPages ?? award.processedPages ?? 0;
+    const isProgressKnown = totalPages && totalPages > 0;
+    return (
+      <span className="doc-analysis-subtag running" style={isPopover ? { fontSize: "11px", display: "inline-flex", width: "fit-content" } : undefined}>
+        <span className="pulse-dot" />{" "}
+        {isProgressKnown ? `${Math.min(100, Math.round((processedPages / totalPages) * 100))}% · ${processedPages}/${totalPages} pages` : "Analyzing…"}
+      </span>
+    );
+  }
+
+  if (sessionId) {
+    let text = "";
+    let cls = "doc-analysis-subtag review-ready";
+    let titleText = "Click to open review workstation";
+
+    if (unresolved > 0) {
+      const resolved = total - unresolved;
+      if (resolved > 0) {
+        text = `Review · ${unresolved} remaining`;
+        titleText = `${resolved} resolved · ${unresolved} remaining`;
+      } else {
+        text = `Review · ${unresolved} remaining`;
+      }
+    } else if (verifiedWaiting > 0) {
+      text = `Review complete · ${total} reviewed`;
+      titleText = `${verifiedWaiting} waiting to commit`;
+      cls = "doc-analysis-subtag completed";
+    } else if (committed > 0) {
+      if (committed === total) {
+        text = `${committed} committed`;
+      } else {
+        text = `${committed} committed · ${total - committed} final`;
+      }
+      cls = "doc-analysis-subtag completed";
+    } else if (total > 0) {
+      text = `Review complete · ${total} final`;
+      cls = "doc-analysis-subtag completed";
+    } else {
+      text = `Review workspace`;
+    }
+
+    return (
+      <Link
+        to={`/awards/${award.id}/ingestion/${sessionId}`}
+        className={cls}
+        title={titleText}
+        style={isPopover ? { fontSize: "11.5px", fontWeight: 600, textDecoration: "none" } : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isPopover) setActiveMenuId(null);
+        }}
+      >
+        {text} →
+      </Link>
+    );
+  }
+
+  if (key === "Award" && canEditAward) {
+    return (
+      <button
+        type="button"
+        className="doc-analysis-subtag trigger"
+        style={isPopover ? { border: "none", background: "none", color: "#2563eb", cursor: "pointer", fontSize: "11.5px", fontWeight: 600, padding: 0, textAlign: "left" } : undefined}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isPopover) setActiveMenuId(null);
+          triggerAnalyze(award.id, doc.documentId!);
+        }}
+        title="Run OCR and document intelligence analysis"
+      >
+        Analyze Document →
+      </button>
+    );
+  }
+
+  return null;
 }
 
 export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId, villageName }) => {
@@ -78,43 +173,48 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   const canEditAward = hasPermission("Award.Edit");
   const canUploadCore = hasPermission("Award.CoreDocument.Upload");
 
-  const [refresh, setRefresh] = useState(0);
-  const [records, setRecords] = useState<CoreRecordAward[]>([]);
+  const [awards, setAwards] = useState<VillageAwardRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
 
-  // Active Open Menu State ('doc-awardId-role' or 'award-awardId')
+  // Analysis Trigger & Active Menu State
+  const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
-  // Modal States
-  const [addAwardModalOpen, setAddAwardModalOpen] = useState(false);
-  const [newAward, setNewAward] = useState({ awardNumber: "", awardDate: "", awardType: "" });
+  // Modal States for Add / Replace / Remove Core Document
+  const [uploadModal, setUploadModal] = useState<{
+    isOpen: boolean;
+    awardId: string;
+    awardNumber: string;
+    role: string;
+    mode: "add" | "replace";
+    targetDocumentId?: string;
+    targetFileName?: string;
+  }>({ isOpen: false, awardId: "", awardNumber: "", role: "Award", mode: "add" });
 
-  const [editAwardModalOpen, setEditAwardModalOpen] = useState(false);
-  const [editAward, setEditAward] = useState<{ id: string; awardNumber: string; awardDate: string; awardType: string } | null>(null);
+  const [removeModal, setRemoveModal] = useState<{
+    isOpen: boolean;
+    awardId: string;
+    awardNumber: string;
+    role: string;
+    documentId: string;
+    fileName?: string;
+  }>({ isOpen: false, awardId: "", awardNumber: "", role: "Award", documentId: "" });
 
-  const [uploadModalOpen, setUploadModalOpen] = useState(false);
-  const [uploadTarget, setUploadTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string } | null>(null);
-
-  const [replaceModalOpen, setReplaceModalOpen] = useState(false);
-  const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
-
-  const [removeModalOpen, setRemoveModalOpen] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
-  const [removeReason, setRemoveReason] = useState("");
-
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [removalReason, setRemovalReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
 
-  // Close context menu on outside click
-  useEffect(() => {
-    const handleOutsideClick = () => setActiveMenuId(null);
-    window.addEventListener("click", handleOutsideClick);
-    return () => window.removeEventListener("click", handleOutsideClick);
-  }, []);
+  // Add Award Modal State
+  const [addAwardModal, setAddAwardModal] = useState(false);
+  const [newAwardNumber, setNewAwardNumber] = useState("");
+  const [newAwardDate, setNewAwardDate] = useState("");
+  const [newAwardType, setNewAwardType] = useState("General");
+  const [newAwardRemarks, setNewAwardRemarks] = useState("");
 
-  // Fetch core records
+  // Fetch Core Records Overview
   useEffect(() => {
     if (!villageId) return;
     let active = true;
@@ -122,53 +222,138 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setError(null);
 
     fetch(`${api}/villages/${villageId}/core-records?r=${refresh}`, { credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) {
-          if (r.status === 403) throw new Error("Access denied: You do not have permission to view core records.");
-          throw new Error("Could not load core records.");
-        }
-        return r.json() as Promise<CoreRecordAward[]>;
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Could not load core document records.");
+        return res.json() as Promise<VillageAwardRecord[]>;
       })
-      .then((d) => {
+      .then((data) => {
         if (active) {
-          setRecords(d);
+          setAwards(data);
           setLoading(false);
         }
       })
       .catch((e: any) => {
         if (active) {
-          setError(e?.message || "Core records unavailable.");
+          setError(e?.message || "Failed to load core records.");
           setLoading(false);
         }
       });
-    return () => {
-      active = false;
-    };
+
+    return () => { active = false; };
   }, [villageId, refresh]);
 
-  // Auto-polling while any extraction job is active
+  // Polling for active document extractions
   useEffect(() => {
-    const hasRunningJob = records.some((a) => {
-      const awardRunning = a.extractionStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(a.extractionStatus);
-      const docRunning = a.documents?.some((d) => d.extractionStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(d.extractionStatus));
-      return awardRunning || docRunning;
-    });
+    const hasActiveExtraction = awards.some((a) =>
+      ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(a.extractionStatus || "") ||
+      a.documents.some((d) => ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(d.extractionStatus || ""))
+    );
+    if (!hasActiveExtraction) return;
 
-    if (!hasRunningJob && !analyzingDocId) return;
-
-    const interval = setInterval(() => {
-      setRefresh((r) => r + 1);
+    const timer = setInterval(() => {
+      setRefresh((x) => x + 1);
     }, 2500);
 
-    return () => clearInterval(interval);
-  }, [records, analyzingDocId]);
+    return () => clearInterval(timer);
+  }, [awards]);
 
-  // Handle Add Award
-  const handleCreateAward = async (
-    awardData: { awardNumber: string; awardDate: string; awardType: string },
-    initialFile: File | null
-  ) => {
-    if (!awardData.awardNumber.trim()) {
+  // Close menus on outside click
+  useEffect(() => {
+    const handleOutsideClick = () => setActiveMenuId(null);
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, []);
+
+  const openUploadModal = (awardId: string, awardNumber: string, role: string) => {
+    setSelectedFile(null);
+    setMessage("");
+    setUploadModal({ isOpen: true, awardId, awardNumber, role, mode: "add" });
+  };
+
+  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
+    setSelectedFile(null);
+    setMessage("");
+    setUploadModal({ isOpen: true, awardId, awardNumber, role, mode: "replace", targetDocumentId: documentId, targetFileName: fileName });
+  };
+
+  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
+    setRemovalReason("");
+    setMessage("");
+    setRemoveModal({ isOpen: true, awardId, awardNumber, role, documentId, fileName });
+  };
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) {
+      setMessage("Please select a PDF file to upload.");
+      return;
+    }
+    try {
+      setBusy(true);
+      setMessage("");
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+
+      let endpoint = "";
+      let method = "POST";
+
+      if (uploadModal.mode === "add") {
+        endpoint = `${api}/awards/${uploadModal.awardId}/core-documents?role=${encodeURIComponent(uploadModal.role)}`;
+      } else {
+        endpoint = `${api}/awards/${uploadModal.awardId}/core-documents/${uploadModal.targetDocumentId}`;
+        method = "PUT";
+      }
+
+      const res = await fetch(endpoint, {
+        method,
+        body: formData,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.message || "Failed to save core document.");
+      }
+
+      setUploadModal({ ...uploadModal, isOpen: false });
+      setSelectedFile(null);
+      setRefresh((x) => x + 1);
+    } catch (err: any) {
+      setMessage(err?.message || "Upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemoveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setBusy(true);
+      setMessage("");
+      const endpoint = `${api}/awards/${removeModal.awardId}/core-documents/${removeModal.documentId}?reason=${encodeURIComponent(removalReason.trim())}`;
+      const res = await fetch(endpoint, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.message || "Failed to remove core document.");
+      }
+
+      setRemoveModal({ ...removeModal, isOpen: false });
+      setRemovalReason("");
+      setRefresh((x) => x + 1);
+    } catch (err: any) {
+      setMessage(err?.message || "Removal failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAddAwardSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAwardNumber.trim()) {
       setMessage("Award number is required.");
       return;
     }
@@ -179,229 +364,30 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          awardNumber: awardData.awardNumber.trim(),
-          awardDate: awardData.awardDate || null,
-          awardType: awardData.awardType || null,
-          remarks: null,
+          awardNumber: newAwardNumber.trim(),
+          awardDate: newAwardDate || null,
+          awardType: newAwardType,
+          remarks: newAwardRemarks.trim() || null,
         }),
         credentials: "include",
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || "Could not add Award.");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.message || "Could not add award.");
       }
 
-      const created = (await res.json()) as { id: string };
-
-      // If initial Award PDF file was attached, upload it immediately
-      if (initialFile && created?.id) {
-        const formData = new FormData();
-        formData.append("file", initialFile);
-
-        const uploadRes = await fetch(
-          `${api}/awards/${created.id}/core-documents?role=Award`,
-          {
-            method: "POST",
-            body: formData,
-            credentials: "include",
-          }
-        );
-
-        if (!uploadRes.ok) {
-          console.warn("Award created, but initial PDF upload failed.");
-        }
-      }
-
-      setAddAwardModalOpen(false);
+      setAddAwardModal(false);
+      setNewAwardNumber("");
+      setNewAwardDate("");
+      setNewAwardType("General");
+      setNewAwardRemarks("");
       setRefresh((x) => x + 1);
-    } catch (e: any) {
-      setMessage(e?.message || "Could not add Award.");
+    } catch (err: any) {
+      setMessage(err?.message || "Adding award failed.");
     } finally {
       setBusy(false);
     }
-  };
-
-  // Handle Edit Award Details
-  const handleUpdateAward = async () => {
-    if (!editAward || !editAward.awardNumber.trim()) {
-      setMessage("Award number is required.");
-      return;
-    }
-    try {
-      setBusy(true);
-      setMessage("");
-      const res = await fetch(`${api}/awards/${editAward.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          awardNumber: editAward.awardNumber.trim(),
-          awardDate: editAward.awardDate || null,
-          awardType: editAward.awardType || null,
-        }),
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || "Could not update Award details.");
-      }
-
-      setEditAwardModalOpen(false);
-      setEditAward(null);
-      setRefresh((x) => x + 1);
-    } catch (e: any) {
-      setMessage(e?.message || "Could not update Award details.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Handle Core Document Upload
-  const handleUploadDocument = async (file: File) => {
-    if (!uploadTarget) {
-      setMessage("Target document context is missing.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch(
-        `${api}/awards/${uploadTarget.awardId}/core-documents?role=${encodeURIComponent(uploadTarget.role)}`,
-        {
-          method: "POST",
-          body: formData,
-          credentials: "include",
-        }
-      );
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || "Failed to upload document.");
-      }
-
-      setUploadModalOpen(false);
-      setUploadTarget(null);
-      setRefresh((x) => x + 1);
-    } catch (e: any) {
-      setMessage(e?.message || "Failed to upload document.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Handle Replace Document
-  const handleReplaceDocument = async (file: File, reason: string) => {
-    if (!replaceTarget || !replaceTarget.documentId) {
-      setMessage("Target document identifier is missing for replacement.");
-      return;
-    }
-    if (!reason.trim()) {
-      setMessage("A reason is required to replace an official core document.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const endpoint = `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(reason.trim())}`;
-
-      const res = await fetch(endpoint, {
-        method: "PUT",
-        body: formData,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || "Failed to replace document.");
-      }
-
-      setReplaceModalOpen(false);
-      setReplaceTarget(null);
-      setRefresh((x) => x + 1);
-    } catch (e: any) {
-      setMessage(e?.message || "Failed to replace document.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Handle Remove Core Document
-  const handleRemoveDocument = async () => {
-    if (!removeTarget || !removeTarget.documentId) {
-      setMessage("Target document identifier is missing for removal.");
-      return;
-    }
-    if (!removeReason.trim()) {
-      setMessage("A reason is required to remove a core document from official records.");
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-
-    try {
-      const endpoint = `${api}/awards/${removeTarget.awardId}/core-documents/${removeTarget.documentId}?reason=${encodeURIComponent(removeReason.trim())}`;
-
-      const res = await fetch(endpoint, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.message || "Failed to remove core document.");
-      }
-
-      setRemoveReason("");
-      setRemoveModalOpen(false);
-      setRemoveTarget(null);
-      setRefresh((x) => x + 1);
-    } catch (e: any) {
-      setMessage(e?.message || "Failed to remove core document.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const openUploadModal = (awardId: string, awardNumber: string, role: string) => {
-    const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
-    setUploadTarget({ awardId, awardNumber, role, label: roleLabel });
-    setMessage("");
-    setUploadModalOpen(true);
-  };
-
-  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
-    const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
-    setReplaceTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
-    setMessage("");
-    setReplaceModalOpen(true);
-  };
-
-  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
-    const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
-    setRemoveTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
-    setRemoveReason("");
-    setMessage("");
-    setRemoveModalOpen(true);
-  };
-
-  const openEditAwardModal = (award: CoreRecordAward) => {
-    setEditAward({
-      id: award.id,
-      awardNumber: award.awardNumber,
-      awardDate: formatDateInput(award.awardDate),
-      awardType: award.awardType || "",
-    });
-    setMessage("");
-    setEditAwardModalOpen(true);
   };
 
   const openDocumentContent = (documentId: string) => {
@@ -433,187 +419,115 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     }
   };
 
-  // Compute active analysis job progress info for real-time banner
-  const activeJobInfo = React.useMemo(() => {
-    for (const award of records) {
-      for (const doc of award.documents || []) {
-        const jobStatus = doc.extractionStatus || (doc.coreDocumentRole === "Award" ? award.extractionStatus : null);
-        const isRunning = (analyzingDocId === doc.documentId || analyzingDocId === award.id) ||
-          (Boolean(jobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus!));
+  // Find active extraction job for banner display
+  const activeJobAward = awards.find(
+    (a) =>
+      ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(a.extractionStatus || "") ||
+      a.documents.some((d) => ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(d.extractionStatus || ""))
+  );
 
-        if (isRunning) {
-          const totalPages = doc.totalPages ?? award.totalPages ?? null;
-          const processedPages = doc.processedPages ?? award.processedPages ?? 0;
-          const stage = doc.currentStage || award.currentStage || "Extracting pages & analyzing Khasra tables";
-          const percent = totalPages && totalPages > 0
-            ? Math.min(100, Math.round((processedPages / totalPages) * 100))
-            : (analyzingDocId ? 15 : 35);
+  const activeJobDoc = activeJobAward?.documents.find((d) =>
+    ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(d.extractionStatus || "")
+  );
 
-          let eta = "Measuring pace…";
-          if (totalPages && totalPages > processedPages) {
-            const remPages = totalPages - processedPages;
-            const remSec = Math.round(remPages * 2.2);
-            eta = remSec < 60 ? `~${Math.max(2, remSec)} sec left` : `~${Math.ceil(remSec / 60)} min left`;
-          } else if (processedPages === 0) {
-            eta = "~1–2 min estimated";
-          } else {
-            eta = "Finalizing staging…";
-          }
+  const isJobActive = Boolean(activeJobAward);
+  const activeTotalPages = activeJobDoc?.totalPages ?? activeJobAward?.totalPages ?? 0;
+  const activeProcessedPages = activeJobDoc?.processedPages ?? activeJobAward?.processedPages ?? 0;
+  const activeStage = activeJobDoc?.currentStage || activeJobAward?.currentStage || "Analyzing document";
+  const percentComplete = activeTotalPages > 0 ? Math.min(100, Math.round((activeProcessedPages / activeTotalPages) * 100)) : 0;
+  const remainingPages = Math.max(0, activeTotalPages - activeProcessedPages);
+  const estimatedSecondsLeft = remainingPages * 2;
 
-          return {
-            awardId: award.id,
-            awardNumber: award.awardNumber,
-            docId: doc.documentId,
-            fileName: doc.originalFileName,
-            totalPages,
-            processedPages,
-            stage,
-            percent,
-            eta,
-          };
-        }
-      }
-    }
-    return null;
-  }, [records, analyzingDocId]);
-
-  if (loading) return <div className="state loading">Loading core records matrix…</div>;
+  if (loading) return <div className="state loading">Loading Village Core Records…</div>;
   if (error) return <div className="state error">{error}</div>;
 
   return (
     <div className="village-core-records-tab">
-      <div className="section-heading" style={{ marginBottom: "20px" }}>
+      {/* Top Bar Actions */}
+      <div className="tab-header-bar">
         <div>
-          <h2>Core Records Completeness Matrix</h2>
-          <span>Authoritative foundational document availability across land acquisition awards.</span>
+          <h3>Village Workspace Core Records</h3>
+          <p className="tab-subtext">
+            Official linked records for {villageName || "Village"}. Upload, analyze, and manage Award PDFs, NM Registers, Statement-A, and Possession Proceedings.
+          </p>
         </div>
         {canAddAward && (
-          <button className="primary-button" onClick={() => setAddAwardModalOpen(true)}>
-            <IconPlus size={15} /> Add Award
+          <button type="button" className="btn-primary" onClick={() => setAddAwardModal(true)}>
+            + Add Award
           </button>
         )}
       </div>
 
       {/* Real-time Analysis Progress Card */}
-      {activeJobInfo && (
+      {isJobActive && (
         <div className="core-analysis-progress-card">
           <div className="progress-card-header">
-            <div className="progress-card-title-group">
-              <span className="live-status-pill">
-                <span className="pulse-dot-active" /> Document Intelligence Engine Active
+            <div className="progress-title">
+              <span className="pulse-dot" />
+              <strong>Document Extraction in Progress</strong>
+              <span className="stage-pill">{activeStage}</span>
+            </div>
+            <span className="percent-text">{percentComplete}% Complete</span>
+          </div>
+
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${percentComplete}%` }} />
+          </div>
+
+          <div className="progress-meta">
+            <span>
+              Processed <strong>{activeProcessedPages}</strong> of <strong>{activeTotalPages || "?"}</strong> pages
+            </span>
+            {activeTotalPages > 0 && (
+              <span>
+                Estimated time remaining: <strong>~{estimatedSecondsLeft} seconds</strong> ({remainingPages} pages left)
               </span>
-              <h3>Analyzing {activeJobInfo.fileName || `Award #${activeJobInfo.awardNumber}`}</h3>
-              <p className="stage-description">
-                {activeJobInfo.awardNumber ? `Award #${activeJobInfo.awardNumber} · ` : ""}
-                {activeJobInfo.stage}
-              </p>
-            </div>
-            <div className="progress-card-stats">
-              <div className="stat-pill">
-                <span className="stat-value">
-                  {activeJobInfo.totalPages ? `${activeJobInfo.processedPages} / ${activeJobInfo.totalPages}` : `${activeJobInfo.processedPages} pages`}
-                </span>
-                <span className="stat-label">Pages Processed</span>
-              </div>
-              <div className="stat-pill">
-                <span className="stat-value">{activeJobInfo.percent}%</span>
-                <span className="stat-label">Completion</span>
-              </div>
-              <div className="stat-pill highlight">
-                <span className="stat-value">{activeJobInfo.eta}</span>
-                <span className="stat-label">Estimated Time</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="progress-bar-container">
-            <div className="progress-bar-fill" style={{ width: `${Math.max(4, activeJobInfo.percent)}%` }}>
-              <span className="progress-bar-glow" />
-            </div>
+            )}
           </div>
         </div>
       )}
 
-      {message && !activeJobInfo && (
-        <div
-          className="core-records-alert-banner"
-          style={{
-            padding: "10px 14px",
-            borderRadius: "6px",
-            marginBottom: "16px",
-            fontSize: "13px",
-            fontWeight: 500,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            backgroundColor: message.includes("started") || message.includes("queued") || message.includes("background") ? "#eff6ff" : "#fef2f2",
-            border: `1px solid ${message.includes("started") || message.includes("queued") || message.includes("background") ? "#bfdbfe" : "#fecaca"}`,
-            color: message.includes("started") || message.includes("queued") || message.includes("background") ? "#1e40af" : "#991b1b",
-          }}
-        >
-          <span>{message}</span>
-          <button
-            type="button"
-            onClick={() => setMessage("")}
-            style={{ border: "none", background: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}
-          >
-            ✕
-          </button>
-        </div>
-      )}
+      {message && <div className="tab-alert-message">{message}</div>}
 
-      <div className="core-matrix-wrap">
-        <table className="core-matrix-table">
+      {/* Main Records Matrix Table */}
+      <div className="table-responsive">
+        <table className="core-records-table">
           <thead>
             <tr>
-              <th scope="col" style={{ width: "22%" }}>Award Reference</th>
-              <th scope="col" style={{ width: "12%" }}>Award Date</th>
-              {CORE_ROLES.map((role) => (
-                <th scope="col" key={role.key} style={{ width: "15%" }}>
-                  {role.label}
-                </th>
-              ))}
-              <th scope="col" style={{ width: "13%", textAlign: "right" }}>Action</th>
+              <th>Award Details</th>
+              <th>Award PDF</th>
+              <th>NM / ENM Register</th>
+              <th>Statement-A</th>
+              <th>Possession Proceedings</th>
             </tr>
           </thead>
           <tbody>
-            {records.length === 0 ? (
+            {awards.length === 0 ? (
               <tr>
-                <td colSpan={3 + CORE_ROLES.length} style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
-                  No awards linked to this village yet.
+                <td colSpan={5} style={{ textAlign: "center", padding: "32px", color: "#64748b" }}>
+                  No Awards linked to this village yet.
                 </td>
               </tr>
             ) : (
-              records.map((award) => (
+              awards.map((award) => (
                 <tr key={award.id}>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                      <div>
-                        {canViewAward ? (
-                          <Link to={`/awards/${award.id}`} className="entity-link" style={{ fontWeight: 700, fontSize: "14px" }}>
-                            Award #{award.awardNumber}
-                          </Link>
-                        ) : (
-                          <span style={{ fontWeight: 700, fontSize: "14px" }}>Award #{award.awardNumber}</span>
-                        )}
-                        {award.awardType && (
-                          <div style={{ fontSize: "11.5px", color: "#64748b", marginTop: "2px" }}>
-                            {award.awardType}
-                          </div>
-                        )}
-                      </div>
+                  {/* Award Context */}
+                  <td className="award-meta-cell">
+                    <Link to={`/awards/${award.id}`} className="award-num-link">
+                      Award #{award.awardNumber}
+                    </Link>
+                    <div className="award-sub-meta">
+                      {award.awardDate ? new Date(award.awardDate).toLocaleDateString() : "No Date"} · {award.awardType || "General"}
                     </div>
                   </td>
-                  <td>
-                    <span style={{ fontSize: "13px", color: "#334155" }}>{date(award.awardDate)}</span>
-                  </td>
 
-                  {CORE_ROLES.map(({ key }) => {
-                    const roleDocs = award.documents?.filter((d) => d.coreDocumentRole === key) || [];
-                    const isAvailable = roleDocs.length > 0;
-                    const menuId = `doc-${award.id}-${key}`;
+                  {/* Core Document Roles */}
+                  {(["Award", "NM", "StatementA", "PossessionProceeding"] as const).map((key) => {
+                    const roleDocs = award.documents.filter((d) => d.coreDocumentRole === key);
+                    const menuId = `${award.id}-${key}`;
 
-                    if (!isAvailable) {
+                    // Missing Document Pill
+                    if (roleDocs.length === 0) {
                       return (
                         <td key={key}>
                           <div className="core-doc-pill missing">
@@ -636,12 +550,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                     // Single Document for this Role
                     if (roleDocs.length === 1) {
                       const doc = roleDocs[0];
-                      const jobStatus = doc.extractionStatus || (key === "Award" ? award.extractionStatus : null);
-                      const sessionId = doc.ingestionSessionId || (key === "Award" ? award.ingestionSessionId : null);
-                      const pending = doc.pendingCandidates ?? (key === "Award" ? award.pendingCandidates : 0);
-                      const total = doc.totalCandidates ?? (key === "Award" ? award.totalCandidates : 0);
-                      const isRunning = (analyzingDocId === doc.documentId || analyzingDocId === award.id) || (Boolean(jobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus!));
-
                       return (
                         <td key={key}>
                           <div className="core-doc-pill available" style={{ position: "relative" }}>
@@ -654,54 +562,11 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                 </span>
                               )}
 
-                              {/* Analysis Subtag Badges */}
-                              {key === "StatementA" || key === "PossessionProceeding" ? (
-                                <span className="doc-analysis-subtag neutral" title="Analysis module not available yet">
-                                  Analysis module not available yet
-                                </span>
-                              ) : isRunning ? (
-                                <span
-                                  className="doc-analysis-subtag running"
-                                  title={`Stage: ${doc.currentStage || award.currentStage || "Analyzing"} (${doc.processedPages ?? award.processedPages ?? 0}/${doc.totalPages ?? award.totalPages ?? "?"} pages)`}
-                                >
-                                  <span className="pulse-dot" />{" "}
-                                  {(doc.totalPages ?? award.totalPages) && (doc.totalPages ?? award.totalPages)! > 0
-                                    ? `${Math.min(100, Math.round(((doc.processedPages ?? award.processedPages ?? 0) / (doc.totalPages ?? award.totalPages)!) * 100))}% · ${doc.processedPages ?? award.processedPages ?? 0}/${doc.totalPages ?? award.totalPages} pages`
-                                    : "Analyzing…"}
-                                </span>
-                              ) : sessionId ? (
-                                pending > 0 ? (
-                                  <Link
-                                    to={`/awards/${award.id}/ingestion/${sessionId}`}
-                                    className="doc-analysis-subtag review-ready"
-                                    title="Click to review extracted findings"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {total > pending && total - pending > 0
-                                      ? `Review in Progress (${total - pending}/${total})`
-                                      : `Review Ready (${pending} findings)`} →
-                                  </Link>
-                                ) : (
-                                  <Link to={`/awards/${award.id}/ingestion/${sessionId}`} className="doc-analysis-subtag completed" title="All extracted findings verified" onClick={(e) => e.stopPropagation()}>
-                                     Review complete · {total} verified →
-                                   </Link>
-                                )
-                              ) : key === "Award" && canEditAward ? (
-                                <button
-                                  type="button"
-                                  className="doc-analysis-subtag trigger"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    triggerAnalyze(award.id, doc.documentId);
-                                  }}
-                                  title="Run OCR and document intelligence analysis"
-                                >
-                                  Analyze Document →
-                                </button>
-                              ) : null}
+                              {/* Truthful Analysis Status Badge */}
+                              {renderDocumentStatusTag(doc, award, key, canEditAward, analyzingDocId, triggerAnalyze, setActiveMenuId, false)}
                             </div>
 
-                            {/* Subtle ⋯ Document Action Menu Button */}
+                            {/* Context Action Menu Button */}
                             <button
                               type="button"
                               className="core-doc-menu-btn"
@@ -724,7 +589,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                               <IconMoreVertical size={14} />
                             </button>
 
-                            {/* Contextual Document Action Dropdown */}
+                            {/* Dropdown Menu */}
                             {activeMenuId === menuId && (
                               <div
                                 className="core-doc-dropdown"
@@ -764,54 +629,28 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                   Open Document
                                 </button>
 
-                                {key === "Award" && (
-                                  <>
-                                    {sessionId && (
-                                      <Link
-                                        to={`/awards/${award.id}/ingestion/${sessionId}`}
-                                        style={{
-                                          width: "100%",
-                                          textAlign: "left",
-                                          padding: "8px 12px",
-                                          background: "none",
-                                          border: "none",
-                                          fontSize: "12.5px",
-                                          color: "#2563eb",
-                                          cursor: "pointer",
-                                          fontWeight: 600,
-                                          display: "block",
-                                          textDecoration: "none",
-                                          borderTop: "1px solid #f1f5f9",
-                                        }}
-                                        onClick={() => setActiveMenuId(null)}
-                                      >
-                                        Review Findings
-                                      </Link>
-                                    )}
-                                    {!isRunning && canEditAward && key === "Award" && (
-                                       <button
-                                         type="button"
-                                         style={{
-                                           width: "100%",
-                                           textAlign: "left",
-                                           padding: "8px 12px",
-                                           background: "none",
-                                           border: "none",
-                                           fontSize: "12.5px",
-                                           color: "#1e293b",
-                                           cursor: "pointer",
-                                           fontWeight: 500,
-                                           borderTop: "1px solid #f1f5f9",
-                                         }}
-                                         onClick={() => {
-                                           setActiveMenuId(null);
-                                           triggerAnalyze(award.id, doc.documentId);
-                                         }}
-                                       >
-                                         Analyze Document
-                                       </button>
-                                     )}
-                                  </>
+                                {canEditAward && key === "Award" && (
+                                  <button
+                                    type="button"
+                                    style={{
+                                      width: "100%",
+                                      textAlign: "left",
+                                      padding: "8px 12px",
+                                      background: "none",
+                                      border: "none",
+                                      fontSize: "12.5px",
+                                      color: "#1e293b",
+                                      cursor: "pointer",
+                                      fontWeight: 500,
+                                      borderTop: "1px solid #f1f5f9",
+                                    }}
+                                    onClick={() => {
+                                      setActiveMenuId(null);
+                                      triggerAnalyze(award.id, doc.documentId);
+                                    }}
+                                  >
+                                    Analyze Document
+                                  </button>
                                 )}
 
                                 {canUploadCore && (
@@ -832,7 +671,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       }}
                                       onClick={() => {
                                         setActiveMenuId(null);
-                                        openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                        openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName || undefined);
                                       }}
                                     >
                                       Replace Document
@@ -853,7 +692,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       }}
                                       onClick={() => {
                                         setActiveMenuId(null);
-                                        openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                        openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName || undefined);
                                       }}
                                     >
                                       Remove from Core
@@ -934,68 +773,14 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       gap: "4px",
                                     }}
                                   >
-                                    <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={doc.originalFileName}>
+                                    <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={doc.originalFileName || ""}>
                                       {doc.originalFileName}
                                     </span>
-                                    {/* Multi-file document analysis status badge */}
-                                    {(() => {
-                                      const docJobStatus = doc.extractionStatus;
-                                      const docSessionId = doc.ingestionSessionId;
-                                      const docPending = doc.pendingCandidates ?? 0;
-                                      const docTotal = doc.totalCandidates ?? 0;
-                                      const docIsRunning = (analyzingDocId === doc.documentId) || (Boolean(docJobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(docJobStatus!));
 
-                                      if (key === "StatementA" || key === "PossessionProceeding") {
-                                        return <span style={{ fontSize: "11px", color: "#64748b" }}>Analysis module not available yet</span>;
-                                      }
-                                      if (docIsRunning) {
-                                        return (
-                                          <span className="doc-analysis-subtag running" style={{ fontSize: "11px", display: "inline-flex", width: "fit-content" }}>
-                                            <span className="pulse-dot" /> Analyzing…
-                                          </span>
-                                        );
-                                      }
-                                      if (docSessionId) {
-                                        if (docPending > 0) {
-                                          return (
-                                            <Link
-                                              to={`/awards/${award.id}/ingestion/${docSessionId}`}
-                                              style={{ fontSize: "11.5px", color: "#d97706", fontWeight: 600, textDecoration: "none" }}
-                                              onClick={() => setActiveMenuId(null)}
-                                            >
-                                              {docTotal > docPending && docTotal - docPending > 0
-                                                ? `Review in Progress (${docTotal - docPending}/${docTotal})`
-                                                : `Review Ready (${docPending} findings)`} →
-                                            </Link>
-                                          );
-                                        }
-                                        return (
-                                          <Link
-                                            to={`/awards/${award.id}/ingestion/${docSessionId}`}
-                                            style={{ fontSize: "11.5px", color: "#16a34a", fontWeight: 600, textDecoration: "none" }}
-                                            onClick={() => setActiveMenuId(null)}
-                                          >
-                                            Review complete · {docTotal} verified →
-                                          </Link>
-                                        );
-                                      }
-                                      if (key === "Award" && canEditAward) {
-                                        return (
-                                          <button
-                                            type="button"
-                                            style={{ border: "none", background: "none", color: "#2563eb", cursor: "pointer", fontSize: "11.5px", fontWeight: 600, padding: 0, textAlign: "left" }}
-                                            onClick={() => {
-                                              setActiveMenuId(null);
-                                              triggerAnalyze(award.id, doc.documentId);
-                                            }}
-                                          >
-                                            Analyze Document →
-                                          </button>
-                                        );
-                                      }
-                                      return null;
-                                    })()}
-                                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                    {/* Truthful Analysis Status Badge for each file in multi-file role */}
+                                    {renderDocumentStatusTag(doc, award, key, canEditAward, analyzingDocId, triggerAnalyze, setActiveMenuId, true)}
+
+                                    <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "2px" }}>
                                       <button
                                         type="button"
                                         style={{ border: "none", background: "none", color: "#2563eb", cursor: "pointer", fontSize: "11.5px", fontWeight: 600, padding: 0 }}
@@ -1014,7 +799,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                             style={{ border: "none", background: "none", color: "#475569", cursor: "pointer", fontSize: "11.5px", fontWeight: 500, padding: 0 }}
                                             onClick={() => {
                                               setActiveMenuId(null);
-                                              openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                              openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName || undefined);
                                             }}
                                           >
                                             Replace
@@ -1025,7 +810,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                             style={{ border: "none", background: "none", color: "#dc2626", cursor: "pointer", fontSize: "11.5px", fontWeight: 500, padding: 0 }}
                                             onClick={() => {
                                               setActiveMenuId(null);
-                                              openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                              openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName || undefined);
                                             }}
                                           >
                                             Remove
@@ -1066,113 +851,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                       </td>
                     );
                   })}
-
-                  <td style={{ textAlign: "right" }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", position: "relative" }}>
-                      {canViewAward ? (
-                        <Link
-                          to={`/awards/${award.id}`}
-                          className="text-action"
-                          style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                        >
-                          <span>Workspace</span>
-                          <IconChevronRight size={14} />
-                        </Link>
-                      ) : (
-                        <span style={{ fontSize: "12.5px", color: "#94a3b8" }}>Read-only</span>
-                      )}
-
-                      {/* Subtle ⋯ Award Action Menu Button */}
-                      {(canEditAward || canViewAward) && (
-                        <>
-                          <button
-                            type="button"
-                            style={{
-                              border: "none",
-                              background: "transparent",
-                              color: "#64748b",
-                              cursor: "pointer",
-                              padding: "4px",
-                              borderRadius: "4px",
-                              display: "inline-flex",
-                              alignItems: "center",
-                            }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const menuId = `award-${award.id}`;
-                              setActiveMenuId(activeMenuId === menuId ? null : menuId);
-                            }}
-                            title="Award Actions"
-                          >
-                            <IconMoreVertical size={15} />
-                          </button>
-
-                          {activeMenuId === `award-${award.id}` && (
-                            <div
-                              className="award-action-dropdown"
-                              onClick={(e) => e.stopPropagation()}
-                              style={{
-                                position: "absolute",
-                                top: "100%",
-                                right: 0,
-                                zIndex: 30,
-                                marginTop: "4px",
-                                background: "#ffffff",
-                                border: "1px solid #e2e8f0",
-                                borderRadius: "6px",
-                                boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
-                                minWidth: "150px",
-                                overflow: "hidden",
-                                textAlign: "left",
-                              }}
-                            >
-                              {canEditAward && (
-                                <button
-                                  type="button"
-                                  style={{
-                                    width: "100%",
-                                    textAlign: "left",
-                                    padding: "8px 12px",
-                                    background: "none",
-                                    border: "none",
-                                    fontSize: "12.5px",
-                                    color: "#1e293b",
-                                    cursor: "pointer",
-                                    fontWeight: 500,
-                                  }}
-                                  onClick={() => {
-                                    setActiveMenuId(null);
-                                    openEditAwardModal(award);
-                                  }}
-                                >
-                                  Edit Award Details
-                                </button>
-                              )}
-                              {canViewAward && (
-                                <Link
-                                  to={`/awards/${award.id}`}
-                                  style={{
-                                    display: "block",
-                                    width: "100%",
-                                    textAlign: "left",
-                                    padding: "8px 12px",
-                                    fontSize: "12.5px",
-                                    color: "#1e293b",
-                                    textDecoration: "none",
-                                    fontWeight: 500,
-                                    borderTop: canEditAward ? "1px solid #f1f5f9" : "none",
-                                  }}
-                                  onClick={() => setActiveMenuId(null)}
-                                >
-                                  Open Workspace
-                                </Link>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </td>
                 </tr>
               ))
             )}
@@ -1180,103 +858,49 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         </table>
       </div>
 
-      {/* Add Award Modal */}
-      <AddAwardModal
-        isOpen={addAwardModalOpen}
-        villageName={villageName}
-        busy={busy}
-        errorMessage={message}
-        onClose={() => {
-          setAddAwardModalOpen(false);
-          setMessage("");
-        }}
-        onSubmit={handleCreateAward}
-      />
+      {/* Add / Replace Core Document Modal */}
+      {uploadModal.isOpen && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", borderRadius: "8px", width: "560px", maxWidth: "90vw", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", marginBottom: "4px" }}>
+              {uploadModal.mode === "add" ? `Add ${uploadModal.role} Core Document` : `Replace ${uploadModal.role} Core Document`}
+            </h2>
+            <p style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
+              Award #{uploadModal.awardNumber} {villageName ? `· Village ${villageName}` : ""}
+            </p>
 
-      {/* Edit Award Details Modal */}
-      {editAwardModalOpen && editAward && (
-        <div className="upload-modal-overlay" onClick={() => setEditAwardModalOpen(false)}>
-          <div className="upload-modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="upload-modal-header">
-              <div className="upload-modal-header-titles">
-                <h3>Edit Award Details</h3>
-                <p>Update official identification metadata for Award #{editAward.awardNumber}.</p>
+            {uploadModal.mode === "replace" && (
+              <div style={{ padding: "10px 12px", background: "#fef3c7", border: "1px solid #fde68a", borderRadius: "6px", fontSize: "12.5px", color: "#92400e", marginBottom: "16px" }}>
+                Replacing: <strong>{uploadModal.targetFileName}</strong>
               </div>
-              <button type="button" className="upload-modal-close-btn" onClick={() => setEditAwardModalOpen(false)} title="Close dialog">
-                <IconClose size={18} />
-              </button>
-            </div>
+            )}
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleUpdateAward();
-              }}
-              className="upload-modal-body"
-            >
-              {villageName && (
-                <div className="upload-context-strip">
-                  <div className="ctx-item">
-                    <span className="ctx-lbl">Target Village</span>
-                    <span className="ctx-val">{villageName}</span>
-                  </div>
-                  <div className="ctx-sep">•</div>
-                  <div className="ctx-item">
-                    <span className="ctx-lbl">Award</span>
-                    <span className="ctx-val">#{editAward.awardNumber}</span>
-                  </div>
-                </div>
-              )}
-
-              {message && <div className="state error">{message}</div>}
-
-              <div className="form-group">
-                <label className="form-label required" style={{ fontWeight: 650, color: "#0f172a" }}>
-                  Award Number
+            <form onSubmit={handleUploadSubmit}>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                  Select Document File (PDF):
                 </label>
                 <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. 15/2021-22"
-                  value={editAward.awardNumber}
-                  onChange={(e) => setEditAward({ ...editAward, awardNumber: e.target.value })}
-                  required
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  style={{ width: "100%", padding: "8px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
                 />
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ fontWeight: 600, color: "#334155" }}>
-                    Award Date
-                  </label>
-                  <input
-                    type="date"
-                    className="form-input"
-                    value={editAward.awardDate}
-                    onChange={(e) => setEditAward({ ...editAward, awardDate: e.target.value })}
-                  />
-                </div>
+              {message && <div style={{ fontSize: "12.5px", color: "#dc2626", marginBottom: "12px" }}>{message}</div>}
 
-                <div className="form-group">
-                  <label className="form-label" style={{ fontWeight: 600, color: "#334155" }}>
-                    Award Type
-                  </label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. General, Supplementary"
-                    value={editAward.awardType}
-                    onChange={(e) => setEditAward({ ...editAward, awardType: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="modal-footer" style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px", marginTop: "12px" }}>
-                <button type="button" className="secondary-button" onClick={() => setEditAwardModalOpen(false)} disabled={busy}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "20px" }}>
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() => setUploadModal({ ...uploadModal, isOpen: false })}
+                >
                   Cancel
                 </button>
-                <button type="submit" className="primary-button" disabled={busy || !editAward.awardNumber.trim()}>
-                  {busy ? "Saving Changes…" : "Save Changes"}
+                <button type="submit" className="btn-primary" disabled={busy || !selectedFile}>
+                  {busy ? "Uploading…" : uploadModal.mode === "add" ? "Upload Document" : "Replace Document"}
                 </button>
               </div>
             </form>
@@ -1284,130 +908,131 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         </div>
       )}
 
-      {/* Upload Core Document Modal */}
-      {uploadTarget && (
-        <CoreDocumentUploadModal
-          mode="upload"
-          isOpen={uploadModalOpen}
-          villageName={villageName}
-          awardNumber={uploadTarget.awardNumber}
-          awardId={uploadTarget.awardId}
-          role={uploadTarget.role}
-          roleLabel={uploadTarget.label}
-          busy={busy}
-          errorMessage={message}
-          onClose={() => {
-            setUploadModalOpen(false);
-            setUploadTarget(null);
-            setMessage("");
-          }}
-          onSubmitUpload={handleUploadDocument}
-          onSubmitReplace={() => {}}
-        />
-      )}
-
-      {/* Replace Core Document Modal */}
-      {replaceTarget && (
-        <CoreDocumentUploadModal
-          mode="replace"
-          isOpen={replaceModalOpen}
-          villageName={villageName}
-          awardNumber={replaceTarget.awardNumber}
-          awardId={replaceTarget.awardId}
-          role={replaceTarget.role}
-          roleLabel={replaceTarget.label}
-          documentId={replaceTarget.documentId}
-          currentFileName={replaceTarget.fileName}
-          busy={busy}
-          errorMessage={message}
-          onClose={() => {
-            setReplaceModalOpen(false);
-            setReplaceTarget(null);
-            setMessage("");
-          }}
-          onSubmitUpload={() => {}}
-          onSubmitReplace={handleReplaceDocument}
-        />
-      )}
-
       {/* Remove Core Document Modal */}
-      {removeModalOpen && removeTarget && (
-        <div className="upload-modal-overlay" onClick={() => setRemoveModalOpen(false)}>
-          <div className="upload-modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="upload-modal-header">
-              <div className="upload-modal-header-titles">
-                <h3 style={{ color: "#dc2626" }}>Remove {removeTarget.label} from Core</h3>
-                <p>Unlink official document role from Award #{removeTarget.awardNumber}.</p>
-              </div>
-              <button type="button" className="upload-modal-close-btn" onClick={() => setRemoveModalOpen(false)} title="Close dialog">
-                <IconClose size={18} />
-              </button>
-            </div>
+      {removeModal.isOpen && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", borderRadius: "8px", width: "520px", maxWidth: "90vw", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#dc2626", marginBottom: "4px" }}>
+              Remove {removeModal.role} Core Document
+            </h2>
+            <p style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
+              Award #{removeModal.awardNumber} {removeModal.fileName ? `· ${removeModal.fileName}` : ""}
+            </p>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleRemoveDocument();
-              }}
-              className="upload-modal-body"
-            >
-              {villageName && (
-                <div className="upload-context-strip">
-                  <div className="ctx-item">
-                    <span className="ctx-lbl">Target Village</span>
-                    <span className="ctx-val">{villageName}</span>
-                  </div>
-                  <div className="ctx-sep">•</div>
-                  <div className="ctx-item">
-                    <span className="ctx-lbl">Award</span>
-                    <span className="ctx-val">#{removeTarget.awardNumber}</span>
-                  </div>
-                  <div className="ctx-sep">•</div>
-                  <div className="ctx-item">
-                    <span className="ctx-lbl">Role</span>
-                    <span className="ctx-val badge" style={{ background: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>
-                      {removeTarget.label}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: "12px 14px" }}>
-                <p style={{ margin: "0 0 4px", fontSize: "13px", color: "#991b1b", fontWeight: 700 }}>
-                  Unlink {removeTarget.label} {removeTarget.fileName ? `(${removeTarget.fileName})` : ""}
-                </p>
-                <p style={{ margin: 0, fontSize: "12px", color: "#b91c1c" }}>
-                  This action unlinks the document role from official active records. Physical files and historical audit logs remain safely preserved.
-                </p>
-              </div>
-
-              {message && <div className="state error">{message}</div>}
-
-              <div className="form-group">
-                <label className="form-label required" style={{ fontWeight: 650, color: "#0f172a" }}>
-                  Reason for Removal
+            <form onSubmit={handleRemoveSubmit}>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "6px" }}>
+                  Reason for Removal (Required):
                 </label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Erroneously assigned file category"
-                  value={removeReason}
-                  onChange={(e) => setRemoveReason(e.target.value)}
-                  required
+                <textarea
+                  rows={3}
+                  value={removalReason}
+                  onChange={(e) => setRemovalReason(e.target.value)}
+                  placeholder="State why this document is being removed from core records…"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
                 />
               </div>
 
-              <div className="modal-footer" style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px", marginTop: "12px" }}>
-                <button type="button" className="secondary-button" onClick={() => setRemoveModalOpen(false)} disabled={busy}>
+              {message && <div style={{ fontSize: "12.5px", color: "#dc2626", marginBottom: "12px" }}>{message}</div>}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "20px" }}>
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() => setRemoveModal({ ...removeModal, isOpen: false })}
+                >
                   Cancel
                 </button>
+                <button type="submit" className="btn-danger" disabled={busy || !removalReason.trim()}>
+                  {busy ? "Removing…" : "Confirm Removal"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Award Modal */}
+      {addAwardModal && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", borderRadius: "8px", width: "520px", maxWidth: "90vw", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
+            <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", marginBottom: "4px" }}>
+              Add New Award to {villageName || "Village"}
+            </h2>
+            <p style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
+              Create an Award record to link core documents and survey numbers.
+            </p>
+
+            <form onSubmit={handleAddAwardSubmit}>
+              <div style={{ marginBottom: "12px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+                  Award Number (Required):
+                </label>
+                <input
+                  type="text"
+                  value={newAwardNumber}
+                  onChange={(e) => setNewAwardNumber(e.target.value)}
+                  placeholder="e.g. 01/2024-LAC"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+                    Award Date:
+                  </label>
+                  <input
+                    type="date"
+                    value={newAwardDate}
+                    onChange={(e) => setNewAwardDate(e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+                    Award Type:
+                  </label>
+                  <select
+                    value={newAwardType}
+                    onChange={(e) => setNewAwardType(e.target.value)}
+                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+                  >
+                    <option value="General">General</option>
+                    <option value="Consent">Consent</option>
+                    <option value="Supplementary">Supplementary</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
+                  Remarks:
+                </label>
+                <textarea
+                  rows={2}
+                  value={newAwardRemarks}
+                  onChange={(e) => setNewAwardRemarks(e.target.value)}
+                  placeholder="Optional notes or remarks…"
+                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
+                />
+              </div>
+
+              {message && <div style={{ fontSize: "12.5px", color: "#dc2626", marginBottom: "12px" }}>{message}</div>}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "20px" }}>
                 <button
-                  type="submit"
-                  className="primary-button"
-                  style={{ backgroundColor: "#dc2626", borderColor: "#dc2626" }}
-                  disabled={busy || !removeReason.trim()}
+                  type="button"
+                  className="btn-quiet"
+                  disabled={busy}
+                  onClick={() => setAddAwardModal(false)}
                 >
-                  {busy ? "Removing…" : "Remove Core Document"}
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={busy || !newAwardNumber.trim()}>
+                  {busy ? "Creating…" : "Create Award"}
                 </button>
               </div>
             </form>
