@@ -638,11 +638,6 @@ public sealed class MatterWorkflowService(
                 if (matter.Revision != cmd.ExpectedRevision)
                     throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
 
-                var alreadyLinked = await db.MatterDocuments.AsNoTracking()
-                    .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.DocumentId && md.RecordStatus == RecordStatus.Active, opCt);
-                if (alreadyLinked)
-                    throw new MatterWorkflowException("Document is already linked to this matter.", 400);
-
                 await VerifyDocumentLinkingProvenanceAsync(matter, cmd.DocumentId, opCt);
 
                 var maxSeq = await db.MatterEvents
@@ -653,15 +648,38 @@ public sealed class MatterWorkflowService(
                 var targetDoc = await db.Documents.AsNoTracking()
                     .FirstOrDefaultAsync(d => d.Id == cmd.DocumentId, opCt);
 
-                var matterDoc = new MatterDocument
+                var existingMatterDoc = await db.MatterDocuments
+                    .FirstOrDefaultAsync(md => md.MatterId == matterId && md.DocumentId == cmd.DocumentId, opCt);
+
+                MatterDocument matterDoc;
+                if (existingMatterDoc != null)
                 {
-                    Id = matterDocId,
-                    MatterId = matterId,
-                    DocumentId = cmd.DocumentId,
-                    DocumentRole = cmd.DocumentRole,
-                    DisplayName = !string.IsNullOrWhiteSpace(cmd.DisplayName) ? cmd.DisplayName.Trim() : targetDoc?.OriginalFileName
-                };
-                db.MatterDocuments.Add(matterDoc);
+                    if (existingMatterDoc.RecordStatus == RecordStatus.Active)
+                    {
+                        throw new MatterWorkflowException("Document is already linked to this matter.", 400);
+                    }
+
+                    existingMatterDoc.RecordStatus = RecordStatus.Active;
+                    if (!string.IsNullOrWhiteSpace(cmd.DocumentRole)) existingMatterDoc.DocumentRole = cmd.DocumentRole.Trim();
+                    if (!string.IsNullOrWhiteSpace(cmd.DisplayName)) existingMatterDoc.DisplayName = cmd.DisplayName.Trim();
+                    existingMatterDoc.UpdatedBy = actionUser.DisplayName;
+                    existingMatterDoc.UpdatedAt = DateTimeOffset.UtcNow;
+                    matterDoc = existingMatterDoc;
+                    matterDocId = existingMatterDoc.Id;
+                }
+                else
+                {
+                    matterDoc = new MatterDocument
+                    {
+                        Id = matterDocId,
+                        MatterId = matterId,
+                        DocumentId = cmd.DocumentId,
+                        DocumentRole = cmd.DocumentRole,
+                        DisplayName = !string.IsNullOrWhiteSpace(cmd.DisplayName) ? cmd.DisplayName.Trim() : targetDoc?.OriginalFileName,
+                        RecordStatus = RecordStatus.Active
+                    };
+                    db.MatterDocuments.Add(matterDoc);
+                }
 
                 matter.Revision++;
                 matter.UpdatedBy = actionUser.DisplayName;

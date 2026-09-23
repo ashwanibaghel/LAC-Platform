@@ -977,117 +977,263 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   <span>Upload a new document or link an existing record above.</span>
                 </div>
               ) : (
-                <table className="matter-directory-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: 36 }}>
-                        <input
-                          type="checkbox"
-                          checked={documents.length > 0 && selectedDocIds.length === documents.length}
-                          onChange={(e) => {
-                            if (e.target.checked) setSelectedDocIds(documents.map((d) => d.documentId));
-                            else setSelectedDocIds([]);
-                          }}
-                        />
-                      </th>
-                      <th style={{ width: "20%" }}>Role</th>
-                      <th style={{ width: "35%" }}>Name / File</th>
-                      <th style={{ width: "15%" }}>Size</th>
-                      <th style={{ width: "18%" }}>Uploaded</th>
-                      <th style={{ width: "12%" }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {documents.map((d) => (
-                      <tr key={d.id} className="matter-table-row">
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedDocIds.includes(d.documentId)}
-                            onChange={() => toggleSelectDoc(d.documentId)}
-                          />
-                        </td>
-                        <td>
-                          <span className="matter-badge-workstream">
-                            {d.documentRole || "Other"}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ fontWeight: 600, color: "#0f172a" }}>
-                            {d.displayName || d.originalFileName}
-                          </div>
-                          {d.displayName && (
-                            <div style={{ fontSize: "11px", color: "#64748b" }}>{d.originalFileName}</div>
-                          )}
-                          {d.extractProvenance && (
-                            <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4, fontSize: "11px" }}>
-                              <span style={{ background: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px", fontWeight: 500 }}>
-                                Extracted from: {d.extractProvenance.sourceFileName} · pp. {d.extractProvenance.normalizedSourcePagesText}
-                                {d.extractProvenance.itemNumber ? ` · Item #${d.extractProvenance.itemNumber}` : ""}
-                              </span>
-                              {d.extractProvenance.khasraReferenceText && (
-                                <span style={{ background: "#f1f5f9", color: "#475569", padding: "2px 6px", borderRadius: "4px" }}>
-                                  Khasras: {d.extractProvenance.khasraReferenceText}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <span style={{ fontSize: "12px", color: "#475569" }}>
-                            {(d.fileSize / 1024).toFixed(1)} KB
-                          </span>
-                        </td>
-                        <td>
-                          <span style={{ fontSize: "12px", color: "#475569" }}>
-                            {new Date(d.uploadedAt).toLocaleDateString()}
-                          </span>
-                        </td>
-                        <td>
-                          <a
-                            href={`/api/matters/${id}/documents/${d.documentId}/content`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn-action-secondary"
-                            style={{ padding: "3px 8px", fontSize: "12px", textDecoration: "none" }}
-                          >
-                            View
-                          </a>
-                          {canManageDocs && (
-                            <>
-                              <button
-                                type="button"
-                                className="btn-action-secondary"
-                                style={{ padding: "3px 8px", fontSize: "12px" }}
-                                onClick={() => {
-                                  setEditingDoc(d);
-                                  setEditDocRole(d.documentRole || "Other");
-                                  setEditDocDisplayName(d.displayName || d.originalFileName);
-                                  setDocEditError(null);
+                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                  {/* Section 1: Core & Extracted Records */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#0369a1" }}>
+                        Core Land & Award Records ({documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
+                      </h4>
+                      <span className="hint" style={{ fontSize: "11px" }}>Official extracts (Naqsha Mutabiq, Statement A, Award pages, Khataunis)</span>
+                    </div>
+
+                    {documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
+                      <div style={{ padding: "12px 16px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", fontSize: "12px", color: "#64748b" }}>
+                        No core land extracts attached yet. Use <strong>Extract Specific Pages</strong> or <strong>Link Existing</strong> above.
+                      </div>
+                    ) : (
+                      <table className="matter-directory-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 36 }}>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
+                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
+                                }
+                                onChange={(e) => {
+                                  const coreIds = documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
+                                  if (e.target.checked) setSelectedDocIds((prev) => Array.from(new Set([...prev, ...coreIds])));
+                                  else setSelectedDocIds((prev) => prev.filter((id) => !coreIds.includes(id)));
                                 }}
-                                title="Edit Document Details"
-                              >
-                                <IconEdit size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                className="btn-action-secondary"
-                                style={{ padding: "3px 8px", fontSize: "12px", color: "#dc2626" }}
-                                disabled={deletingDocId === d.documentId}
-                                onClick={() => void handleRemoveDocument(d.documentId)}
-                                title="Remove Document from Matter"
-                              >
-                                <IconClose size={12} />
-                              </button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                              />
+                            </th>
+                            <th style={{ width: "20%" }}>Role</th>
+                            <th style={{ width: "35%" }}>Name / File</th>
+                            <th style={{ width: "15%" }}>Size</th>
+                            <th style={{ width: "18%" }}>Uploaded</th>
+                            <th style={{ width: "12%" }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {documents
+                            .filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
+                            .map((d) => (
+                              <tr key={d.id} className="matter-table-row">
+                                <td onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedDocIds.includes(d.documentId)}
+                                    onChange={() => toggleSelectDoc(d.documentId)}
+                                  />
+                                </td>
+                                <td>
+                                  <span className="matter-badge-workstream" style={{ background: "#e0f2fe", color: "#0369a1" }}>
+                                    {d.documentRole || "Extract"}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                                    {d.displayName || d.originalFileName}
+                                  </div>
+                                  {d.displayName && (
+                                    <div style={{ fontSize: "11px", color: "#64748b" }}>{d.originalFileName}</div>
+                                  )}
+                                  {d.extractProvenance && (
+                                    <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4, fontSize: "11px" }}>
+                                      <span style={{ background: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px", fontWeight: 500 }}>
+                                        Extracted from: {d.extractProvenance.sourceFileName} · pp. {d.extractProvenance.normalizedSourcePagesText}
+                                        {d.extractProvenance.itemNumber ? ` · Item #${d.extractProvenance.itemNumber}` : ""}
+                                      </span>
+                                      {d.extractProvenance.khasraReferenceText && (
+                                        <span style={{ background: "#f1f5f9", color: "#475569", padding: "2px 6px", borderRadius: "4px" }}>
+                                          Khasras: {d.extractProvenance.khasraReferenceText}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: "12px", color: "#475569" }}>
+                                    {(d.fileSize / 1024).toFixed(1)} KB
+                                  </span>
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: "12px", color: "#475569" }}>
+                                    {new Date(d.uploadedAt).toLocaleDateString()}
+                                  </span>
+                                </td>
+                                <td>
+                                  <a
+                                    href={`/api/matters/${id}/documents/${d.documentId}/content`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn-action-secondary"
+                                    style={{ padding: "3px 8px", fontSize: "12px", textDecoration: "none" }}
+                                  >
+                                    View
+                                  </a>
+                                  {canManageDocs && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn-action-secondary"
+                                        style={{ padding: "3px 8px", fontSize: "12px" }}
+                                        onClick={() => {
+                                          setEditingDoc(d);
+                                          setEditDocRole(d.documentRole || "Other");
+                                          setEditDocDisplayName(d.displayName || d.originalFileName);
+                                          setDocEditError(null);
+                                        }}
+                                        title="Edit Document Details"
+                                      >
+                                        <IconEdit size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn-action-secondary"
+                                        style={{ padding: "3px 8px", fontSize: "12px", color: "#dc2626" }}
+                                        disabled={deletingDocId === d.documentId}
+                                        onClick={() => void handleRemoveDocument(d.documentId)}
+                                        title="Remove Document from Matter"
+                                      >
+                                        <IconClose size={12} />
+                                      </button>
+                                    </>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  {/* Section 2: Case Files & Uploaded Documents */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#334155" }}>
+                        Case Files & Uploaded Documents ({documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
+                      </h4>
+                      <span className="hint" style={{ fontSize: "11px" }}>Court orders, affidavits, applications, and general case uploads</span>
+                    </div>
+
+                    {documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
+                      <div style={{ padding: "12px 16px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", fontSize: "12px", color: "#64748b" }}>
+                        No case-specific uploads attached yet. Use <strong>+ Upload Document</strong> above.
+                      </div>
+                    ) : (
+                      <table className="matter-directory-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: 36 }}>
+                              <input
+                                type="checkbox"
+                                checked={
+                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
+                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
+                                }
+                                onChange={(e) => {
+                                  const caseIds = documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
+                                  if (e.target.checked) setSelectedDocIds((prev) => Array.from(new Set([...prev, ...caseIds])));
+                                  else setSelectedDocIds((prev) => prev.filter((id) => !caseIds.includes(id)));
+                                }}
+                              />
+                            </th>
+                            <th style={{ width: "20%" }}>Role</th>
+                            <th style={{ width: "35%" }}>Name / File</th>
+                            <th style={{ width: "15%" }}>Size</th>
+                            <th style={{ width: "18%" }}>Uploaded</th>
+                            <th style={{ width: "12%" }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {documents
+                            .filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
+                            .map((d) => (
+                              <tr key={d.id} className="matter-table-row">
+                                <td onClick={(e) => e.stopPropagation()}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedDocIds.includes(d.documentId)}
+                                    onChange={() => toggleSelectDoc(d.documentId)}
+                                  />
+                                </td>
+                                <td>
+                                  <span className="matter-badge-workstream">
+                                    {d.documentRole || "Other"}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                                    {d.displayName || d.originalFileName}
+                                  </div>
+                                  {d.displayName && (
+                                    <div style={{ fontSize: "11px", color: "#64748b" }}>{d.originalFileName}</div>
+                                  )}
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: "12px", color: "#475569" }}>
+                                    {(d.fileSize / 1024).toFixed(1)} KB
+                                  </span>
+                                </td>
+                                <td>
+                                  <span style={{ fontSize: "12px", color: "#475569" }}>
+                                    {new Date(d.uploadedAt).toLocaleDateString()}
+                                  </span>
+                                </td>
+                                <td>
+                                  <a
+                                    href={`/api/matters/${id}/documents/${d.documentId}/content`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="btn-action-secondary"
+                                    style={{ padding: "3px 8px", fontSize: "12px", textDecoration: "none" }}
+                                  >
+                                    View
+                                  </a>
+                                  {canManageDocs && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        className="btn-action-secondary"
+                                        style={{ padding: "3px 8px", fontSize: "12px" }}
+                                        onClick={() => {
+                                          setEditingDoc(d);
+                                          setEditDocRole(d.documentRole || "Other");
+                                          setEditDocDisplayName(d.displayName || d.originalFileName);
+                                          setDocEditError(null);
+                                        }}
+                                        title="Edit Document Details"
+                                      >
+                                        <IconEdit size={12} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn-action-secondary"
+                                        style={{ padding: "3px 8px", fontSize: "12px", color: "#dc2626" }}
+                                        disabled={deletingDocId === d.documentId}
+                                        onClick={() => void handleRemoveDocument(d.documentId)}
+                                        title="Remove Document from Matter"
+                                      >
+                                        <IconClose size={12} />
+                                      </button>
+                                    </>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
+          )}
+
+          {/* TAB 3: DRAFTS */}
           )}
 
           {/* TAB 3: DRAFTS */}
