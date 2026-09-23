@@ -654,11 +654,6 @@ public sealed class MatterWorkflowService(
                 MatterDocument matterDoc;
                 if (existingMatterDoc != null)
                 {
-                    if (existingMatterDoc.RecordStatus == RecordStatus.Active)
-                    {
-                        throw new MatterWorkflowException("Document is already linked to this matter.", 400);
-                    }
-
                     existingMatterDoc.RecordStatus = RecordStatus.Active;
                     if (!string.IsNullOrWhiteSpace(cmd.DocumentRole)) existingMatterDoc.DocumentRole = cmd.DocumentRole.Trim();
                     if (!string.IsNullOrWhiteSpace(cmd.DisplayName)) existingMatterDoc.DisplayName = cmd.DisplayName.Trim();

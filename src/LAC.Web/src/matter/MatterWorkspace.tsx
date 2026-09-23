@@ -177,7 +177,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   // Page Extractor Form State
   const [extractSourceDocId, setExtractSourceDocId] = useState("");
   const [extractPagesText, setExtractPagesText] = useState("");
-  const [extractRole, setExtractRole] = useState("Naqsha Mutabiq");
+  const [extractRole, setExtractRole] = useState("Naqsha Mutzamin");
   const [extractItemNumber, setExtractItemNumber] = useState("");
   const [extractKhasraRef, setExtractKhasraRef] = useState("");
   const [extractContextLabel, setExtractContextLabel] = useState("");
@@ -982,12 +982,12 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#0369a1" }}>
-                        Core Land & Award Records ({documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
+                        Core Land & Award Records ({documents.filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
                       </h4>
-                      <span className="hint" style={{ fontSize: "11px" }}>Official extracts (Naqsha Mutabiq, Statement A, Award pages, Khataunis)</span>
+                      <span className="hint" style={{ fontSize: "11px" }}>Official extracts (Naqsha Mutzamin, Statement A, Award pages, Khataunis)</span>
                     </div>
 
-                    {documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
+                    {documents.filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
                       <div style={{ padding: "12px 16px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", fontSize: "12px", color: "#64748b" }}>
                         No core land extracts attached yet. Use <strong>Extract Specific Pages</strong> or <strong>Link Existing</strong> above.
                       </div>
@@ -999,11 +999,11 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                               <input
                                 type="checkbox"
                                 checked={
-                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
-                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
+                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
+                                  documents.filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
                                 }
                                 onChange={(e) => {
-                                  const coreIds = documents.filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
+                                  const coreIds = documents.filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
                                   if (e.target.checked) setSelectedDocIds((prev) => Array.from(new Set([...prev, ...coreIds])));
                                   else setSelectedDocIds((prev) => prev.filter((id) => !coreIds.includes(id)));
                                 }}
@@ -1018,7 +1018,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                         </thead>
                         <tbody>
                           {documents
-                            .filter((d) => d.extractProvenance || ["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
+                            .filter((d) => d.extractProvenance || ["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
                             .map((d) => (
                               <tr key={d.id} className="matter-table-row">
                                 <td onClick={(e) => e.stopPropagation()}>
@@ -1114,12 +1114,12 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <h4 style={{ margin: 0, fontSize: "14px", fontWeight: 700, color: "#334155" }}>
-                        Case Files & Uploaded Documents ({documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
+                        Case Files & Uploaded Documents ({documents.filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length})
                       </h4>
                       <span className="hint" style={{ fontSize: "11px" }}>Court orders, affidavits, applications, and general case uploads</span>
                     </div>
 
-                    {documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
+                    {documents.filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length === 0 ? (
                       <div style={{ padding: "12px 16px", background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", fontSize: "12px", color: "#64748b" }}>
                         No case-specific uploads attached yet. Use <strong>+ Upload Document</strong> above.
                       </div>
@@ -1131,11 +1131,11 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                               <input
                                 type="checkbox"
                                 checked={
-                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
-                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
+                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).length > 0 &&
+                                  documents.filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).every((d) => selectedDocIds.includes(d.documentId))
                                 }
                                 onChange={(e) => {
-                                  const caseIds = documents.filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
+                                  const caseIds = documents.filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || "")).map((d) => d.documentId);
                                   if (e.target.checked) setSelectedDocIds((prev) => Array.from(new Set([...prev, ...caseIds])));
                                   else setSelectedDocIds((prev) => prev.filter((id) => !caseIds.includes(id)));
                                 }}
@@ -1150,7 +1150,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                         </thead>
                         <tbody>
                           {documents
-                            .filter((d) => !d.extractProvenance && !["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
+                            .filter((d) => !d.extractProvenance && !["Naqsha Mutzamin", "Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation"].includes(d.documentRole || ""))
                             .map((d) => (
                               <tr key={d.id} className="matter-table-row">
                                 <td onClick={(e) => e.stopPropagation()}>
@@ -1529,7 +1529,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                     className="matter-filter-select"
                     style={{ width: "100%", marginTop: 4 }}
                   >
-                    {["Naqsha Mutabiq", "Statement A", "Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
+                    {["Naqsha Mutzamin", "Statement A", "Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
@@ -1639,7 +1639,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                     style={{ width: "100%", marginTop: 4 }}
                     required
                   >
-                    {["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation", "Application", "Court Order", "ADM Letter", "Other"].map((r) => (
+                    {["Naqsha Mutzamin", "Statement A", "Award", "Khatoni", "Demarcation", "Application", "Court Order", "ADM Letter", "Other"].map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
