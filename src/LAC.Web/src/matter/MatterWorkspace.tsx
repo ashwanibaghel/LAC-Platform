@@ -1229,6 +1229,8 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                     )}
                   </div>
                 </div>
+              )}
+            </div>
           )}
 
           {/* TAB 3: DRAFTS */}
