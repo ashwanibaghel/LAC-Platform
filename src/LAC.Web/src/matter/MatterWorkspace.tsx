@@ -1538,12 +1538,16 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 </div>
 
                 <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-                  {eligibleDocs.length === 0 ? (
-                    <div className="state empty" style={{ padding: "24px" }}>
-                      <span>No eligible documents available for linking.</span>
-                    </div>
-                  ) : (
-                    eligibleDocs.map((doc) => (
+                  {(() => {
+                    const linkableCandidates = eligibleDocs.filter((doc) => !doc.isAlreadyLinked && doc.source !== "Matter Document");
+                    if (linkableCandidates.length === 0) {
+                      return (
+                        <div className="state empty" style={{ padding: "24px" }}>
+                          <span>No unlinked Award or Land Record documents available for linking.</span>
+                        </div>
+                      );
+                    }
+                    return linkableCandidates.map((doc) => (
                       <div
                         key={doc.id}
                         style={{
@@ -1574,8 +1578,8 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                           {linkingDocId === doc.id ? "Linking..." : "Attach"}
                         </button>
                       </div>
-                    ))
-                  )}
+                    ));
+                  })()}
                 </div>
               </>
             ) : (
