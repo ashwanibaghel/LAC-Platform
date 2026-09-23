@@ -1,6 +1,8 @@
 namespace LAC.Tests;
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
@@ -79,7 +81,7 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         var authRes = await authClient.PutAsJsonAsync($"/api/awards/{award.Id}", new { AwardNumber = "AWD-100-EDITED", AwardDate = "2026-05-10", AwardType = "Supplementary" });
         Assert.Equal(HttpStatusCode.OK, authRes.StatusCode);
 
-        // Verify database state
+        // Verify database state and updated audit fields
         using var scope2 = _factory.Services.CreateScope();
         var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
         var updated = await db2.Awards.FindAsync(award.Id);
@@ -87,81 +89,147 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         Assert.Equal("AWD-100-EDITED", updated.AwardNumber);
         Assert.Equal("Supplementary", updated.AwardType);
         Assert.Equal(new DateOnly(2026, 5, 10), updated.AwardDate);
+        Assert.False(string.IsNullOrWhiteSpace(updated.UpdatedBy));
 
-        // Verify audit log
+        // Verify audit log includes ChangedBy, OldValues, and NewValues
         var audit = await db2.AuditLogs.FirstOrDefaultAsync(x => x.EntityId == award.Id && x.Action == "AwardUpdated");
         Assert.NotNull(audit);
+        Assert.False(string.IsNullOrWhiteSpace(audit.ChangedBy));
+        Assert.NotNull(audit.OldValues);
+        Assert.NotNull(audit.NewValues);
+        Assert.Contains("AWD-100-TEST", audit.OldValues);
+        Assert.Contains("AWD-100-EDITED", audit.NewValues);
     }
 
     [Fact]
-    public async Task Core_document_replace_and_remove_preserves_historical_document_evidence()
+    public async Task Replacement_reason_required_validation()
     {
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
 
-        var village = new Village { Name = "Village Alpha" };
-        var award = new Award { AwardNumber = "AWD-DOC-TEST" };
+        var village = new Village { Name = "Village Reason Test" };
+        var award = new Award { AwardNumber = "AWD-REASON-TEST" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "orig.pdf", StoragePath = "/tmp/orig.pdf" };
+        db.Documents.Add(doc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+
+        // Attempt replace without reason -> Expect Validation Error (400 Bad Request)
+        var content = new MultipartFormDataContent();
+        content.Add(new ByteArrayContent(new byte[] { 1, 2, 3 }), "file", "new.pdf");
+        var res = await authClient.PutAsync($"/api/awards/{award.Id}/core-documents/{doc.Id}?reason=", content);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Multiple_documents_per_core_role_targeted_operations()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Village Multi" };
+        var award = new Award { AwardNumber = "AWD-MULTI-TEST" };
         db.Villages.Add(village);
         db.Awards.Add(award);
         db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
 
-        var initialDoc = new Document { DocumentType = "Award", OriginalFileName = "old_award.pdf", StoragePath = "/path/old.pdf", Sha256Hash = "hash1" };
-        db.Documents.Add(initialDoc);
-        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = initialDoc, CoreDocumentRole = "Award" });
+        var doc1 = new Document { DocumentType = "NM", OriginalFileName = "nm_page1.pdf", StoragePath = "/path/p1.pdf" };
+        var doc2 = new Document { DocumentType = "NM", OriginalFileName = "nm_page2.pdf", StoragePath = "/path/p2.pdf" };
+        db.Documents.AddRange(doc1, doc2);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc1, CoreDocumentRole = "NM" });
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc2, CoreDocumentRole = "NM" });
         await db.SaveChangesAsync();
 
-        // Unauthorized replace attempt (no login cookie)
-        var unauthClient = _factory.CreateClient();
-        var content = new MultipartFormDataContent();
-        content.Add(new ByteArrayContent(new byte[] { 1, 2, 3 }), "file", "new_award.pdf");
-        var unauthRes = await unauthClient.PutAsync($"/api/awards/{award.Id}/core-documents?role=Award&reason=Test", content);
-        Assert.Equal(HttpStatusCode.Unauthorized, unauthRes.StatusCode);
-
-        // Authorized replace attempt (logged in Admin)
         var authClient = await CreateAdminClientAsync();
+
+        // Target remove ONLY doc1
+        var removeRes = await authClient.DeleteAsync($"/api/awards/{award.Id}/core-documents/{doc1.Id}?reason=Unlinking%20first%20page");
+        Assert.Equal(HttpStatusCode.OK, removeRes.StatusCode);
+
+        using (var scope2 = _factory.Services.CreateScope())
+        {
+            var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            // doc1 link role cleared
+            var link1 = await db2.DocumentAwards.FirstOrDefaultAsync(x => x.AwardId == award.Id && x.DocumentId == doc1.Id);
+            Assert.NotNull(link1);
+            Assert.Null(link1.CoreDocumentRole);
+
+            // doc2 link role STILL active as "NM"
+            var activeNm = await db2.DocumentAwards.Where(x => x.AwardId == award.Id && x.CoreDocumentRole == "NM").ToListAsync();
+            Assert.Single(activeNm);
+            Assert.Equal(doc2.Id, activeNm[0].DocumentId);
+        }
+
+        // Target replace ONLY doc2
         var replaceContent = new MultipartFormDataContent();
-        replaceContent.Add(new ByteArrayContent(new byte[] { 4, 5, 6 }), "file", "new_award.pdf");
-        var replaceRes = await authClient.PutAsync($"/api/awards/{award.Id}/core-documents?role=Award&reason=Replacing%20with%20signed%20copy", replaceContent);
+        replaceContent.Add(new ByteArrayContent(new byte[] { 7, 8, 9 }), "file", "nm_page2_new.pdf");
+        var replaceRes = await authClient.PutAsync($"/api/awards/{award.Id}/core-documents/{doc2.Id}?reason=Replacing%20page2", replaceContent);
         Assert.Equal(HttpStatusCode.OK, replaceRes.StatusCode);
 
-        // Verify historical document evidence preserved and new document active
+        using (var scope3 = _factory.Services.CreateScope())
+        {
+            var db3 = scope3.ServiceProvider.GetRequiredService<LacDbContext>();
+
+            // Physical doc1 and doc2 both still exist in DB
+            Assert.NotNull(await db3.Documents.FindAsync(doc1.Id));
+            Assert.NotNull(await db3.Documents.FindAsync(doc2.Id));
+
+            // doc2 link role cleared
+            var link2 = await db3.DocumentAwards.FirstOrDefaultAsync(x => x.AwardId == award.Id && x.DocumentId == doc2.Id);
+            Assert.NotNull(link2);
+            Assert.Null(link2.CoreDocumentRole);
+
+            // Exactly 1 active core document for role "NM" (the replacement document)
+            var activeNmAfterReplace = await db3.DocumentAwards.Where(x => x.AwardId == award.Id && x.CoreDocumentRole == "NM").ToListAsync();
+            Assert.Single(activeNmAfterReplace);
+            Assert.NotEqual(doc2.Id, activeNmAfterReplace[0].DocumentId);
+
+            // Verify Audit logs populated with ChangedBy and reason
+            var auditReplace = await db3.AuditLogs.FirstOrDefaultAsync(x => x.Action == "CoreDocumentReplaced" && x.EntityId == link2.Id);
+            Assert.NotNull(auditReplace);
+            Assert.False(string.IsNullOrWhiteSpace(auditReplace.ChangedBy));
+            Assert.Contains("Replacing page2", auditReplace.NewValues);
+        }
+    }
+
+    [Fact]
+    public async Task Shared_document_preservation_on_core_removal()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Village Shared" };
+        var award = new Award { AwardNumber = "AWD-SHARED-TEST" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+
+        var sharedDoc = new Document { DocumentType = "StatementA", OriginalFileName = "statement_a.pdf", StoragePath = "/path/sa.pdf" };
+        db.Documents.Add(sharedDoc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = sharedDoc, CoreDocumentRole = "StatementA" });
+        db.DocumentVillages.Add(new DocumentVillage { Village = village, Document = sharedDoc });
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+
+        // Remove core document from Award
+        var removeRes = await authClient.DeleteAsync($"/api/awards/{award.Id}/core-documents/{sharedDoc.Id}?reason=Removing%20core%20role");
+        Assert.Equal(HttpStatusCode.OK, removeRes.StatusCode);
+
         using var scope2 = _factory.Services.CreateScope();
         var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
 
-        // Old physical document still exists!
-        var oldDocInDb = await db2.Documents.FindAsync(initialDoc.Id);
-        Assert.NotNull(oldDocInDb);
-        Assert.Equal("old_award.pdf", oldDocInDb.OriginalFileName);
+        // Physical document still exists in DB
+        var docInDb = await db2.Documents.FindAsync(sharedDoc.Id);
+        Assert.NotNull(docInDb);
 
-        // Core document relationships: old core document role cleared, new core document active
-        var activeCoreDocs = await db2.DocumentAwards.Where(x => x.AwardId == award.Id && x.CoreDocumentRole == "Award").ToListAsync();
-        Assert.Single(activeCoreDocs);
-        Assert.NotEqual(initialDoc.Id, activeCoreDocs[0].DocumentId);
-
-        // Audit log recorded replacement
-        var replaceAudit = await db2.AuditLogs.FirstOrDefaultAsync(x => x.Action == "CoreDocumentReplaced");
-        Assert.NotNull(replaceAudit);
-        Assert.Contains("Replacing with signed copy", replaceAudit.NewValues);
-
-        // Test Removal with reason
-        var removeRes = await authClient.DeleteAsync($"/api/awards/{award.Id}/core-documents?role=Award&reason=Unlinking%20erroneous%20file");
-        Assert.Equal(HttpStatusCode.OK, removeRes.StatusCode);
-
-        using var scope3 = _factory.Services.CreateScope();
-        var db3 = scope3.ServiceProvider.GetRequiredService<LacDbContext>();
-
-        // No active core document for role "Award"
-        var remainingActive = await db3.DocumentAwards.Where(x => x.AwardId == award.Id && x.CoreDocumentRole == "Award").ToListAsync();
-        Assert.Empty(remainingActive);
-
-        // Physical Document record STILL exists in database!
-        var removedDocId = activeCoreDocs[0].DocumentId;
-        var removedDocInDb = await db3.Documents.FindAsync(removedDocId);
-        Assert.NotNull(removedDocInDb);
-
-        // Removal audit log recorded
-        var removeAudit = await db3.AuditLogs.FirstOrDefaultAsync(x => x.Action == "CoreDocumentRemoved");
-        Assert.NotNull(removeAudit);
-        Assert.Contains("Unlinking erroneous file", removeAudit.NewValues);
+        // DocumentVillage link STILL exists!
+        var villageLink = await db2.DocumentVillages.FirstOrDefaultAsync(x => x.VillageId == village.Id && x.DocumentId == sharedDoc.Id);
+        Assert.NotNull(villageLink);
     }
 }

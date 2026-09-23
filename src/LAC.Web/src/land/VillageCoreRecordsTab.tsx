@@ -83,12 +83,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [replaceModalOpen, setReplaceModalOpen] = useState(false);
-  const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string } | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string; fileName?: string } | null>(null);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [replaceReason, setReplaceReason] = useState("");
 
   const [removeModalOpen, setRemoveModalOpen] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string; fileName?: string } | null>(null);
   const [removeReason, setRemoveReason] = useState("");
 
   const [busy, setBusy] = useState(false);
@@ -248,6 +248,10 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       setMessage("Please select a replacement PDF file.");
       return;
     }
+    if (!replaceReason.trim()) {
+      setMessage("A reason is required to replace an official core document.");
+      return;
+    }
     setBusy(true);
     setMessage("");
 
@@ -255,19 +259,15 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       const formData = new FormData();
       formData.append("file", replaceFile);
 
-      const queryParams = new URLSearchParams({
-        role: replaceTarget.role,
-        ...(replaceReason.trim() ? { reason: replaceReason.trim() } : {}),
-      });
+      const endpoint = replaceTarget.documentId
+        ? `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(replaceReason.trim())}`
+        : `${api}/awards/${replaceTarget.awardId}/core-documents?role=${encodeURIComponent(replaceTarget.role)}&reason=${encodeURIComponent(replaceReason.trim())}`;
 
-      const res = await fetch(
-        `${api}/awards/${replaceTarget.awardId}/core-documents?${queryParams.toString()}`,
-        {
-          method: "PUT",
-          body: formData,
-          credentials: "include",
-        }
-      );
+      const res = await fetch(endpoint, {
+        method: "PUT",
+        body: formData,
+        credentials: "include",
+      });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -297,18 +297,14 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setMessage("");
 
     try {
-      const queryParams = new URLSearchParams({
-        role: removeTarget.role,
-        reason: removeReason.trim(),
-      });
+      const endpoint = removeTarget.documentId
+        ? `${api}/awards/${removeTarget.awardId}/core-documents/${removeTarget.documentId}?reason=${encodeURIComponent(removeReason.trim())}`
+        : `${api}/awards/${removeTarget.awardId}/core-documents?role=${encodeURIComponent(removeTarget.role)}&reason=${encodeURIComponent(removeReason.trim())}`;
 
-      const res = await fetch(
-        `${api}/awards/${removeTarget.awardId}/core-documents?${queryParams.toString()}`,
-        {
-          method: "DELETE",
-          credentials: "include",
-        }
-      );
+      const res = await fetch(endpoint, {
+        method: "DELETE",
+        credentials: "include",
+      });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
@@ -334,18 +330,18 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setUploadModalOpen(true);
   };
 
-  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId?: string) => {
+  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId?: string, fileName?: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
-    setReplaceTarget({ awardId, awardNumber, role, label: roleLabel, documentId });
+    setReplaceTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
     setReplaceFile(null);
     setReplaceReason("");
     setMessage("");
     setReplaceModalOpen(true);
   };
 
-  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId?: string) => {
+  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId?: string, fileName?: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
-    setRemoveTarget({ awardId, awardNumber, role, label: roleLabel, documentId });
+    setRemoveTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
     setRemoveReason("");
     setMessage("");
     setRemoveModalOpen(true);
@@ -362,8 +358,8 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setEditAwardModalOpen(true);
   };
 
-  const openDocumentFile = (documentId: string) => {
-    window.open(`${api}/documents/${documentId}/file`, "_blank");
+  const openDocumentContent = (documentId: string) => {
+    window.open(`${api}/documents/${documentId}/content`, "_blank");
   };
 
   if (loading) return <div className="state loading">Loading core records matrix…</div>;
@@ -430,21 +426,40 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                   </td>
 
                   {CORE_ROLES.map(({ key }) => {
-                    const roleInfo = award.roles?.find((r) => r.role === key);
-                    const doc = award.documents?.find((d) => d.coreDocumentRole === key);
-                    const isAvailable = roleInfo?.available ?? false;
+                    const roleDocs = award.documents?.filter((d) => d.coreDocumentRole === key) || [];
+                    const isAvailable = roleDocs.length > 0;
                     const menuId = `doc-${award.id}-${key}`;
 
-                    return (
-                      <td key={key}>
-                        {isAvailable ? (
+                    if (!isAvailable) {
+                      return (
+                        <td key={key}>
+                          <div className="core-doc-pill missing">
+                            <span className="doc-missing-lbl">Missing</span>
+                            {canUploadCore && (
+                              <button
+                                type="button"
+                                className="core-add-btn"
+                                onClick={() => openUploadModal(award.id, award.awardNumber, key)}
+                                title={`Add ${key} document`}
+                              >
+                                + Add
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    }
+
+                    // Single Document for this Role
+                    if (roleDocs.length === 1) {
+                      const doc = roleDocs[0];
+                      return (
+                        <td key={key}>
                           <div className="core-doc-pill available" style={{ position: "relative" }}>
                             <IconFileText size={14} />
                             <div className="core-doc-info" style={{ flex: 1, minWidth: 0 }}>
-                              <span className="doc-status-lbl">
-                                Available {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
-                              </span>
-                              {doc?.originalFileName && (
+                              <span className="doc-status-lbl">Available</span>
+                              {doc.originalFileName && (
                                 <span className="doc-filename" title={doc.originalFileName}>
                                   {doc.originalFileName}
                                 </span>
@@ -489,32 +504,30 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                   border: "1px solid #e2e8f0",
                                   borderRadius: "6px",
                                   boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
-                                  minWidth: "150px",
+                                  minWidth: "160px",
                                   overflow: "hidden",
                                 }}
                               >
-                                {doc?.documentId && (
-                                  <button
-                                    type="button"
-                                    style={{
-                                      width: "100%",
-                                      textAlign: "left",
-                                      padding: "8px 12px",
-                                      background: "none",
-                                      border: "none",
-                                      fontSize: "12.5px",
-                                      color: "#1e293b",
-                                      cursor: "pointer",
-                                      fontWeight: 500,
-                                    }}
-                                    onClick={() => {
-                                      setActiveMenuId(null);
-                                      openDocumentFile(doc.documentId);
-                                    }}
-                                  >
-                                    Open Document
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  style={{
+                                    width: "100%",
+                                    textAlign: "left",
+                                    padding: "8px 12px",
+                                    background: "none",
+                                    border: "none",
+                                    fontSize: "12.5px",
+                                    color: "#1e293b",
+                                    cursor: "pointer",
+                                    fontWeight: 500,
+                                  }}
+                                  onClick={() => {
+                                    setActiveMenuId(null);
+                                    openDocumentContent(doc.documentId);
+                                  }}
+                                >
+                                  Open Document
+                                </button>
                                 {canUploadCore && (
                                   <>
                                     <button
@@ -533,7 +546,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       }}
                                       onClick={() => {
                                         setActiveMenuId(null);
-                                        openReplaceModal(award.id, award.awardNumber, key, doc?.documentId);
+                                        openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
                                       }}
                                     >
                                       Replace Document
@@ -554,7 +567,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       }}
                                       onClick={() => {
                                         setActiveMenuId(null);
-                                        openRemoveModal(award.id, award.awardNumber, key, doc?.documentId);
+                                        openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
                                       }}
                                     >
                                       Remove from Core
@@ -564,21 +577,148 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                               </div>
                             )}
                           </div>
-                        ) : (
-                          <div className="core-doc-pill missing">
-                            <span className="doc-missing-lbl">Missing</span>
-                            {canUploadCore && (
-                              <button
-                                type="button"
-                                className="core-add-btn"
-                                onClick={() => openUploadModal(award.id, award.awardNumber, key)}
-                                title={`Add ${key} document`}
-                              >
-                                + Add
-                              </button>
-                            )}
+                        </td>
+                      );
+                    }
+
+                    // Multiple Documents for this Role
+                    return (
+                      <td key={key}>
+                        <div className="core-doc-pill available" style={{ position: "relative" }}>
+                          <IconFileText size={14} />
+                          <div className="core-doc-info" style={{ flex: 1, minWidth: 0 }}>
+                            <span className="doc-status-lbl">Available · {roleDocs.length} files</span>
                           </div>
-                        )}
+
+                          <button
+                            type="button"
+                            className="core-doc-menu-btn"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "#64748b",
+                              cursor: "pointer",
+                              padding: "2px 4px",
+                              borderRadius: "4px",
+                              display: "inline-flex",
+                              alignItems: "center",
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveMenuId(activeMenuId === menuId ? null : menuId);
+                            }}
+                            title="View Files"
+                          >
+                            <IconMoreVertical size={14} />
+                          </button>
+
+                          {/* Multi-File Popover Dropdown */}
+                          {activeMenuId === menuId && (
+                            <div
+                              className="core-doc-dropdown"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                position: "absolute",
+                                top: "100%",
+                                right: 0,
+                                zIndex: 30,
+                                marginTop: "4px",
+                                background: "#ffffff",
+                                border: "1px solid #e2e8f0",
+                                borderRadius: "6px",
+                                boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
+                                minWidth: "260px",
+                                overflow: "hidden",
+                                padding: "4px 0",
+                              }}
+                            >
+                              <div style={{ padding: "6px 12px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", color: "#64748b", borderBottom: "1px solid #f1f5f9" }}>
+                                {roleDocs.length} Core Files Attached
+                              </div>
+
+                              <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                                {roleDocs.map((doc, idx) => (
+                                  <div
+                                    key={doc.documentId}
+                                    style={{
+                                      padding: "8px 12px",
+                                      borderBottom: idx < roleDocs.length - 1 ? "1px solid #f1f5f9" : "none",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      gap: "4px",
+                                    }}
+                                  >
+                                    <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={doc.originalFileName}>
+                                      {doc.originalFileName}
+                                    </span>
+                                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                                      <button
+                                        type="button"
+                                        style={{ border: "none", background: "none", color: "#2563eb", cursor: "pointer", fontSize: "11.5px", fontWeight: 600, padding: 0 }}
+                                        onClick={() => {
+                                          setActiveMenuId(null);
+                                          openDocumentContent(doc.documentId);
+                                        }}
+                                      >
+                                        Open
+                                      </button>
+                                      {canUploadCore && (
+                                        <>
+                                          <span style={{ color: "#cbd5e1", fontSize: "11px" }}>•</span>
+                                          <button
+                                            type="button"
+                                            style={{ border: "none", background: "none", color: "#475569", cursor: "pointer", fontSize: "11.5px", fontWeight: 500, padding: 0 }}
+                                            onClick={() => {
+                                              setActiveMenuId(null);
+                                              openReplaceModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                            }}
+                                          >
+                                            Replace
+                                          </button>
+                                          <span style={{ color: "#cbd5e1", fontSize: "11px" }}>•</span>
+                                          <button
+                                            type="button"
+                                            style={{ border: "none", background: "none", color: "#dc2626", cursor: "pointer", fontSize: "11.5px", fontWeight: 500, padding: 0 }}
+                                            onClick={() => {
+                                              setActiveMenuId(null);
+                                              openRemoveModal(award.id, award.awardNumber, key, doc.documentId, doc.originalFileName);
+                                            }}
+                                          >
+                                            Remove
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {canUploadCore && (
+                                <button
+                                  type="button"
+                                  style={{
+                                    width: "100%",
+                                    textAlign: "left",
+                                    padding: "8px 12px",
+                                    background: "#f8fafc",
+                                    border: "none",
+                                    borderTop: "1px solid #e2e8f0",
+                                    fontSize: "12px",
+                                    color: "#2563eb",
+                                    cursor: "pointer",
+                                    fontWeight: 600,
+                                  }}
+                                  onClick={() => {
+                                    setActiveMenuId(null);
+                                    openUploadModal(award.id, award.awardNumber, key);
+                                  }}
+                                >
+                                  + Add Another File
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     );
                   })}
@@ -886,6 +1026,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
             <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
                 Target: Award #{replaceTarget.awardNumber} ({replaceTarget.label})
+                {replaceTarget.fileName ? ` — ${replaceTarget.fileName}` : ""}
               </p>
               <p style={{ margin: 0, fontSize: "12.5px", color: "#64748b" }}>
                 Replacing this document preserves historical evidence. The current document will remain linked historically in official record archives.
@@ -904,13 +1045,14 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
               </div>
 
               <div className="form-group">
-                <label className="form-label">Replacement Reason</label>
+                <label className="form-label required">Replacement Reason</label>
                 <input
                   type="text"
                   className="form-input"
                   placeholder="e.g. Replacing with newly signed high-resolution copy"
                   value={replaceReason}
                   onChange={(e) => setReplaceReason(e.target.value)}
+                  required
                 />
               </div>
             </div>
@@ -922,7 +1064,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
               <button
                 type="button"
                 className="primary-button"
-                disabled={busy || !replaceFile}
+                disabled={busy || !replaceFile || !replaceReason.trim()}
                 onClick={() => void handleReplaceDocument()}
               >
                 {busy ? "Replacing…" : "Replace Document"}
@@ -946,6 +1088,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
             <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <p style={{ margin: 0, fontSize: "14px", color: "#b91c1c", fontWeight: 600 }}>
                 Unlink {removeTarget.label} from Award #{removeTarget.awardNumber}
+                {removeTarget.fileName ? ` (${removeTarget.fileName})` : ""}
               </p>
               <p style={{ margin: 0, fontSize: "12.5px", color: "#64748b" }}>
                 This action unlinks the core document role from this Award. Physical document files and historical audit logs will be preserved.

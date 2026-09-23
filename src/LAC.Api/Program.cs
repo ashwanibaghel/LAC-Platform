@@ -523,17 +523,33 @@ api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequ
     db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = id }); await db.SaveChangesAsync(ct);
     return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id));
 }).RequirePermission(PermissionCodes.AwardCreate);
-api.MapPut("/awards/{id:guid}", async (Guid id, UpdateAwardRequest request, LacDbContext db, CancellationToken ct) =>
+api.MapPut("/awards/{id:guid}", async (Guid id, UpdateAwardRequest request, LacDbContext db, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.AwardNumber)) return Validation("awardNumber", "Award number is required.");
     var award = await db.Awards.FirstOrDefaultAsync(a => a.Id == id, ct);
     if (award is null) return NotFound("Award", id);
 
+    var oldValues = JsonSerializer.Serialize(new { award.AwardNumber, AwardDate = award.AwardDate?.ToString("yyyy-MM-dd"), award.AwardType });
+
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
     award.AwardNumber = request.AwardNumber.Trim();
     award.AwardDate = request.AwardDate;
     award.AwardType = request.AwardType?.Trim();
+    award.UpdatedAt = DateTimeOffset.UtcNow;
+    award.UpdatedBy = actor;
 
-    db.Add(new AuditLog { EntityType = "Award", EntityId = award.Id, Action = "AwardUpdated", NewValues = $"Award #{award.AwardNumber} metadata updated." });
+    var newValues = JsonSerializer.Serialize(new { award.AwardNumber, AwardDate = award.AwardDate?.ToString("yyyy-MM-dd"), award.AwardType });
+
+    db.Add(new AuditLog
+    {
+        EntityType = "Award",
+        EntityId = award.Id,
+        Action = "AwardUpdated",
+        ChangedBy = actor,
+        ChangedAt = DateTimeOffset.UtcNow,
+        OldValues = oldValues,
+        NewValues = newValues
+    });
     await db.SaveChangesAsync(ct);
 
     return Results.Ok(new { award.Id, award.AwardNumber, award.AwardDate, award.AwardType });
@@ -544,7 +560,7 @@ api.MapGet("/awards/{id:guid}/core-documents", async (Guid id, LacDbContext db, 
     return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null).OrderByDescending(x => x.Document.UploadedAt)
         .Select(x => new { x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType, x.Document.UploadedAt }).ToListAsync(ct));
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
+api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, ICurrentUserContext currentUser, CancellationToken ct) =>
 {
     var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
     if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
@@ -552,36 +568,40 @@ api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFo
     var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
     if (villageIds.Count == 0) return NotFound("Award", id);
     await using var source = file.OpenReadStream(); var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
-    var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow };
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
+    var document = new Document { DocumentType = role, OriginalFileName = file.FileName, StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize, MimeType = file.ContentType, UploadedAt = DateTimeOffset.UtcNow, UploadedBy = actor };
     db.Add(document); db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role });
     foreach (var villageId in villageIds) db.Add(new DocumentVillage { VillageId = villageId, Document = document });
     await db.SaveChangesAsync(ct);
     return Results.Created($"/api/documents/{document.Id}", new { documentId = document.Id, role });
 }).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
-api.MapPut("/awards/{id:guid}/core-documents", async (
+api.MapPut("/awards/{id:guid}/core-documents/{documentId:guid}", async (
     Guid id,
-    string role,
+    Guid documentId,
     string? reason,
     IFormFile file,
     LacDbContext db,
     IDocumentStorage storage,
     ICurrentUserContext currentUser,
-    IRecordAccessLogger accessLogger,
     CancellationToken ct) =>
 {
-    var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
-    if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
+    if (string.IsNullOrWhiteSpace(reason)) return Validation("reason", "A reason is required to replace an official core document.");
     if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
 
     var award = await db.Awards.FirstOrDefaultAsync(x => x.Id == id, ct);
     if (award is null) return NotFound("Award", id);
 
+    var link = await db.DocumentAwards.FirstOrDefaultAsync(x => x.AwardId == id && x.DocumentId == documentId && x.CoreDocumentRole != null, ct);
+    if (link is null) return Validation("documentId", "Target core document relationship not found for this Award.");
+
+    var role = link.CoreDocumentRole!;
     var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
     if (villageIds.Count == 0) return NotFound("Award", id);
 
     await using var source = file.OpenReadStream();
     var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
 
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
     var document = new Document
     {
         DocumentType = role,
@@ -590,20 +610,92 @@ api.MapPut("/awards/{id:guid}/core-documents", async (
         Sha256Hash = stored.Sha256Hash,
         FileSize = stored.FileSize,
         MimeType = file.ContentType,
-        UploadedAt = DateTimeOffset.UtcNow
+        UploadedAt = DateTimeOffset.UtcNow,
+        UploadedBy = actor
     };
     db.Add(document);
 
-    var existingLinks = await db.DocumentAwards.Where(x => x.AwardId == id && x.CoreDocumentRole == role).ToListAsync(ct);
+    var oldDocId = link.DocumentId;
+    link.CoreDocumentRole = null;
+
+    db.Add(new AuditLog
+    {
+        EntityType = "DocumentAward",
+        EntityId = link.Id,
+        Action = "CoreDocumentReplaced",
+        ChangedBy = actor,
+        ChangedAt = DateTimeOffset.UtcNow,
+        OldValues = $"Role '{role}', UnlinkedDocId={oldDocId}",
+        NewValues = $"Role '{role}' replaced on Award #{award.AwardNumber}. UnlinkedDocId={oldDocId}, NewDocId={document.Id}. Reason={reason.Trim()}"
+    });
+
+    db.Add(new DocumentAward { AwardId = id, Document = document, CoreDocumentRole = role });
+    foreach (var villageId in villageIds)
+    {
+        db.Add(new DocumentVillage { VillageId = villageId, Document = document });
+    }
+
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new { documentId = document.Id, role, replacedDocumentId = oldDocId });
+}).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
+api.MapPut("/awards/{id:guid}/core-documents", async (
+    Guid id,
+    string role,
+    Guid? documentId,
+    string? reason,
+    IFormFile file,
+    LacDbContext db,
+    IDocumentStorage storage,
+    ICurrentUserContext currentUser,
+    CancellationToken ct) =>
+{
+    var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
+    if (!allowed.Contains(role, StringComparer.Ordinal)) return Validation("role", "Choose Award, NM, StatementA, or PossessionProceeding.");
+    if (string.IsNullOrWhiteSpace(reason)) return Validation("reason", "A reason is required to replace an official core document.");
+    if (file.Length == 0) return Validation("file", "Choose a non-empty document.");
+
+    var award = await db.Awards.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (award is null) return NotFound("Award", id);
+
+    var linksQuery = db.DocumentAwards.Where(x => x.AwardId == id && x.CoreDocumentRole == role);
+    if (documentId.HasValue) linksQuery = linksQuery.Where(x => x.DocumentId == documentId.Value);
+    var existingLinks = await linksQuery.ToListAsync(ct);
+    if (existingLinks.Count == 0) return Validation("documentId", "Target core document relationship not found for this Award.");
+
+    var villageIds = await db.AwardVillages.Where(x => x.AwardId == id).Select(x => x.VillageId).Distinct().ToListAsync(ct);
+    if (villageIds.Count == 0) return NotFound("Award", id);
+
+    await using var source = file.OpenReadStream();
+    var stored = await storage.SaveAndHashAsync(source, file.FileName, ct);
+
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
+    var document = new Document
+    {
+        DocumentType = role,
+        OriginalFileName = file.FileName,
+        StoragePath = stored.StoragePath,
+        Sha256Hash = stored.Sha256Hash,
+        FileSize = stored.FileSize,
+        MimeType = file.ContentType,
+        UploadedAt = DateTimeOffset.UtcNow,
+        UploadedBy = actor
+    };
+    db.Add(document);
+
     foreach (var existingLink in existingLinks)
     {
+        var oldDocId = existingLink.DocumentId;
         existingLink.CoreDocumentRole = null;
         db.Add(new AuditLog
         {
             EntityType = "DocumentAward",
             EntityId = existingLink.Id,
             Action = "CoreDocumentReplaced",
-            NewValues = $"Role '{role}' replaced on Award #{award.AwardNumber}. UnlinkedDocId={existingLink.DocumentId}, NewDocId={document.Id}. Reason={reason?.Trim() ?? "None"}"
+            ChangedBy = actor,
+            ChangedAt = DateTimeOffset.UtcNow,
+            OldValues = $"Role '{role}', UnlinkedDocId={oldDocId}",
+            NewValues = $"Role '{role}' replaced on Award #{award.AwardNumber}. UnlinkedDocId={oldDocId}, NewDocId={document.Id}. Reason={reason.Trim()}"
         });
     }
 
@@ -615,30 +707,50 @@ api.MapPut("/awards/{id:guid}/core-documents", async (
 
     await db.SaveChangesAsync(ct);
 
-    if (currentUser.UserId.HasValue)
-    {
-        await accessLogger.LogAccessAsync(new RecordAccessCommand(
-            currentUser.UserId.Value,
-            RecordAccessAction.Opened,
-            document.Id,
-            "Award",
-            id,
-            null,
-            null,
-            document.OriginalFileName,
-            null
-        ), ct);
-    }
-
     return Results.Ok(new { documentId = document.Id, role, replaced = existingLinks.Count > 0 });
 }).DisableAntiforgery().RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
-api.MapDelete("/awards/{id:guid}/core-documents", async (
+api.MapDelete("/awards/{id:guid}/core-documents/{documentId:guid}", async (
     Guid id,
-    string role,
+    Guid documentId,
     string? reason,
     LacDbContext db,
     ICurrentUserContext currentUser,
-    IRecordAccessLogger accessLogger,
+    CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(reason)) return Validation("reason", "A reason is required to remove a core document from official records.");
+
+    var award = await db.Awards.FirstOrDefaultAsync(x => x.Id == id, ct);
+    if (award is null) return NotFound("Award", id);
+
+    var link = await db.DocumentAwards.FirstOrDefaultAsync(x => x.AwardId == id && x.DocumentId == documentId && x.CoreDocumentRole != null, ct);
+    if (link is null) return Validation("documentId", "Target core document relationship not found for this Award.");
+
+    var role = link.CoreDocumentRole!;
+    link.CoreDocumentRole = null;
+
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
+    db.Add(new AuditLog
+    {
+        EntityType = "DocumentAward",
+        EntityId = link.Id,
+        Action = "CoreDocumentRemoved",
+        ChangedBy = actor,
+        ChangedAt = DateTimeOffset.UtcNow,
+        OldValues = $"Role '{role}', UnlinkedDocId={documentId}",
+        NewValues = $"Role '{role}' removed from Award #{award.AwardNumber}. UnlinkedDocId={documentId}. Reason={reason.Trim()}"
+    });
+
+    await db.SaveChangesAsync(ct);
+
+    return Results.Ok(new { message = $"Core document role '{role}' removed from Award #{award.AwardNumber}.", unlinkedDocumentId = documentId });
+}).RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
+api.MapDelete("/awards/{id:guid}/core-documents", async (
+    Guid id,
+    string role,
+    Guid? documentId,
+    string? reason,
+    LacDbContext db,
+    ICurrentUserContext currentUser,
     CancellationToken ct) =>
 {
     var allowed = new[] { "Award", "NM", "StatementA", "PossessionProceeding" };
@@ -648,9 +760,12 @@ api.MapDelete("/awards/{id:guid}/core-documents", async (
     var award = await db.Awards.FirstOrDefaultAsync(x => x.Id == id, ct);
     if (award is null) return NotFound("Award", id);
 
-    var existingLinks = await db.DocumentAwards.Where(x => x.AwardId == id && x.CoreDocumentRole == role).ToListAsync(ct);
+    var linksQuery = db.DocumentAwards.Where(x => x.AwardId == id && x.CoreDocumentRole == role);
+    if (documentId.HasValue) linksQuery = linksQuery.Where(x => x.DocumentId == documentId.Value);
+    var existingLinks = await linksQuery.ToListAsync(ct);
     if (existingLinks.Count == 0) return Validation("role", $"Core document for role '{role}' not found.");
 
+    var actor = currentUser.DisplayName ?? currentUser.Username ?? currentUser.UserId?.ToString() ?? "System";
     foreach (var link in existingLinks)
     {
         var oldDocId = link.DocumentId;
@@ -660,26 +775,14 @@ api.MapDelete("/awards/{id:guid}/core-documents", async (
             EntityType = "DocumentAward",
             EntityId = link.Id,
             Action = "CoreDocumentRemoved",
+            ChangedBy = actor,
+            ChangedAt = DateTimeOffset.UtcNow,
+            OldValues = $"Role '{role}', UnlinkedDocId={oldDocId}",
             NewValues = $"Role '{role}' removed from Award #{award.AwardNumber}. UnlinkedDocId={oldDocId}. Reason={reason.Trim()}"
         });
     }
 
     await db.SaveChangesAsync(ct);
-
-    if (currentUser.UserId.HasValue && existingLinks.Count > 0)
-    {
-        await accessLogger.LogAccessAsync(new RecordAccessCommand(
-            currentUser.UserId.Value,
-            RecordAccessAction.Opened,
-            existingLinks[0].DocumentId,
-            "Award",
-            id,
-            null,
-            null,
-            "Removed Core Document",
-            null
-        ), ct);
-    }
 
     return Results.Ok(new { message = $"Core document role '{role}' removed from Award #{award.AwardNumber}.", unlinkedCount = existingLinks.Count });
 }).RequirePermission(PermissionCodes.AwardCoreDocumentUpload, WorkstreamCodes.Award);
