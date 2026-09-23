@@ -36,5 +36,24 @@ public static class MatterModelConfiguration
                 .HasForeignKey(x => x.ActionByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // 3. MatterDocumentExtract (Derived Document Lineage Provenance)
+        b.Entity<MatterDocumentExtract>(entity =>
+        {
+            entity.HasOne(x => x.MatterDocument)
+                .WithOne(x => x.ExtractProvenance)
+                .HasForeignKey<MatterDocumentExtract>(x => x.MatterDocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.SourceDocument)
+                .WithMany()
+                .HasForeignKey(x => x.SourceDocumentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.ExtractedByUser)
+                .WithMany()
+                .HasForeignKey(x => x.ExtractedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }

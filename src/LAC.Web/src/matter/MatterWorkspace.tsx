@@ -22,6 +22,18 @@ import {
 } from "../components/Icons";
 import "./matter.css";
 
+interface MatterDocumentExtractProvenance {
+  sourceDocumentId: string;
+  sourceFileName: string;
+  sourceSha256Hash: string | null;
+  normalizedSourcePagesText: string;
+  itemNumber: string | null;
+  khasraReferenceText: string | null;
+  contextLabel: string | null;
+  extractedAt: string;
+  extractedByUserName: string;
+}
+
 interface MatterDocumentItem {
   id: string;
   documentId: string;
@@ -31,6 +43,7 @@ interface MatterDocumentItem {
   mimeType: string;
   fileSize: number;
   uploadedAt: string;
+  extractProvenance?: MatterDocumentExtractProvenance | null;
 }
 
 interface EligibleDocumentItem {
@@ -39,6 +52,7 @@ interface EligibleDocumentItem {
   documentType: string;
   uploadedAt: string;
   source: string;
+  isAlreadyLinked?: boolean;
 }
 
 interface MatterEventItem {
@@ -113,12 +127,31 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
   // Edit Form State
   const [editTitle, setEditTitle] = useState("");
+  const [editType, setEditType] = useState("Court Case");
+  const [editCustomType, setEditCustomType] = useState("");
+  const [editCourtCasePrefix, setEditCourtCasePrefix] = useState("W.P.(C)");
+  const [editCourtCaseNumber, setEditCourtCaseNumber] = useState("");
+  const [editAwardId, setEditAwardId] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editRefNo, setEditRefNo] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
   const [editKhasraRef, setEditKhasraRef] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Village Awards & Khasra Auto-Suggest State for Edit Modal
+  const [villageAwards, setVillageAwards] = useState<any[]>([]);
+  const [editAwardKhasras, setEditAwardKhasras] = useState<any[]>([]);
+  const [editKhasraSuggestOpen, setEditKhasraSuggestOpen] = useState(false);
+  const [loadingEditKhasras, setLoadingEditKhasras] = useState(false);
+
+  // Document Edit & Delete State
+  const [editingDoc, setEditingDoc] = useState<MatterDocumentItem | null>(null);
+  const [editDocRole, setEditDocRole] = useState("");
+  const [editDocDisplayName, setEditDocDisplayName] = useState("");
+  const [savingDocEdit, setSavingDocEdit] = useState(false);
+  const [docEditError, setDocEditError] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
 
   // Reclassify Form State
   const [reclassifyTargetId, setReclassifyTargetId] = useState("");
@@ -137,6 +170,64 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [linkingDocId, setLinkingDocId] = useState<string | null>(null);
   const [linkRole, setLinkRole] = useState("Other");
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Drawer Mode: "link" vs "extract"
+  const [drawerMode, setDrawerMode] = useState<"link" | "extract">("link");
+
+  // Page Extractor Form State
+  const [extractSourceDocId, setExtractSourceDocId] = useState("");
+  const [extractPagesText, setExtractPagesText] = useState("");
+  const [extractRole, setExtractRole] = useState("Naqsha Mutabiq");
+  const [extractItemNumber, setExtractItemNumber] = useState("");
+  const [extractKhasraRef, setExtractKhasraRef] = useState("");
+  const [extractContextLabel, setExtractContextLabel] = useState("");
+  const [extractDisplayName, setExtractDisplayName] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+
+  const handleExtractPagesSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!matter || !extractSourceDocId || !extractPagesText.trim()) return;
+
+    try {
+      setExtracting(true);
+      setExtractError(null);
+
+      const res = await fetch(`/api/matters/${id}/documents/extract-pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          sourceDocumentId: extractSourceDocId,
+          pageRangeText: extractPagesText.trim(),
+          role: extractRole,
+          itemNumber: extractItemNumber.trim() || null,
+          khasraReferenceText: extractKhasraRef.trim() || null,
+          contextLabel: extractContextLabel.trim() || null,
+          displayName: extractDisplayName.trim() || null,
+          expectedRevision: matter.revision
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.message || errData?.title || "Failed to extract PDF pages.");
+      }
+
+      setShowLinkDrawer(false);
+      setExtractSourceDocId("");
+      setExtractPagesText("");
+      setExtractItemNumber("");
+      setExtractKhasraRef("");
+      setExtractContextLabel("");
+      setExtractDisplayName("");
+      setRefresh((r) => r + 1);
+    } catch (err: any) {
+      setExtractError(err.message || "Failed to extract pages.");
+    } finally {
+      setExtracting(false);
+    }
+  };
 
   // Close overflow menu on outside click
   useEffect(() => {
@@ -178,6 +269,10 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           setEditRefNo(mData.referenceNumber || "");
           setEditRemarks(mData.remarks || "");
           setEditKhasraRef(mData.khasraReferenceText || "");
+          const isStandardType = ["Court Case", "Compensation", "Land Acquisition", "Demarcation", "Possession"].includes(mData.matterType);
+          setEditType(isStandardType ? mData.matterType : "Other");
+          setEditCustomType(isStandardType ? "" : mData.matterType);
+          setEditAwardId(mData.award?.awardId || "");
         }
       })
       .catch((err) => {
@@ -191,6 +286,43 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
       active = false;
     };
   }, [id, refresh]);
+
+  // Fetch Village Awards for Edit Modal
+  useEffect(() => {
+    if (!matter?.villageId || !showEditModal) return;
+    fetch(`/api/villages/${matter.villageId}/core-records`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setVillageAwards(Array.isArray(d) ? d : []))
+      .catch(() => setVillageAwards([]));
+  }, [matter?.villageId, showEditModal]);
+
+  // Fetch Award Khasras when editAwardId changes
+  useEffect(() => {
+    if (!editAwardId || !showEditModal) {
+      setEditAwardKhasras([]);
+      return;
+    }
+    let active = true;
+    setLoadingEditKhasras(true);
+    fetch(`/api/awards/${editAwardId}/khasras?page=0&pageSize=250`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!active) return;
+        setLoadingEditKhasras(false);
+        if (d?.items) setEditAwardKhasras(d.items);
+        else if (Array.isArray(d)) setEditAwardKhasras(d);
+        else setEditAwardKhasras([]);
+      })
+      .catch(() => {
+        if (active) {
+          setLoadingEditKhasras(false);
+          setEditAwardKhasras([]);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [editAwardId, showEditModal]);
 
   // Load Workstreams lookup
   useEffect(() => {
@@ -223,10 +355,22 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const handleUpdateMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!matter) return;
-    if (!editTitle.trim()) {
+
+    let finalTitle = editTitle.trim();
+    let refNum: string | null = editRefNo.trim() || null;
+
+    if (editType === "Court Case" && editCourtCaseNumber.trim()) {
+      refNum = `${editCourtCasePrefix} ${editCourtCaseNumber.trim()}`;
+      if (!finalTitle) finalTitle = refNum;
+      else if (!finalTitle.includes(refNum)) finalTitle = `${refNum} - ${finalTitle}`;
+    }
+
+    if (!finalTitle) {
       setEditError("Title is required.");
       return;
     }
+
+    const resolvedType = editType === "Other" ? (editCustomType.trim() || "Other") : editType;
 
     try {
       setSavingEdit(true);
@@ -236,11 +380,13 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
-          title: editTitle.trim(),
+          title: finalTitle,
+          matterType: resolvedType,
           status: editStatus.trim() || null,
-          referenceNumber: editRefNo.trim() || null,
+          referenceNumber: refNum,
           remarks: editRemarks.trim() || null,
           khasraReferenceText: editKhasraRef.trim() || null,
+          awardId: editAwardId || null,
           expectedRevision: matter.revision
         })
       });
@@ -256,6 +402,61 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
       setEditError(err.message || "Failed to update matter.");
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const handleEditDocumentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDoc) return;
+
+    try {
+      setSavingDocEdit(true);
+      setDocEditError(null);
+      const res = await fetch(`/api/matters/${id}/documents/${editingDoc.documentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          role: editDocRole.trim() || null,
+          displayName: editDocDisplayName.trim() || null
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.message || "Failed to update document details.");
+      }
+
+      setEditingDoc(null);
+      setRefresh((r) => r + 1);
+    } catch (err: any) {
+      setDocEditError(err.message || "Failed to update document.");
+    } finally {
+      setSavingDocEdit(false);
+    }
+  };
+
+  const handleRemoveDocument = async (docId: string) => {
+    if (!window.confirm("Are you sure you want to remove/unlink this document from the matter?")) return;
+
+    try {
+      setDeletingDocId(docId);
+      const res = await fetch(`/api/matters/${id}/documents/${docId}`, {
+        method: "DELETE",
+        credentials: "include"
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        alert(errData?.message || "Failed to remove document.");
+        return;
+      }
+
+      setRefresh((r) => r + 1);
+    } catch {
+      alert("Failed to remove document.");
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -433,16 +634,15 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               <span className="matter-meta-item">
                 Ref: <strong style={{ fontFamily: "monospace" }}>{matter.referenceNumber || "—"}</strong>
               </span>
-              <span>·</span>
-              {matter.workstreamName ? (
-                <span className="matter-badge-workstream" title={`Workstream Code: ${matter.workstreamCode}`}>
-                  {matter.workstreamName} ({matter.workstreamCode})
-                </span>
-              ) : (
-                <span className="matter-badge-unclassified" title="Legacy unclassified matter">
-                  [Unclassified]
-                </span>
+              {matter.award?.awardNumber && (
+                <>
+                  <span>·</span>
+                  <span className="matter-meta-item">
+                    Award: <strong>{matter.award.awardNumber}</strong>
+                  </span>
+                </>
               )}
+              <span>·</span>
               <span className={isArchived ? "matter-badge-archived" : "matter-badge-open"}>
                 {matter.status}
               </span>
@@ -615,14 +815,14 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   </div>
 
                   <div className="matter-fact-item">
-                    <span className="matter-fact-label">Workstream</span>
+                    <span className="matter-fact-label">Primary Award</span>
                     <span className="matter-fact-value">
-                      {matter.workstreamName ? (
-                        <span className="matter-badge-workstream">
-                          {matter.workstreamName} ({matter.workstreamCode})
-                        </span>
+                      {matter.award?.awardNumber ? (
+                        <Link to={`/awards/${matter.award.awardId}`} style={{ color: "#0284c7", textDecoration: "none", fontWeight: 600 }}>
+                          Award {matter.award.awardNumber}
+                        </Link>
                       ) : (
-                        <span className="matter-badge-unclassified">[Unclassified]</span>
+                        <span style={{ color: "#94a3b8" }}>No Award linked</span>
                       )}
                     </span>
                   </div>
@@ -813,6 +1013,19 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                           {d.displayName && (
                             <div style={{ fontSize: "11px", color: "#64748b" }}>{d.originalFileName}</div>
                           )}
+                          {d.extractProvenance && (
+                            <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4, fontSize: "11px" }}>
+                              <span style={{ background: "#e0f2fe", color: "#0369a1", padding: "2px 6px", borderRadius: "4px", fontWeight: 500 }}>
+                                Extracted from: {d.extractProvenance.sourceFileName} · pp. {d.extractProvenance.normalizedSourcePagesText}
+                                {d.extractProvenance.itemNumber ? ` · Item #${d.extractProvenance.itemNumber}` : ""}
+                              </span>
+                              {d.extractProvenance.khasraReferenceText && (
+                                <span style={{ background: "#f1f5f9", color: "#475569", padding: "2px 6px", borderRadius: "4px" }}>
+                                  Khasras: {d.extractProvenance.khasraReferenceText}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td>
                           <span style={{ fontSize: "12px", color: "#475569" }}>
@@ -832,8 +1045,36 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                             className="btn-action-secondary"
                             style={{ padding: "3px 8px", fontSize: "12px", textDecoration: "none" }}
                           >
-                            View / Download
+                            View
                           </a>
+                          {canManageDocs && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-action-secondary"
+                                style={{ padding: "3px 8px", fontSize: "12px" }}
+                                onClick={() => {
+                                  setEditingDoc(d);
+                                  setEditDocRole(d.documentRole || "Other");
+                                  setEditDocDisplayName(d.displayName || d.originalFileName);
+                                  setDocEditError(null);
+                                }}
+                                title="Edit Document Details"
+                              >
+                                <IconEdit size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-action-secondary"
+                                style={{ padding: "3px 8px", fontSize: "12px", color: "#dc2626" }}
+                                disabled={deletingDocId === d.documentId}
+                                onClick={() => void handleRemoveDocument(d.documentId)}
+                                title="Remove Document from Matter"
+                              >
+                                <IconClose size={12} />
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -907,6 +1148,72 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           )}
         </div>
       </div>
+
+      {/* Edit Document Details Modal */}
+      {editingDoc && (
+        <div className="matter-modal-overlay" onClick={() => setEditingDoc(null)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <h3 className="matter-modal-title">Edit Document Details</h3>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setEditingDoc(null)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {docEditError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
+                {docEditError}
+              </div>
+            )}
+
+            <form onSubmit={handleEditDocumentSubmit}>
+              <div className="field-grid">
+                <label style={{ gridColumn: "span 2" }}>
+                  Document Role *
+                  <select value={editDocRole} onChange={(e) => setEditDocRole(e.target.value)}>
+                    {["Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ gridColumn: "span 2" }}>
+                  Display Name
+                  <input
+                    type="text"
+                    value={editDocDisplayName}
+                    onChange={(e) => setEditDocDisplayName(e.target.value)}
+                    placeholder="e.g. High Court Order dt 12-05-2026"
+                  />
+                </label>
+              </div>
+
+              <div className="matter-modal-actions">
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setEditingDoc(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-action-primary"
+                  disabled={savingDocEdit}
+                >
+                  {savingDocEdit ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Upload Document Modal */}
       {showUploadModal && (
@@ -983,16 +1290,20 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         </div>
       )}
 
-      {/* Link Existing Document Right Drawer */}
+      {/* Link Existing Document & Page Extractor Right Drawer */}
       {showLinkDrawer && (
         <div className="matter-drawer-overlay" onClick={() => setShowLinkDrawer(false)}>
           <div className="matter-right-drawer" onClick={(e) => e.stopPropagation()}>
             <div className="matter-drawer-header">
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                  Link Existing Document
+                  {drawerMode === "link" ? "Link Existing Document" : "Extract Specific Pages into PDF"}
                 </h3>
-                <span className="hint">Select eligible document from Award or Land Record families.</span>
+                <span className="hint">
+                  {drawerMode === "link"
+                    ? "Select eligible document from Award or Land Record families."
+                    : "Extract lightweight non-contiguous pages (e.g. 9, 16) with Item # provenance."}
+                </span>
               </div>
               <button
                 type="button"
@@ -1003,70 +1314,274 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               </button>
             </div>
 
-            {linkError && (
-              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", fontSize: "13px" }}>
-                {linkError}
-              </div>
-            )}
-
-            <div>
-              <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
-                Target Role for Matter Link:
-              </label>
-              <select
-                value={linkRole}
-                onChange={(e) => setLinkRole(e.target.value)}
-                className="matter-filter-select"
-                style={{ width: "100%", marginTop: 4 }}
+            {/* Mode Switcher Tabs */}
+            <div style={{ display: "flex", gap: 8, padding: "0 0 12px 0", borderBottom: "1px solid #e2e8f0", marginBottom: 12 }}>
+              <button
+                type="button"
+                className={`btn-action-secondary ${drawerMode === "link" ? "active" : ""}`}
+                style={{
+                  flex: 1,
+                  padding: "6px 12px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  borderColor: drawerMode === "link" ? "#0284c7" : "#cbd5e1",
+                  background: drawerMode === "link" ? "#e0f2fe" : "#ffffff",
+                  color: drawerMode === "link" ? "#0369a1" : "#475569"
+                }}
+                onClick={() => {
+                  setDrawerMode("link");
+                  setLinkError(null);
+                }}
               >
-                {["Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                <IconLink size={13} style={{ marginRight: 6 }} />
+                Link Full Document
+              </button>
+
+              <button
+                type="button"
+                className={`btn-action-secondary ${drawerMode === "extract" ? "active" : ""}`}
+                style={{
+                  flex: 1,
+                  padding: "6px 12px",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  borderColor: drawerMode === "extract" ? "#0284c7" : "#cbd5e1",
+                  background: drawerMode === "extract" ? "#e0f2fe" : "#ffffff",
+                  color: drawerMode === "extract" ? "#0369a1" : "#475569"
+                }}
+                onClick={() => {
+                  setDrawerMode("extract");
+                  setExtractError(null);
+                  if (eligibleDocs.length > 0 && !extractSourceDocId) {
+                    setExtractSourceDocId(eligibleDocs[0].id);
+                  }
+                }}
+              >
+                <IconFileText size={13} style={{ marginRight: 6 }} />
+                Extract Specific Pages
+              </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-              {eligibleDocs.length === 0 ? (
-                <div className="state empty" style={{ padding: "24px" }}>
-                  <span>No eligible documents available for linking.</span>
-                </div>
-              ) : (
-                eligibleDocs.map((doc) => (
-                  <div
-                    key={doc.id}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      padding: "10px 12px",
-                      background: "#f8fafc",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: "6px"
-                    }}
-                  >
-                    <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
-                      <div style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {doc.originalFileName}
-                      </div>
-                      <div style={{ fontSize: "11px", color: "#64748b" }}>
-                        {doc.source} · {new Date(doc.uploadedAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn-action-secondary"
-                      style={{ padding: "4px 10px", fontSize: "12px" }}
-                      disabled={linkingDocId === doc.id}
-                      onClick={() => void handleLinkExisting(doc.id)}
-                    >
-                      {linkingDocId === doc.id ? "Linking..." : "Attach"}
-                    </button>
+            {drawerMode === "link" ? (
+              <>
+                {linkError && (
+                  <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", fontSize: "13px" }}>
+                    {linkError}
                   </div>
-                ))
-              )}
-            </div>
+                )}
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Target Role for Matter Link:
+                  </label>
+                  <select
+                    value={linkRole}
+                    onChange={(e) => setLinkRole(e.target.value)}
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                  >
+                    {["Naqsha Mutabiq", "Statement A", "Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {eligibleDocs.length === 0 ? (
+                    <div className="state empty" style={{ padding: "24px" }}>
+                      <span>No eligible documents available for linking.</span>
+                    </div>
+                  ) : (
+                    eligibleDocs.map((doc) => (
+                      <div
+                        key={doc.id}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          padding: "10px 12px",
+                          background: "#f8fafc",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: "6px"
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                          <div style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {doc.originalFileName}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#64748b" }}>
+                            {doc.source} · {new Date(doc.uploadedAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-action-secondary"
+                          style={{ padding: "4px 10px", fontSize: "12px" }}
+                          disabled={linkingDocId === doc.id}
+                          onClick={() => void handleLinkExisting(doc.id)}
+                        >
+                          {linkingDocId === doc.id ? "Linking..." : "Attach"}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <form onSubmit={handleExtractPagesSubmit} style={{ display: "flex", flexDirection: "column", gap: 12, flex: 1, overflowY: "auto" }}>
+                {extractError && (
+                  <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", fontSize: "13px" }}>
+                    {extractError}
+                  </div>
+                )}
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Source Master PDF Document *
+                  </label>
+                  <select
+                    value={extractSourceDocId}
+                    onChange={(e) => setExtractSourceDocId(e.target.value)}
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                    required
+                  >
+                    <option value="">-- Select Source Document --</option>
+                    {eligibleDocs.map((doc) => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.originalFileName} ({doc.source})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Page Ranges / Numbers *
+                  </label>
+                  <input
+                    type="text"
+                    value={extractPagesText}
+                    onChange={(e) => setExtractPagesText(e.target.value)}
+                    placeholder="e.g. 9, 16 or 9-11, 16"
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                    required
+                  />
+                  <span style={{ fontSize: "11px", color: "#64748b", marginTop: 2, display: "block" }}>
+                    Supports non-contiguous pages like 9, 16 or range combinations 9-11, 16.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Extracted Document Role *
+                  </label>
+                  <select
+                    value={extractRole}
+                    onChange={(e) => setExtractRole(e.target.value)}
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                    required
+                  >
+                    {["Naqsha Mutabiq", "Statement A", "Award", "Khatoni", "Demarcation", "Application", "Court Order", "ADM Letter", "Other"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Item Number (e.g. Item #42 for owner correlation)
+                  </label>
+                  <input
+                    type="text"
+                    value={extractItemNumber}
+                    onChange={(e) => setExtractItemNumber(e.target.value)}
+                    placeholder="e.g. 42 or 42-A"
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Khasra Reference Text
+                  </label>
+                  <input
+                    type="text"
+                    value={extractKhasraRef}
+                    onChange={(e) => setExtractKhasraRef(e.target.value)}
+                    placeholder="e.g. 12/1, 18/4"
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Context Label / Extract Notes
+                  </label>
+                  <input
+                    type="text"
+                    value={extractContextLabel}
+                    onChange={(e) => setExtractContextLabel(e.target.value)}
+                    placeholder="e.g. Rameshwar Singh Khasra Extracts"
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                    Display Name Override (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={extractDisplayName}
+                    onChange={(e) => setExtractDisplayName(e.target.value)}
+                    placeholder="e.g. Item #42 - NM Extract (pp. 9, 16)"
+                    className="matter-filter-select"
+                    style={{ width: "100%", marginTop: 4 }}
+                  />
+                </div>
+
+                {/* Live Extraction Preview Card */}
+                <div style={{ background: "#f0f9ff", border: "1px dashed #0284c7", borderRadius: "6px", padding: "10px 12px", marginTop: 4 }}>
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: "#0369a1", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Extraction Provenance Live Preview
+                  </div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#0f172a", marginTop: 4 }}>
+                    {extractDisplayName.trim() ||
+                      `${extractItemNumber.trim() ? `Item #${extractItemNumber.trim()} · ` : ""}${extractRole} Extract${extractKhasraRef.trim() ? ` (${extractKhasraRef.trim()})` : ""}`}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#0284c7", marginTop: 2 }}>
+                    Source: {eligibleDocs.find((d) => d.id === extractSourceDocId)?.originalFileName || "Select Source"} · Pages: {extractPagesText.trim() || "N/A"}
+                  </div>
+                </div>
+
+                <div className="matter-modal-actions" style={{ marginTop: "auto", paddingTop: 12 }}>
+                  <button
+                    type="button"
+                    className="btn-action-secondary"
+                    onClick={() => setShowLinkDrawer(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-action-primary"
+                    disabled={extracting || !extractSourceDocId || !extractPagesText.trim()}
+                  >
+                    {extracting ? "Extracting Pages..." : "Extract & Attach to Matter"}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1105,30 +1620,133 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 </label>
 
                 <label>
+                  Matter Type *
+                  <select value={editType} onChange={(e) => setEditType(e.target.value)}>
+                    {["Court Case", "Compensation", "Land Acquisition", "Demarcation", "Possession", "Other"].map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {editType === "Other" ? (
+                  <label>
+                    Specify Custom Type *
+                    <input
+                      type="text"
+                      value={editCustomType}
+                      onChange={(e) => setEditCustomType(e.target.value)}
+                      placeholder="e.g. Arbitration"
+                      required
+                    />
+                  </label>
+                ) : editType === "Court Case" ? (
+                  <>
+                    <label>
+                      Case Title (Prefix)
+                      <select value={editCourtCasePrefix} onChange={(e) => setEditCourtCasePrefix(e.target.value)}>
+                        {["W.P.(C)", "LPA", "SLP(C)", "FAO", "RSA", "CWP", "Other"].map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Case Number & Year
+                      <input
+                        type="text"
+                        value={editCourtCaseNumber}
+                        onChange={(e) => setEditCourtCaseNumber(e.target.value)}
+                        placeholder="e.g. 223/2026"
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label>
+                    Reference Number
+                    <input
+                      type="text"
+                      value={editRefNo}
+                      onChange={(e) => setEditRefNo(e.target.value)}
+                      placeholder="e.g. Ref-2026-001"
+                    />
+                  </label>
+                )}
+
+                <label style={{ gridColumn: "span 2" }}>
+                  Linked Village Award (Optional)
+                  <select
+                    value={editAwardId}
+                    onChange={(e) => {
+                      setEditAwardId(e.target.value);
+                      setEditKhasraRef("");
+                    }}
+                  >
+                    <option value="">-- Select Award --</option>
+                    {villageAwards.map((a: any) => (
+                      <option key={a.id || a.awardId} value={a.id || a.awardId}>
+                        Award #{a.awardNumber} ({a.awardType || "Standard"}) - {a.awardDate ? new Date(a.awardDate).toLocaleDateString() : "No Date"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label style={{ gridColumn: "span 2", position: "relative" }}>
+                  Khasra Reference
+                  <input
+                    type="text"
+                    value={editKhasraRef}
+                    onChange={(e) => {
+                      setEditKhasraRef(e.target.value);
+                      setEditKhasraSuggestOpen(true);
+                    }}
+                    onFocus={() => setEditKhasraSuggestOpen(true)}
+                    placeholder={editAwardId ? "Type to search or select from award khasras..." : "e.g. 12/1, 14/2, 15"}
+                  />
+                  {editKhasraSuggestOpen && editAwardKhasras.length > 0 && (
+                    <div className="khasra-suggest-wrap">
+                      <div className="khasra-suggest-header">
+                        Award Khasras ({editAwardKhasras.length})
+                      </div>
+                      <div className="khasra-suggest-list">
+                        {editAwardKhasras
+                          .filter((k: any) =>
+                            !editKhasraRef ||
+                            (k.khasraNumber || k.khasraNo || "").toLowerCase().includes(editKhasraRef.toLowerCase())
+                          )
+                          .map((k: any) => {
+                            const kn = k.khasraNumber || k.khasraNo;
+                            return (
+                              <button
+                                key={k.id || kn}
+                                type="button"
+                                className="khasra-suggest-item"
+                                onClick={() => {
+                                  setEditKhasraRef((prev) => {
+                                    const existing = prev.split(",").map((s) => s.trim()).filter(Boolean);
+                                    if (!existing.includes(kn)) {
+                                      return existing.length > 0 ? `${existing.join(", ")}, ${kn}` : kn;
+                                    }
+                                    return prev;
+                                  });
+                                  setEditKhasraSuggestOpen(false);
+                                }}
+                              >
+                                <strong>{kn}</strong>
+                                {k.area ? <span> · Area: {k.area}</span> : null}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </label>
+
+                <label style={{ gridColumn: "span 2" }}>
                   Status
                   <input
                     type="text"
                     value={editStatus}
                     onChange={(e) => setEditStatus(e.target.value)}
                     placeholder="e.g. Open, Pending, Disposed"
-                  />
-                </label>
-
-                <label>
-                  Reference Number
-                  <input
-                    type="text"
-                    value={editRefNo}
-                    onChange={(e) => setEditRefNo(e.target.value)}
-                  />
-                </label>
-
-                <label style={{ gridColumn: "span 2" }}>
-                  Khasra Reference
-                  <input
-                    type="text"
-                    value={editKhasraRef}
-                    onChange={(e) => setEditKhasraRef(e.target.value)}
                   />
                 </label>
 

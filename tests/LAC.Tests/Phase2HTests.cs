@@ -1570,7 +1570,8 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var deskA = await CreateDeskAsync($"DSK_FLT_A_{Guid.NewGuid():N}", "Filter Desk A", wsA.Id);
         var deskB = await CreateDeskAsync($"DSK_FLT_B_{Guid.NewGuid():N}", "Filter Desk B", wsB.Id);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var tz = TimeZoneInfo.GetSystemTimeZones().FirstOrDefault(t => t.Id == "Asia/Kolkata" || t.Id == "India Standard Time") ?? TimeZoneInfo.Utc;
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
 
         // Create 2 events in WS A: 1 Overdue, 1 Today
         await admin.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(

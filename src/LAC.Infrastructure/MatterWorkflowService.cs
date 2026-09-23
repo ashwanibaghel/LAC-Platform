@@ -27,7 +27,8 @@ public sealed record UpdateMatterMetadataCommand(
     string? Remarks,
     string? KhasraReferenceText,
     int ExpectedRevision,
-    string? Status = null
+    string? Status = null,
+    Guid? AwardId = null
 );
 
 public sealed record ReclassifyWorkstreamCommand(
@@ -54,6 +55,17 @@ public sealed record LinkExistingDocumentCommand(
 
 public sealed record ArchiveMatterCommand(
     string? Reason,
+    int ExpectedRevision
+);
+
+public sealed record ExtractMatterDocumentPagesCommand(
+    Guid SourceDocumentId,
+    string PageRangeText,
+    string? DocumentRole,
+    string? ItemNumber,
+    string? KhasraReferenceText,
+    string? ContextLabel,
+    string? DisplayName,
     int ExpectedRevision
 );
 
@@ -311,6 +323,33 @@ public sealed class MatterWorkflowService(
                 {
                     matter.Status = cmd.Status.Trim();
                 }
+
+                if (cmd.AwardId.HasValue)
+                {
+                    var existingPrimary = await db.MatterAwards.FirstOrDefaultAsync(ma => ma.MatterId == matterId && ma.IsPrimary, opCt);
+                    if (existingPrimary != null)
+                    {
+                        if (cmd.AwardId.Value == Guid.Empty)
+                        {
+                            db.MatterAwards.Remove(existingPrimary);
+                        }
+                        else if (existingPrimary.AwardId != cmd.AwardId.Value)
+                        {
+                            existingPrimary.AwardId = cmd.AwardId.Value;
+                        }
+                    }
+                    else if (cmd.AwardId.Value != Guid.Empty)
+                    {
+                        db.MatterAwards.Add(new MatterAward
+                        {
+                            Id = Guid.NewGuid(),
+                            MatterId = matterId,
+                            AwardId = cmd.AwardId.Value,
+                            IsPrimary = true
+                        });
+                    }
+                }
+
                 matter.Revision++;
                 matter.UpdatedBy = actionUser.DisplayName;
                 matter.UpdatedAt = DateTimeOffset.UtcNow;
@@ -719,5 +758,337 @@ public sealed class MatterWorkflowService(
                 return evExists;
             },
             ct);
+    }
+
+    // ========================================================================
+    // 7. EXTRACT & ATTACH DOCUMENT PAGES
+    // ========================================================================
+    public async Task<MatterDocument> ExtractAndAttachMatterDocumentPagesAsync(
+        Guid matterId,
+        ExtractMatterDocumentPagesCommand cmd,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        var canManage = await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, ct);
+        if (!canManage)
+            throw new MatterWorkflowException("You do not have permission to manage documents for this Matter.", 403);
+
+        var matter = await db.Matters.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
+        if (matter is null)
+            throw new MatterWorkflowException("Matter not found.", 404);
+
+        if (matter.Status == "Archived" || matter.RecordStatus == RecordStatus.Archived)
+            throw new MatterWorkflowException("Cannot modify an archived matter.", 400);
+
+        if (cmd.ExpectedRevision != matter.Revision)
+            throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
+
+        // Authorization: Check if source document is in eligible candidate map OR is ALREADY linked to this matter
+        var isAlreadyLinked = await db.MatterDocuments.AsNoTracking()
+            .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.SourceDocumentId, ct);
+
+        if (!isAlreadyLinked)
+        {
+            var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
+            if (!eligibleMap.ContainsKey(cmd.SourceDocumentId))
+            {
+                throw new MatterWorkflowException("Source document provenance not verified or permission denied for page extraction.", 403);
+            }
+        }
+
+        var sourceDoc = await db.Documents.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == cmd.SourceDocumentId && d.RecordStatus == RecordStatus.Active, ct);
+        if (sourceDoc is null)
+            throw new MatterWorkflowException("Source document record not found or inactive.", 404);
+
+        var actionUser = await db.AppUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == currentUserId, ct)
+            ?? throw new MatterWorkflowException("Current user not found.", 401);
+
+        Stream? sourceStream;
+        try
+        {
+            sourceStream = await storage.OpenReadAsync(sourceDoc.StoragePath, ct);
+        }
+        catch (Exception ex)
+        {
+            throw new MatterWorkflowException($"Failed to access source document storage stream: {ex.Message}", 500);
+        }
+
+        if (sourceStream is null)
+            throw new MatterWorkflowException("Source document file stream not found in storage.", 404);
+
+        byte[] sourcePdfBytes;
+        using (sourceStream)
+        using (var ms = new MemoryStream())
+        {
+            await sourceStream.CopyToAsync(ms, ct);
+            sourcePdfBytes = ms.ToArray();
+        }
+        var sourceSha256 = sourceDoc.Sha256Hash ?? ComputeSha256Hash(sourcePdfBytes);
+
+        (byte[] extractedBytes, List<int> sortedPages, string normalizedPagesText) extractionResult;
+        using (var readMs = new MemoryStream(sourcePdfBytes))
+        {
+            extractionResult = ExtractPdfPages(readMs, cmd.PageRangeText);
+        }
+
+        var extractedSha256 = ComputeSha256Hash(extractionResult.extractedBytes);
+        var role = !string.IsNullOrWhiteSpace(cmd.DocumentRole) ? cmd.DocumentRole.Trim() : "Matter Extract";
+        var itemNoStr = !string.IsNullOrWhiteSpace(cmd.ItemNumber) ? cmd.ItemNumber.Trim() : null;
+        var khasraRefStr = !string.IsNullOrWhiteSpace(cmd.KhasraReferenceText) ? cmd.KhasraReferenceText.Trim() : null;
+        var contextLabelStr = !string.IsNullOrWhiteSpace(cmd.ContextLabel) ? cmd.ContextLabel.Trim() : null;
+
+        string finalDisplayName;
+        if (!string.IsNullOrWhiteSpace(cmd.DisplayName))
+        {
+            finalDisplayName = cmd.DisplayName.Trim();
+        }
+        else
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(itemNoStr)) parts.Add($"Item #{itemNoStr}");
+            parts.Add($"{role} Extract");
+            if (!string.IsNullOrEmpty(khasraRefStr)) parts.Add($"Khasra {khasraRefStr}");
+            parts.Add($"pp. {extractionResult.normalizedPagesText}");
+            finalDisplayName = string.Join(" · ", parts);
+        }
+
+        var documentId = Guid.NewGuid();
+        var matterDocId = Guid.NewGuid();
+        var extractProvId = Guid.NewGuid();
+        var eventId = Guid.NewGuid();
+        var extractedFileName = $"Extract_p{extractionResult.normalizedPagesText.Replace(", ", "_").Replace("-", "to")}_{sourceDoc.OriginalFileName}";
+
+        string? savedStoragePath = null;
+        try
+        {
+            using (var saveMs = new MemoryStream(extractionResult.extractedBytes))
+            {
+                var fileResult = await storage.SaveAndHashAsync(saveMs, extractedFileName, ct);
+                savedStoragePath = fileResult.StoragePath;
+            }
+
+            return await ExecuteWorkflowTransactionAsync(
+                async opCt =>
+                {
+                    db.ChangeTracker.Clear();
+
+                    var lockedMatter = await LockMatterAsync(matterId, opCt);
+                    if (lockedMatter.RecordStatus == RecordStatus.Archived)
+                        throw new MatterWorkflowException("Cannot add documents to an archived matter.", 409);
+
+                    if (lockedMatter.Revision != cmd.ExpectedRevision)
+                        throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {lockedMatter.Revision}.", 409);
+
+                    var maxSeq = await db.MatterEvents
+                        .Where(e => e.MatterId == matterId)
+                        .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
+                    var seq = maxSeq + 1;
+
+                    var newDoc = new Document
+                    {
+                        Id = documentId,
+                        OriginalFileName = extractedFileName,
+                        StoragePath = savedStoragePath,
+                        Sha256Hash = extractedSha256,
+                        FileSize = extractionResult.extractedBytes.Length,
+                        MimeType = "application/pdf",
+                        DocumentType = "MatterExtract",
+                        UploadedBy = actionUser.DisplayName,
+                        RecordStatus = RecordStatus.Active,
+                        Status = "Active",
+                        Version = 1,
+                        UploadedAt = DateTimeOffset.UtcNow,
+                        CreatedAt = DateTimeOffset.UtcNow,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    };
+                    db.Documents.Add(newDoc);
+
+                    var matterDoc = new MatterDocument
+                    {
+                        Id = matterDocId,
+                        MatterId = matterId,
+                        DocumentId = documentId,
+                        DocumentRole = role,
+                        DisplayName = finalDisplayName
+                    };
+                    db.MatterDocuments.Add(matterDoc);
+
+                    var extractProv = new MatterDocumentExtract
+                    {
+                        Id = extractProvId,
+                        MatterDocumentId = matterDocId,
+                        SourceDocumentId = sourceDoc.Id,
+                        SourceSha256Hash = sourceSha256,
+                        NormalizedSourcePagesText = extractionResult.normalizedPagesText,
+                        NormalizedPageNumbersJson = System.Text.Json.JsonSerializer.Serialize(extractionResult.sortedPages),
+                        ItemNumber = itemNoStr,
+                        KhasraReferenceText = khasraRefStr,
+                        ContextLabel = contextLabelStr,
+                        ExtractedByUserId = currentUserId,
+                        ExtractedByUserNameSnapshot = actionUser.DisplayName,
+                        ExtractedAt = DateTimeOffset.UtcNow
+                    };
+                    db.MatterDocumentExtracts.Add(extractProv);
+
+                    lockedMatter.Revision++;
+                    lockedMatter.UpdatedBy = actionUser.DisplayName;
+                    lockedMatter.UpdatedAt = DateTimeOffset.UtcNow;
+
+                    var ev = new MatterEvent
+                    {
+                        Id = eventId,
+                        MatterId = matterId,
+                        SequenceNumber = seq,
+                        Action = MatterEventAction.DocumentPagesExtracted,
+                        ActionByUserId = currentUserId,
+                        ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                        ActionAt = DateTimeOffset.UtcNow,
+                        DocumentId = documentId,
+                        MatterDocumentId = matterDocId,
+                        WorkstreamIdSnapshot = lockedMatter.WorkstreamId,
+                        WorkstreamNameSnapshot = lockedMatter.Workstream?.Name
+                    };
+                    db.MatterEvents.Add(ev);
+
+                    await db.SaveChangesAsync(opCt);
+                    matterDoc.Document = newDoc;
+                    matterDoc.ExtractProvenance = extractProv;
+                    return matterDoc;
+                },
+                async verifyCt =>
+                {
+                    db.ChangeTracker.Clear();
+                    var evExists = await db.MatterEvents.AsNoTracking()
+                        .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentPagesExtracted && e.DocumentId == documentId && e.MatterDocumentId == matterDocId, verifyCt);
+                    return evExists;
+                },
+                ct);
+        }
+        catch
+        {
+            if (savedStoragePath is not null)
+            {
+                try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { }
+            }
+            throw;
+        }
+    }
+
+    private static string ComputeSha256Hash(byte[] bytes)
+    {
+        var hashBytes = System.Security.Cryptography.SHA256.HashData(bytes);
+        return Convert.ToHexStringLower(hashBytes);
+    }
+
+    public static List<int> ParseAndValidatePageRange(string pageRangeText, int maxAllowedPages = 50)
+    {
+        if (string.IsNullOrWhiteSpace(pageRangeText))
+            throw new MatterWorkflowException("Page range specification is mandatory.", 400);
+
+        var rawPages = new HashSet<int>();
+        var parts = pageRangeText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0)
+            throw new MatterWorkflowException("Invalid page range format.", 400);
+
+        foreach (var part in parts)
+        {
+            if (part.Contains('-'))
+            {
+                var rangeParts = part.Split('-', StringSplitOptions.TrimEntries);
+                if (rangeParts.Length != 2 || !int.TryParse(rangeParts[0], out var start) || !int.TryParse(rangeParts[1], out var end))
+                {
+                    throw new MatterWorkflowException($"Invalid page range format '{part}'. Expected format like '9-11'.", 400);
+                }
+                if (start <= 0 || end <= 0)
+                {
+                    throw new MatterWorkflowException($"Page numbers must be positive integers (1-based). Got '{part}'.", 400);
+                }
+                if (start > end)
+                {
+                    throw new MatterWorkflowException($"Invalid reversed page range '{part}'. Start page cannot be greater than end page.", 400);
+                }
+                for (int p = start; p <= end; p++)
+                {
+                    rawPages.Add(p);
+                }
+            }
+            else
+            {
+                if (!int.TryParse(part, out var singlePage) || singlePage <= 0)
+                {
+                    throw new MatterWorkflowException($"Invalid page number '{part}'. Must be a positive integer (1-based).", 400);
+                }
+                rawPages.Add(singlePage);
+            }
+        }
+
+        var sorted = rawPages.OrderBy(x => x).ToList();
+        if (sorted.Count == 0)
+            throw new MatterWorkflowException("No valid pages were specified.", 400);
+
+        if (sorted.Count > maxAllowedPages)
+            throw new MatterWorkflowException($"Selected page count ({sorted.Count}) exceeds maximum allowed limit of {maxAllowedPages} pages per extraction job.", 400);
+
+        return sorted;
+    }
+
+    private static (byte[] bytes, List<int> sortedPages, string normalizedPagesText) ExtractPdfPages(Stream sourceStream, string pageRangeText, int maxAllowedPages = 50)
+    {
+        var sortedPages = ParseAndValidatePageRange(pageRangeText, maxAllowedPages);
+
+        using var sourcePdf = UglyToad.PdfPig.PdfDocument.Open(sourceStream);
+        var totalPages = sourcePdf.NumberOfPages;
+
+        foreach (var p in sortedPages)
+        {
+            if (p < 1 || p > totalPages)
+            {
+                throw new MatterWorkflowException($"Page number {p} is out of bounds for the source PDF (total pages in source: {totalPages}).", 400);
+            }
+        }
+
+        var builder = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+        foreach (var pageNum in sortedPages)
+        {
+            builder.AddPage(sourcePdf, pageNum);
+        }
+
+        var newBytes = builder.Build();
+
+        using var verifyPdf = UglyToad.PdfPig.PdfDocument.Open(newBytes);
+        if (verifyPdf.NumberOfPages != sortedPages.Count)
+        {
+            throw new MatterWorkflowException("Extracted PDF page count verification failed.", 500);
+        }
+
+        var normalizedPagesText = FormatPageRanges(sortedPages);
+        return (newBytes, sortedPages, normalizedPagesText);
+    }
+
+    private static string FormatPageRanges(List<int> sortedPages)
+    {
+        if (sortedPages.Count == 0) return "";
+        var ranges = new List<string>();
+        int rangeStart = sortedPages[0];
+        int prev = sortedPages[0];
+
+        for (int i = 1; i < sortedPages.Count; i++)
+        {
+            if (sortedPages[i] == prev + 1)
+            {
+                prev = sortedPages[i];
+            }
+            else
+            {
+                ranges.Add(rangeStart == prev ? rangeStart.ToString() : $"{rangeStart}-{prev}");
+                rangeStart = sortedPages[i];
+                prev = sortedPages[i];
+            }
+        }
+        ranges.Add(rangeStart == prev ? rangeStart.ToString() : $"{rangeStart}-{prev}");
+        return string.Join(", ", ranges);
     }
 }

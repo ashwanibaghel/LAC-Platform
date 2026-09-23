@@ -1647,5 +1647,157 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         Assert.Equal(1, target.DocumentCount);
         Assert.Equal(2, target.DraftCount);
     }
+
+    [Fact]
+    public void PageRangeParser_ValidRanges_ParsesAndDeduplicatesInAscendingOrder()
+    {
+        var result1 = MatterWorkflowService.ParseAndValidatePageRange("9, 16", 20);
+        Assert.Equal(new[] { 9, 16 }, result1);
+
+        var result2 = MatterWorkflowService.ParseAndValidatePageRange("9-11, 16, 10", 20);
+        Assert.Equal(new[] { 9, 10, 11, 16 }, result2);
+
+        var result3 = MatterWorkflowService.ParseAndValidatePageRange(" 15, 3 - 5 ", 20);
+        Assert.Equal(new[] { 3, 4, 5, 15 }, result3);
+    }
+
+    [Fact]
+    public void PageRangeParser_InvalidInputs_ThrowsMatterWorkflowException()
+    {
+        // 0 page index
+        Assert.Throws<MatterWorkflowException>(() => MatterWorkflowService.ParseAndValidatePageRange("0, 5", 20));
+        // Reversed range
+        Assert.Throws<MatterWorkflowException>(() => MatterWorkflowService.ParseAndValidatePageRange("15-10", 20));
+        // Exceeds max allowed page count
+        Assert.Throws<MatterWorkflowException>(() => MatterWorkflowService.ParseAndValidatePageRange("1, 2, 3", maxAllowedPages: 2));
+        // Non-numeric text
+        Assert.Throws<MatterWorkflowException>(() => MatterWorkflowService.ParseAndValidatePageRange("invalid", 20));
+    }
+
+    private sealed record ExtractProvenanceDto(
+        string SourceDocumentId,
+        string SourceFileName,
+        string NormalizedSourcePagesText,
+        string? ItemNumber,
+        string? KhasraReferenceText,
+        string? ContextLabel,
+        string ExtractedByUserName
+    );
+
+    private sealed record MatterDocumentWithExtractDto(
+        string Id,
+        string DocumentId,
+        string DisplayName,
+        string DocumentRole,
+        ExtractProvenanceDto? ExtractProvenance
+    );
+
+    [Fact]
+    public async Task ExtractMatterDocumentPages_ValidPdf_CreatesExtractDocumentAndProvenance()
+    {
+        Guid matterId, sourceDocId, userDocId;
+        int revision;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+
+            var pView = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.MatterView);
+            var pDocManage = await db.Permissions.FirstAsync(p => p.Code == PermissionCodes.MatterDocumentManage);
+
+            var roleExt = new Role { Id = Guid.NewGuid(), Code = $"R_EXT_{Guid.NewGuid():N}"[..12], Name = "Extract Role", IsActive = true, RecordStatus = RecordStatus.Active };
+            roleExt.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleExt.Id, PermissionId = pView.Id, ScopeMode = ScopeMode.All });
+            roleExt.RolePermissions.Add(new RolePermission { Id = Guid.NewGuid(), RoleId = roleExt.Id, PermissionId = pDocManage.Id, ScopeMode = ScopeMode.All });
+
+            var userDoc = new AppUser { Id = Guid.NewGuid(), Username = $"u_ext_{Guid.NewGuid():N}"[..12], NormalizedUsername = "U_EXT", DisplayName = "Extract User", PasswordHash = "x", IsActive = true, RecordStatus = RecordStatus.Active };
+            userDoc.UserRoles.Add(new UserRole { Id = Guid.NewGuid(), UserId = userDoc.Id, RoleId = roleExt.Id });
+
+            db.Roles.Add(roleExt);
+            db.AppUsers.Add(userDoc);
+
+            var village = new Village { Name = "Extract Test Village" };
+            db.Villages.Add(village);
+
+            var matter = new Matter
+            {
+                Title = "Extract Test Matter",
+                VillageId = village.Id,
+                RecordStatus = RecordStatus.Active,
+                Status = "Open",
+                Revision = 1
+            };
+            db.Matters.Add(matter);
+
+            // Store a valid 1-page test PDF in storage service
+            var pdfBuilder = new UglyToad.PdfPig.Writer.PdfDocumentBuilder();
+            pdfBuilder.AddPage(UglyToad.PdfPig.Content.PageSize.A4);
+            var bytes = pdfBuilder.Build();
+            using var ms = new MemoryStream(bytes);
+            var fileResult = await storage.SaveAndHashAsync(ms, "master_award.pdf", default);
+
+            var doc = new Document
+            {
+                OriginalFileName = "master_award.pdf",
+                StoragePath = fileResult.StoragePath,
+                MimeType = "application/pdf",
+                FileSize = bytes.Length,
+                Sha256Hash = fileResult.Sha256Hash,
+                DocumentType = "AwardDocument",
+                RecordStatus = RecordStatus.Active,
+                Status = "Active"
+            };
+            db.Documents.Add(doc);
+
+            var project = new AcquisitionProject { Name = "Extract Project", RecordStatus = RecordStatus.Active };
+            db.AcquisitionProjects.Add(project);
+
+            var award = new Award { AwardNumber = "AWD_EXT_1", AcquisitionProjectId = project.Id, Status = "Published", RecordStatus = RecordStatus.Active };
+            db.Awards.Add(award);
+
+            db.MatterAwards.Add(new MatterAward { MatterId = matter.Id, AwardId = award.Id });
+            db.DocumentAwards.Add(new DocumentAward { AwardId = award.Id, DocumentId = doc.Id });
+
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+            sourceDocId = doc.Id;
+            revision = matter.Revision;
+            userDocId = userDoc.Id;
+        }
+
+        var extractPayload = new
+        {
+            sourceDocumentId = sourceDocId,
+            pageRangeText = "1",
+            role = "Naqsha Mutabiq",
+            itemNumber = "42",
+            khasraReferenceText = "12/1, 18/4",
+            contextLabel = "Rameshwar Singh Extract",
+            displayName = "Item #42 - NM Extract",
+            expectedRevision = revision
+        };
+
+        var postReq = new HttpRequestMessage(HttpMethod.Post, $"/api/matters/{matterId}/documents/extract-pages");
+        postReq.Headers.Add("X-Test-User-Id", userDocId.ToString());
+        postReq.Content = JsonContent.Create(extractPayload);
+        var postRes = await _client.SendAsync(postReq);
+        postRes.EnsureSuccessStatusCode();
+
+        // Query GET /api/matters/{id}/documents to check extract provenance projection
+        var getReq = new HttpRequestMessage(HttpMethod.Get, $"/api/matters/{matterId}/documents");
+        getReq.Headers.Add("X-Test-User-Id", userDocId.ToString());
+        var getRes = await _client.SendAsync(getReq);
+        getRes.EnsureSuccessStatusCode();
+        var docs = await getRes.Content.ReadFromJsonAsync<List<MatterDocumentWithExtractDto>>();
+        Assert.NotNull(docs);
+        var extractedDoc = Assert.Single(docs);
+
+        Assert.Equal("Item #42 - NM Extract", extractedDoc.DisplayName);
+        Assert.Equal("Naqsha Mutabiq", extractedDoc.DocumentRole);
+        Assert.NotNull(extractedDoc.ExtractProvenance);
+        Assert.Equal("1", extractedDoc.ExtractProvenance!.NormalizedSourcePagesText);
+        Assert.Equal("42", extractedDoc.ExtractProvenance.ItemNumber);
+        Assert.Equal("12/1, 18/4", extractedDoc.ExtractProvenance.KhasraReferenceText);
+        Assert.Equal("master_award.pdf", extractedDoc.ExtractProvenance.SourceFileName);
+    }
 }
 

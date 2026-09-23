@@ -251,7 +251,8 @@ public static class MatterEndpoints
                 Remarks: request.Remarks,
                 KhasraReferenceText: request.KhasraReferenceText,
                 ExpectedRevision: request.ExpectedRevision,
-                Status: request.Status
+                Status: request.Status,
+                AwardId: request.AwardId
             );
 
             try
@@ -460,7 +461,19 @@ public static class MatterEndpoints
                     x.Document.OriginalFileName,
                     x.Document.MimeType,
                     x.Document.FileSize,
-                    x.Document.UploadedAt
+                    x.Document.UploadedAt,
+                    extractProvenance = x.ExtractProvenance == null ? null : new
+                    {
+                        sourceDocumentId = x.ExtractProvenance.SourceDocumentId,
+                        sourceFileName = x.ExtractProvenance.SourceDocument.OriginalFileName,
+                        sourceSha256Hash = x.ExtractProvenance.SourceSha256Hash,
+                        normalizedSourcePagesText = x.ExtractProvenance.NormalizedSourcePagesText,
+                        itemNumber = x.ExtractProvenance.ItemNumber,
+                        khasraReferenceText = x.ExtractProvenance.KhasraReferenceText,
+                        contextLabel = x.ExtractProvenance.ContextLabel,
+                        extractedAt = x.ExtractProvenance.ExtractedAt,
+                        extractedByUserName = x.ExtractProvenance.ExtractedByUserNameSnapshot
+                    }
                 })
                 .ToListAsync(ct);
 
@@ -544,10 +557,11 @@ public static class MatterEndpoints
 
             var docSourceMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
 
-            var unlinkedCandidateIds = docSourceMap.Keys.Except(alreadyLinkedIds).ToList();
+            // Union candidate IDs with alreadyLinkedIds so officers can extract pages from an already-linked full document
+            var allCandidateIds = docSourceMap.Keys.Union(alreadyLinkedIds).ToList();
 
             var docs = await db.Documents.AsNoTracking()
-                .Where(d => unlinkedCandidateIds.Contains(d.Id) && d.RecordStatus == RecordStatus.Active && d.Status == "Active")
+                .Where(d => allCandidateIds.Contains(d.Id) && d.RecordStatus == RecordStatus.Active && d.Status == "Active")
                 .OrderByDescending(d => d.UploadedAt)
                 .Select(d => new
                 {
@@ -564,10 +578,66 @@ public static class MatterEndpoints
                 d.OriginalFileName,
                 d.DocumentType,
                 d.UploadedAt,
-                source = docSourceMap.GetValueOrDefault(d.Id, "Candidate")
+                source = docSourceMap.GetValueOrDefault(d.Id, alreadyLinkedIds.Contains(d.Id) ? "Matter Document" : "Candidate"),
+                isAlreadyLinked = alreadyLinkedIds.Contains(d.Id)
             });
 
             return Results.Ok(result);
+        });
+
+        matters.MapPost("/{id:guid}/documents/extract-pages", async (
+            Guid id,
+            ExtractPagesApiRequest request,
+            MatterWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (request.SourceDocumentId == Guid.Empty)
+                return Results.BadRequest(new { message = "Source document ID is mandatory." });
+
+            if (string.IsNullOrWhiteSpace(request.PageRangeText))
+                return Results.BadRequest(new { message = "Page range is mandatory (e.g. '9, 16' or '9-11, 16')." });
+
+            var cmd = new ExtractMatterDocumentPagesCommand(
+                SourceDocumentId: request.SourceDocumentId,
+                PageRangeText: request.PageRangeText,
+                DocumentRole: request.Role,
+                ItemNumber: request.ItemNumber,
+                KhasraReferenceText: request.KhasraReferenceText,
+                ContextLabel: request.ContextLabel,
+                DisplayName: request.DisplayName,
+                ExpectedRevision: request.ExpectedRevision
+            );
+
+            try
+            {
+                var matterDoc = await workflow.ExtractAndAttachMatterDocumentPagesAsync(id, cmd, userId, ct);
+                return Results.Created($"/api/matters/{id}/documents/{matterDoc.DocumentId}", new
+                {
+                    id = matterDoc.Id,
+                    documentId = matterDoc.DocumentId,
+                    role = matterDoc.DocumentRole,
+                    displayName = matterDoc.DisplayName,
+                    extractProvenance = matterDoc.ExtractProvenance is null ? null : new
+                    {
+                        sourceDocumentId = matterDoc.ExtractProvenance.SourceDocumentId,
+                        sourceSha256Hash = matterDoc.ExtractProvenance.SourceSha256Hash,
+                        normalizedSourcePagesText = matterDoc.ExtractProvenance.NormalizedSourcePagesText,
+                        itemNumber = matterDoc.ExtractProvenance.ItemNumber,
+                        khasraReferenceText = matterDoc.ExtractProvenance.KhasraReferenceText,
+                        contextLabel = matterDoc.ExtractProvenance.ContextLabel,
+                        extractedAt = matterDoc.ExtractProvenance.ExtractedAt,
+                        extractedByUserName = matterDoc.ExtractProvenance.ExtractedByUserNameSnapshot
+                    }
+                });
+            }
+            catch (MatterWorkflowException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+            }
         });
 
         matters.MapPost("/{id:guid}/documents/link", async (
@@ -599,6 +669,57 @@ public static class MatterEndpoints
             {
                 return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
             }
+        });
+
+        matters.MapDelete("/{id:guid}/documents/{documentId:guid}", async (
+            Guid id,
+            Guid documentId,
+            LacDbContext db,
+            IMatterAuthorizationService matterAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterDocumentManage, userId, ct))
+                return Results.Forbid();
+
+            var matterDoc = await db.MatterDocuments
+                .FirstOrDefaultAsync(md => md.MatterId == id && md.DocumentId == documentId, ct);
+            if (matterDoc is null)
+                return Results.NotFound(new { message = "Matter document link not found." });
+
+            db.MatterDocuments.Remove(matterDoc);
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        matters.MapPut("/{id:guid}/documents/{documentId:guid}", async (
+            Guid id,
+            Guid documentId,
+            UpdateMatterDocumentApiRequest req,
+            LacDbContext db,
+            IMatterAuthorizationService matterAuth,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterDocumentManage, userId, ct))
+                return Results.Forbid();
+
+            var matterDoc = await db.MatterDocuments
+                .FirstOrDefaultAsync(md => md.MatterId == id && md.DocumentId == documentId, ct);
+            if (matterDoc is null)
+                return Results.NotFound(new { message = "Matter document link not found." });
+
+            if (!string.IsNullOrWhiteSpace(req.Role)) matterDoc.DocumentRole = req.Role.Trim();
+            if (req.DisplayName != null) matterDoc.DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? null : req.DisplayName.Trim();
+
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { matterDoc.Id, matterDoc.DocumentId, role = matterDoc.DocumentRole, displayName = matterDoc.DisplayName });
         });
 
         matters.MapPost("/{id:guid}/export", async (
@@ -894,7 +1015,13 @@ public sealed record UpdateMatterMetadataApiRequest(
     string? Remarks,
     string? KhasraReferenceText,
     int ExpectedRevision,
-    string? Status = null
+    string? Status = null,
+    Guid? AwardId = null
+);
+
+public sealed record UpdateMatterDocumentApiRequest(
+    string? Role,
+    string? DisplayName
 );
 
 public sealed record ReclassifyMatterApiRequest(
@@ -917,4 +1044,15 @@ public sealed record LinkMatterDocumentApiRequest(
 
 public sealed record ExportMatterDocumentsApiRequest(
     List<Guid> DocumentIds
+);
+
+public sealed record ExtractPagesApiRequest(
+    Guid SourceDocumentId,
+    string PageRangeText,
+    string? Role,
+    string? ItemNumber,
+    string? KhasraReferenceText,
+    string? ContextLabel,
+    string? DisplayName,
+    int ExpectedRevision
 );

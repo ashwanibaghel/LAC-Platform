@@ -67,7 +67,7 @@ public static class MatterDocumentProvenanceHelper
         // Filter: Document.RecordStatus == RecordStatus.Active AND Document.Status == "Active"
         var candidateKeys = candidateDocIds.Keys.ToList();
         var activeKeys = await db.Documents.AsNoTracking()
-            .Where(d => candidateKeys.Contains(d.Id) && d.RecordStatus == RecordStatus.Active && d.Status == "Active")
+            .Where(d => candidateKeys.Contains(d.Id) && d.RecordStatus == RecordStatus.Active && (d.Status == "Active" || string.IsNullOrEmpty(d.Status)))
             .Select(d => d.Id)
             .ToListAsync(ct);
 
