@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { ExportMenu } from "../components/ExportMenu";
-import { IconPlus, IconSearch, IconChevronRight, IconClose } from "../components/Icons";
+import { IconPlus, IconSearch, IconClose } from "../components/Icons";
 import "./land.css";
 
 const api = "/api";
@@ -143,7 +143,6 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
   const [refresh, setRefresh] = useState(0);
   const [panel, setPanel] = useState(false);
   const [quickId, setQuickId] = useState("");
-  const [importFile, setImportFile] = useState<File | null>(null);
   const [edit, setEdit] = useState<any>(null);
 
   const [loading, setLoading] = useState(true);
@@ -241,7 +240,7 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
           <input
             type="text"
             className="form-input search-input"
-            placeholder="Search khasra number, rectangle, or killa…"
+            placeholder="Search Khasra number…"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -276,18 +275,27 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
                   <thead>
                     <tr>
                       <th scope="col" style={{ width: "25%" }}>Khasra Number</th>
-                      <th scope="col" style={{ width: "35%" }}>Canonical Area</th>
+                      <th scope="col" style={{ width: "40%" }}>Canonical Area</th>
                       <th scope="col" style={{ width: "25%" }}>Linked Award</th>
-                      <th scope="col" style={{ width: "15%", textAlign: "right" }}>Action</th>
+                      <th scope="col" style={{ width: "10%", textAlign: "right" }}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {rectItems.map((k) => (
                       <tr
                         key={k.id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Inspect Khasra ${k.displayNumber || k.normalizedNumber || k.id}`}
                         className="khasra-row-interactive"
                         onClick={() => handleRowClick(k.id)}
-                        title="Click to inspect Khasra details"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            handleRowClick(k.id);
+                          }
+                        }}
+                        title="Click or press Enter/Space to inspect Khasra details"
                       >
                         <td>
                           <span className="khasra-num-highlight">
@@ -313,26 +321,16 @@ export const VillageKhasrasTab: React.FC<VillageKhasrasTabProps> = ({ villageId 
                           )}
                         </td>
                         <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
-                          <div style={{ display: "inline-flex", gap: "8px", alignItems: "center" }}>
+                          {canEditKhasra && (
                             <button
                               type="button"
-                              className="text-action"
-                              onClick={() => handleRowClick(k.id)}
-                              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "12.5px" }}
+                              className="khasra-edit-btn"
+                              onClick={(e) => openEditModal(k, e)}
+                              title="Edit Khasra"
                             >
-                              Inspect
+                              Edit
                             </button>
-                            {canEditKhasra && (
-                              <button
-                                type="button"
-                                className="text-action"
-                                onClick={(e) => openEditModal(k, e)}
-                                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontSize: "12.5px", color: "#475569" }}
-                              >
-                                Edit
-                              </button>
-                            )}
-                          </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -582,7 +580,7 @@ const KhasraEditModal: React.FC<KhasraEditModalProps> = ({ villageId, khasra, on
 };
 
 /* =========================================================
-   Right-Side Inspector Drawer
+   Right-Side Inspector Drawer with Accessibility & Keyboard Focus Trap
    ========================================================= */
 interface KhasraRightInspectorDrawerProps {
   id: string;
@@ -599,6 +597,51 @@ const KhasraRightInspectorDrawer: React.FC<KhasraRightInspectorDrawerProps> = ({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detail, setDetail] = useState<KhasraDetail | null>(null);
   const [ownership, setOwnership] = useState<{ forbidden?: boolean; error?: boolean; data?: RecordedOwnershipResult }>({});
+
+  const previousActiveElement = useRef<HTMLElement | null>(null);
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    previousActiveElement.current = document.activeElement as HTMLElement;
+
+    const timer = setTimeout(() => {
+      closeBtnRef.current?.focus();
+    }, 50);
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+      if (e.key === "Tab" && drawerRef.current) {
+        const focusables = drawerRef.current.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusables.length > 0) {
+          const first = focusables[0];
+          const last = focusables[focusables.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("keydown", handleKeyDown);
+      if (previousActiveElement.current && typeof previousActiveElement.current.focus === "function") {
+        previousActiveElement.current.focus();
+      }
+    };
+  }, [onClose]);
 
   useEffect(() => {
     let active = true;
@@ -643,15 +686,22 @@ const KhasraRightInspectorDrawer: React.FC<KhasraRightInspectorDrawerProps> = ({
 
   return (
     <div className="khasra-drawer-backdrop" onClick={onClose}>
-      <div className="khasra-drawer-panel" onClick={(e) => e.stopPropagation()}>
+      <div
+        ref={drawerRef}
+        className="khasra-drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="drawer-title-khasra"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="khasra-drawer-header">
           <div>
             <span className="v-eyebrow">PARCEL INSPECTOR</span>
-            <h3 style={{ margin: "2px 0 0", fontSize: "18px", fontWeight: 800 }}>
+            <h3 id="drawer-title-khasra" style={{ margin: "2px 0 0", fontSize: "18px", fontWeight: 800 }}>
               Khasra #{detail?.displayNumber || id}
             </h3>
           </div>
-          <button className="icon-button" onClick={onClose} title="Close Inspector">
+          <button ref={closeBtnRef} className="icon-button" onClick={onClose} title="Close Inspector (Esc)">
             <IconClose size={18} />
           </button>
         </div>

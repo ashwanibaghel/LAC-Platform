@@ -100,7 +100,7 @@ export const VillageLandRecordsTab: React.FC<VillageLandRecordsTabProps> = ({ vi
             <span style={{ fontSize: "12.5px", color: "#64748b" }}>
               {totalRows === 0
                 ? "0 entries · Not started"
-                : `${verifiedCommitted} verified / ${totalRows} total entries (${progressPct}% complete)`}
+                : `${verifiedCommitted} verified / committed of ${totalRows} total entries (${progressPct}% complete)`}
             </span>
           </div>
           {totalRows > 0 && (

@@ -66,6 +66,40 @@ export interface VillageOverviewTabProps {
   villageId: string;
 }
 
+function getSourceCoverageAction(sourceType: string, villageId: string) {
+  const typeLower = sourceType.toLowerCase();
+  if (typeLower.includes("lr") || typeLower.includes("khatauni")) {
+    return (
+      <Link
+        to={`/villages/${villageId}?tab=lr`}
+        className="text-action"
+        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+      >
+        <span>LR &amp; Ownership</span>
+        <IconChevronRight size={14} />
+      </Link>
+    );
+  }
+  if (
+    typeLower.includes("award") ||
+    typeLower.includes("nm") ||
+    typeLower.includes("statement") ||
+    typeLower.includes("possession")
+  ) {
+    return (
+      <Link
+        to={`/villages/${villageId}?tab=core-records`}
+        className="text-action"
+        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+      >
+        <span>Core Records</span>
+        <IconChevronRight size={14} />
+      </Link>
+    );
+  }
+  return <span style={{ fontSize: "12.5px", color: "#94a3b8" }}>—</span>;
+}
+
 export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageId }) => {
   const { hasPermission } = useAuth();
   const canViewAward = hasPermission("Award.View");
@@ -145,20 +179,22 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
               <span className="cmd-val">{official.possessionEventCount ?? 0}</span>
               <span className="cmd-lbl">Possessions</span>
             </div>
-            <div className="cmd-metric">
-              <span className="cmd-val">{official.courtCaseCount ?? 0}</span>
-              <span className="cmd-lbl">Court Cases</span>
-            </div>
+            {official.courtCaseCount > 0 && (
+              <div className="cmd-metric">
+                <span className="cmd-val">{official.courtCaseCount}</span>
+                <span className="cmd-lbl">Court Cases</span>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* Linked Awards Section */}
+      {/* Linked Acquisition Awards Section */}
       {awards.length > 0 && (
         <section className="section" style={{ marginBottom: "24px" }}>
           <div className="section-heading">
             <div>
-              <h2>Active Acquisition Awards</h2>
+              <h2>Linked Acquisition Awards</h2>
               <span>Authoritative land acquisition awards associated with {data.village?.name || "this village"}.</span>
             </div>
             <span>{awards.length} Award(s)</span>
@@ -331,14 +367,7 @@ export const VillageOverviewTab: React.FC<VillageOverviewTabProps> = ({ villageI
                       <span style={{ fontSize: "13px", color: "#475569" }}>{s.detail}</span>
                     </td>
                     <td>
-                      <Link
-                        to={`/villages/${villageId}?tab=core-records`}
-                        className="text-action"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                      >
-                        <span>Core Records</span>
-                        <IconChevronRight size={14} />
-                      </Link>
+                      {getSourceCoverageAction(s.sourceType, villageId)}
                     </td>
                   </tr>
                 ))

@@ -255,7 +255,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                             <IconFileText size={14} />
                             <div className="core-doc-info">
                               <span className="doc-status-lbl">
-                                Verified {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
+                                Available {roleInfo && roleInfo.count > 1 ? `(${roleInfo.count})` : ""}
                               </span>
                               {doc?.originalFileName && (
                                 <span className="doc-filename" title={doc.originalFileName}>
