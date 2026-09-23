@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import {
+  IconSearch,
+  IconPlus,
+  IconClose,
+  IconBuilding,
+  IconMatters,
+  IconFilter
+} from "../components/Icons";
 import "./matter.css";
 
 interface WorkstreamOption {
@@ -63,8 +71,8 @@ export const MatterDirectory: React.FC = () => {
   // New Matter Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
-  const [createVillageId, setCreateVillageId] = useState("");
-  const [createWorkstreamId, setCreateWorkstreamId] = useState("");
+  const [createVillageId, setCreateVillageId] = useState(""); // Intentional explicit selection
+  const [createWorkstreamId, setCreateWorkstreamId] = useState(""); // Intentional explicit selection
   const [createMatterType, setCreateMatterType] = useState("Court Case");
   const [createRefNo, setCreateRefNo] = useState("");
   const [createKhasraRef, setCreateKhasraRef] = useState("");
@@ -79,9 +87,6 @@ export const MatterDirectory: React.FC = () => {
       .then((data) => {
         if (data?.workstreams) {
           setWorkstreams(data.workstreams);
-          if (data.workstreams.length > 0 && !createWorkstreamId) {
-            setCreateWorkstreamId(data.workstreams[0].id);
-          }
         }
       })
       .catch(() => {});
@@ -91,13 +96,10 @@ export const MatterDirectory: React.FC = () => {
       .then((data) => {
         if (Array.isArray(data)) {
           setVillages(data);
-          if (data.length > 0 && !createVillageId) {
-            setCreateVillageId(data[0].id);
-          }
         }
       })
       .catch(() => {});
-  }, [createVillageId, createWorkstreamId]);
+  }, []);
 
   const loadMatters = useCallback(async () => {
     try {
@@ -145,18 +147,28 @@ export const MatterDirectory: React.FC = () => {
     setSearchTerm(q);
   };
 
+  const handleClearFilters = () => {
+    setQ("");
+    setSearchTerm("");
+    setStatus("all");
+    setWorkstreamFilter("");
+    setSortBy("updatedat");
+    setSortDesc(true);
+    setPage(1);
+  };
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createTitle.trim()) {
-      setCreateError("Matter title is required.");
-      return;
-    }
     if (!createVillageId) {
-      setCreateError("Please select an official Village.");
+      setCreateError("Please explicitly select an official Village.");
       return;
     }
     if (!createWorkstreamId) {
-      setCreateError("Workstream is mandatory for all new matters.");
+      setCreateError("Please explicitly select a Workstream.");
+      return;
+    }
+    if (!createTitle.trim()) {
+      setCreateError("Matter title is required.");
       return;
     }
 
@@ -185,6 +197,13 @@ export const MatterDirectory: React.FC = () => {
 
       const created = await res.json();
       setShowCreateModal(false);
+      // Reset form fields for next time
+      setCreateTitle("");
+      setCreateVillageId("");
+      setCreateWorkstreamId("");
+      setCreateRefNo("");
+      setCreateKhasraRef("");
+      setCreateRemarks("");
       navigate(`/matters/${created.id}`);
     } catch (err: any) {
       setCreateError(err.message || "Could not create matter.");
@@ -194,31 +213,47 @@ export const MatterDirectory: React.FC = () => {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+  const startCount = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endCount = Math.min(page * pageSize, totalCount);
+  const hasActiveFilters = Boolean(searchTerm.trim() || status !== "all" || workstreamFilter);
+
+  const canCreate = hasPermission("Matter.Create") || hasPermission("Matter.Edit");
 
   return (
-    <div className="section">
+    <div className="matter-directory-container">
+      {/* Header Bar */}
       <div className="matter-directory-header">
         <div>
-          <h2>Matters Directory</h2>
-          <span className="hint">Secure workspace for legal, compensation, and administrative case files.</span>
+          <h2>Matters</h2>
+          <span className="hint">Official legal, compensation, and administrative case directory.</span>
         </div>
-        {(hasPermission("Matter.Create") || hasPermission("Matter.Edit")) && (
-          <button className="primary" onClick={() => setShowCreateModal(true)}>
+        {canCreate && (
+          <button
+            type="button"
+            className="btn-action-primary"
+            onClick={() => {
+              setCreateError(null);
+              setShowCreateModal(true);
+            }}
+          >
+            <IconPlus size={16} />
             + New Matter
           </button>
         )}
       </div>
 
-      {/* Filters Bar */}
+      {/* Command & Filters Bar */}
       <form onSubmit={handleSearchSubmit} className="matter-filters-bar">
-        <input
-          type="text"
-          className="matter-search-input"
-          placeholder="Search by title, reference no, khasra, or village..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <button type="submit">Search</button>
+        <div className="matter-search-wrap">
+          <IconSearch size={16} className="matter-search-icon" />
+          <input
+            type="text"
+            className="matter-search-input"
+            placeholder="Search by title, reference no, khasra, or village..."
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
 
         <select
           className="matter-filter-select"
@@ -227,6 +262,7 @@ export const MatterDirectory: React.FC = () => {
             setWorkstreamFilter(e.target.value);
             setPage(1);
           }}
+          aria-label="Filter by workstream"
         >
           <option value="">All Workstreams</option>
           <option value="UNCLASSIFIED">[Unclassified]</option>
@@ -244,6 +280,7 @@ export const MatterDirectory: React.FC = () => {
             setStatus(e.target.value);
             setPage(1);
           }}
+          aria-label="Filter by status"
         >
           <option value="all">All Statuses</option>
           <option value="Open">Open</option>
@@ -259,6 +296,7 @@ export const MatterDirectory: React.FC = () => {
             setSortDesc(sd === "desc");
             setPage(1);
           }}
+          aria-label="Sort options"
         >
           <option value="updatedat:desc">Recently Updated</option>
           <option value="createdat:desc">Newest First</option>
@@ -266,42 +304,87 @@ export const MatterDirectory: React.FC = () => {
           <option value="referencenumber:asc">Reference No</option>
           <option value="village:asc">Village (A-Z)</option>
         </select>
+
+        <button type="submit" className="matter-filter-btn">
+          <IconFilter size={14} />
+          Filter
+        </button>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            className="btn-action-secondary"
+            onClick={handleClearFilters}
+            style={{ padding: "6px 10px", fontSize: "12px" }}
+          >
+            Clear
+          </button>
+        )}
       </form>
 
       {error && <div className="state error">{error}</div>}
 
       {loading ? (
-        <div className="state loading">Loading matters...</div>
+        <div className="state loading">Loading matters directory...</div>
       ) : items.length === 0 ? (
         <div className="state empty">
-          <strong>No matters found.</strong>
-          <span>Try adjusting your search criteria or workstream filter.</span>
+          <IconMatters size={32} style={{ color: "#94a3b8", marginBottom: 8 }} />
+          <strong>No matters found</strong>
+          <span>Adjust your search keywords or workstream filters.</span>
         </div>
       ) : (
         <>
-          <table className="data-table">
+          {/* Dense Operational Table */}
+          <table className="matter-directory-table">
             <thead>
               <tr>
-                <th>Title</th>
-                <th>Reference No</th>
-                <th>Type</th>
-                <th>Workstream</th>
-                <th>Status</th>
-                <th>Village</th>
-                <th>Documents</th>
-                <th>Updated</th>
+                <th style={{ width: "32%" }}>Matter Title</th>
+                <th style={{ width: "14%" }}>Reference No</th>
+                <th style={{ width: "11%" }}>Type</th>
+                <th style={{ width: "13%" }}>Village</th>
+                <th style={{ width: "14%" }}>Workstream</th>
+                <th style={{ width: "8%" }}>Status</th>
+                <th style={{ width: "8%" }}>Docs</th>
               </tr>
             </thead>
             <tbody>
               {items.map((m) => (
-                <tr key={m.id}>
+                <tr
+                  key={m.id}
+                  className="matter-table-row"
+                  onClick={() => navigate(`/matters/${m.id}`)}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") navigate(`/matters/${m.id}`);
+                  }}
+                >
                   <td>
-                    <Link to={`/matters/${m.id}`}>
-                      <strong>{m.title}</strong>
-                    </Link>
+                    <div className="matter-identity-cell">
+                      <Link
+                        to={`/matters/${m.id}`}
+                        className="matter-identity-title"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {m.title}
+                      </Link>
+                      {m.khasraReferenceText && (
+                        <span className="matter-identity-sub" title={m.khasraReferenceText}>
+                          Khasra: {m.khasraReferenceText}
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td>{m.referenceNumber || "—"}</td>
-                  <td>{m.matterType}</td>
+                  <td>
+                    <span style={{ fontWeight: 500, fontFamily: "monospace", fontSize: "12px" }}>
+                      {m.referenceNumber || "—"}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{ fontSize: "12px", color: "#475569" }}>{m.matterType}</span>
+                  </td>
+                  <td>
+                    <span style={{ fontWeight: 500, color: "#334155" }}>{m.villageName}</span>
+                  </td>
                   <td>
                     {m.workstreamName ? (
                       <span className="matter-badge-workstream" title={`Code: ${m.workstreamCode}`}>
@@ -318,44 +401,90 @@ export const MatterDirectory: React.FC = () => {
                       {m.status}
                     </span>
                   </td>
-                  <td>{m.villageName}</td>
-                  <td>{m.documentCount}</td>
-                  <td>{new Date(m.updatedAt).toLocaleDateString()}</td>
+                  <td>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#475569" }}>
+                      {m.documentCount}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
-              <span>
-                Showing {items.length} of {totalCount} matters (Page {page} of {totalPages})
-              </span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-                  Previous
-                </button>
-                <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                  Next
-                </button>
-              </div>
+          {/* Compact Pagination */}
+          <div className="matter-pagination-bar">
+            <span>
+              Showing <strong>{startCount}–{endCount}</strong> of <strong>{totalCount}</strong> matters
+            </span>
+            <div className="matter-pagination-actions">
+              <button
+                type="button"
+                className="matter-pagination-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="matter-pagination-btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next
+              </button>
             </div>
-          )}
+          </div>
         </>
       )}
 
-      {/* Create Matter Modal */}
+      {/* New Matter Modal */}
       {showCreateModal && (
-        <div className="matter-modal-overlay">
-          <div className="matter-modal-card">
-            <h3 className="matter-modal-title">Create Official Matter</h3>
-            {createError && <p style={{ color: "#b91c1c", marginBottom: 12 }}>{createError}</p>}
+        <div className="matter-modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <div>
+                <h3 className="matter-modal-title">Create Official Matter</h3>
+                <span className="hint">Register a new case file into official village & workstream context.</span>
+              </div>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowCreateModal(false)}
+                title="Close dialog"
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {createError && (
+              <div
+                style={{
+                  background: "#fef2f2",
+                  border: "1px solid #fecaca",
+                  color: "#b91c1c",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  marginBottom: 14,
+                  fontSize: "13px"
+                }}
+              >
+                {createError}
+              </div>
+            )}
+
             <form onSubmit={handleCreateSubmit}>
               <div className="field-grid">
                 <label>
                   Village *
-                  <select value={createVillageId} onChange={(e) => setCreateVillageId(e.target.value)} required>
+                  <select
+                    value={createVillageId}
+                    onChange={(e) => setCreateVillageId(e.target.value)}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select Official Village...
+                    </option>
                     {villages.map((v) => (
                       <option key={v.id} value={v.id}>
                         {v.name}
@@ -366,7 +495,14 @@ export const MatterDirectory: React.FC = () => {
 
                 <label>
                   Workstream *
-                  <select value={createWorkstreamId} onChange={(e) => setCreateWorkstreamId(e.target.value)} required>
+                  <select
+                    value={createWorkstreamId}
+                    onChange={(e) => setCreateWorkstreamId(e.target.value)}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select Workstream...
+                    </option>
                     {workstreams.map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.name} ({w.code})
@@ -389,13 +525,13 @@ export const MatterDirectory: React.FC = () => {
                 <label>
                   Matter Type *
                   <select value={createMatterType} onChange={(e) => setCreateMatterType(e.target.value)}>
-                    <option>Court Case</option>
-                    <option>Compensation</option>
-                    <option>Land Acquisition</option>
-                    <option>Demarcation</option>
-                    <option>Possession</option>
-                    <option>General</option>
-                    <option>Other</option>
+                    <option value="Court Case">Court Case</option>
+                    <option value="Compensation">Compensation</option>
+                    <option value="Land Acquisition">Land Acquisition</option>
+                    <option value="Demarcation">Demarcation</option>
+                    <option value="Possession">Possession</option>
+                    <option value="General">General</option>
+                    <option value="Other">Other</option>
                   </select>
                 </label>
 
@@ -420,22 +556,30 @@ export const MatterDirectory: React.FC = () => {
                 </label>
 
                 <label style={{ gridColumn: "span 2" }}>
-                  Remarks
+                  Remarks / Administrative Notes
                   <textarea
                     value={createRemarks}
                     onChange={(e) => setCreateRemarks(e.target.value)}
-                    placeholder="Administrative notes or context..."
+                    placeholder="Administrative background or context notes..."
                     rows={3}
                   />
                 </label>
               </div>
 
               <div className="matter-modal-actions">
-                <button type="button" className="quiet-button" onClick={() => setShowCreateModal(false)}>
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setShowCreateModal(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={creating || !createTitle.trim()}>
-                  {creating ? "Creating..." : "Create Matter"}
+                <button
+                  type="submit"
+                  className="btn-action-primary"
+                  disabled={creating || !createTitle.trim() || !createVillageId || !createWorkstreamId}
+                >
+                  {creating ? "Creating Matter..." : "Create Matter"}
                 </button>
               </div>
             </form>

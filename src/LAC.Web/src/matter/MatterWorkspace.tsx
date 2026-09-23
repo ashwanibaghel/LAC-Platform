@@ -1,7 +1,23 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { MatterDrafts } from "../editor/MatterDraftEditor";
+import {
+  IconLock,
+  IconMoreVertical,
+  IconUpload,
+  IconLink,
+  IconDownload,
+  IconClose,
+  IconEdit,
+  IconArchive,
+  IconPlus,
+  IconFileText,
+  IconFile,
+  IconBuilding,
+  IconArrowRight,
+  IconHistory
+} from "../components/Icons";
 import "./matter.css";
 
 interface MatterDocumentItem {
@@ -63,6 +79,8 @@ interface WorkstreamOption {
   code: string;
 }
 
+type WorkspaceTab = "overview" | "documents" | "drafts" | "outward" | "activity";
+
 export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentType<{ matterId: string }> }> = ({
   MatterOutwardSection
 }) => {
@@ -78,13 +96,21 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
 
-  // Modals & Panels
+  // Tab State
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+
+  // Overflow Menu State
+  const [showOverflow, setShowOverflow] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+
+  // Modals & Drawers
   const [showEditModal, setShowEditModal] = useState(false);
   const [showReclassifyModal, setShowReclassifyModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
-  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showLinkDrawer, setShowLinkDrawer] = useState(false);
 
-  // Edit State
+  // Edit Form State
   const [editTitle, setEditTitle] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editRefNo, setEditRefNo] = useState("");
@@ -93,28 +119,39 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Reclassify State
+  // Reclassify Form State
   const [reclassifyTargetId, setReclassifyTargetId] = useState("");
   const [reclassifyReason, setReclassifyReason] = useState("");
   const [reclassifyError, setReclassifyError] = useState<string | null>(null);
   const [savingReclassify, setSavingReclassify] = useState(false);
 
-  // Archive State
+  // Archive Form State
   const [archiveReason, setArchiveReason] = useState("");
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [savingArchive, setSavingArchive] = useState(false);
 
-  // Upload Document State
+  // Upload Form State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadRole, setUploadRole] = useState("Application");
   const [uploadDisplayName, setUploadDisplayName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Linking State
+  // Linking Form State
   const [linkingDocId, setLinkingDocId] = useState<string | null>(null);
   const [linkRole, setLinkRole] = useState("Other");
   const [linkError, setLinkError] = useState<string | null>(null);
+
+  // Close overflow menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setShowOverflow(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Load Matter Details & Documents
   useEffect(() => {
@@ -174,14 +211,14 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
       .catch(() => {});
   }, [reclassifyTargetId]);
 
-  // Load Eligible Documents when picker opened
+  // Load Eligible Documents when drawer opened
   useEffect(() => {
-    if (!showLinkPicker) return;
+    if (!showLinkDrawer) return;
     fetch(`/api/matters/${id}/eligible-documents?r=${refresh}`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => setEligibleDocs(data))
       .catch(() => setEligibleDocs([]));
-  }, [id, showLinkPicker, refresh]);
+  }, [id, showLinkDrawer, refresh]);
 
   const toggleSelectDoc = (docId: string) => {
     setSelectedDocIds((prev) => (prev.includes(docId) ? prev.filter((x) => x !== docId) : [...prev, docId]));
@@ -329,6 +366,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
       setUploadFile(null);
       setUploadDisplayName("");
+      setShowUploadModal(false);
       setRefresh((r) => r + 1);
     } catch (err: any) {
       setUploadError(err.message || "Document upload failed.");
@@ -360,7 +398,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         throw new Error(errData?.message || errData?.title || "Failed to link document.");
       }
 
-      setShowLinkPicker(false);
+      setShowLinkDrawer(false);
       setRefresh((r) => r + 1);
     } catch (err: any) {
       setLinkError(err.message || "Failed to link document.");
@@ -406,348 +444,726 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const canManageDocs = !isArchived && hasPermission("Matter.Document.Manage");
   const canArchive = !isArchived && hasPermission("Matter.Archive");
 
-  return (
-    <>
-      <nav className="breadcrumbs" aria-label="Breadcrumb">
-        <Link to="/matters">Matters</Link>
-        <span className="breadcrumb-separator">/</span>
-        <Link to={`/villages/${matter.villageId}`}>{matter.villageName}</Link>
-        <span className="breadcrumb-separator">/</span>
-        <span>{matter.title}</span>
-      </nav>
+  const recentEvents = matter.events ? matter.events.slice(0, 4) : [];
 
-      <div className="page-header">
-        <div className="page-title-row">
-          <div>
-            <div className="page-eyebrow">
-              {matter.matterType} · Village: {matter.villageName} · Rev {matter.revision}
+  return (
+    <div className="matter-workspace-shell">
+      {/* Top Identity Block */}
+      <div className="matter-identity-card">
+        <nav className="matter-breadcrumbs" aria-label="Breadcrumb">
+          <Link to="/matters">Matters</Link>
+          <span className="matter-breadcrumb-sep">/</span>
+          <Link to={`/villages/${matter.villageId}`}>{matter.villageName}</Link>
+          <span className="matter-breadcrumb-sep">/</span>
+          <span style={{ color: "#0f172a", fontWeight: 600 }}>{matter.title}</span>
+        </nav>
+
+        <div className="matter-header-main">
+          <div className="matter-header-title-block">
+            <h1>{matter.title}</h1>
+            <div className="matter-header-meta-row">
+              <span className="matter-meta-item">
+                <IconBuilding size={14} style={{ color: "#64748b" }} />
+                <Link to={`/villages/${matter.villageId}`} style={{ color: "#0369a1", fontWeight: 600, textDecoration: "none" }}>
+                  {matter.villageName}
+                </Link>
+              </span>
+              <span>·</span>
+              <span className="matter-meta-item">Type: <strong>{matter.matterType}</strong></span>
+              <span>·</span>
+              <span className="matter-meta-item">
+                Ref: <strong style={{ fontFamily: "monospace" }}>{matter.referenceNumber || "—"}</strong>
+              </span>
+              <span>·</span>
+              {matter.workstreamName ? (
+                <span className="matter-badge-workstream" title={`Workstream Code: ${matter.workstreamCode}`}>
+                  {matter.workstreamName} ({matter.workstreamCode})
+                </span>
+              ) : (
+                <span className="matter-badge-unclassified" title="Legacy unclassified matter">
+                  [Unclassified]
+                </span>
+              )}
+              <span className={isArchived ? "matter-badge-archived" : "matter-badge-open"}>
+                {matter.status}
+              </span>
+              <span className="matter-revision-tag">Rev {matter.revision}</span>
             </div>
-            <h1 className="page-title">{matter.title}</h1>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {matter.workstreamName ? (
-              <span className="matter-badge-workstream" title={`Code: ${matter.workstreamCode}`}>
-                {matter.workstreamName}
-              </span>
-            ) : (
-              <span className="matter-badge-unclassified" title="Legacy unclassified matter">
-                [Unclassified]
-              </span>
-            )}
-            <span className={isArchived ? "matter-badge-archived" : "matter-badge-open"}>{matter.status}</span>
           </div>
         </div>
 
+        {/* Locked / Read-Only Banner for Archived Matters */}
         {isArchived && (
           <div className="matter-archived-banner">
-            <span>🔒</span>
+            <IconLock size={16} />
             <span>
-              This matter is <strong>Archived</strong> and in a terminal read-only state. No further edits, uploads,
-              or document links are permitted.
+              This matter is <strong>Archived</strong> and in a terminal read-only state. No further edits, uploads, or document links are permitted.
             </span>
           </div>
         )}
 
-        {/* Action Controls */}
+        {/* Action Controls Toolbar */}
         {!isArchived && (
-          <div className="matter-actions-strip">
+          <div className="matter-actions-toolbar">
             {canAssignWork && (
-              <Link
-                to={`/work/new?matterId=${matter.id}`}
-                className="button-link"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "6px 12px",
-                  background: "#1d4ed8",
-                  color: "#fff",
-                  borderRadius: 4,
-                  textDecoration: "none",
-                  fontWeight: 500,
-                  fontSize: "0.875rem",
-                }}
-              >
+              <Link to={`/work/new?matterId=${matter.id}`} className="btn-action-primary">
+                <IconPlus size={15} />
                 + Assign Work
               </Link>
             )}
+
             {canEdit && (
-              <>
-                <button onClick={() => {
-                  if (matter) {
-                    setEditTitle(matter.title);
-                    setEditStatus(matter.status || "Open");
-                    setEditRefNo(matter.referenceNumber || "");
-                    setEditRemarks(matter.remarks || "");
-                    setEditKhasraRef(matter.khasraReferenceText || "");
-                  }
+              <button
+                type="button"
+                className="btn-action-secondary"
+                onClick={() => {
+                  setEditTitle(matter.title);
+                  setEditStatus(matter.status || "Open");
+                  setEditRefNo(matter.referenceNumber || "");
+                  setEditRemarks(matter.remarks || "");
+                  setEditKhasraRef(matter.khasraReferenceText || "");
+                  setEditError(null);
                   setShowEditModal(true);
-                }}>Edit Details</button>
-                <button onClick={() => setShowReclassifyModal(true)}>Reclassify Workstream</button>
+                }}
+              >
+                <IconEdit size={14} />
+                Edit Details
+              </button>
+            )}
+
+            {canManageDocs && (
+              <>
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => {
+                    setUploadError(null);
+                    setShowUploadModal(true);
+                  }}
+                >
+                  <IconUpload size={14} />
+                  + Upload Document
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => {
+                    setLinkError(null);
+                    setShowLinkDrawer(true);
+                  }}
+                >
+                  <IconLink size={14} />
+                  Link Existing
+                </button>
               </>
             )}
-            {canArchive && (
-              <button className="quiet-button" style={{ color: "#b91c1c" }} onClick={() => setShowArchiveModal(true)}>
-                Archive Matter
-              </button>
+
+            {/* Overflow Menu button for Administrative Actions */}
+            {(canEdit || canArchive) && (
+              <div className="matter-overflow-wrap" ref={overflowRef}>
+                <button
+                  type="button"
+                  className="matter-overflow-btn"
+                  onClick={() => setShowOverflow((v) => !v)}
+                  title="More actions"
+                >
+                  <IconMoreVertical size={16} />
+                </button>
+
+                {showOverflow && (
+                  <div className="matter-overflow-menu">
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className="matter-overflow-item"
+                        onClick={() => {
+                          setShowOverflow(false);
+                          setReclassifyError(null);
+                          setShowReclassifyModal(true);
+                        }}
+                      >
+                        <IconBuilding size={14} />
+                        Reclassify Workstream
+                      </button>
+                    )}
+
+                    {canArchive && (
+                      <button
+                        type="button"
+                        className="matter-overflow-item danger"
+                        onClick={() => {
+                          setShowOverflow(false);
+                          setArchiveError(null);
+                          setShowArchiveModal(true);
+                        }}
+                      >
+                        <IconArchive size={14} />
+                        Archive Matter
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
       </div>
 
-      {/* Metadata & Case Information */}
-      <section className="section">
-        <h2>Case Details</h2>
-        <div className="field-grid" style={{ marginBottom: 12 }}>
-          <div>
-            <strong>Reference Number:</strong> {matter.referenceNumber || "—"}
-          </div>
-          <div>
-            <strong>Village:</strong>{" "}
-            <Link to={`/villages/${matter.villageId}`}>{matter.villageName}</Link>
-          </div>
-          <div>
-            <strong>Matter Type:</strong> {matter.matterType}
-          </div>
-          <div>
-            <strong>Khasra Reference:</strong> {matter.khasraReferenceText || "—"}
-          </div>
-          <div style={{ gridColumn: "span 2" }}>
-            <strong>Remarks / Background:</strong> {matter.remarks || "—"}
-          </div>
-        </div>
-      </section>
+      {/* Internal Workspace Tabs Bar */}
+      <div>
+        <nav className="matter-tabs-nav" aria-label="Matter Work Surfaces">
+          <button
+            type="button"
+            className={`matter-tab-btn ${activeTab === "overview" ? "active" : ""}`}
+            onClick={() => setActiveTab("overview")}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className={`matter-tab-btn ${activeTab === "documents" ? "active" : ""}`}
+            onClick={() => setActiveTab("documents")}
+          >
+            Documents
+            <span className="matter-tab-count">{documents.length}</span>
+          </button>
+          <button
+            type="button"
+            className={`matter-tab-btn ${activeTab === "drafts" ? "active" : ""}`}
+            onClick={() => setActiveTab("drafts")}
+          >
+            Drafts
+          </button>
+          <button
+            type="button"
+            className={`matter-tab-btn ${activeTab === "outward" ? "active" : ""}`}
+            onClick={() => setActiveTab("outward")}
+          >
+            Outward
+          </button>
+          <button
+            type="button"
+            className={`matter-tab-btn ${activeTab === "activity" ? "active" : ""}`}
+            onClick={() => setActiveTab("activity")}
+          >
+            Activity
+            <span className="matter-tab-count">{matter.events ? matter.events.length : 0}</span>
+          </button>
+        </nav>
 
-      {/* Matter Documents */}
-      <section className="section">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div>
-            <h2>Matter Documents</h2>
-            <span className="hint">Direct evidentiary documents uploaded or linked specifically to this matter.</span>
-          </div>
-          {canManageDocs && (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                disabled={selectedDocIds.length === 0}
-                onClick={() => void handleExportZip()}
-                title="Export selected documents as a secure ZIP package"
-              >
-                Export Selected ({selectedDocIds.length})
-              </button>
-              <button onClick={() => setShowLinkPicker((v) => !v)}>
-                {showLinkPicker ? "Close Picker" : "+ Link Existing Document"}
-              </button>
+        {/* Tab Body Surfaces */}
+        <div className="matter-tab-body">
+          {/* TAB 1: OVERVIEW */}
+          {activeTab === "overview" && (
+            <div className="matter-overview-grid">
+              {/* Primary Facts Panel */}
+              <div className="matter-card-panel">
+                <h3>Primary Details & Facts</h3>
+                <div className="matter-facts-grid">
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Reference Number</span>
+                    <span className="matter-fact-value" style={{ fontFamily: "monospace" }}>
+                      {matter.referenceNumber || "—"}
+                    </span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Official Village</span>
+                    <span className="matter-fact-value">
+                      <Link to={`/villages/${matter.villageId}`} style={{ color: "#0284c7", textDecoration: "none", fontWeight: 600 }}>
+                        {matter.villageName}
+                      </Link>
+                    </span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Matter Type</span>
+                    <span className="matter-fact-value">{matter.matterType}</span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Workstream</span>
+                    <span className="matter-fact-value">
+                      {matter.workstreamName ? (
+                        <span className="matter-badge-workstream">
+                          {matter.workstreamName} ({matter.workstreamCode})
+                        </span>
+                      ) : (
+                        <span className="matter-badge-unclassified">[Unclassified]</span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Khasra Reference</span>
+                    <span className="matter-fact-value">{matter.khasraReferenceText || "—"}</span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Status & Revision</span>
+                    <span className="matter-fact-value">
+                      {matter.status} (Rev {matter.revision})
+                    </span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Created At</span>
+                    <span className="matter-fact-value">{new Date(matter.createdAt).toLocaleString()}</span>
+                  </div>
+
+                  <div className="matter-fact-item">
+                    <span className="matter-fact-label">Last Updated</span>
+                    <span className="matter-fact-value">{new Date(matter.updatedAt).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks & Activity Preview Panel */}
+              <div className="matter-card-panel">
+                <h3>Remarks & Background Context</h3>
+                <div className="matter-remarks-box">
+                  {matter.remarks || <span style={{ color: "#94a3b8", italic: "true" }}>No administrative remarks recorded.</span>}
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <h4 style={{ margin: 0, fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>
+                      Recent Activity Preview
+                    </h4>
+                    {matter.events && matter.events.length > 0 && (
+                      <button
+                        type="button"
+                        style={{ border: "none", background: "transparent", color: "#0284c7", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                        onClick={() => setActiveTab("activity")}
+                      >
+                        View full activity ({matter.events.length}) →
+                      </button>
+                    )}
+                  </div>
+
+                  {recentEvents.length === 0 ? (
+                    <div style={{ fontSize: "12px", color: "#94a3b8" }}>No activity recorded yet.</div>
+                  ) : (
+                    <div className="matter-timeline">
+                      {recentEvents.map((ev) => (
+                        <div key={ev.id} className="matter-timeline-item">
+                          <div className="matter-timeline-dot" />
+                          <div className="matter-timeline-content">
+                            <div className="matter-timeline-header">{ev.actionName}</div>
+                            <div className="matter-timeline-meta">
+                              By {ev.actionByUserName} · {new Date(ev.actionAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: DOCUMENTS */}
+          {activeTab === "documents" && (
+            <div>
+              <div className="matter-docs-toolbar">
+                <div>
+                  <h3 style={{ margin: "0 0 2px 0", fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                    Matter Documents Workspace
+                  </h3>
+                  <span className="hint">Direct evidentiary documents uploaded or linked to this matter.</span>
+                </div>
+
+                <div className="matter-docs-actions">
+                  {selectedDocIds.length > 0 && (
+                    <button
+                      type="button"
+                      className="btn-action-primary"
+                      onClick={() => void handleExportZip()}
+                    >
+                      <IconDownload size={14} />
+                      Export Selected ({selectedDocIds.length})
+                    </button>
+                  )}
+
+                  {canManageDocs && (
+                    <>
+                      <button
+                        type="button"
+                        className="btn-action-secondary"
+                        onClick={() => {
+                          setUploadError(null);
+                          setShowUploadModal(true);
+                        }}
+                      >
+                        <IconUpload size={14} />
+                        + Upload Document
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn-action-secondary"
+                        onClick={() => {
+                          setLinkError(null);
+                          setShowLinkDrawer(true);
+                        }}
+                      >
+                        <IconLink size={14} />
+                        Link Existing
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Selection Bar */}
+              {selectedDocIds.length > 0 && (
+                <div className="matter-selection-banner">
+                  <span>{selectedDocIds.length} document(s) selected for export.</span>
+                  <button
+                    type="button"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", color: "#0369a1", fontSize: "12px", fontWeight: 600 }}
+                    onClick={() => setSelectedDocIds([])}
+                  >
+                    Deselect all
+                  </button>
+                </div>
+              )}
+
+              {/* Documents Table */}
+              {documents.length === 0 ? (
+                <div className="state empty" style={{ padding: "36px" }}>
+                  <IconFileText size={32} style={{ color: "#94a3b8", marginBottom: 8 }} />
+                  <strong>No documents linked to this matter</strong>
+                  <span>Upload a new document or link an existing record above.</span>
+                </div>
+              ) : (
+                <table className="matter-directory-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 36 }}>
+                        <input
+                          type="checkbox"
+                          checked={documents.length > 0 && selectedDocIds.length === documents.length}
+                          onChange={(e) => {
+                            if (e.target.checked) setSelectedDocIds(documents.map((d) => d.documentId));
+                            else setSelectedDocIds([]);
+                          }}
+                        />
+                      </th>
+                      <th style={{ width: "20%" }}>Role</th>
+                      <th style={{ width: "35%" }}>Name / File</th>
+                      <th style={{ width: "15%" }}>Size</th>
+                      <th style={{ width: "18%" }}>Uploaded</th>
+                      <th style={{ width: "12%" }}>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents.map((d) => (
+                      <tr key={d.id} className="matter-table-row">
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedDocIds.includes(d.documentId)}
+                            onChange={() => toggleSelectDoc(d.documentId)}
+                          />
+                        </td>
+                        <td>
+                          <span className="matter-badge-workstream">
+                            {d.documentRole || "Other"}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: "#0f172a" }}>
+                            {d.displayName || d.originalFileName}
+                          </div>
+                          {d.displayName && (
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>{d.originalFileName}</div>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{ fontSize: "12px", color: "#475569" }}>
+                            {(d.fileSize / 1024).toFixed(1)} KB
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontSize: "12px", color: "#475569" }}>
+                            {new Date(d.uploadedAt).toLocaleDateString()}
+                          </span>
+                        </td>
+                        <td>
+                          <a
+                            href={`/api/matters/${id}/documents/${d.documentId}/content`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-action-secondary"
+                            style={{ padding: "3px 8px", fontSize: "12px", textDecoration: "none" }}
+                          >
+                            View / Download
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: DRAFTS */}
+          {activeTab === "drafts" && (
+            <div>
+              <MatterDrafts matterId={id} />
+            </div>
+          )}
+
+          {/* TAB 4: OUTWARD */}
+          {activeTab === "outward" && (
+            <div>
+              <MatterOutwardSection matterId={id} />
+            </div>
+          )}
+
+          {/* TAB 5: ACTIVITY */}
+          {activeTab === "activity" && (
+            <div>
+              <div style={{ marginBottom: 16 }}>
+                <h3 style={{ margin: "0 0 2px 0", fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                  Matter Audit & Event Timeline
+                </h3>
+                <span className="hint">Immutable chronological activity history for official compliance auditing.</span>
+              </div>
+
+              {!matter.events || matter.events.length === 0 ? (
+                <div className="state empty" style={{ padding: "36px" }}>
+                  <IconHistory size={32} style={{ color: "#94a3b8", marginBottom: 8 }} />
+                  <strong>No audit events recorded</strong>
+                </div>
+              ) : (
+                <div className="matter-timeline" style={{ marginTop: 12 }}>
+                  {matter.events.map((ev) => (
+                    <div key={ev.id} className="matter-timeline-item">
+                      <div className="matter-timeline-dot" />
+                      <div className="matter-timeline-content">
+                        <div className="matter-timeline-header">
+                          <span style={{ color: "#0284c7", fontWeight: 700, marginRight: 6 }}>
+                            #{ev.sequenceNumber}
+                          </span>
+                          {ev.actionName}
+                          {ev.workstreamName && (
+                            <span style={{ fontWeight: 400, color: "#475569" }}>
+                              {" "}· Workstream: <em>{ev.workstreamName}</em>
+                            </span>
+                          )}
+                          {ev.targetWorkstreamName && (
+                            <span style={{ fontWeight: 400, color: "#0284c7" }}>
+                              {" "}➔ <em>{ev.targetWorkstreamName}</em>
+                            </span>
+                          )}
+                        </div>
+                        {ev.reason && <div className="matter-timeline-reason">&ldquo;{ev.reason}&rdquo;</div>}
+                        <div className="matter-timeline-meta">
+                          Action by <strong>{ev.actionByUserName}</strong> on {new Date(ev.actionAt).toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
+      </div>
 
-        {/* Upload Document Form */}
-        {canManageDocs && (
-          <form onSubmit={handleUploadDocument} className="field-grid" style={{ background: "#f8fafc", padding: 16, borderRadius: 8, marginBottom: 16 }}>
-            <label>
-              Document Role *
-              <select value={uploadRole} onChange={(e) => setUploadRole(e.target.value)}>
+      {/* Upload Document Modal */}
+      {showUploadModal && (
+        <div className="matter-modal-overlay" onClick={() => setShowUploadModal(false)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <h3 className="matter-modal-title">Upload Matter Document</h3>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowUploadModal(false)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {uploadError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
+                {uploadError}
+              </div>
+            )}
+
+            <form onSubmit={handleUploadDocument}>
+              <div className="field-grid">
+                <label>
+                  Document Role *
+                  <select value={uploadRole} onChange={(e) => setUploadRole(e.target.value)}>
+                    {["Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label>
+                  Display Name (optional)
+                  <input
+                    type="text"
+                    value={uploadDisplayName}
+                    onChange={(e) => setUploadDisplayName(e.target.value)}
+                    placeholder="e.g. High Court Order dt 12-05-2026"
+                  />
+                </label>
+
+                <label style={{ gridColumn: "span 2" }}>
+                  Select File *
+                  <input
+                    type="file"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    required
+                  />
+                </label>
+              </div>
+
+              <div className="matter-modal-actions">
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setShowUploadModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-action-primary"
+                  disabled={uploading || !uploadFile}
+                >
+                  {uploading ? "Uploading..." : "Upload Document"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Link Existing Document Right Drawer */}
+      {showLinkDrawer && (
+        <div className="matter-drawer-overlay" onClick={() => setShowLinkDrawer(false)}>
+          <div className="matter-right-drawer" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-drawer-header">
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
+                  Link Existing Document
+                </h3>
+                <span className="hint">Select eligible document from Award or Land Record families.</span>
+              </div>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowLinkDrawer(false)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {linkError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", fontSize: "13px" }}>
+                {linkError}
+              </div>
+            )}
+
+            <div>
+              <label className="form-label" style={{ fontWeight: 600, fontSize: "13px" }}>
+                Target Role for Matter Link:
+              </label>
+              <select
+                value={linkRole}
+                onChange={(e) => setLinkRole(e.target.value)}
+                className="matter-filter-select"
+                style={{ width: "100%", marginTop: 4 }}
+              >
                 {["Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
                 ))}
               </select>
-            </label>
-
-            <label>
-              Display Name (optional)
-              <input
-                type="text"
-                value={uploadDisplayName}
-                onChange={(e) => setUploadDisplayName(e.target.value)}
-                placeholder="e.g. Order dt 12-05-2024"
-              />
-            </label>
-
-            <label style={{ gridColumn: "span 2" }}>
-              Select File *
-              <input
-                type="file"
-                onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-                required
-              />
-            </label>
-
-            {uploadError && <div style={{ color: "#b91c1c", gridColumn: "span 2" }}>{uploadError}</div>}
-
-            <div style={{ gridColumn: "span 2" }}>
-              <button type="submit" disabled={uploading || !uploadFile}>
-                {uploading ? "Uploading..." : "Upload Document"}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* Existing Document Picker Drawer */}
-        {showLinkPicker && (
-          <aside className="section" style={{ background: "#f0f9ff", border: "1px solid #bae6fd", padding: 16, borderRadius: 8, marginBottom: 16 }}>
-            <h3>Link Existing Document</h3>
-            <span className="hint">Select an eligible document from linked Award or Land Record families.</span>
-            {linkError && <p style={{ color: "#b91c1c" }}>{linkError}</p>}
-
-            <div style={{ margin: "12px 0", display: "flex", gap: 8, alignItems: "center" }}>
-              <label>
-                Role:
-                <select value={linkRole} onChange={(e) => setLinkRole(e.target.value)} style={{ marginLeft: 6 }}>
-                  {["Application", "Court Order", "ADM Letter", "Joint Declaration", "Khatoni", "Demarcation", "Correspondence", "Other"].map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
             </div>
 
-            {eligibleDocs.length === 0 ? (
-              <p>No eligible documents available for linking.</p>
-            ) : (
-              <div style={{ maxHeight: 240, overflowY: "auto" }}>
-                {eligibleDocs.map((doc) => (
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+              {eligibleDocs.length === 0 ? (
+                <div className="state empty" style={{ padding: "24px" }}>
+                  <span>No eligible documents available for linking.</span>
+                </div>
+              ) : (
+                eligibleDocs.map((doc) => (
                   <div
                     key={doc.id}
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      padding: "8px 0",
-                      borderBottom: "1px solid #e2e8f0"
+                      padding: "10px 12px",
+                      background: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "6px"
                     }}
                   >
-                    <div>
-                      <strong>{doc.originalFileName}</strong>
-                      <div style={{ fontSize: 12, color: "#64748b" }}>
+                    <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                      <div style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {doc.originalFileName}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "#64748b" }}>
                         {doc.source} · {new Date(doc.uploadedAt).toLocaleDateString()}
                       </div>
                     </div>
                     <button
+                      type="button"
+                      className="btn-action-secondary"
+                      style={{ padding: "4px 10px", fontSize: "12px" }}
                       disabled={linkingDocId === doc.id}
                       onClick={() => void handleLinkExisting(doc.id)}
                     >
                       {linkingDocId === doc.id ? "Linking..." : "Attach"}
                     </button>
                   </div>
-                ))}
-              </div>
-            )}
-          </aside>
-        )}
-
-        {/* Documents Table */}
-        {documents.length === 0 ? (
-          <div className="state empty">
-            <strong>No documents linked to this matter.</strong>
-            <span>Upload or link case files above.</span>
+                ))
+              )}
+            </div>
           </div>
-        ) : (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ width: 40 }}>
-                  <input
-                    type="checkbox"
-                    checked={documents.length > 0 && selectedDocIds.length === documents.length}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedDocIds(documents.map((d) => d.documentId));
-                      else setSelectedDocIds([]);
-                    }}
-                  />
-                </th>
-                <th>Role</th>
-                <th>Name / File</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((d) => (
-                <tr key={d.id}>
-                  <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedDocIds.includes(d.documentId)}
-                      onChange={() => toggleSelectDoc(d.documentId)}
-                    />
-                  </td>
-                  <td>
-                    <strong>{d.documentRole || "Other"}</strong>
-                  </td>
-                  <td>
-                    <div>{d.displayName || d.originalFileName}</div>
-                    {d.displayName && <small style={{ color: "#64748b" }}>{d.originalFileName}</small>}
-                  </td>
-                  <td>{(d.fileSize / 1024).toFixed(1)} KB</td>
-                  <td>{new Date(d.uploadedAt).toLocaleDateString()}</td>
-                  <td>
-                    <a
-                      href={`/api/matters/${id}/documents/${d.documentId}/content`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="quiet-button"
-                    >
-                      View / Download
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {/* Matter Drafts Section */}
-      <MatterDrafts matterId={id} />
-
-      {/* Matter Outward Communications Section */}
-      <MatterOutwardSection matterId={id} />
-
-      {/* Matter Audit & Activity History */}
-      {matter.events && matter.events.length > 0 && (
-        <section className="section">
-          <h2>Activity & Audit History</h2>
-          <div>
-            {matter.events.map((ev) => (
-              <div key={ev.id} className="matter-event-item">
-                <span className="matter-event-seq">#{ev.sequenceNumber}</span>
-                <strong>{ev.actionName}</strong>
-                {ev.workstreamName && (
-                  <span>
-                    {" "}
-                    · Workstream: <em>{ev.workstreamName}</em>
-                  </span>
-                )}
-                {ev.targetWorkstreamName && (
-                  <span>
-                    {" "}
-                    ➔ <em>{ev.targetWorkstreamName}</em>
-                  </span>
-                )}
-                {ev.reason && <span> — &ldquo;{ev.reason}&rdquo;</span>}
-                <div className="matter-event-meta">
-                  By {ev.actionByUserName} on {new Date(ev.actionAt).toLocaleString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        </div>
       )}
 
       {/* Edit Details Modal */}
       {showEditModal && (
-        <div className="matter-modal-overlay">
-          <div className="matter-modal-card">
-            <h3 className="matter-modal-title">Edit Matter Details</h3>
-            {editError && <p style={{ color: "#b91c1c", marginBottom: 12 }}>{editError}</p>}
+        <div className="matter-modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <h3 className="matter-modal-title">Edit Matter Details</h3>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowEditModal(false)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {editError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
+                {editError}
+              </div>
+            )}
+
             <form onSubmit={handleUpdateMetadata}>
               <div className="field-grid">
                 <label style={{ gridColumn: "span 2" }}>
-                  Title *
+                  Matter Title *
                   <input
                     type="text"
                     value={editTitle}
@@ -785,7 +1201,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 </label>
 
                 <label style={{ gridColumn: "span 2" }}>
-                  Remarks
+                  Remarks / Background Notes
                   <textarea
                     value={editRemarks}
                     onChange={(e) => setEditRemarks(e.target.value)}
@@ -795,10 +1211,18 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               </div>
 
               <div className="matter-modal-actions">
-                <button type="button" className="quiet-button" onClick={() => setShowEditModal(false)}>
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setShowEditModal(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={savingEdit || !editTitle.trim()}>
+                <button
+                  type="submit"
+                  className="btn-action-primary"
+                  disabled={savingEdit || !editTitle.trim()}
+                >
                   {savingEdit ? "Saving..." : "Save Changes"}
                 </button>
               </div>
@@ -809,13 +1233,28 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
       {/* Reclassify Workstream Modal */}
       {showReclassifyModal && (
-        <div className="matter-modal-overlay">
-          <div className="matter-modal-card">
-            <h3 className="matter-modal-title">Reclassify Matter Workstream</h3>
-            <p className="hint">
-              Changing the matter workstream alters resource ownership and visibility across teams.
-            </p>
-            {reclassifyError && <p style={{ color: "#b91c1c", marginBottom: 12 }}>{reclassifyError}</p>}
+        <div className="matter-modal-overlay" onClick={() => setShowReclassifyModal(false)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <div>
+                <h3 className="matter-modal-title">Reclassify Workstream</h3>
+                <span className="hint">Alters official workstream classification and administrative ownership.</span>
+              </div>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowReclassifyModal(false)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {reclassifyError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
+                {reclassifyError}
+              </div>
+            )}
+
             <form onSubmit={handleReclassify}>
               <div className="field-grid">
                 <label style={{ gridColumn: "span 2" }}>
@@ -834,11 +1273,11 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 </label>
 
                 <label style={{ gridColumn: "span 2" }}>
-                  Mandatory Reason *
+                  Mandatory Reclassification Reason *
                   <textarea
                     value={reclassifyReason}
                     onChange={(e) => setReclassifyReason(e.target.value)}
-                    placeholder="Provide official justification for reclassification..."
+                    placeholder="Provide official administrative justification for reclassification..."
                     rows={3}
                     required
                   />
@@ -846,10 +1285,18 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               </div>
 
               <div className="matter-modal-actions">
-                <button type="button" className="quiet-button" onClick={() => setShowReclassifyModal(false)}>
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setShowReclassifyModal(false)}
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={savingReclassify || !reclassifyReason.trim()}>
+                <button
+                  type="submit"
+                  className="btn-action-primary"
+                  disabled={savingReclassify || !reclassifyReason.trim()}
+                >
                   {savingReclassify ? "Reclassifying..." : "Confirm Reclassification"}
                 </button>
               </div>
@@ -860,22 +1307,40 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
       {/* Archive Matter Modal */}
       {showArchiveModal && (
-        <div className="matter-modal-overlay">
-          <div className="matter-modal-card">
-            <h3 className="matter-modal-title">Archive Official Matter</h3>
-            <p className="hint" style={{ color: "#b91c1c" }}>
-              Warning: Archiving a matter is a terminal state. Once archived, the matter and its documents cannot be
-              modified, uploaded to, or linked.
-            </p>
-            {archiveError && <p style={{ color: "#b91c1c", marginBottom: 12 }}>{archiveError}</p>}
+        <div className="matter-modal-overlay" onClick={() => setShowArchiveModal(false)}>
+          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="matter-modal-header">
+              <div>
+                <h3 className="matter-modal-title" style={{ color: "#991b1b" }}>
+                  Archive Official Matter
+                </h3>
+                <span className="hint" style={{ color: "#b91c1c" }}>
+                  Warning: Archiving a matter is a terminal state. Once archived, no further edits, uploads, or links are permitted.
+                </span>
+              </div>
+              <button
+                type="button"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
+                onClick={() => setShowArchiveModal(false)}
+              >
+                <IconClose size={18} />
+              </button>
+            </div>
+
+            {archiveError && (
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
+                {archiveError}
+              </div>
+            )}
+
             <form onSubmit={handleArchive}>
               <div className="field-grid">
                 <label style={{ gridColumn: "span 2" }}>
-                  Archival Reason *
+                  Mandatory Archival Reason *
                   <textarea
                     value={archiveReason}
                     onChange={(e) => setArchiveReason(e.target.value)}
-                    placeholder="Provide reason for closing/archiving this matter..."
+                    placeholder="Provide official reason for archiving this matter..."
                     rows={3}
                     required
                   />
@@ -883,13 +1348,17 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               </div>
 
               <div className="matter-modal-actions">
-                <button type="button" className="quiet-button" onClick={() => setShowArchiveModal(false)}>
+                <button
+                  type="button"
+                  className="btn-action-secondary"
+                  onClick={() => setShowArchiveModal(false)}
+                >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="primary"
-                  style={{ backgroundColor: "#b91c1c" }}
+                  className="btn-action-primary"
+                  style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
                   disabled={savingArchive || !archiveReason.trim()}
                 >
                   {savingArchive ? "Archiving..." : "Confirm Archival"}
@@ -899,6 +1368,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };
