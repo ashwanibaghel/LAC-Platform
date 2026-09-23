@@ -69,6 +69,16 @@ public sealed record ExtractMatterDocumentPagesCommand(
     int ExpectedRevision
 );
 
+public sealed record UpdateMatterDocumentCommand(
+    string? DocumentRole,
+    string? DisplayName,
+    int ExpectedRevision
+);
+
+public sealed record RemoveMatterDocumentLinkCommand(
+    int ExpectedRevision
+);
+
 public sealed class MatterWorkflowService(
     LacDbContext db,
     IDocumentStorage storage,
@@ -629,7 +639,7 @@ public sealed class MatterWorkflowService(
                     throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
 
                 var alreadyLinked = await db.MatterDocuments.AsNoTracking()
-                    .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.DocumentId, opCt);
+                    .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.DocumentId && md.RecordStatus == RecordStatus.Active, opCt);
                 if (alreadyLinked)
                     throw new MatterWorkflowException("Document is already linked to this matter.", 400);
 
@@ -975,6 +985,170 @@ public sealed class MatterWorkflowService(
             }
             throw;
         }
+    }
+
+    // ========================================================================
+    // 8. UPDATE MATTER DOCUMENT METADATA
+    // ========================================================================
+    public async Task<MatterDocument> UpdateMatterDocumentMetadataAsync(
+        Guid matterId,
+        Guid documentId,
+        UpdateMatterDocumentCommand cmd,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        var canManage = await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, ct);
+        if (!canManage)
+            throw new MatterWorkflowException("You do not have permission to manage documents for this Matter.", 403);
+
+        var actionUser = await db.AppUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == currentUserId, ct)
+            ?? throw new MatterWorkflowException("Current user not found.", 401);
+
+        var eventId = Guid.NewGuid();
+
+        return await ExecuteWorkflowTransactionAsync(
+            async opCt =>
+            {
+                db.ChangeTracker.Clear();
+
+                var matter = await LockMatterAsync(matterId, opCt);
+                if (matter.RecordStatus == RecordStatus.Archived)
+                    throw new MatterWorkflowException("Cannot modify documents on an archived matter.", 409);
+
+                if (matter.Revision != cmd.ExpectedRevision)
+                    throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
+
+                var matterDoc = await db.MatterDocuments
+                    .Include(md => md.Document)
+                    .Include(md => md.ExtractProvenance)
+                    .FirstOrDefaultAsync(md => md.MatterId == matterId && md.DocumentId == documentId && md.RecordStatus == RecordStatus.Active, opCt);
+                if (matterDoc is null)
+                    throw new MatterWorkflowException("Matter document link not found or inactive.", 404);
+
+                if (!string.IsNullOrWhiteSpace(cmd.DocumentRole))
+                    matterDoc.DocumentRole = cmd.DocumentRole.Trim();
+                if (cmd.DisplayName != null)
+                    matterDoc.DisplayName = string.IsNullOrWhiteSpace(cmd.DisplayName) ? null : cmd.DisplayName.Trim();
+
+                matterDoc.UpdatedBy = actionUser.DisplayName;
+                matterDoc.UpdatedAt = DateTimeOffset.UtcNow;
+
+                var maxSeq = await db.MatterEvents
+                    .Where(e => e.MatterId == matterId)
+                    .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
+                var seq = maxSeq + 1;
+
+                matter.Revision++;
+                matter.UpdatedBy = actionUser.DisplayName;
+                matter.UpdatedAt = DateTimeOffset.UtcNow;
+
+                var ev = new MatterEvent
+                {
+                    Id = eventId,
+                    MatterId = matterId,
+                    SequenceNumber = seq,
+                    Action = MatterEventAction.DocumentMetadataUpdated,
+                    ActionByUserId = currentUserId,
+                    ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                    ActionAt = DateTimeOffset.UtcNow,
+                    DocumentId = documentId,
+                    MatterDocumentId = matterDoc.Id,
+                    WorkstreamIdSnapshot = matter.WorkstreamId,
+                    WorkstreamNameSnapshot = matter.Workstream?.Name
+                };
+                db.MatterEvents.Add(ev);
+
+                await db.SaveChangesAsync(opCt);
+                return matterDoc;
+            },
+            async verifyCt =>
+            {
+                db.ChangeTracker.Clear();
+                var evExists = await db.MatterEvents.AsNoTracking()
+                    .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentMetadataUpdated && e.DocumentId == documentId, verifyCt);
+                return evExists;
+            },
+            ct);
+    }
+
+    // ========================================================================
+    // 9. REMOVE / SOFT-UNLINK MATTER DOCUMENT
+    // ========================================================================
+    public async Task RemoveMatterDocumentLinkAsync(
+        Guid matterId,
+        Guid documentId,
+        RemoveMatterDocumentLinkCommand cmd,
+        Guid currentUserId,
+        CancellationToken ct = default)
+    {
+        var canManage = await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, ct);
+        if (!canManage)
+            throw new MatterWorkflowException("You do not have permission to manage documents for this Matter.", 403);
+
+        var actionUser = await db.AppUsers.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == currentUserId, ct)
+            ?? throw new MatterWorkflowException("Current user not found.", 401);
+
+        var eventId = Guid.NewGuid();
+
+        await ExecuteWorkflowTransactionAsync(
+            async opCt =>
+            {
+                db.ChangeTracker.Clear();
+
+                var matter = await LockMatterAsync(matterId, opCt);
+                if (matter.RecordStatus == RecordStatus.Archived)
+                    throw new MatterWorkflowException("Cannot modify documents on an archived matter.", 409);
+
+                if (matter.Revision != cmd.ExpectedRevision)
+                    throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
+
+                var matterDoc = await db.MatterDocuments
+                    .FirstOrDefaultAsync(md => md.MatterId == matterId && md.DocumentId == documentId && md.RecordStatus == RecordStatus.Active, opCt);
+                if (matterDoc is null)
+                    throw new MatterWorkflowException("Matter document link not found or inactive.", 404);
+
+                matterDoc.RecordStatus = RecordStatus.Archived;
+                matterDoc.UpdatedBy = actionUser.DisplayName;
+                matterDoc.UpdatedAt = DateTimeOffset.UtcNow;
+
+                var maxSeq = await db.MatterEvents
+                    .Where(e => e.MatterId == matterId)
+                    .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
+                var seq = maxSeq + 1;
+
+                matter.Revision++;
+                matter.UpdatedBy = actionUser.DisplayName;
+                matter.UpdatedAt = DateTimeOffset.UtcNow;
+
+                var ev = new MatterEvent
+                {
+                    Id = eventId,
+                    MatterId = matterId,
+                    SequenceNumber = seq,
+                    Action = MatterEventAction.DocumentUnlinked,
+                    ActionByUserId = currentUserId,
+                    ActionByDisplayNameSnapshot = actionUser.DisplayName,
+                    ActionAt = DateTimeOffset.UtcNow,
+                    DocumentId = documentId,
+                    MatterDocumentId = matterDoc.Id,
+                    WorkstreamIdSnapshot = matter.WorkstreamId,
+                    WorkstreamNameSnapshot = matter.Workstream?.Name
+                };
+                db.MatterEvents.Add(ev);
+
+                await db.SaveChangesAsync(opCt);
+                return true;
+            },
+            async verifyCt =>
+            {
+                db.ChangeTracker.Clear();
+                var evExists = await db.MatterEvents.AsNoTracking()
+                    .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentUnlinked && e.DocumentId == documentId, verifyCt);
+                return evExists;
+            },
+            ct);
     }
 
     private static string ComputeSha256Hash(byte[] bytes)

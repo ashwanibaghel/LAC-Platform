@@ -450,7 +450,7 @@ public static class MatterEndpoints
             if (!exists) return Results.NotFound(new { message = "Matter not found." });
 
             var docs = await db.MatterDocuments.AsNoTracking()
-                .Where(x => x.MatterId == id && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active")
+                .Where(x => x.MatterId == id && x.RecordStatus == RecordStatus.Active && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active")
                 .OrderByDescending(x => x.Document.UploadedAt)
                 .Select(x => new
                 {
@@ -551,7 +551,7 @@ public static class MatterEndpoints
             if (matter is null) return Results.NotFound(new { message = "Matter not found." });
 
             var alreadyLinkedIds = await db.MatterDocuments.AsNoTracking()
-                .Where(md => md.MatterId == id)
+                .Where(md => md.MatterId == id && md.RecordStatus == RecordStatus.Active)
                 .Select(md => md.DocumentId)
                 .ToListAsync(ct);
 
@@ -674,52 +674,81 @@ public static class MatterEndpoints
         matters.MapDelete("/{id:guid}/documents/{documentId:guid}", async (
             Guid id,
             Guid documentId,
-            LacDbContext db,
-            IMatterAuthorizationService matterAuth,
+            int? expectedRevision,
+            MatterWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterDocumentManage, userId, ct))
-                return Results.Forbid();
+            var cmd = new RemoveMatterDocumentLinkCommand(
+                ExpectedRevision: expectedRevision ?? 0
+            );
 
-            var matterDoc = await db.MatterDocuments
-                .FirstOrDefaultAsync(md => md.MatterId == id && md.DocumentId == documentId, ct);
-            if (matterDoc is null)
-                return Results.NotFound(new { message = "Matter document link not found." });
+            try
+            {
+                await workflow.RemoveMatterDocumentLinkAsync(id, documentId, cmd, userId, ct);
+                return Results.NoContent();
+            }
+            catch (MatterWorkflowException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+            }
+        });
 
-            db.MatterDocuments.Remove(matterDoc);
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
+        matters.MapPost("/{id:guid}/documents/{documentId:guid}/unlink", async (
+            Guid id,
+            Guid documentId,
+            RemoveMatterDocumentLinkApiRequest request,
+            MatterWorkflowService workflow,
+            ICurrentUserContext currentUser,
+            CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            var userId = currentUser.UserId.Value;
+
+            var cmd = new RemoveMatterDocumentLinkCommand(
+                ExpectedRevision: request.ExpectedRevision
+            );
+
+            try
+            {
+                await workflow.RemoveMatterDocumentLinkAsync(id, documentId, cmd, userId, ct);
+                return Results.NoContent();
+            }
+            catch (MatterWorkflowException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+            }
         });
 
         matters.MapPut("/{id:guid}/documents/{documentId:guid}", async (
             Guid id,
             Guid documentId,
             UpdateMatterDocumentApiRequest req,
-            LacDbContext db,
-            IMatterAuthorizationService matterAuth,
+            MatterWorkflowService workflow,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterDocumentManage, userId, ct))
-                return Results.Forbid();
+            var cmd = new UpdateMatterDocumentCommand(
+                DocumentRole: req.Role,
+                DisplayName: req.DisplayName,
+                ExpectedRevision: req.ExpectedRevision
+            );
 
-            var matterDoc = await db.MatterDocuments
-                .FirstOrDefaultAsync(md => md.MatterId == id && md.DocumentId == documentId, ct);
-            if (matterDoc is null)
-                return Results.NotFound(new { message = "Matter document link not found." });
-
-            if (!string.IsNullOrWhiteSpace(req.Role)) matterDoc.DocumentRole = req.Role.Trim();
-            if (req.DisplayName != null) matterDoc.DisplayName = string.IsNullOrWhiteSpace(req.DisplayName) ? null : req.DisplayName.Trim();
-
-            await db.SaveChangesAsync(ct);
-            return Results.Ok(new { matterDoc.Id, matterDoc.DocumentId, role = matterDoc.DocumentRole, displayName = matterDoc.DisplayName });
+            try
+            {
+                var matterDoc = await workflow.UpdateMatterDocumentMetadataAsync(id, documentId, cmd, userId, ct);
+                return Results.Ok(new { matterDoc.Id, matterDoc.DocumentId, role = matterDoc.DocumentRole, displayName = matterDoc.DisplayName });
+            }
+            catch (MatterWorkflowException ex)
+            {
+                return Results.Json(new { message = ex.Message }, statusCode: ex.StatusCode);
+            }
         });
 
         matters.MapPost("/{id:guid}/export", async (
@@ -743,7 +772,7 @@ public static class MatterEndpoints
 
             // FROZEN RULE: Only explicit MatterDocument joins are exported
             var allowedIds = await db.MatterDocuments.AsNoTracking()
-                .Where(x => x.MatterId == id)
+                .Where(x => x.MatterId == id && x.RecordStatus == RecordStatus.Active)
                 .Select(x => x.DocumentId)
                 .Distinct()
                 .ToListAsync(ct);
@@ -1021,7 +1050,12 @@ public sealed record UpdateMatterMetadataApiRequest(
 
 public sealed record UpdateMatterDocumentApiRequest(
     string? Role,
-    string? DisplayName
+    string? DisplayName,
+    int ExpectedRevision
+);
+
+public sealed record RemoveMatterDocumentLinkApiRequest(
+    int ExpectedRevision
 );
 
 public sealed record ReclassifyMatterApiRequest(

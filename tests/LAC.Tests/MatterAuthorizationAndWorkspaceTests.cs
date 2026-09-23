@@ -1799,5 +1799,279 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         Assert.Equal("12/1, 18/4", extractedDoc.ExtractProvenance.KhasraReferenceText);
         Assert.Equal("master_award.pdf", extractedDoc.ExtractProvenance.SourceFileName);
     }
+
+    private sealed class TestInMemoryDocumentStorage : IDocumentStorage
+    {
+        public readonly Dictionary<string, byte[]> Files = new();
+        public int SaveCount { get; private set; }
+        public int DeleteCount { get; private set; }
+
+        public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) => Task.FromResult("test/path.pdf");
+
+        public async Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct)
+        {
+            SaveCount++;
+            using var ms = new MemoryStream();
+            await content.CopyToAsync(ms, ct);
+            var bytes = ms.ToArray();
+            var key = $"{Guid.NewGuid():N}_{fileName}";
+            Files[key] = bytes;
+            return new DocumentStorageWriteResult(key, "hash123", bytes.Length);
+        }
+
+        public Task DeleteAsync(string storagePath, CancellationToken cancellationToken = default)
+        {
+            DeleteCount++;
+            Files.Remove(storagePath);
+            return Task.CompletedTask;
+        }
+
+        public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken cancellationToken = default)
+        {
+            if (Files.TryGetValue(storagePath, out var bytes))
+                return Task.FromResult<Stream?>(new MemoryStream(bytes));
+            return Task.FromResult<Stream?>(new MemoryStream(ValidPdfBytes));
+        }
+
+        public StorageHealth GetHealth() => new StorageHealth("test", true, 1000, 2000);
+    }
+
+    private sealed class TestAllowAllMatterAuth : IMatterAuthorizationService
+    {
+        public Task<MatterListAuthorizationResult> AuthorizeListQueryAsync(IQueryable<Matter> query, string permissionCode, Guid userId, bool includeArchived = false, CancellationToken ct = default) => Task.FromResult(new MatterListAuthorizationResult(true, query));
+        public Task<bool> CanAccessMatterAsync(Guid matterId, string permissionCode, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> CanCreateMatterInWorkstreamAsync(Guid workstreamId, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> CanReclassifyMatterAsync(Guid matterId, Guid targetWorkstreamId, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> CanAccessDraftAsync(Guid draftId, string permissionCode, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> CanAccessMatterDraftCapabilityAsync(Guid matterId, string permissionCode, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+        public Task<bool> CanAccessMatterDocumentAsync(Guid matterId, Guid documentId, Guid userId, CancellationToken ct = default) => Task.FromResult(true);
+    }
+
+    [Fact]
+    public void Test_LacDbContextModelSnapshot_Contains_MatterDocumentExtract_And_SoftUnlink()
+    {
+        var model = _factory.Services.GetRequiredService<LacDbContext>().Model;
+        var extractEntity = model.FindEntityType(typeof(MatterDocumentExtract));
+        Assert.NotNull(extractEntity);
+
+        var matterDocEntity = model.FindEntityType(typeof(MatterDocument));
+        Assert.NotNull(matterDocEntity);
+        var recordStatusProp = matterDocEntity!.FindProperty("RecordStatus");
+        Assert.NotNull(recordStatusProp);
+    }
+
+    [Fact]
+    public async Task Test_RemoveMatterDocumentLinkAsync_SoftUnlinks_PreservesProvenance_IncrementsRevision_And_LogsEvent()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (db, ws1, _, village, _, _, userAssigned, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new TestAllowAllMatterAuth();
+        var service = new MatterWorkflowService(db, storage, authService);
+
+        var matter = new Matter
+        {
+            VillageId = village.Id,
+            WorkstreamId = ws1.Id,
+            Title = "Unlink Provenance Test Matter",
+            MatterType = "Court Case",
+            Status = "Active",
+            Revision = 5,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Matters.Add(matter);
+
+        var sourceDoc = new Document
+        {
+            OriginalFileName = "source.pdf",
+            StoragePath = "docs/source.pdf",
+            Sha256Hash = "abc",
+            FileSize = 100,
+            DocumentType = "Award",
+            RecordStatus = RecordStatus.Active,
+            Status = "Active"
+        };
+        db.Documents.Add(sourceDoc);
+
+        var extractDoc = new Document
+        {
+            OriginalFileName = "extract.pdf",
+            StoragePath = "docs/extract.pdf",
+            Sha256Hash = "def",
+            FileSize = 50,
+            DocumentType = "MatterExtract",
+            RecordStatus = RecordStatus.Active,
+            Status = "Active"
+        };
+        db.Documents.Add(extractDoc);
+
+        var matterDoc = new MatterDocument
+        {
+            MatterId = matter.Id,
+            DocumentId = extractDoc.Id,
+            DocumentRole = "Extract",
+            DisplayName = "Page Extract",
+            RecordStatus = RecordStatus.Active
+        };
+        db.MatterDocuments.Add(matterDoc);
+
+        var extractProv = new MatterDocumentExtract
+        {
+            MatterDocumentId = matterDoc.Id,
+            SourceDocumentId = sourceDoc.Id,
+            SourceSha256Hash = "abc",
+            NormalizedSourcePagesText = "9, 16",
+            NormalizedPageNumbersJson = "[9, 16]",
+            ExtractedByUserId = userAssigned.Id,
+            ExtractedByUserNameSnapshot = userAssigned.DisplayName,
+            ExtractedAt = DateTimeOffset.UtcNow
+        };
+        db.MatterDocumentExtracts.Add(extractProv);
+
+        await db.SaveChangesAsync();
+
+        var removeCmd = new RemoveMatterDocumentLinkCommand(ExpectedRevision: 5);
+        await service.RemoveMatterDocumentLinkAsync(matter.Id, extractDoc.Id, removeCmd, userAssigned.Id);
+
+        // Verify Matter revision incremented
+        var updatedMatter = await db.Matters.FindAsync(matter.Id);
+        Assert.NotNull(updatedMatter);
+        Assert.Equal(6, updatedMatter!.Revision);
+
+        // Verify MatterDocument is soft-unlinked (RecordStatus == Archived)
+        var unlinkedMatterDoc = await db.MatterDocuments.FindAsync(matterDoc.Id);
+        Assert.NotNull(unlinkedMatterDoc);
+        Assert.Equal(RecordStatus.Archived, unlinkedMatterDoc!.RecordStatus);
+
+        // Verify ExtractProvenance and physical Document files are PRESERVED
+        var preservedExtract = await db.MatterDocumentExtracts.FirstOrDefaultAsync(x => x.MatterDocumentId == matterDoc.Id);
+        Assert.NotNull(preservedExtract);
+        Assert.Equal(sourceDoc.Id, preservedExtract!.SourceDocumentId);
+
+        var preservedDoc = await db.Documents.FindAsync(extractDoc.Id);
+        Assert.NotNull(preservedDoc);
+        Assert.Equal(RecordStatus.Active, preservedDoc!.RecordStatus);
+
+        // Verify MatterEventAction.DocumentUnlinked recorded
+        var ev = await db.MatterEvents.FirstOrDefaultAsync(e => e.MatterId == matter.Id && e.Action == MatterEventAction.DocumentUnlinked);
+        Assert.NotNull(ev);
+        Assert.Equal(extractDoc.Id, ev!.DocumentId);
+    }
+
+    [Fact]
+    public async Task Test_UpdateMatterDocumentMetadataAsync_UpdatesRole_IncrementsRevision_And_LogsEvent()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (db, ws1, _, village, _, _, userAssigned, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new TestAllowAllMatterAuth();
+        var service = new MatterWorkflowService(db, storage, authService);
+
+        var matter = new Matter
+        {
+            VillageId = village.Id,
+            WorkstreamId = ws1.Id,
+            Title = "Metadata Update Matter",
+            MatterType = "Other",
+            Status = "Active",
+            Revision = 2,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Matters.Add(matter);
+
+        var doc = new Document
+        {
+            OriginalFileName = "test.pdf",
+            StoragePath = "docs/test.pdf",
+            Sha256Hash = "123",
+            FileSize = 100,
+            DocumentType = "MatterDocument",
+            RecordStatus = RecordStatus.Active,
+            Status = "Active"
+        };
+        db.Documents.Add(doc);
+
+        var matterDoc = new MatterDocument
+        {
+            MatterId = matter.Id,
+            DocumentId = doc.Id,
+            DocumentRole = "Old Role",
+            DisplayName = "Old Display Name",
+            RecordStatus = RecordStatus.Active
+        };
+        db.MatterDocuments.Add(matterDoc);
+        await db.SaveChangesAsync();
+
+        var updateCmd = new UpdateMatterDocumentCommand(
+            DocumentRole: "Updated Role",
+            DisplayName: "Updated Display Name",
+            ExpectedRevision: 2
+        );
+
+        var updatedDoc = await service.UpdateMatterDocumentMetadataAsync(matter.Id, doc.Id, updateCmd, userAssigned.Id);
+
+        Assert.Equal("Updated Role", updatedDoc.DocumentRole);
+        Assert.Equal("Updated Display Name", updatedDoc.DisplayName);
+
+        var updatedMatter = await db.Matters.FindAsync(matter.Id);
+        Assert.Equal(3, updatedMatter!.Revision);
+
+        var ev = await db.MatterEvents.FirstOrDefaultAsync(e => e.MatterId == matter.Id && e.Action == MatterEventAction.DocumentMetadataUpdated);
+        Assert.NotNull(ev);
+        Assert.Equal(doc.Id, ev!.DocumentId);
+    }
+
+    [Fact]
+    public async Task Test_DocumentOperations_ConcurrencyConflict_Returns409()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (db, ws1, _, village, _, _, userAssigned, _) = CreateTestDbContext(dbName);
+        var storage = new TestInMemoryDocumentStorage();
+        var authService = new TestAllowAllMatterAuth();
+        var service = new MatterWorkflowService(db, storage, authService);
+
+        var matter = new Matter
+        {
+            VillageId = village.Id,
+            WorkstreamId = ws1.Id,
+            Title = "Concurrency Test Matter",
+            MatterType = "Other",
+            Status = "Active",
+            Revision = 10,
+            RecordStatus = RecordStatus.Active
+        };
+        db.Matters.Add(matter);
+
+        var doc = new Document
+        {
+            OriginalFileName = "concurrency.pdf",
+            StoragePath = "docs/concurrency.pdf",
+            Sha256Hash = "789",
+            FileSize = 100,
+            DocumentType = "MatterDocument",
+            RecordStatus = RecordStatus.Active,
+            Status = "Active"
+        };
+        db.Documents.Add(doc);
+
+        var matterDoc = new MatterDocument
+        {
+            MatterId = matter.Id,
+            DocumentId = doc.Id,
+            DocumentRole = "Initial Role",
+            DisplayName = "Initial Display Name",
+            RecordStatus = RecordStatus.Active
+        };
+        db.MatterDocuments.Add(matterDoc);
+        await db.SaveChangesAsync();
+
+        var updateCmd = new UpdateMatterDocumentCommand("New Role", "New Name", ExpectedRevision: 9);
+        var exUpdate = await Assert.ThrowsAsync<MatterWorkflowException>(() => service.UpdateMatterDocumentMetadataAsync(matter.Id, doc.Id, updateCmd, userAssigned.Id));
+        Assert.Equal(409, exUpdate.StatusCode);
+
+        var removeCmd = new RemoveMatterDocumentLinkCommand(ExpectedRevision: 9);
+        var exRemove = await Assert.ThrowsAsync<MatterWorkflowException>(() => service.RemoveMatterDocumentLinkAsync(matter.Id, doc.Id, removeCmd, userAssigned.Id));
+        Assert.Equal(409, exRemove.StatusCode);
+    }
 }
 

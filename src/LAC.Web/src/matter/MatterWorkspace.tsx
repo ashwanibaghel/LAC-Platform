@@ -407,7 +407,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
   const handleEditDocumentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingDoc) return;
+    if (!editingDoc || !matter) return;
 
     try {
       setSavingDocEdit(true);
@@ -418,7 +418,8 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         credentials: "include",
         body: JSON.stringify({
           role: editDocRole.trim() || null,
-          displayName: editDocDisplayName.trim() || null
+          displayName: editDocDisplayName.trim() || null,
+          expectedRevision: matter.revision
         })
       });
 
@@ -437,13 +438,18 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   };
 
   const handleRemoveDocument = async (docId: string) => {
+    if (!matter) return;
     if (!window.confirm("Are you sure you want to remove/unlink this document from the matter?")) return;
 
     try {
       setDeletingDocId(docId);
-      const res = await fetch(`/api/matters/${id}/documents/${docId}`, {
-        method: "DELETE",
-        credentials: "include"
+      const res = await fetch(`/api/matters/${id}/documents/${docId}/unlink`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          expectedRevision: matter.revision
+        })
       });
 
       if (!res.ok) {

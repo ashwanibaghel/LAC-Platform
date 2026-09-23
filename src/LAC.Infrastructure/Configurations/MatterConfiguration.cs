@@ -55,5 +55,22 @@ public static class MatterModelConfiguration
                 .HasForeignKey(x => x.ExtractedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // 4. MatterDocument (Matter <-> Document Relationship)
+        b.Entity<MatterDocument>(entity =>
+        {
+            entity.HasIndex(x => new { x.MatterId, x.DocumentId });
+            entity.Property(x => x.RecordStatus).HasConversion<string>().HasMaxLength(32);
+
+            entity.HasOne(x => x.Matter)
+                .WithMany(x => x.DocumentLinks)
+                .HasForeignKey(x => x.MatterId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.Document)
+                .WithMany()
+                .HasForeignKey(x => x.DocumentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }
