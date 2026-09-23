@@ -464,7 +464,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
             fontWeight: 500,
             display: "flex",
             alignItems: "center",
-            justify-content: "space-between",
+            justifyContent: "space-between",
             backgroundColor: message.includes("started") || message.includes("queued") || message.includes("background") ? "#eff6ff" : "#fef2f2",
             border: `1px solid ${message.includes("started") || message.includes("queued") || message.includes("background") ? "#bfdbfe" : "#fecaca"}`,
             color: message.includes("started") || message.includes("queued") || message.includes("background") ? "#1e40af" : "#991b1b",
