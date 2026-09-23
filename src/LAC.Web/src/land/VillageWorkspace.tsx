@@ -169,7 +169,7 @@ export const VillageWorkspace: React.FC = () => {
       {/* Active Tab Panel Surface */}
       <div className="village-tab-panel">
         {currentTab === "overview" && <VillageOverviewTab villageId={id} />}
-        {currentTab === "core-records" && <VillageCoreRecordsTab villageId={id} />}
+        {currentTab === "core-records" && <VillageCoreRecordsTab villageId={id} villageName={village.name} />}
         {currentTab === "khasras" && canViewKhasras && <VillageKhasrasTab villageId={id} />}
         {currentTab === "matters" && canViewMatters && <VillageMattersTab villageId={id} />}
       </div>

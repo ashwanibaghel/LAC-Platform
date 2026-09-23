@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { IconPlus, IconChevronRight, IconClose, IconFileText, IconMoreVertical } from "../components/Icons";
+import { CoreDocumentUploadModal } from "./CoreDocumentUploadModal";
 import "./land.css";
 
 const api = "/api";
@@ -54,9 +55,10 @@ export interface CoreRecordAward {
 
 export interface VillageCoreRecordsTabProps {
   villageId: string;
+  villageName?: string;
 }
 
-export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId }) => {
+export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ villageId, villageName }) => {
   const { hasPermission } = useAuth();
   const canViewAward = hasPermission("Award.View");
   const canAddAward = hasPermission("Award.Create");
@@ -80,12 +82,9 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploadTarget, setUploadTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string } | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [replaceModalOpen, setReplaceModalOpen] = useState(false);
   const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
-  const [replaceFile, setReplaceFile] = useState<File | null>(null);
-  const [replaceReason, setReplaceReason] = useState("");
 
   const [removeModalOpen, setRemoveModalOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
@@ -205,9 +204,9 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   };
 
   // Handle Core Document Upload
-  const handleUploadDocument = async () => {
-    if (!uploadTarget || !selectedFile) {
-      setMessage("Please select a file to upload.");
+  const handleUploadDocument = async (file: File) => {
+    if (!uploadTarget) {
+      setMessage("Target document context is missing.");
       return;
     }
     setBusy(true);
@@ -215,7 +214,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
     try {
       const formData = new FormData();
-      formData.append("file", selectedFile);
+      formData.append("file", file);
 
       const res = await fetch(
         `${api}/awards/${uploadTarget.awardId}/core-documents?role=${encodeURIComponent(uploadTarget.role)}`,
@@ -231,7 +230,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         throw new Error(errJson.detail || errJson.message || "Failed to upload document.");
       }
 
-      setSelectedFile(null);
       setUploadModalOpen(false);
       setUploadTarget(null);
       setRefresh((x) => x + 1);
@@ -243,16 +241,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   };
 
   // Handle Replace Document
-  const handleReplaceDocument = async () => {
+  const handleReplaceDocument = async (file: File, reason: string) => {
     if (!replaceTarget || !replaceTarget.documentId) {
       setMessage("Target document identifier is missing for replacement.");
       return;
     }
-    if (!replaceFile) {
-      setMessage("Please select a replacement PDF file.");
-      return;
-    }
-    if (!replaceReason.trim()) {
+    if (!reason.trim()) {
       setMessage("A reason is required to replace an official core document.");
       return;
     }
@@ -261,9 +255,9 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
     try {
       const formData = new FormData();
-      formData.append("file", replaceFile);
+      formData.append("file", file);
 
-      const endpoint = `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(replaceReason.trim())}`;
+      const endpoint = `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(reason.trim())}`;
 
       const res = await fetch(endpoint, {
         method: "PUT",
@@ -276,8 +270,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         throw new Error(errJson.detail || errJson.message || "Failed to replace document.");
       }
 
-      setReplaceFile(null);
-      setReplaceReason("");
       setReplaceModalOpen(false);
       setReplaceTarget(null);
       setRefresh((x) => x + 1);
@@ -328,7 +320,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   const openUploadModal = (awardId: string, awardNumber: string, role: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
     setUploadTarget({ awardId, awardNumber, role, label: roleLabel });
-    setSelectedFile(null);
     setMessage("");
     setUploadModalOpen(true);
   };
@@ -336,8 +327,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
     setReplaceTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
-    setReplaceFile(null);
-    setReplaceReason("");
     setMessage("");
     setReplaceModalOpen(true);
   };
@@ -970,111 +959,49 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       )}
 
       {/* Upload Core Document Modal */}
-      {uploadModalOpen && uploadTarget && (
-        <div className="modal-overlay" onClick={() => setUploadModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
-            <div className="modal-header">
-              <h3>Upload {uploadTarget.label}</h3>
-              <button className="icon-button" onClick={() => setUploadModalOpen(false)}>
-                <IconClose size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
-                Target: Award #{uploadTarget.awardNumber} ({uploadTarget.label})
-              </p>
-
-              {message && <div className="state error">{message}</div>}
-
-              <div className="form-group">
-                <label className="form-label required">Select PDF File</label>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  className="form-input"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button type="button" className="secondary-button" onClick={() => setUploadModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || !selectedFile}
-                onClick={() => void handleUploadDocument()}
-              >
-                {busy ? "Uploading…" : "Upload Document"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {uploadTarget && (
+        <CoreDocumentUploadModal
+          mode="upload"
+          isOpen={uploadModalOpen}
+          villageName={villageName}
+          awardNumber={uploadTarget.awardNumber}
+          awardId={uploadTarget.awardId}
+          role={uploadTarget.role}
+          roleLabel={uploadTarget.label}
+          busy={busy}
+          errorMessage={message}
+          onClose={() => {
+            setUploadModalOpen(false);
+            setUploadTarget(null);
+            setMessage("");
+          }}
+          onSubmitUpload={handleUploadDocument}
+          onSubmitReplace={() => {}}
+        />
       )}
 
       {/* Replace Core Document Modal */}
-      {replaceModalOpen && replaceTarget && (
-        <div className="modal-overlay" onClick={() => setReplaceModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
-            <div className="modal-header">
-              <h3>Replace {replaceTarget.label}</h3>
-              <button className="icon-button" onClick={() => setReplaceModalOpen(false)}>
-                <IconClose size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <p style={{ margin: 0, fontSize: "14px", color: "#475569" }}>
-                Target: Award #{replaceTarget.awardNumber} ({replaceTarget.label})
-                {replaceTarget.fileName ? ` — ${replaceTarget.fileName}` : ""}
-              </p>
-              <p style={{ margin: 0, fontSize: "12.5px", color: "#64748b" }}>
-                Replacing this document preserves historical evidence. The current document will remain linked historically in official record archives.
-              </p>
-
-              {message && <div className="state error">{message}</div>}
-
-              <div className="form-group">
-                <label className="form-label required">Replacement PDF File</label>
-                <input
-                  type="file"
-                  accept=".pdf"
-                  className="form-input"
-                  onChange={(e) => setReplaceFile(e.target.files?.[0] || null)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label required">Replacement Reason</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Replacing with newly signed high-resolution copy"
-                  value={replaceReason}
-                  onChange={(e) => setReplaceReason(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button type="button" className="secondary-button" onClick={() => setReplaceModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || !replaceFile || !replaceReason.trim()}
-                onClick={() => void handleReplaceDocument()}
-              >
-                {busy ? "Replacing…" : "Replace Document"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {replaceTarget && (
+        <CoreDocumentUploadModal
+          mode="replace"
+          isOpen={replaceModalOpen}
+          villageName={villageName}
+          awardNumber={replaceTarget.awardNumber}
+          awardId={replaceTarget.awardId}
+          role={replaceTarget.role}
+          roleLabel={replaceTarget.label}
+          documentId={replaceTarget.documentId}
+          currentFileName={replaceTarget.fileName}
+          busy={busy}
+          errorMessage={message}
+          onClose={() => {
+            setReplaceModalOpen(false);
+            setReplaceTarget(null);
+            setMessage("");
+          }}
+          onSubmitUpload={() => {}}
+          onSubmitReplace={handleReplaceDocument}
+        />
       )}
 
       {/* Remove Core Document Modal */}
