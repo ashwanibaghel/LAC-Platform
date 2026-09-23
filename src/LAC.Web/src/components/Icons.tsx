@@ -213,3 +213,11 @@ export const IconClose: React.FC<IconProps> = ({ size = 18, className = "", ...p
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
+
+export const IconMoreVertical: React.FC<IconProps> = ({ size = 16, className = "", ...props }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>
+    <circle cx="12" cy="12" r="1.5" />
+    <circle cx="12" cy="5" r="1.5" />
+    <circle cx="12" cy="19" r="1.5" />
+  </svg>
+);

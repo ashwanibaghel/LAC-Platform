@@ -5,7 +5,6 @@ import { IconLand, IconAward, IconFileText, IconShield } from "../components/Ico
 import { VillageOverviewTab } from "./VillageOverviewTab";
 import { VillageCoreRecordsTab } from "./VillageCoreRecordsTab";
 import { VillageKhasrasTab } from "./VillageKhasrasTab";
-import { VillageLandRecordsTab } from "./VillageLandRecordsTab";
 import { VillageMattersTab } from "./VillageMattersTab";
 import "./land.css";
 
@@ -36,14 +35,13 @@ export const VillageWorkspace: React.FC = () => {
   const { hasPermission } = useAuth();
 
   const canViewKhasras = hasPermission("Khasra.View");
-  const canViewLr = hasPermission("LR.View");
   const canViewMatters = hasPermission("Matter.View") || hasPermission("Matter.Create");
 
   let currentTab = searchParams.get("tab") || "overview";
 
-  // If active tab is hidden due to permissions, fall back to overview
+  // If active tab is hidden due to permissions or legacy 'lr' tab, fall back to overview
   if (currentTab === "khasras" && !canViewKhasras) currentTab = "overview";
-  if (currentTab === "lr" && !canViewLr) currentTab = "overview";
+  if (currentTab === "lr") currentTab = "overview";
   if (currentTab === "matters" && !canViewMatters) currentTab = "overview";
 
   const [village, setVillage] = useState<VillageData | null>(null);
@@ -155,17 +153,6 @@ export const VillageWorkspace: React.FC = () => {
             </button>
           )}
 
-          {canViewLr && (
-            <button
-              type="button"
-              className={`v-seg-tab ${currentTab === "lr" ? "active" : ""}`}
-              onClick={() => handleTabChange("lr")}
-            >
-              <IconLand size={14} />
-              <span>LR &amp; Ownership</span>
-            </button>
-          )}
-
           {canViewMatters && (
             <button
               type="button"
@@ -184,7 +171,6 @@ export const VillageWorkspace: React.FC = () => {
         {currentTab === "overview" && <VillageOverviewTab villageId={id} />}
         {currentTab === "core-records" && <VillageCoreRecordsTab villageId={id} />}
         {currentTab === "khasras" && canViewKhasras && <VillageKhasrasTab villageId={id} />}
-        {currentTab === "lr" && canViewLr && <VillageLandRecordsTab villageId={id} />}
         {currentTab === "matters" && canViewMatters && <VillageMattersTab villageId={id} />}
       </div>
     </div>

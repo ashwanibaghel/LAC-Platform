@@ -71,11 +71,11 @@ function getSourceCoverageAction(sourceType: string, villageId: string) {
   if (typeLower.includes("lr") || typeLower.includes("khatauni")) {
     return (
       <Link
-        to={`/villages/${villageId}?tab=lr`}
+        to="/imports/lr"
         className="text-action"
         style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
       >
-        <span>LR &amp; Ownership</span>
+        <span>LR Imports</span>
         <IconChevronRight size={14} />
       </Link>
     );
