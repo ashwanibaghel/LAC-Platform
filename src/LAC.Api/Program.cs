@@ -512,7 +512,7 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
     var awards = await db.Awards.AsNoTracking().Where(a => a.VillageLinks.Any(v => v.VillageId == id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
-        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
+        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Where(d => d.CoreDocumentRole != null).Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
     var awardIds = awards.Select(a => a.Id).ToList();
 
     var jobs = await db.AwardDocumentExtractionJobs.AsNoTracking()
@@ -538,8 +538,9 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
 
     return Results.Ok(awards.Select(a =>
     {
-        var latestJob = jobs.FirstOrDefault(j => j.TargetAwardId == a.Id);
-        var latestSession = sessions.FirstOrDefault(s => s.TargetAwardId == a.Id);
+        var activeDocIds = a.documents.Select(d => d.DocumentId).ToHashSet();
+        var latestJob = jobs.FirstOrDefault(j => activeDocIds.Contains(j.DocumentId));
+        var latestSession = sessions.FirstOrDefault(s => s.SourceDocumentId != null && activeDocIds.Contains(s.SourceDocumentId.Value));
 
         var totalCandidates = latestSession?.Candidates.Count ?? 0;
         var pendingCandidates = latestSession?.Candidates.Count(IsPending) ?? 0;
@@ -567,8 +568,8 @@ api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, 
             }),
             documents = a.documents.Select(d =>
             {
-                var docJob = jobs.FirstOrDefault(j => j.DocumentId == d.DocumentId) ?? (d.CoreDocumentRole == "Award" ? latestJob : null);
-                var docSession = sessions.FirstOrDefault(s => s.SourceDocumentId == d.DocumentId) ?? (d.CoreDocumentRole == "Award" ? latestSession : null);
+                var docJob = jobs.FirstOrDefault(j => j.DocumentId == d.DocumentId);
+                var docSession = sessions.FirstOrDefault(s => s.SourceDocumentId == d.DocumentId);
                 var docTotal = docSession?.Candidates.Count ?? 0;
                 var docPending = docSession?.Candidates.Count(IsPending) ?? 0;
 
@@ -1099,20 +1100,6 @@ api.MapPost("/awards/{awardId:guid}/documents/{documentId:guid}/analyze", async 
 {
     try { var result=await extraction.AnalyzeAsync(documentId,awardId,villageId,ct);return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}",result); }
     catch(AwardIngestionException ex){return IngestionProblem(ex);}
-}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/awards/{id:guid}/extract", async (Guid id, Guid? villageId, AwardPdfExtractionService extraction, LacDbContext db, CancellationToken ct) =>
-{
-    var doc = await db.DocumentAwards.AsNoTracking()
-        .Where(x => x.AwardId == id && x.CoreDocumentRole == "Award")
-        .Select(x => x.DocumentId)
-        .FirstOrDefaultAsync(ct);
-    if (doc == Guid.Empty) return Validation("document", "No Award PDF core document uploaded for this Award.");
-    try
-    {
-        var result = await extraction.AnalyzeAsync(doc, id, villageId, ct);
-        return Results.Accepted($"/api/award-pdf-extractions/{result.JobId}", result);
-    }
-    catch (AwardIngestionException ex) { return IngestionProblem(ex); }
 }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/award-pdf-extractions/{id:guid}", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => { try { return Results.Ok(await extraction.GetAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/award-pdf-extractions/recent", async (AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetRecentUnassignedAsync(ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);

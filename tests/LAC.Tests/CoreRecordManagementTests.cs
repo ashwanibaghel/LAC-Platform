@@ -288,4 +288,60 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         var villageLink = await db2.DocumentVillages.FirstOrDefaultAsync(x => x.VillageId == village.Id && x.DocumentId == sharedDoc.Id);
         Assert.NotNull(villageLink);
     }
+
+    [Fact]
+    public async Task Core_records_projection_isolates_documents_strictly_without_inheriting_old_document_jobs()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Isolation Village" };
+        var award = new Award { AwardNumber = "AWD-ISO-TEST" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var oldDoc = new Document { DocumentType = "Award", OriginalFileName = "old_award.pdf", StoragePath = "/tmp/old.pdf" };
+        var newDoc = new Document { DocumentType = "Award", OriginalFileName = "new_award.pdf", StoragePath = "/tmp/new.pdf" };
+        db.Documents.AddRange(oldDoc, newDoc);
+
+        // oldDoc had a completed extraction job, but is no longer an active core document
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = oldDoc, CoreDocumentRole = null });
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = newDoc, CoreDocumentRole = "Award" });
+
+        var oldJob = new AwardDocumentExtractionJob
+        {
+            DocumentId = oldDoc.Id,
+            TargetAwardId = award.Id,
+            Status = AwardDocumentExtractionJobStatus.Completed,
+            TotalPages = 10,
+            ProcessedPages = 10,
+            CurrentStage = "Completed"
+        };
+        db.AwardDocumentExtractionJobs.Add(oldJob);
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+
+        // Get Core Records for Village
+        var res = await authClient.GetAsync($"/api/villages/{village.Id}/core-records");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement[]>();
+        Assert.NotNull(json);
+        Assert.Single(json);
+
+        var awardElem = json[0];
+        var docs = awardElem.GetProperty("documents").EnumerateArray().ToList();
+        Assert.Single(docs); // Only active core document (newDoc) is listed
+
+        var activeDoc = docs[0];
+        Assert.Equal(newDoc.Id, activeDoc.GetProperty("documentId").GetGuid());
+        // Must NOT inherit oldDoc's extraction job!
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, activeDoc.GetProperty("extractionJobId").ValueKind);
+
+        // Verify legacy POST /api/awards/{id}/extract is removed (404 Not Found)
+        var extractRes = await authClient.PostAsync($"/api/awards/{award.Id}/extract?villageId={village.Id}", null);
+        Assert.Equal(HttpStatusCode.NotFound, extractRes.StatusCode);
+    }
 }

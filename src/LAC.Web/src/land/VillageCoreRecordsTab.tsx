@@ -408,15 +408,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     window.open(`${api}/documents/${documentId}/content`, "_blank");
   };
 
-  const triggerAnalyze = async (awardId: string, documentId?: string) => {
-    const targetId = documentId || awardId;
+  const triggerAnalyze = async (awardId: string, documentId: string) => {
     try {
-      setAnalyzingDocId(targetId);
+      setAnalyzingDocId(documentId);
       setBusy(true);
       setMessage("");
-      const endpoint = documentId
-        ? `${api}/awards/${awardId}/documents/${documentId}/analyze?villageId=${villageId}`
-        : `${api}/awards/${awardId}/extract?villageId=${villageId}`;
+      const endpoint = `${api}/awards/${awardId}/documents/${documentId}/analyze?villageId=${villageId}`;
       const res = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
@@ -685,11 +682,11 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                       : `Review Ready (${pending} findings)`} →
                                   </Link>
                                 ) : (
-                                  <span className="doc-analysis-subtag completed" title="All extracted findings confirmed">
-                                    Completed ({total} verified)
-                                  </span>
+                                  <Link to={`/awards/${award.id}/ingestion/${sessionId}`} className="doc-analysis-subtag completed" title="All extracted findings verified" onClick={(e) => e.stopPropagation()}>
+                                     Review complete · {total} verified →
+                                   </Link>
                                 )
-                              ) : key === "Award" ? (
+                              ) : key === "Award" && canEditAward ? (
                                 <button
                                   type="button"
                                   className="doc-analysis-subtag trigger"
@@ -791,29 +788,29 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                         Review Findings
                                       </Link>
                                     )}
-                                    {!isRunning && (
-                                      <button
-                                        type="button"
-                                        style={{
-                                          width: "100%",
-                                          textAlign: "left",
-                                          padding: "8px 12px",
-                                          background: "none",
-                                          border: "none",
-                                          fontSize: "12.5px",
-                                          color: "#1e293b",
-                                          cursor: "pointer",
-                                          fontWeight: 500,
-                                          borderTop: "1px solid #f1f5f9",
-                                        }}
-                                        onClick={() => {
-                                          setActiveMenuId(null);
-                                          triggerAnalyze(award.id, doc.documentId);
-                                        }}
-                                      >
-                                        Analyze Document
-                                      </button>
-                                    )}
+                                    {!isRunning && canEditAward && key === "Award" && (
+                                       <button
+                                         type="button"
+                                         style={{
+                                           width: "100%",
+                                           textAlign: "left",
+                                           padding: "8px 12px",
+                                           background: "none",
+                                           border: "none",
+                                           fontSize: "12.5px",
+                                           color: "#1e293b",
+                                           cursor: "pointer",
+                                           fontWeight: 500,
+                                           borderTop: "1px solid #f1f5f9",
+                                         }}
+                                         onClick={() => {
+                                           setActiveMenuId(null);
+                                           triggerAnalyze(award.id, doc.documentId);
+                                         }}
+                                       >
+                                         Analyze Document
+                                       </button>
+                                     )}
                                   </>
                                 )}
 
@@ -940,6 +937,64 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                     <span style={{ fontSize: "12.5px", fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={doc.originalFileName}>
                                       {doc.originalFileName}
                                     </span>
+                                    {/* Multi-file document analysis status badge */}
+                                    {(() => {
+                                      const docJobStatus = doc.extractionStatus;
+                                      const docSessionId = doc.ingestionSessionId;
+                                      const docPending = doc.pendingCandidates ?? 0;
+                                      const docTotal = doc.totalCandidates ?? 0;
+                                      const docIsRunning = (analyzingDocId === doc.documentId) || (Boolean(docJobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(docJobStatus!));
+
+                                      if (key === "StatementA" || key === "PossessionProceeding") {
+                                        return <span style={{ fontSize: "11px", color: "#64748b" }}>Analysis module not available yet</span>;
+                                      }
+                                      if (docIsRunning) {
+                                        return (
+                                          <span className="doc-analysis-subtag running" style={{ fontSize: "11px", display: "inline-flex", width: "fit-content" }}>
+                                            <span className="pulse-dot" /> Analyzing…
+                                          </span>
+                                        );
+                                      }
+                                      if (docSessionId) {
+                                        if (docPending > 0) {
+                                          return (
+                                            <Link
+                                              to={`/awards/${award.id}/ingestion/${docSessionId}`}
+                                              style={{ fontSize: "11.5px", color: "#d97706", fontWeight: 600, textDecoration: "none" }}
+                                              onClick={() => setActiveMenuId(null)}
+                                            >
+                                              {docTotal > docPending && docTotal - docPending > 0
+                                                ? `Review in Progress (${docTotal - docPending}/${docTotal})`
+                                                : `Review Ready (${docPending} findings)`} →
+                                            </Link>
+                                          );
+                                        }
+                                        return (
+                                          <Link
+                                            to={`/awards/${award.id}/ingestion/${docSessionId}`}
+                                            style={{ fontSize: "11.5px", color: "#16a34a", fontWeight: 600, textDecoration: "none" }}
+                                            onClick={() => setActiveMenuId(null)}
+                                          >
+                                            Review complete · {docTotal} verified →
+                                          </Link>
+                                        );
+                                      }
+                                      if (key === "Award" && canEditAward) {
+                                        return (
+                                          <button
+                                            type="button"
+                                            style={{ border: "none", background: "none", color: "#2563eb", cursor: "pointer", fontSize: "11.5px", fontWeight: 600, padding: 0, textAlign: "left" }}
+                                            onClick={() => {
+                                              setActiveMenuId(null);
+                                              triggerAnalyze(award.id, doc.documentId);
+                                            }}
+                                          >
+                                            Analyze Document →
+                                          </button>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                     <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                                       <button
                                         type="button"

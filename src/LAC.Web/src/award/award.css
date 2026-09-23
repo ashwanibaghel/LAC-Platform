@@ -488,3 +488,37 @@
   background: #e2e8f0;
   color: #0f172a;
 }
+
+.field-label.active {
+  background: #f0f9ff;
+  border-left: 3px solid #0284c7;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.field-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.field-badge.confirmed {
+  background: #dcfce7;
+  color: #15803d;
+}
+.field-badge.corrected {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.field-badge.skipped {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.field-badge.uncertain {
+  background: #fef3c7;
+  color: #b45309;
+}
+.field-badge.pending {
+  background: #f8fafc;
+  color: #94a3b8;
+  border: 1px dashed #cbd5e1;
+}
