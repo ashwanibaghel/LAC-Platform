@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { IconFileText, IconMoreVertical } from "../components/Icons";
 import { CoreDocumentUploadModal } from "./CoreDocumentUploadModal";
 import { AddAwardModal } from "./AddAwardModal";
+import { createAwardWithOptionalPdf } from "./createAwardHelper";
 import "./land.css";
 
 const api = "/api";
@@ -427,6 +428,35 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           )}
         </div>
       </div>
+
+      {/* Page Message Banner */}
+      {message && !addAwardModal && (
+        <div
+          className="tab-notice-banner"
+          style={{
+            background: message.includes("successfully") || message.includes("background") ? "#fffbe6" : "#fef2f2",
+            border: `1px solid ${message.includes("successfully") || message.includes("background") ? "#ffe58f" : "#fecaca"}`,
+            color: message.includes("successfully") || message.includes("background") ? "#873800" : "#991b1b",
+            borderRadius: "8px",
+            padding: "10px 16px",
+            marginBottom: "16px",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <span>{message}</span>
+          <button
+            type="button"
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: "inherit", fontWeight: 600, fontSize: "14px" }}
+            onClick={() => setMessage("")}
+            title="Dismiss notice"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Active Extraction Banner (Factual progress only, no fake ETA) */}
       {isJobActive && (
@@ -1087,45 +1117,28 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           setMessage("");
           setAddAwardModal(false);
         }}
-        onSubmit={async ({ awardNumber, awardDate, awardType }, initialFile) => {
+        onSubmit={async (awardData, initialFile) => {
           try {
             setBusy(true);
             setMessage("");
-            const res = await fetch(`${api}/villages/${villageId}/awards`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                awardNumber: awardNumber.trim(),
-                awardDate: awardDate || null,
-                awardType: awardType || "General",
-              }),
-              credentials: "include",
+            const result = await createAwardWithOptionalPdf({
+              api,
+              villageId,
+              awardData,
+              initialFile,
             });
 
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              throw new Error(err.detail || err.message || "Could not add award.");
-            }
-
-            const data = await res.json();
-            const createdAwardId = data.id;
-
-            if (initialFile && createdAwardId) {
-              const formData = new FormData();
-              formData.append("file", initialFile);
-              const uploadRes = await fetch(`${api}/awards/${createdAwardId}/core-documents?role=Award`, {
-                method: "POST",
-                body: formData,
-                credentials: "include",
-              });
-              if (!uploadRes.ok) {
-                const err = await uploadRes.json().catch(() => ({}));
-                throw new Error(err.detail || err.message || "Award created, but initial PDF upload failed.");
-              }
+            if (!result.awardCreated) {
+              setMessage(result.error || "Could not add award.");
+              return;
             }
 
             setAddAwardModal(false);
             setRefresh((x) => x + 1);
+
+            if (result.message) {
+              setMessage(result.message);
+            }
           } catch (err: any) {
             setMessage(err?.message || "Adding award failed.");
           } finally {
