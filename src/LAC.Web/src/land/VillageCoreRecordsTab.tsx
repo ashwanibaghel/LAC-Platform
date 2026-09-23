@@ -105,6 +105,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -144,6 +145,23 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       active = false;
     };
   }, [villageId, refresh]);
+
+  // Auto-polling while any extraction job is active
+  useEffect(() => {
+    const hasRunningJob = records.some((a) => {
+      const awardRunning = a.extractionStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(a.extractionStatus);
+      const docRunning = a.documents?.some((d) => d.extractionStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(d.extractionStatus));
+      return awardRunning || docRunning;
+    });
+
+    if (!hasRunningJob && !analyzingDocId) return;
+
+    const interval = setInterval(() => {
+      setRefresh((r) => r + 1);
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [records, analyzingDocId]);
 
   // Handle Add Award
   const handleCreateAward = async (
@@ -391,7 +409,9 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   };
 
   const triggerAnalyze = async (awardId: string, documentId?: string) => {
+    const targetId = documentId || awardId;
     try {
+      setAnalyzingDocId(targetId);
       setBusy(true);
       setMessage("");
       const endpoint = documentId
@@ -402,15 +422,17 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         credentials: "include",
       });
       if (!res.ok) {
+        if (res.status === 403) throw new Error("Access denied: You do not have permission to trigger document analysis.");
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || err.message || "Could not start document analysis.");
       }
-      setMessage("Analysis started in background for Award PDF.");
+      setMessage("Document analysis started in background. The worker is parsing source pages.");
       setRefresh((x) => x + 1);
     } catch (e: any) {
       setMessage(e?.message || "Could not start document analysis.");
     } finally {
       setBusy(false);
+      setAnalyzingDocId(null);
     }
   };
 
@@ -430,6 +452,34 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
           </button>
         )}
       </div>
+
+      {message && (
+        <div
+          className="core-records-alert-banner"
+          style={{
+            padding: "10px 14px",
+            borderRadius: "6px",
+            marginBottom: "16px",
+            fontSize: "13px",
+            fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            justify-content: "space-between",
+            backgroundColor: message.includes("started") || message.includes("queued") || message.includes("background") ? "#eff6ff" : "#fef2f2",
+            border: `1px solid ${message.includes("started") || message.includes("queued") || message.includes("background") ? "#bfdbfe" : "#fecaca"}`,
+            color: message.includes("started") || message.includes("queued") || message.includes("background") ? "#1e40af" : "#991b1b",
+          }}
+        >
+          <span>{message}</span>
+          <button
+            type="button"
+            onClick={() => setMessage("")}
+            style={{ border: "none", background: "none", cursor: "pointer", color: "inherit", fontWeight: 700 }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <div className="core-matrix-wrap">
         <table className="core-matrix-table">
@@ -509,7 +559,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                       const sessionId = doc.ingestionSessionId || (key === "Award" ? award.ingestionSessionId : null);
                       const pending = doc.pendingCandidates ?? (key === "Award" ? award.pendingCandidates : 0);
                       const total = doc.totalCandidates ?? (key === "Award" ? award.totalCandidates : 0);
-                      const isRunning = jobStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus);
+                      const isRunning = (analyzingDocId === doc.documentId || analyzingDocId === award.id) || (Boolean(jobStatus) && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus!));
 
                       return (
                         <td key={key}>
