@@ -448,6 +448,127 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
     }
 
     [Fact]
+    public async Task Unverified_ready_candidate_is_counted_as_unresolved_in_core_records()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Unverified Ready Village" };
+        var award = new Award { AwardNumber = "AWD-UNVERIFIED-READY" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "unverified_ready.pdf", StoragePath = "/tmp/unverified.pdf" };
+        db.Documents.Add(doc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+
+        var session = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            SourceDocumentId = doc.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            Status = AwardIngestionSessionStatus.Parsed
+        };
+        db.AwardIngestionSessions.Add(session);
+
+        // Candidate status is Ready, but VerifiedAt is NULL (not human-confirmed yet)
+        db.AwardIngestionCandidates.Add(new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.Ready,
+            VerifiedAt = null,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        });
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+        var res = await authClient.GetAsync($"/api/villages/{village.Id}/core-records");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement[]>();
+        Assert.NotNull(json);
+        Assert.Single(json);
+
+        var awardElem = json[0];
+        Assert.Equal(1, awardElem.GetProperty("totalCandidates").GetInt32());
+        // Unverified Ready MUST be counted as unresolved!
+        Assert.Equal(1, awardElem.GetProperty("unresolvedCandidates").GetInt32());
+        Assert.Equal(0, awardElem.GetProperty("verifiedWaitingCommit").GetInt32());
+
+        var docElem = awardElem.GetProperty("documents").EnumerateArray().First();
+        Assert.Equal(1, docElem.GetProperty("totalCandidates").GetInt32());
+        Assert.Equal(1, docElem.GetProperty("unresolvedCandidates").GetInt32());
+        Assert.Equal(0, docElem.GetProperty("verifiedWaitingCommit").GetInt32());
+    }
+
+    [Fact]
+    public async Task Document_A_never_inherits_document_B_analysis_status_or_session()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Isolation MultiDoc Village" };
+        var award = new Award { AwardNumber = "AWD-MULTIDOC-ISO" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var docA = new Document { DocumentType = "NM", OriginalFileName = "docA.pdf", StoragePath = "/tmp/docA.pdf" };
+        var docB = new Document { DocumentType = "NM", OriginalFileName = "docB.pdf", StoragePath = "/tmp/docB.pdf" };
+        db.Documents.AddRange(docA, docB);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = docA, CoreDocumentRole = "NM" });
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = docB, CoreDocumentRole = "NM" });
+
+        // Document B has an extraction job and ingestion session
+        var jobB = new AwardDocumentExtractionJob
+        {
+            DocumentId = docB.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            TotalPages = 5,
+            ProcessedPages = 5,
+            Status = AwardDocumentExtractionJobStatus.Completed
+        };
+        db.AwardDocumentExtractionJobs.Add(jobB);
+
+        var sessionB = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            SourceDocumentId = docB.Id,
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            Status = AwardIngestionSessionStatus.NeedsReview
+        };
+        db.AwardIngestionSessions.Add(sessionB);
+        await db.SaveChangesAsync();
+
+        var authClient = await CreateAdminClientAsync();
+        var res = await authClient.GetAsync($"/api/villages/{village.Id}/core-records");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var json = await res.Content.ReadFromJsonAsync<System.Text.Json.JsonElement[]>();
+        Assert.NotNull(json);
+        var awardElem = json[0];
+        var docs = awardElem.GetProperty("documents").EnumerateArray().ToList();
+        Assert.Equal(2, docs.Count);
+
+        var elemA = docs.First(d => d.GetProperty("documentId").GetGuid() == docA.Id);
+        var elemB = docs.First(d => d.GetProperty("documentId").GetGuid() == docB.Id);
+
+        // Document A must NOT inherit Document B's extraction job or session
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, elemA.GetProperty("extractionJobId").ValueKind);
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, elemA.GetProperty("ingestionSessionId").ValueKind);
+
+        // Document B has its own job and session
+        Assert.Equal(jobB.Id, elemB.GetProperty("extractionJobId").GetGuid());
+        Assert.Equal(sessionB.Id, elemB.GetProperty("ingestionSessionId").GetGuid());
+    }
+
+    [Fact]
     public async Task Ingestion_mutation_endpoints_override_client_actor_with_authenticated_user_context()
     {
         using var scope = _factory.Services.CreateScope();
@@ -496,9 +617,17 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         db.AwardIngestionCandidates.Add(candidate);
         await db.SaveChangesAsync();
 
-        var authClient = await CreateAdminClientAsync(); // Logged in as "Core Record Test Administrator"
+        // 1. Unauthenticated request -> 401 Unauthorized
+        var unauthClient = _factory.CreateClient();
+        var unauthReq = new VerifyExtractedFactRequest(
+            VerifiedBy: "Anonymous Hacker",
+            CorrectedPayloadJson: System.Text.Json.JsonSerializer.Serialize(new AwardVillageCandidate(village.Name, village.Name))
+        );
+        var unauthRes = await unauthClient.PostAsJsonAsync($"/api/award-ingestion-candidates/{candidate.Id}/verify", unauthReq);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthRes.StatusCode);
 
-        // Submit verification request with spoofed actor "Hacker Name"
+        // 2. Authenticated request with spoofed actor in DTO -> Uses authenticated user identity
+        var authClient = await CreateAdminClientAsync(); // Logged in as "Core Record Test Administrator"
         var request = new VerifyExtractedFactRequest(
             VerifiedBy: "Hacker Name",
             CorrectedPayloadJson: System.Text.Json.JsonSerializer.Serialize(new AwardVillageCandidate(village.Name, village.Name))
