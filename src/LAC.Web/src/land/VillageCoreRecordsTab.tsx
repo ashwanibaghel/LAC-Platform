@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { IconPlus, IconChevronRight, IconClose, IconFileText, IconMoreVertical } from "../components/Icons";
 import { CoreDocumentUploadModal } from "./CoreDocumentUploadModal";
+import { AddAwardModal } from "./AddAwardModal";
 import "./land.css";
 
 const api = "/api";
@@ -133,8 +134,11 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   }, [villageId, refresh]);
 
   // Handle Add Award
-  const handleCreateAward = async () => {
-    if (!newAward.awardNumber.trim()) {
+  const handleCreateAward = async (
+    awardData: { awardNumber: string; awardDate: string; awardType: string },
+    initialFile: File | null
+  ) => {
+    if (!awardData.awardNumber.trim()) {
       setMessage("Award number is required.");
       return;
     }
@@ -145,9 +149,9 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          awardNumber: newAward.awardNumber.trim(),
-          awardDate: newAward.awardDate || null,
-          awardType: newAward.awardType || null,
+          awardNumber: awardData.awardNumber.trim(),
+          awardDate: awardData.awardDate || null,
+          awardType: awardData.awardType || null,
           remarks: null,
         }),
         credentials: "include",
@@ -158,7 +162,27 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         throw new Error(errJson.detail || errJson.message || "Could not add Award.");
       }
 
-      setNewAward({ awardNumber: "", awardDate: "", awardType: "" });
+      const created = (await res.json()) as { id: string };
+
+      // If initial Award PDF file was attached, upload it immediately
+      if (initialFile && created?.id) {
+        const formData = new FormData();
+        formData.append("file", initialFile);
+
+        const uploadRes = await fetch(
+          `${api}/awards/${created.id}/core-documents?role=Award`,
+          {
+            method: "POST",
+            body: formData,
+            credentials: "include",
+          }
+        );
+
+        if (!uploadRes.ok) {
+          console.warn("Award created, but initial PDF upload failed.");
+        }
+      }
+
       setAddAwardModalOpen(false);
       setRefresh((x) => x + 1);
     } catch (e: any) {
@@ -829,86 +853,59 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       </div>
 
       {/* Add Award Modal */}
-      {addAwardModalOpen && (
-        <div className="modal-overlay" onClick={() => setAddAwardModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
-            <div className="modal-header">
-              <h3>Add Award to Village</h3>
-              <button className="icon-button" onClick={() => setAddAwardModalOpen(false)}>
-                <IconClose size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              {message && <div className="state error">{message}</div>}
-
-              <div className="form-group">
-                <label className="form-label required">Award Number</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. 15/2021-22"
-                  value={newAward.awardNumber}
-                  onChange={(e) => setNewAward({ ...newAward, awardNumber: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Award Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={newAward.awardDate}
-                  onChange={(e) => setNewAward({ ...newAward, awardDate: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Award Type</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. General, Supplementary"
-                  value={newAward.awardType}
-                  onChange={(e) => setNewAward({ ...newAward, awardType: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button type="button" className="secondary-button" onClick={() => setAddAwardModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || !newAward.awardNumber.trim()}
-                onClick={() => void handleCreateAward()}
-              >
-                {busy ? "Adding…" : "Add Award"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AddAwardModal
+        isOpen={addAwardModalOpen}
+        villageName={villageName}
+        busy={busy}
+        errorMessage={message}
+        onClose={() => {
+          setAddAwardModalOpen(false);
+          setMessage("");
+        }}
+        onSubmit={handleCreateAward}
+      />
 
       {/* Edit Award Details Modal */}
       {editAwardModalOpen && editAward && (
-        <div className="modal-overlay" onClick={() => setEditAwardModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
-            <div className="modal-header">
-              <h3>Edit Award Details</h3>
-              <button className="icon-button" onClick={() => setEditAwardModalOpen(false)}>
+        <div className="upload-modal-overlay" onClick={() => setEditAwardModalOpen(false)}>
+          <div className="upload-modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="upload-modal-header">
+              <div className="upload-modal-header-titles">
+                <h3>Edit Award Details</h3>
+                <p>Update official identification metadata for Award #{editAward.awardNumber}.</p>
+              </div>
+              <button type="button" className="upload-modal-close-btn" onClick={() => setEditAwardModalOpen(false)} title="Close dialog">
                 <IconClose size={18} />
               </button>
             </div>
 
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleUpdateAward();
+              }}
+              className="upload-modal-body"
+            >
+              {villageName && (
+                <div className="upload-context-strip">
+                  <div className="ctx-item">
+                    <span className="ctx-lbl">Target Village</span>
+                    <span className="ctx-val">{villageName}</span>
+                  </div>
+                  <div className="ctx-sep">•</div>
+                  <div className="ctx-item">
+                    <span className="ctx-lbl">Award</span>
+                    <span className="ctx-val">#{editAward.awardNumber}</span>
+                  </div>
+                </div>
+              )}
+
               {message && <div className="state error">{message}</div>}
 
               <div className="form-group">
-                <label className="form-label required">Award Number</label>
+                <label className="form-label required" style={{ fontWeight: 650, color: "#0f172a" }}>
+                  Award Number
+                </label>
                 <input
                   type="text"
                   className="form-input"
@@ -919,41 +916,42 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Award Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={editAward.awardDate}
-                  onChange={(e) => setEditAward({ ...editAward, awardDate: e.target.value })}
-                />
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ fontWeight: 600, color: "#334155" }}>
+                    Award Date
+                  </label>
+                  <input
+                    type="date"
+                    className="form-input"
+                    value={editAward.awardDate}
+                    onChange={(e) => setEditAward({ ...editAward, awardDate: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" style={{ fontWeight: 600, color: "#334155" }}>
+                    Award Type
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. General, Supplementary"
+                    value={editAward.awardType}
+                    onChange={(e) => setEditAward({ ...editAward, awardType: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Award Type</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. General, Supplementary"
-                  value={editAward.awardType}
-                  onChange={(e) => setEditAward({ ...editAward, awardType: e.target.value })}
-                />
+              <div className="modal-footer" style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px", marginTop: "12px" }}>
+                <button type="button" className="secondary-button" onClick={() => setEditAwardModalOpen(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={busy || !editAward.awardNumber.trim()}>
+                  {busy ? "Saving Changes…" : "Save Changes"}
+                </button>
               </div>
-            </div>
-
-            <div className="modal-footer">
-              <button type="button" className="secondary-button" onClick={() => setEditAwardModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={busy || !editAward.awardNumber.trim()}
-                onClick={() => void handleUpdateAward()}
-              >
-                {busy ? "Saving…" : "Save Changes"}
-              </button>
-            </div>
+            </form>
           </div>
         </div>
       )}
@@ -1006,28 +1004,61 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
       {/* Remove Core Document Modal */}
       {removeModalOpen && removeTarget && (
-        <div className="modal-overlay" onClick={() => setRemoveModalOpen(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "500px" }}>
-            <div className="modal-header">
-              <h3>Remove {removeTarget.label} from Core</h3>
-              <button className="icon-button" onClick={() => setRemoveModalOpen(false)}>
+        <div className="upload-modal-overlay" onClick={() => setRemoveModalOpen(false)}>
+          <div className="upload-modal-container" onClick={(e) => e.stopPropagation()}>
+            <div className="upload-modal-header">
+              <div className="upload-modal-header-titles">
+                <h3 style={{ color: "#dc2626" }}>Remove {removeTarget.label} from Core</h3>
+                <p>Unlink official document role from Award #{removeTarget.awardNumber}.</p>
+              </div>
+              <button type="button" className="upload-modal-close-btn" onClick={() => setRemoveModalOpen(false)} title="Close dialog">
                 <IconClose size={18} />
               </button>
             </div>
 
-            <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <p style={{ margin: 0, fontSize: "14px", color: "#b91c1c", fontWeight: 600 }}>
-                Unlink {removeTarget.label} from Award #{removeTarget.awardNumber}
-                {removeTarget.fileName ? ` (${removeTarget.fileName})` : ""}
-              </p>
-              <p style={{ margin: 0, fontSize: "12.5px", color: "#64748b" }}>
-                This action unlinks the core document role from this Award. Physical document files and historical audit logs will be preserved.
-              </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleRemoveDocument();
+              }}
+              className="upload-modal-body"
+            >
+              {villageName && (
+                <div className="upload-context-strip">
+                  <div className="ctx-item">
+                    <span className="ctx-lbl">Target Village</span>
+                    <span className="ctx-val">{villageName}</span>
+                  </div>
+                  <div className="ctx-sep">•</div>
+                  <div className="ctx-item">
+                    <span className="ctx-lbl">Award</span>
+                    <span className="ctx-val">#{removeTarget.awardNumber}</span>
+                  </div>
+                  <div className="ctx-sep">•</div>
+                  <div className="ctx-item">
+                    <span className="ctx-lbl">Role</span>
+                    <span className="ctx-val badge" style={{ background: "#fef2f2", color: "#dc2626", borderColor: "#fca5a5" }}>
+                      {removeTarget.label}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: "8px", padding: "12px 14px" }}>
+                <p style={{ margin: "0 0 4px", fontSize: "13px", color: "#991b1b", fontWeight: 700 }}>
+                  Unlink {removeTarget.label} {removeTarget.fileName ? `(${removeTarget.fileName})` : ""}
+                </p>
+                <p style={{ margin: 0, fontSize: "12px", color: "#b91c1c" }}>
+                  This action unlinks the document role from official active records. Physical files and historical audit logs remain safely preserved.
+                </p>
+              </div>
 
               {message && <div className="state error">{message}</div>}
 
               <div className="form-group">
-                <label className="form-label required">Reason for Removal</label>
+                <label className="form-label required" style={{ fontWeight: 650, color: "#0f172a" }}>
+                  Reason for Removal
+                </label>
                 <input
                   type="text"
                   className="form-input"
@@ -1037,22 +1068,21 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                   required
                 />
               </div>
-            </div>
 
-            <div className="modal-footer">
-              <button type="button" className="secondary-button" onClick={() => setRemoveModalOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                style={{ backgroundColor: "#dc2626", borderColor: "#dc2626" }}
-                disabled={busy || !removeReason.trim()}
-                onClick={() => void handleRemoveDocument()}
-              >
-                {busy ? "Removing…" : "Remove Core Document"}
-              </button>
-            </div>
+              <div className="modal-footer" style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px", marginTop: "12px" }}>
+                <button type="button" className="secondary-button" onClick={() => setRemoveModalOpen(false)} disabled={busy}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="primary-button"
+                  style={{ backgroundColor: "#dc2626", borderColor: "#dc2626" }}
+                  disabled={busy || !removeReason.trim()}
+                >
+                  {busy ? "Removing…" : "Remove Core Document"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
