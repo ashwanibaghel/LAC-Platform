@@ -1,3 +1,5 @@
+// TODO: Re-introduce "Archive Matter" action UI when backend list & detail endpoints support reading/browsing archived records (currently ArchiveAsync sets RecordStatus = Archived while read queries filter RecordStatus == RecordStatus.Active).
+
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
@@ -106,7 +108,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   // Modals & Drawers
   const [showEditModal, setShowEditModal] = useState(false);
   const [showReclassifyModal, setShowReclassifyModal] = useState(false);
-  const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showLinkDrawer, setShowLinkDrawer] = useState(false);
 
@@ -124,11 +125,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [reclassifyReason, setReclassifyReason] = useState("");
   const [reclassifyError, setReclassifyError] = useState<string | null>(null);
   const [savingReclassify, setSavingReclassify] = useState(false);
-
-  // Archive Form State
-  const [archiveReason, setArchiveReason] = useState("");
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-  const [savingArchive, setSavingArchive] = useState(false);
 
   // Upload Form State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -304,42 +300,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
     }
   };
 
-  const handleArchive = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!matter) return;
-    if (!archiveReason.trim()) {
-      setArchiveError("Archival reason is mandatory.");
-      return;
-    }
-
-    try {
-      setSavingArchive(true);
-      setArchiveError(null);
-      const res = await fetch(`/api/matters/${id}/archive`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          reason: archiveReason.trim(),
-          expectedRevision: matter.revision
-        })
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => null);
-        throw new Error(errorData?.message || errorData?.title || "Failed to archive matter.");
-      }
-
-      setShowArchiveModal(false);
-      setArchiveReason("");
-      setRefresh((r) => r + 1);
-    } catch (err: any) {
-      setArchiveError(err.message || "Failed to archive.");
-    } finally {
-      setSavingArchive(false);
-    }
-  };
-
   const handleUploadDocument = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!matter || !uploadFile) return;
@@ -442,7 +402,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const canAssignWork = !isArchived && hasPermission("WorkItem.Create");
   const canEdit = !isArchived && hasPermission("Matter.Edit");
   const canManageDocs = !isArchived && hasPermission("Matter.Document.Manage");
-  const canArchive = !isArchived && hasPermission("Matter.Archive");
 
   const recentEvents = matter.events ? matter.events.slice(0, 4) : [];
 
@@ -491,16 +450,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
             </div>
           </div>
         </div>
-
-        {/* Locked / Read-Only Banner for Archived Matters */}
-        {isArchived && (
-          <div className="matter-archived-banner">
-            <IconLock size={16} />
-            <span>
-              This matter is <strong>Archived</strong> and in a terminal read-only state. No further edits, uploads, or document links are permitted.
-            </span>
-          </div>
-        )}
 
         {/* Action Controls Toolbar */}
         {!isArchived && (
@@ -560,7 +509,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
             )}
 
             {/* Overflow Menu button for Administrative Actions */}
-            {(canEdit || canArchive) && (
+            {canEdit && (
               <div className="matter-overflow-wrap" ref={overflowRef}>
                 <button
                   type="button"
@@ -573,35 +522,18 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
                 {showOverflow && (
                   <div className="matter-overflow-menu">
-                    {canEdit && (
-                      <button
-                        type="button"
-                        className="matter-overflow-item"
-                        onClick={() => {
-                          setShowOverflow(false);
-                          setReclassifyError(null);
-                          setShowReclassifyModal(true);
-                        }}
-                      >
-                        <IconBuilding size={14} />
-                        Reclassify Workstream
-                      </button>
-                    )}
-
-                    {canArchive && (
-                      <button
-                        type="button"
-                        className="matter-overflow-item danger"
-                        onClick={() => {
-                          setShowOverflow(false);
-                          setArchiveError(null);
-                          setShowArchiveModal(true);
-                        }}
-                      >
-                        <IconArchive size={14} />
-                        Archive Matter
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="matter-overflow-item"
+                      onClick={() => {
+                        setShowOverflow(false);
+                        setReclassifyError(null);
+                        setShowReclassifyModal(true);
+                      }}
+                    >
+                      <IconBuilding size={14} />
+                      Reclassify Workstream
+                    </button>
                   </div>
                 )}
               </div>
@@ -1298,70 +1230,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   disabled={savingReclassify || !reclassifyReason.trim()}
                 >
                   {savingReclassify ? "Reclassifying..." : "Confirm Reclassification"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Archive Matter Modal */}
-      {showArchiveModal && (
-        <div className="matter-modal-overlay" onClick={() => setShowArchiveModal(false)}>
-          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="matter-modal-header">
-              <div>
-                <h3 className="matter-modal-title" style={{ color: "#991b1b" }}>
-                  Archive Official Matter
-                </h3>
-                <span className="hint" style={{ color: "#b91c1c" }}>
-                  Warning: Archiving a matter is a terminal state. Once archived, no further edits, uploads, or links are permitted.
-                </span>
-              </div>
-              <button
-                type="button"
-                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}
-                onClick={() => setShowArchiveModal(false)}
-              >
-                <IconClose size={18} />
-              </button>
-            </div>
-
-            {archiveError && (
-              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", marginBottom: 14, fontSize: "13px" }}>
-                {archiveError}
-              </div>
-            )}
-
-            <form onSubmit={handleArchive}>
-              <div className="field-grid">
-                <label style={{ gridColumn: "span 2" }}>
-                  Mandatory Archival Reason *
-                  <textarea
-                    value={archiveReason}
-                    onChange={(e) => setArchiveReason(e.target.value)}
-                    placeholder="Provide official reason for archiving this matter..."
-                    rows={3}
-                    required
-                  />
-                </label>
-              </div>
-
-              <div className="matter-modal-actions">
-                <button
-                  type="button"
-                  className="btn-action-secondary"
-                  onClick={() => setShowArchiveModal(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn-action-primary"
-                  style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
-                  disabled={savingArchive || !archiveReason.trim()}
-                >
-                  {savingArchive ? "Archiving..." : "Confirm Archival"}
                 </button>
               </div>
             </form>

@@ -13,6 +13,7 @@ import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import { EditorToolbar } from "./EditorToolbar";
 import { matterDraftPagination, normalizeDraftPages } from "./pagination";
 import { DELHI_LAC_NOTING_V1, profilePrintSize, resolvePageProfile } from "./pageProfiles";
@@ -50,6 +51,8 @@ const displayDate = (value: string) => new Date(value).toLocaleDateString(undefi
 
 export function MatterDrafts({ matterId }: { matterId: string }) {
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canCreateDraft = hasPermission("Draft.Create");
   const [drafts, setDrafts] = useState<Array<Pick<Draft, "id" | "title" | "draftType" | "updatedAt">>>([]);
   const [title, setTitle] = useState("");
   const [error, setError] = useState("");
@@ -68,11 +71,13 @@ export function MatterDrafts({ matterId }: { matterId: string }) {
   };
   return <section className="section draft-list">
     <h2>Drafts</h2>
-    <div className="draft-create">
-      <input aria-label="Draft title" placeholder="Draft title" value={title} onChange={e => setTitle(e.target.value)} />
-      <button onClick={() => void create("Letter")} disabled={!title.trim()}>+ Create Letter</button>
-      <button onClick={() => void create("Noting")} disabled={!title.trim()}>+ Create Noting</button>
-    </div>
+    {canCreateDraft && (
+      <div className="draft-create">
+        <input aria-label="Draft title" placeholder="Draft title" value={title} onChange={e => setTitle(e.target.value)} />
+        <button onClick={() => void create("Letter")} disabled={!title.trim()}>+ Create Letter</button>
+        <button onClick={() => void create("Noting")} disabled={!title.trim()}>+ Create Noting</button>
+      </div>
+    )}
     {error && <p className="error">{error}</p>}
     {drafts.length === 0 ? <p className="hint">No letters or notings yet.</p> : (
       <div className="draft-cards">

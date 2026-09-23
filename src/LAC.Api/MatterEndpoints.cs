@@ -124,6 +124,8 @@ public static class MatterEndpoints
                     m.Revision,
                     m.CreatedAt,
                     m.UpdatedAt,
+                    documentCount = m.DocumentLinks.Count(d => d.Document.RecordStatus == RecordStatus.Active && d.Document.Status == "Active"),
+                    draftCount = m.Drafts.Count(dr => dr.RecordStatus == RecordStatus.Active),
                     award = m.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
                 })
                 .ToListAsync(ct);

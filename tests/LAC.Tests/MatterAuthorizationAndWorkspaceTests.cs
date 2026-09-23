@@ -1596,5 +1596,56 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
         Assert.NotNull(overview);
         Assert.Equal(1, overview.Village.DocumentCount);
     }
+
+    private sealed record MatterListItemCountsDto(Guid Id, string Title, int DocumentCount, int DraftCount);
+    private sealed record MatterListCountsResponseDto(List<MatterListItemCountsDto> Items, int TotalCount);
+
+    [Fact]
+    public async Task Get_matters_directory_returns_truthful_documentCount_and_draftCount()
+    {
+        Guid matterId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var village = new Village { Name = "Counts Test Village" };
+            db.Villages.Add(village);
+
+            var matter = new Matter
+            {
+                Title = "Count Projection Test Matter",
+                VillageId = village.Id,
+                RecordStatus = RecordStatus.Active,
+                Status = "Open"
+            };
+            db.Matters.Add(matter);
+
+            var doc = new Document
+            {
+                OriginalFileName = "test_doc.pdf",
+                StoragePath = "test_path",
+                DocumentType = "MatterDocument",
+                UploadedBy = "Admin",
+                RecordStatus = RecordStatus.Active,
+                Status = "Active"
+            };
+            db.Documents.Add(doc);
+            db.MatterDocuments.Add(new MatterDocument { MatterId = matter.Id, DocumentId = doc.Id });
+
+            var draft1 = new MatterDraft { MatterId = matter.Id, Title = "Draft 1", DraftType = MatterDraftType.Letter, RecordStatus = RecordStatus.Active };
+            var draft2 = new MatterDraft { MatterId = matter.Id, Title = "Draft 2", DraftType = MatterDraftType.Noting, RecordStatus = RecordStatus.Active };
+            db.MatterDrafts.AddRange(draft1, draft2);
+
+            await db.SaveChangesAsync();
+            matterId = matter.Id;
+        }
+
+        var res = await _client.GetAsync($"/api/matters?q=Count%20Projection");
+        res.EnsureSuccessStatusCode();
+        var data = await res.Content.ReadFromJsonAsync<MatterListCountsResponseDto>();
+        Assert.NotNull(data);
+        var target = Assert.Single(data.Items, m => m.Id == matterId);
+        Assert.Equal(1, target.DocumentCount);
+        Assert.Equal(2, target.DraftCount);
+    }
 }
 

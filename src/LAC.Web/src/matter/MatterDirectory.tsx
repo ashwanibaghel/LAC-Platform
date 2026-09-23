@@ -64,6 +64,7 @@ export const MatterDirectory: React.FC = () => {
   const [sortBy, setSortBy] = useState<string>("updatedat");
   const [sortDesc, setSortDesc] = useState<boolean>(true);
   const [workstreams, setWorkstreams] = useState<WorkstreamOption[]>([]);
+  const [matterTypes, setMatterTypes] = useState<string[]>([]);
   const [villages, setVillages] = useState<VillageOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +88,14 @@ export const MatterDirectory: React.FC = () => {
       .then((data) => {
         if (data?.workstreams) {
           setWorkstreams(data.workstreams);
+        }
+        if (Array.isArray(data?.matterTypes) && data.matterTypes.length > 0) {
+          setMatterTypes(data.matterTypes);
+          if (data.matterTypes.includes("Court Case")) {
+            setCreateMatterType("Court Case");
+          } else {
+            setCreateMatterType(data.matterTypes[0]);
+          }
         }
       })
       .catch(() => {});
@@ -197,7 +206,6 @@ export const MatterDirectory: React.FC = () => {
 
       const created = await res.json();
       setShowCreateModal(false);
-      // Reset form fields for next time
       setCreateTitle("");
       setCreateVillageId("");
       setCreateWorkstreamId("");
@@ -217,7 +225,8 @@ export const MatterDirectory: React.FC = () => {
   const endCount = Math.min(page * pageSize, totalCount);
   const hasActiveFilters = Boolean(searchTerm.trim() || status !== "all" || workstreamFilter);
 
-  const canCreate = hasPermission("Matter.Create") || hasPermission("Matter.Edit");
+  // Operational-readiness fix: Matter.Create only required for creation
+  const canCreate = hasPermission("Matter.Create");
 
   return (
     <div className="matter-directory-container">
@@ -273,6 +282,7 @@ export const MatterDirectory: React.FC = () => {
           ))}
         </select>
 
+        {/* TODO: Re-introduce "Archived" status filter when backend list/read surfaces support browsing archived records (currently backend queries query RecordStatus.Active only). */}
         <select
           className="matter-filter-select"
           value={status}
@@ -284,7 +294,6 @@ export const MatterDirectory: React.FC = () => {
         >
           <option value="all">All Statuses</option>
           <option value="Open">Open</option>
-          <option value="Archived">Archived</option>
         </select>
 
         <select
@@ -338,13 +347,13 @@ export const MatterDirectory: React.FC = () => {
           <table className="matter-directory-table">
             <thead>
               <tr>
-                <th style={{ width: "32%" }}>Matter Title</th>
+                <th style={{ width: "30%" }}>Matter Title</th>
                 <th style={{ width: "14%" }}>Reference No</th>
                 <th style={{ width: "11%" }}>Type</th>
                 <th style={{ width: "13%" }}>Village</th>
                 <th style={{ width: "14%" }}>Workstream</th>
-                <th style={{ width: "8%" }}>Status</th>
-                <th style={{ width: "8%" }}>Docs</th>
+                <th style={{ width: "6%" }}>Status</th>
+                <th style={{ width: "12%" }}>Work</th>
               </tr>
             </thead>
             <tbody>
@@ -403,7 +412,7 @@ export const MatterDirectory: React.FC = () => {
                   </td>
                   <td>
                     <span style={{ fontSize: "12px", fontWeight: 600, color: "#475569" }}>
-                      {m.documentCount}
+                      {m.documentCount} docs · {m.draftCount} drafts
                     </span>
                   </td>
                 </tr>
@@ -525,13 +534,11 @@ export const MatterDirectory: React.FC = () => {
                 <label>
                   Matter Type *
                   <select value={createMatterType} onChange={(e) => setCreateMatterType(e.target.value)}>
-                    <option value="Court Case">Court Case</option>
-                    <option value="Compensation">Compensation</option>
-                    <option value="Land Acquisition">Land Acquisition</option>
-                    <option value="Demarcation">Demarcation</option>
-                    <option value="Possession">Possession</option>
-                    <option value="General">General</option>
-                    <option value="Other">Other</option>
+                    {(matterTypes.length > 0 ? matterTypes : ["Court Case", "Compensation", "Land Acquisition", "General", "Other"]).map((mt) => (
+                      <option key={mt} value={mt}>
+                        {mt}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
