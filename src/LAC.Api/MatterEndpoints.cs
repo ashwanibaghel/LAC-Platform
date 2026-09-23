@@ -124,7 +124,7 @@ public static class MatterEndpoints
                     m.Revision,
                     m.CreatedAt,
                     m.UpdatedAt,
-                    documentCount = m.DocumentLinks.Count(d => d.Document.RecordStatus == RecordStatus.Active && d.Document.Status == "Active"),
+                    documentCount = m.DocumentLinks.Count(d => d.Document.RecordStatus == RecordStatus.Active && (d.Document.Status == "Active" || string.IsNullOrEmpty(d.Document.Status))),
                     draftCount = m.Drafts.Count(dr => dr.RecordStatus == RecordStatus.Active),
                     award = m.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
                 })
@@ -450,7 +450,7 @@ public static class MatterEndpoints
             if (!exists) return Results.NotFound(new { message = "Matter not found." });
 
             var docs = await db.MatterDocuments.AsNoTracking()
-                .Where(x => x.MatterId == id && x.RecordStatus == RecordStatus.Active && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active")
+                .Where(x => x.MatterId == id && x.RecordStatus == RecordStatus.Active && x.Document.RecordStatus == RecordStatus.Active && (x.Document.Status == "Active" || string.IsNullOrEmpty(x.Document.Status)))
                 .OrderByDescending(x => x.Document.UploadedAt)
                 .Select(x => new
                 {
@@ -782,7 +782,7 @@ public static class MatterEndpoints
                 return Results.BadRequest(new { message = "Select only documents explicitly linked to this Matter." });
 
             var docs = await db.Documents.AsNoTracking()
-                .Where(x => requested.Contains(x.Id) && x.RecordStatus == RecordStatus.Active && x.Status == "Active")
+                .Where(x => requested.Contains(x.Id) && x.RecordStatus == RecordStatus.Active && (x.Status == "Active" || string.IsNullOrEmpty(x.Status)))
                 .ToListAsync(ct);
 
             var tempPath = Path.Combine(Path.GetTempPath(), $"lac-matter-{Guid.NewGuid():N}.zip");
@@ -846,7 +846,7 @@ public static class MatterEndpoints
                 return Results.Forbid();
 
             var doc = await db.Documents.AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && d.Status == "Active", ct);
+                .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && (d.Status == "Active" || string.IsNullOrEmpty(d.Status)), ct);
             if (doc is null) return Results.NotFound(new { message = "Document record not found." });
 
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);

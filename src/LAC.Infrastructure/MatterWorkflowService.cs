@@ -645,8 +645,12 @@ public sealed class MatterWorkflowService(
                     .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
                 var seq = maxSeq + 1;
 
-                var targetDoc = await db.Documents.AsNoTracking()
+                var targetDoc = await db.Documents
                     .FirstOrDefaultAsync(d => d.Id == cmd.DocumentId, opCt);
+                if (targetDoc != null && (string.IsNullOrEmpty(targetDoc.Status) || targetDoc.Status != "Active"))
+                {
+                    targetDoc.Status = "Active";
+                }
 
                 var existingMatterDoc = await db.MatterDocuments
                     .FirstOrDefaultAsync(md => md.MatterId == matterId && md.DocumentId == cmd.DocumentId, opCt);
