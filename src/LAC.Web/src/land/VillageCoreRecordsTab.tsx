@@ -83,12 +83,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const [replaceModalOpen, setReplaceModalOpen] = useState(false);
-  const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string; fileName?: string } | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [replaceReason, setReplaceReason] = useState("");
 
   const [removeModalOpen, setRemoveModalOpen] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId?: string; fileName?: string } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<{ awardId: string; awardNumber: string; role: string; label: string; documentId: string; fileName?: string } | null>(null);
   const [removeReason, setRemoveReason] = useState("");
 
   const [busy, setBusy] = useState(false);
@@ -244,7 +244,11 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
   // Handle Replace Document
   const handleReplaceDocument = async () => {
-    if (!replaceTarget || !replaceFile) {
+    if (!replaceTarget || !replaceTarget.documentId) {
+      setMessage("Target document identifier is missing for replacement.");
+      return;
+    }
+    if (!replaceFile) {
       setMessage("Please select a replacement PDF file.");
       return;
     }
@@ -259,9 +263,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
       const formData = new FormData();
       formData.append("file", replaceFile);
 
-      const endpoint = replaceTarget.documentId
-        ? `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(replaceReason.trim())}`
-        : `${api}/awards/${replaceTarget.awardId}/core-documents?role=${encodeURIComponent(replaceTarget.role)}&reason=${encodeURIComponent(replaceReason.trim())}`;
+      const endpoint = `${api}/awards/${replaceTarget.awardId}/core-documents/${replaceTarget.documentId}?reason=${encodeURIComponent(replaceReason.trim())}`;
 
       const res = await fetch(endpoint, {
         method: "PUT",
@@ -288,7 +290,10 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
   // Handle Remove Core Document
   const handleRemoveDocument = async () => {
-    if (!removeTarget) return;
+    if (!removeTarget || !removeTarget.documentId) {
+      setMessage("Target document identifier is missing for removal.");
+      return;
+    }
     if (!removeReason.trim()) {
       setMessage("A reason is required to remove a core document from official records.");
       return;
@@ -297,9 +302,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setMessage("");
 
     try {
-      const endpoint = removeTarget.documentId
-        ? `${api}/awards/${removeTarget.awardId}/core-documents/${removeTarget.documentId}?reason=${encodeURIComponent(removeReason.trim())}`
-        : `${api}/awards/${removeTarget.awardId}/core-documents?role=${encodeURIComponent(removeTarget.role)}&reason=${encodeURIComponent(removeReason.trim())}`;
+      const endpoint = `${api}/awards/${removeTarget.awardId}/core-documents/${removeTarget.documentId}?reason=${encodeURIComponent(removeReason.trim())}`;
 
       const res = await fetch(endpoint, {
         method: "DELETE",
@@ -330,7 +333,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setUploadModalOpen(true);
   };
 
-  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId?: string, fileName?: string) => {
+  const openReplaceModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
     setReplaceTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
     setReplaceFile(null);
@@ -339,7 +342,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     setReplaceModalOpen(true);
   };
 
-  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId?: string, fileName?: string) => {
+  const openRemoveModal = (awardId: string, awardNumber: string, role: string, documentId: string, fileName?: string) => {
     const roleLabel = CORE_ROLES.find((r) => r.key === role)?.label || role;
     setRemoveTarget({ awardId, awardNumber, role, label: roleLabel, documentId, fileName });
     setRemoveReason("");

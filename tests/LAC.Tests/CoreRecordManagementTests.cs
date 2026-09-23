@@ -10,6 +10,7 @@ using LAC.Api;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -59,6 +60,61 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(CoreRecordTestFactory.TestAdminUser, CoreRecordTestFactory.TestAdminPass));
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
         return client;
+    }
+
+    private async Task<HttpClient> CreateUserClientAsync(string username, string password)
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
+        var loginResponse = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, password));
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+        return client;
+    }
+
+    [Fact]
+    public async Task Authenticated_user_lacking_permission_returns_403_forbidden()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var hasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher<AppUser>>();
+
+        var limitedUser = new AppUser
+        {
+            Id = Guid.NewGuid(),
+            Username = "limited_user",
+            NormalizedUsername = "LIMITED_USER",
+            DisplayName = "Limited Test User",
+            IsActive = true,
+            RecordStatus = RecordStatus.Active
+        };
+        limitedUser.PasswordHash = hasher.HashPassword(limitedUser, "LimitedPass!123");
+        db.AppUsers.Add(limitedUser);
+
+        var village = new Village { Name = "Village Perm Test" };
+        var award = new Award { AwardNumber = "AWD-PERM-TEST", AwardType = "General" };
+        var doc = new Document { DocumentType = "Award", OriginalFileName = "test.pdf", StoragePath = "/tmp/test.pdf" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+        db.Documents.Add(doc);
+        db.DocumentAwards.Add(new DocumentAward { Award = award, Document = doc, CoreDocumentRole = "Award" });
+        await db.SaveChangesAsync();
+
+        // Login as limitedUser (IsAuthenticated = true, but no Award.Edit or Award.CoreDocument.Upload permissions)
+        var limitedClient = await CreateUserClientAsync("limited_user", "LimitedPass!123");
+
+        // Award Edit without Award.Edit permission -> 403 Forbidden
+        var editRes = await limitedClient.PutAsJsonAsync($"/api/awards/{award.Id}", new { AwardNumber = "AWD-NO-PERM" });
+        Assert.Equal(HttpStatusCode.Forbidden, editRes.StatusCode);
+
+        // Core Document Replace without Award.CoreDocument.Upload permission -> 403 Forbidden
+        var replaceContent = new MultipartFormDataContent();
+        replaceContent.Add(new ByteArrayContent(new byte[] { 1, 2, 3 }), "file", "new.pdf");
+        var replaceRes = await limitedClient.PutAsync($"/api/awards/{award.Id}/core-documents/{doc.Id}?reason=Test", replaceContent);
+        Assert.Equal(HttpStatusCode.Forbidden, replaceRes.StatusCode);
+
+        // Core Document Remove without Award.CoreDocument.Upload permission -> 403 Forbidden
+        var removeRes = await limitedClient.DeleteAsync($"/api/awards/{award.Id}/core-documents/{doc.Id}?reason=Test");
+        Assert.Equal(HttpStatusCode.Forbidden, removeRes.StatusCode);
     }
 
     [Fact]
