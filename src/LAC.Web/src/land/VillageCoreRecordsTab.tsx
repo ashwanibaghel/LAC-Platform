@@ -43,6 +43,12 @@ export interface CoreRecordDocument {
   coreDocumentRole: string;
   originalFileName: string;
   uploadedAt: string;
+  extractionJobId?: string | null;
+  extractionStatus?: string | null;
+  ingestionSessionId?: string | null;
+  ingestionStatus?: string | null;
+  totalCandidates?: number;
+  pendingCandidates?: number;
 }
 
 export interface CoreRecordAward {
@@ -50,6 +56,12 @@ export interface CoreRecordAward {
   awardNumber: string;
   awardDate?: string | null;
   awardType?: string | null;
+  extractionJobId?: string | null;
+  extractionStatus?: string | null;
+  ingestionSessionId?: string | null;
+  ingestionStatus?: string | null;
+  totalCandidates?: number;
+  pendingCandidates?: number;
   roles?: CoreRecordRole[];
   documents?: CoreRecordDocument[];
 }
@@ -378,6 +390,30 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     window.open(`${api}/documents/${documentId}/content`, "_blank");
   };
 
+  const triggerAnalyze = async (awardId: string, documentId?: string) => {
+    try {
+      setBusy(true);
+      setMessage("");
+      const endpoint = documentId
+        ? `${api}/awards/${awardId}/documents/${documentId}/analyze?villageId=${villageId}`
+        : `${api}/awards/${awardId}/extract?villageId=${villageId}`;
+      const res = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.message || "Could not start document analysis.");
+      }
+      setMessage("Analysis started in background for Award PDF.");
+      setRefresh((x) => x + 1);
+    } catch (e: any) {
+      setMessage(e?.message || "Could not start document analysis.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (loading) return <div className="state loading">Loading core records matrix…</div>;
   if (error) return <div className="state error">{error}</div>;
 
@@ -469,6 +505,12 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                     // Single Document for this Role
                     if (roleDocs.length === 1) {
                       const doc = roleDocs[0];
+                      const jobStatus = doc.extractionStatus || (key === "Award" ? award.extractionStatus : null);
+                      const sessionId = doc.ingestionSessionId || (key === "Award" ? award.ingestionSessionId : null);
+                      const pending = doc.pendingCandidates ?? (key === "Award" ? award.pendingCandidates : 0);
+                      const total = doc.totalCandidates ?? (key === "Award" ? award.totalCandidates : 0);
+                      const isRunning = jobStatus && ["Queued", "Extracting", "Analyzing", "BuildingCandidates"].includes(jobStatus);
+
                       return (
                         <td key={key}>
                           <div className="core-doc-pill available" style={{ position: "relative" }}>
@@ -480,6 +522,46 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                   {doc.originalFileName}
                                 </span>
                               )}
+
+                              {/* Analysis Subtag Badges */}
+                              {key === "StatementA" || key === "PossessionProceeding" ? (
+                                <span className="doc-analysis-subtag neutral" title="Analysis module not available yet">
+                                  Analysis module not available yet
+                                </span>
+                              ) : isRunning ? (
+                                <span className="doc-analysis-subtag running" title="Extraction & analysis in progress">
+                                  <span className="pulse-dot" /> Analyzing…
+                                </span>
+                              ) : sessionId ? (
+                                pending > 0 ? (
+                                  <Link
+                                    to={`/awards/${award.id}/ingestion/${sessionId}`}
+                                    className="doc-analysis-subtag review-ready"
+                                    title="Click to review extracted findings"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {total > pending && total - pending > 0
+                                      ? `Review in Progress (${total - pending}/${total})`
+                                      : `Review Ready (${pending} findings)`} →
+                                  </Link>
+                                ) : (
+                                  <span className="doc-analysis-subtag completed" title="All extracted findings confirmed">
+                                    Completed ({total} verified)
+                                  </span>
+                                )
+                              ) : key === "Award" ? (
+                                <button
+                                  type="button"
+                                  className="doc-analysis-subtag trigger"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    triggerAnalyze(award.id, doc.documentId);
+                                  }}
+                                  title="Run OCR and document intelligence analysis"
+                                >
+                                  Analyze Document →
+                                </button>
+                              ) : null}
                             </div>
 
                             {/* Subtle ⋯ Document Action Menu Button */}
@@ -544,6 +626,57 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                                 >
                                   Open Document
                                 </button>
+
+                                {key === "Award" && (
+                                  <>
+                                    {sessionId && (
+                                      <Link
+                                        to={`/awards/${award.id}/ingestion/${sessionId}`}
+                                        style={{
+                                          width: "100%",
+                                          textAlign: "left",
+                                          padding: "8px 12px",
+                                          background: "none",
+                                          border: "none",
+                                          fontSize: "12.5px",
+                                          color: "#2563eb",
+                                          cursor: "pointer",
+                                          fontWeight: 600,
+                                          display: "block",
+                                          textDecoration: "none",
+                                          borderTop: "1px solid #f1f5f9",
+                                        }}
+                                        onClick={() => setActiveMenuId(null)}
+                                      >
+                                        Review Findings
+                                      </Link>
+                                    )}
+                                    {!isRunning && (
+                                      <button
+                                        type="button"
+                                        style={{
+                                          width: "100%",
+                                          textAlign: "left",
+                                          padding: "8px 12px",
+                                          background: "none",
+                                          border: "none",
+                                          fontSize: "12.5px",
+                                          color: "#1e293b",
+                                          cursor: "pointer",
+                                          fontWeight: 500,
+                                          borderTop: "1px solid #f1f5f9",
+                                        }}
+                                        onClick={() => {
+                                          setActiveMenuId(null);
+                                          triggerAnalyze(award.id, doc.documentId);
+                                        }}
+                                      >
+                                        Analyze Document
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+
                                 {canUploadCore && (
                                   <>
                                     <button

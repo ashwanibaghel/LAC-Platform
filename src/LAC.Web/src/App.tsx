@@ -38,6 +38,7 @@ import { MyAttention } from "./attention/MyAttention";
 import { CalendarView } from "./attention/CalendarView";
 import { CourtDirectory } from "./court/CourtDirectory";
 import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
+import { AwardReviewWorkspace } from "./award/AwardReviewWorkspace";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
@@ -3513,9 +3514,9 @@ function AuthenticatedApp() {
         <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
         <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
         <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
-        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
+        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardReviewWorkspace />} />
         <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
-        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
+        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardReviewWorkspace />} />
         <Route path="/awards/:id" element={<Award />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/notifications/:id" element={<Notification />} />
