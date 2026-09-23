@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { IconFileText, IconMoreVertical } from "../components/Icons";
 import { CoreDocumentUploadModal } from "./CoreDocumentUploadModal";
+import { AddAwardModal } from "./AddAwardModal";
 import "./land.css";
 
 const api = "/api";
@@ -221,10 +222,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
 
   // Add Award Modal State
   const [addAwardModal, setAddAwardModal] = useState(false);
-  const [newAwardNumber, setNewAwardNumber] = useState("");
-  const [newAwardDate, setNewAwardDate] = useState("");
-  const [newAwardType, setNewAwardType] = useState("General");
-  const [newAwardRemarks, setNewAwardRemarks] = useState("");
 
   // Fetch Core Records Overview
   useEffect(() => {
@@ -356,45 +353,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
     }
   };
 
-  const handleAddAwardSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAwardNumber.trim()) {
-      setMessage("Award number is required.");
-      return;
-    }
-    try {
-      setBusy(true);
-      setMessage("");
-      const res = await fetch(`${api}/villages/${villageId}/awards`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          awardNumber: newAwardNumber.trim(),
-          awardDate: newAwardDate || null,
-          awardType: newAwardType,
-          remarks: newAwardRemarks.trim() || null,
-        }),
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || err.message || "Could not add award.");
-      }
-
-      setAddAwardModal(false);
-      setNewAwardNumber("");
-      setNewAwardDate("");
-      setNewAwardType("General");
-      setNewAwardRemarks("");
-      setRefresh((x) => x + 1);
-    } catch (err: any) {
-      setMessage(err?.message || "Adding award failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const openDocumentContent = (documentId: string) => {
     window.open(`${api}/documents/${documentId}/content`, "_blank");
   };
@@ -461,10 +419,6 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
               className="btn-primary"
               onClick={() => {
                 setMessage("");
-                setNewAwardNumber("");
-                setNewAwardDate("");
-                setNewAwardType("General");
-                setNewAwardRemarks("");
                 setAddAwardModal(true);
               }}
             >
@@ -591,7 +545,7 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
                           )}
                           {canViewAward && (
                             <Link
-                              to={`/awards/${award.id}/workspace`}
+                              to={`/awards/${award.id}`}
                               style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "none", border: "none", fontSize: "12.5px", color: "#2563eb", textDecoration: "none", fontWeight: 500, borderTop: canEditAward ? "1px solid #f1f5f9" : "none" }}
                               onClick={() => setActiveMenuId(null)}
                             >
@@ -1123,92 +1077,62 @@ export const VillageCoreRecordsTab: React.FC<VillageCoreRecordsTabProps> = ({ vi
         </div>
       )}
 
-      {/* Add Award Modal */}
-      {addAwardModal && (
-        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#ffffff", borderRadius: "8px", width: "520px", maxWidth: "90vw", padding: "24px", boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1)" }}>
-            <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#0f172a", marginBottom: "4px" }}>
-              Add New Award to {villageName || "Village"}
-            </h2>
-            <p style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px" }}>
-              Create an Award record to link core documents and survey numbers.
-            </p>
+      {/* Premium Reusable Add Award Modal */}
+      <AddAwardModal
+        isOpen={addAwardModal}
+        villageName={villageName}
+        busy={busy}
+        errorMessage={message}
+        onClose={() => {
+          setMessage("");
+          setAddAwardModal(false);
+        }}
+        onSubmit={async ({ awardNumber, awardDate, awardType }, initialFile) => {
+          try {
+            setBusy(true);
+            setMessage("");
+            const res = await fetch(`${api}/villages/${villageId}/awards`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                awardNumber: awardNumber.trim(),
+                awardDate: awardDate || null,
+                awardType: awardType || "General",
+              }),
+              credentials: "include",
+            });
 
-            <form onSubmit={handleAddAwardSubmit}>
-              <div style={{ marginBottom: "12px" }}>
-                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-                  Award Number (Required):
-                </label>
-                <input
-                  type="text"
-                  value={newAwardNumber}
-                  onChange={(e) => setNewAwardNumber(e.target.value)}
-                  placeholder="e.g. 01/2024-LAC"
-                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
-                />
-              </div>
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.detail || err.message || "Could not add award.");
+            }
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-                <div>
-                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-                    Award Date:
-                  </label>
-                  <input
-                    type="date"
-                    value={newAwardDate}
-                    onChange={(e) => setNewAwardDate(e.target.value)}
-                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
-                  />
-                </div>
+            const data = await res.json();
+            const createdAwardId = data.id;
 
-                <div>
-                  <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-                    Award Type:
-                  </label>
-                  <select
-                    value={newAwardType}
-                    onChange={(e) => setNewAwardType(e.target.value)}
-                    style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
-                  >
-                    <option value="General">General</option>
-                    <option value="Consent">Consent</option>
-                    <option value="Supplementary">Supplementary</option>
-                  </select>
-                </div>
-              </div>
+            if (initialFile && createdAwardId) {
+              const formData = new FormData();
+              formData.append("file", initialFile);
+              const uploadRes = await fetch(`${api}/awards/${createdAwardId}/core-documents?role=Award`, {
+                method: "POST",
+                body: formData,
+                credentials: "include",
+              });
+              if (!uploadRes.ok) {
+                const err = await uploadRes.json().catch(() => ({}));
+                throw new Error(err.detail || err.message || "Award created, but initial PDF upload failed.");
+              }
+            }
 
-              <div style={{ marginBottom: "16px" }}>
-                <label style={{ display: "block", fontSize: "12.5px", fontWeight: 600, color: "#334155", marginBottom: "4px" }}>
-                  Remarks:
-                </label>
-                <textarea
-                  rows={2}
-                  value={newAwardRemarks}
-                  onChange={(e) => setNewAwardRemarks(e.target.value)}
-                  placeholder="Optional notes or remarks…"
-                  style={{ width: "100%", padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px", fontSize: "13px" }}
-                />
-              </div>
-
-              {message && <div style={{ fontSize: "12.5px", color: "#dc2626", marginBottom: "12px" }}>{message}</div>}
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "20px" }}>
-                <button
-                  type="button"
-                  className="btn-quiet"
-                  disabled={busy}
-                  onClick={() => setAddAwardModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" disabled={busy || !newAwardNumber.trim()}>
-                  {busy ? "Creating…" : "Create Award"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+            setAddAwardModal(false);
+            setRefresh((x) => x + 1);
+          } catch (err: any) {
+            setMessage(err?.message || "Adding award failed.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
     </div>
   );
 };

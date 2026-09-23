@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LAC.Api;
 using LAC.Domain;
@@ -642,5 +643,95 @@ public sealed class CoreRecordManagementTests : IClassFixture<CoreRecordTestFact
         Assert.NotNull(updatedCandidate);
         Assert.Equal("Core Record Test Administrator", updatedCandidate.VerifiedBy);
         Assert.NotEqual("Hacker Name", updatedCandidate.VerifiedBy);
+    }
+
+    [Fact]
+    public async Task Legacy_ingestion_commit_ignores_spoofed_committedBy_and_uses_authenticated_actor()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var village = new Village { Name = "Commit Actor Village" };
+        var award = new Award { AwardNumber = "AWD-COMMIT-ACTOR" };
+        db.Villages.Add(village);
+        db.Awards.Add(award);
+        db.AwardVillages.Add(new AwardVillage { Award = award, Village = village });
+
+        var session = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            TargetAwardId = award.Id,
+            SelectedVillageId = village.Id,
+            Status = AwardIngestionSessionStatus.ReadyToCommit
+        };
+        db.AwardIngestionSessions.Add(session);
+        var candidate = new AwardIngestionCandidate
+        {
+            Id = Guid.NewGuid(),
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.Notification,
+            Status = AwardIngestionCandidateStatus.Ready,
+            StructuredPayloadJson = JsonSerializer.Serialize(new NotificationCandidate("Section 4", "NOTIF-100", new DateOnly(2020, 1, 1))),
+            SourceLocatorJson = "{}"
+        };
+        db.AwardIngestionCandidates.Add(candidate);
+        await db.SaveChangesAsync();
+
+        // 1. Unauthenticated request -> 401 Unauthorized
+        var unauthClient = _factory.CreateClient();
+        var unauthRes = await unauthClient.PostAsJsonAsync($"/api/award-ingestion-sessions/{session.Id}/commit", new { CandidateIds = new List<Guid> { candidate.Id }, CommittedBy = "Spoofed Name" });
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthRes.StatusCode);
+
+        // 2. Authenticated request -> Succeeds and uses authenticated user actor
+        var authClient = await CreateAdminClientAsync();
+        var authRes = await authClient.PostAsJsonAsync($"/api/award-ingestion-sessions/{session.Id}/commit", new { CandidateIds = new List<Guid> { candidate.Id }, CommittedBy = "Spoofed Name" });
+        Assert.Equal(HttpStatusCode.OK, authRes.StatusCode);
+
+        using var scope2 = _factory.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
+        var audit = await db2.AuditLogs.FirstOrDefaultAsync(x => x.EntityId == candidate.Id && x.Action == "IngestionCandidateCommitted");
+        Assert.NotNull(audit);
+        Assert.Equal("Core Record Test Administrator", audit.ChangedBy);
+    }
+
+    [Fact]
+    public async Task Candidate_resolve_audit_log_records_authenticated_changedBy()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+
+        var session = new AwardIngestionSession
+        {
+            Id = Guid.NewGuid(),
+            Status = AwardIngestionSessionStatus.NeedsReview
+        };
+        db.AwardIngestionSessions.Add(session);
+
+        var candidate = new AwardIngestionCandidate
+        {
+            SessionId = session.Id,
+            CandidateType = AwardIngestionCandidateType.AwardKhasra,
+            Status = AwardIngestionCandidateStatus.NeedsReview,
+            StructuredPayloadJson = "{}",
+            SourceLocatorJson = "{}"
+        };
+        db.AwardIngestionCandidates.Add(candidate);
+        await db.SaveChangesAsync();
+
+        // 1. Unauthenticated request -> 401 Unauthorized
+        var unauthClient = _factory.CreateClient();
+        var unauthRes = await unauthClient.PostAsJsonAsync($"/api/award-ingestion-candidates/{candidate.Id}/resolve", new { Action = "SkipCandidate" });
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthRes.StatusCode);
+
+        // 2. Authenticated request -> AuditLog created with ChangedBy = authenticated user
+        var authClient = await CreateAdminClientAsync();
+        var authRes = await authClient.PostAsJsonAsync($"/api/award-ingestion-candidates/{candidate.Id}/resolve", new { Action = "SkipCandidate" });
+        Assert.Equal(HttpStatusCode.NoContent, authRes.StatusCode);
+
+        using var scope2 = _factory.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<LacDbContext>();
+        var audit = await db2.AuditLogs.FirstOrDefaultAsync(x => x.EntityId == candidate.Id && x.Action == "IngestionCandidateSkipCandidate");
+        Assert.NotNull(audit);
+        Assert.Equal("Core Record Test Administrator", audit.ChangedBy);
     }
 }

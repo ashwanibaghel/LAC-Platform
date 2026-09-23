@@ -116,7 +116,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         return await ToPageAsync(query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence).Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
     }
 
-    public async Task ResolveAsync(Guid candidateId, string action, CancellationToken ct)
+    public async Task ResolveAsync(Guid candidateId, string action, string? actor = null, CancellationToken ct = default)
     {
         var candidate = await db.AwardIngestionCandidates.Include(x => x.Session).SingleOrDefaultAsync(x => x.Id == candidateId, ct) ?? throw new AwardIngestionException("Ingestion candidate was not found.", 404);
         if (candidate.Session.SourceDocumentId is not null && action != "SkipCandidate") throw new AwardIngestionException("Use the human verification workflow to confirm document evidence.");
@@ -125,7 +125,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         candidate.ResolutionAction = action; candidate.UpdatedAt = DateTimeOffset.UtcNow;
         candidate.Status = action == "SkipCandidate" ? AwardIngestionCandidateStatus.Skipped : AwardIngestionCandidateStatus.Ready;
         candidate.Session.Status = SessionStatus(await db.AwardIngestionCandidates.Where(x => x.SessionId == candidate.SessionId).ToListAsync(ct));
-        db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardIngestionCandidate), EntityId = candidate.Id, Action = $"IngestionCandidate{action}", ChangedAt = DateTimeOffset.UtcNow });
+        db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardIngestionCandidate), EntityId = candidate.Id, Action = $"IngestionCandidate{action}", ChangedBy = actor, ChangedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct);
     }
 
