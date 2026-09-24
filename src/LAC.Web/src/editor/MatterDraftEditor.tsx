@@ -335,70 +335,97 @@ function PaperRulers({
   const topMargin = profile.marginTopMm + (profile.reservedTopMm ?? 0);
   const bottomMargin = profile.marginBottomMm;
 
-  const hTicks = Array.from({ length: Math.floor(widthMm / 10) + 1 }, (_, i) => i * 10);
-  const vTicks = Array.from({ length: Math.floor(heightMm / 10) + 1 }, (_, i) => i * 10);
+  const hMajorTicks = Array.from({ length: Math.floor(widthMm / 10) + 1 }, (_, i) => i * 10);
+  const hMidTicks = Array.from({ length: Math.floor(widthMm / 5) + 1 }, (_, i) => i * 5).filter(mm => mm % 10 !== 0);
+
+  const vMajorTicks = Array.from({ length: Math.floor(heightMm / 10) + 1 }, (_, i) => i * 10);
+  const vMidTicks = Array.from({ length: Math.floor(heightMm / 5) + 1 }, (_, i) => i * 5).filter(mm => mm % 10 !== 0);
 
   return (
-    <>
-      <div className="ruler-corner-unit" aria-hidden="true">
-        mm
-      </div>
-      <div className="ruler-horizontal-bar" aria-hidden="true">
-        <div className="ruler-shade-left" style={{ width: `${(leftMargin / widthMm) * 100}%` }} />
-        <div
-          className="ruler-shade-right"
-          style={{
-            left: `${((widthMm - rightMargin) / widthMm) * 100}%`,
-            width: `${(rightMargin / widthMm) * 100}%`,
-          }}
-        />
-        <div
-          className="ruler-marker-handle"
-          style={{ left: `${(leftMargin / widthMm) * 100}%` }}
-          title={`Left margin: ${leftMargin}mm`}
-        >
-          ▼
-        </div>
-        <div
-          className="ruler-marker-handle"
-          style={{ left: `${((widthMm - rightMargin) / widthMm) * 100}%` }}
-          title={`Right margin: ${rightMargin}mm`}
-        >
-          ▼
-        </div>
-        <div className="ruler-ticks-track">
-          {hTicks.map(mm => (
-            <div
-              key={mm}
-              className="ruler-tick-mark major"
-              style={{ left: `${(mm / widthMm) * 100}%` }}
-            >
-              <span className="tick-num">{mm / 10}</span>
-            </div>
-          ))}
-        </div>
+    <div className="draft-rulers-container" aria-hidden="true">
+      {/* Top-Left Corner Box */}
+      <div className="draft-ruler-corner">
+        <span>mm</span>
       </div>
 
-      <div className="ruler-vertical-bar" aria-hidden="true">
-        <div className="ruler-v-shade-top" style={{ height: `${(topMargin / heightMm) * 100}%` }} />
-        <div
-          className="ruler-v-shade-bottom"
-          style={{
-            top: `${((heightMm - bottomMargin) / heightMm) * 100}%`,
-            height: `${(bottomMargin / heightMm) * 100}%`,
-          }}
-        />
-        {vTicks.map(mm => (
-          <div
-            key={mm}
-            className="ruler-v-tick major"
-            style={{ top: `${(mm / heightMm) * 100}%` }}
-          >
-            <span className="v-tick-num">{mm / 10}</span>
-          </div>
-        ))}
+      {/* Top Horizontal Ruler */}
+      <div className="draft-ruler-top">
+        <svg
+          className="ruler-svg"
+          viewBox={`0 0 ${widthMm} 24`}
+          preserveAspectRatio="none"
+        >
+          <rect x={0} y={0} width={leftMargin} height={24} className="ruler-shade" />
+          <rect x={widthMm - rightMargin} y={0} width={rightMargin} height={24} className="ruler-shade" />
+
+          <line x1={leftMargin} y1={0} x2={leftMargin} y2={24} className="ruler-margin-line" />
+          <line x1={widthMm - rightMargin} y1={0} x2={widthMm - rightMargin} y2={24} className="ruler-margin-line" />
+
+          <polygon
+            points={`${leftMargin - 2.5},1 ${leftMargin + 2.5},1 ${leftMargin},6`}
+            className="ruler-handle"
+          />
+          <polygon
+            points={`${widthMm - rightMargin - 2.5},1 ${widthMm - rightMargin + 2.5},1 ${widthMm - rightMargin},6`}
+            className="ruler-handle"
+          />
+
+          {hMajorTicks.map(mm => (
+            <g key={`h-maj-${mm}`}>
+              <line x1={mm} y1={12} x2={mm} y2={24} className="ruler-tick-major" />
+              <text x={mm} y={9} className="ruler-text" textAnchor="middle">
+                {mm / 10}
+              </text>
+            </g>
+          ))}
+
+          {hMidTicks.map(mm => (
+            <line key={`h-mid-${mm}`} x1={mm} y1={16} x2={mm} y2={24} className="ruler-tick-mid" />
+          ))}
+
+          <line x1={0} y1={24} x2={widthMm} y2={24} className="ruler-base-line" />
+        </svg>
       </div>
-    </>
+
+      {/* Left Vertical Ruler */}
+      <div className="draft-ruler-left">
+        <svg
+          className="ruler-svg"
+          viewBox={`0 0 24 ${heightMm}`}
+          preserveAspectRatio="none"
+        >
+          <rect x={0} y={0} width={24} height={topMargin} className="ruler-shade" />
+          <rect x={0} y={heightMm - bottomMargin} width={24} height={bottomMargin} className="ruler-shade" />
+
+          <line x1={0} y1={topMargin} x2={24} y2={topMargin} className="ruler-margin-line" />
+          <line x1={0} y1={heightMm - bottomMargin} x2={24} y2={heightMm - bottomMargin} className="ruler-margin-line" />
+
+          <polygon
+            points={`1,${topMargin - 2.5} 1,${topMargin + 2.5} 6,${topMargin}`}
+            className="ruler-handle"
+          />
+          <polygon
+            points={`1,${heightMm - bottomMargin - 2.5} 1,${heightMm - bottomMargin + 2.5} 6,${heightMm - bottomMargin}`}
+            className="ruler-handle"
+          />
+
+          {vMajorTicks.map(mm => (
+            <g key={`v-maj-${mm}`}>
+              <line x1={12} y1={mm} x2={24} y2={mm} className="ruler-tick-major" />
+              <text x={9} y={mm + 1} className="ruler-text-v" textAnchor="end" dominantBaseline="central">
+                {mm / 10}
+              </text>
+            </g>
+          ))}
+
+          {vMidTicks.map(mm => (
+            <line key={`v-mid-${mm}`} x1={16} y1={mm} x2={24} y2={mm} className="ruler-tick-mid" />
+          ))}
+
+          <line x1={24} y1={0} x2={24} y2={heightMm} className="ruler-base-line" />
+        </svg>
+      </div>
+    </div>
   );
 }
 
@@ -516,10 +543,10 @@ function MatterDraftCanvas({
         pageCount={pageCount}
       />
       {pageSetup}
-      <div className="draft-page-wrap">
-        <div className={`draft-workspace-desk ${showRulers ? "has-rulers" : ""}`}>
-          <PaperRulers profile={profile} showRulers={showRulers} />
+      <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
+        <div className="draft-workspace-desk">
           <div className="draft-canvas" style={pageStyle}>
+            <PaperRulers profile={profile} showRulers={showRulers} />
             <div className="draft-backdrop-deck" aria-hidden="true">
               {Array.from({ length: pageCount }).map((_, i) => (
                 <div key={i} className="draft-sheet-card">
