@@ -1,0 +1,10 @@
+.office-draft { position: fixed; inset: 0; display: flex; flex-direction: column; background: #f5f6f8; color: #182537; z-index: 20; }
+.office-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; background: white; border-bottom: 1px solid #dbe0e6; }
+.office-header h1 { flex: 1; font-size: 18px; margin: 0; overflow-wrap: anywhere; }
+.office-header span { font-size: 13px; color: #526174; }
+.office-frame { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.office-host { flex: 1; min-height: 0; }
+.office-host iframe { border: 0; }
+.office-message { padding: 16px 20px; background: #f2f5fa; }
+.office-error { color: #942727; }
+.office-message button { margin-left: 12px; }

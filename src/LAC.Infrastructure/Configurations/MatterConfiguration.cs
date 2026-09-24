@@ -7,6 +7,10 @@ public static class MatterModelConfiguration
 {
     public static void Configure(ModelBuilder b)
     {
+        b.Entity<MatterDraft>().HasOne(x => x.OfficeDocument).WithMany()
+            .HasForeignKey(x => x.OfficeDocumentId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MatterDraft>().Property(x => x.OfficeKeyGeneration).HasDefaultValue(0);
+        b.Entity<MatterDraft>().Property(x => x.LastOfficeSaveTokenHash).HasMaxLength(64);
         // 1. Matter (Aggregate Root)
         b.Entity<Matter>(entity =>
         {

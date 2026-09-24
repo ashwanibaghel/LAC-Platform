@@ -1,0 +1,25 @@
+# Development only: private-address callbacks are needed for Docker Desktop -> host API.
+services:
+  onlyoffice:
+    image: onlyoffice/documentserver:9.4
+    ports:
+      - "127.0.0.1:8082:80"
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:?Set ONLYOFFICE_JWT_SECRET to a generated secret}"
+      JWT_HEADER: "Authorization"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    shm_size: "1gb"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-lib:/var/lib/onlyoffice
+      - onlyoffice-db:/var/lib/postgresql
+      - onlyoffice-logs:/var/log/onlyoffice
+volumes:
+  onlyoffice-data:
+  onlyoffice-lib:
+  onlyoffice-db:
+  onlyoffice-logs:

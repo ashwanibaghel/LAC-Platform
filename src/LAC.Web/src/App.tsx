@@ -13,7 +13,7 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { ExportMenu } from "./components/ExportMenu";
-import { MatterDraftEditorPage } from "./editor/MatterDraftEditor";
+import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
@@ -3782,7 +3782,7 @@ function AuthenticatedApp() {
         <Route path="/villages/:id" element={<Village />} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
-        <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
+        <Route path="/matter-drafts/:id" element={<OnlyOfficeDraftEditorPage />} />
         <Route path="/court-cases" element={<CourtDirectory />} />
         <Route path="/court-cases/:id" element={<CourtCaseWorkspace />} />
         <Route path="/court" element={<Navigate to="/court-cases" replace />} />
