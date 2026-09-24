@@ -964,6 +964,14 @@
 }
 
 /* Desk Backdrop & Physical Document Canvas */
+.draft-workspace-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
 .draft-page-wrap {
   flex: 1;
   min-height: 0;
@@ -975,8 +983,8 @@
 }
 
 .draft-page-wrap.has-rulers {
-  padding-top: 60px;
-  padding-left: 72px;
+  padding-top: 36px;
+  padding-left: 48px;
 }
 
 .draft-workspace-desk {
@@ -1002,7 +1010,7 @@
   background: #e2e4e7;
   border-bottom: 1px solid #cbd5e1;
   flex-shrink: 0;
-  z-index: 15;
+  z-index: 25;
   overflow: hidden;
   user-select: none;
 }
@@ -1014,14 +1022,15 @@
 }
 
 .draft-left-ruler-bar {
-  position: absolute;
-  left: -22px;
-  top: 0;
+  position: relative;
   width: 20px;
-  height: var(--draft-page-height, 1056px);
-  z-index: 15;
+  height: 100%;
+  background: #e2e4e7;
+  border-right: 1px solid #cbd5e1;
+  flex-shrink: 0;
+  z-index: 20;
+  overflow: hidden;
   user-select: none;
-  pointer-events: auto;
 }
 
 .draft-left-ruler-bar .ruler-svg {

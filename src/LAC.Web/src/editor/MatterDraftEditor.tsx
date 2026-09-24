@@ -546,16 +546,51 @@ function LeftRulerBar({
   profile,
   showRulers,
   zoom,
+  canvasRef,
   onMarginChange,
 }: {
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
   zoom: number;
+  canvasRef: React.RefObject<HTMLDivElement>;
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState({ containerHeight: 800, pageTop: 36, pageHeight: 1056 });
   const [activeDrag, setActiveDrag] = useState<"top" | "bottom" | null>(null);
   const [guideValue, setGuideValue] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!showRulers) return;
+    const updateLayout = () => {
+      if (containerRef.current && canvasRef.current) {
+        const contRect = containerRef.current.getBoundingClientRect();
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+        setLayout({
+          containerHeight: Math.max(200, contRect.height),
+          pageTop: canvasRect.top - contRect.top,
+          pageHeight: canvasRect.width * (profile.heightMm / profile.widthMm),
+        });
+      }
+    };
+
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
+    window.addEventListener("scroll", updateLayout, true);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(updateLayout);
+      if (containerRef.current) observer.observe(containerRef.current);
+      if (canvasRef.current) observer.observe(canvasRef.current);
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateLayout);
+      window.removeEventListener("scroll", updateLayout, true);
+      observer?.disconnect();
+    };
+  }, [showRulers, zoom, profile, canvasRef]);
 
   if (!showRulers) return null;
 
@@ -564,8 +599,12 @@ function LeftRulerBar({
   const bottomMargin = profile.marginBottomMm;
   const isLocked = profile.locked;
 
+  const pxPerMm = layout.pageHeight / heightMm;
+  const topMarginPx = layout.pageTop + topMargin * pxPerMm;
+  const bottomMarginPx = layout.pageTop + (heightMm - bottomMargin) * pxPerMm;
+
   // Vertical Ticks (0 at top margin line)
-  const leftTicks: Array<{ mm: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
+  const leftTicks: Array<{ yPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
   for (let mm = 0; mm <= heightMm; mm += 1) {
     const distFromTop = mm - topMargin;
     const isMajor = Math.abs(distFromTop) % 10 === 0;
@@ -579,7 +618,8 @@ function LeftRulerBar({
           label = Math.round((mm - topMargin) / 10);
         }
       }
-      leftTicks.push({ mm, isMajor, isMid, label });
+      const yPx = layout.pageTop + mm * pxPerMm;
+      leftTicks.push({ yPx, isMajor, isMid, label });
     }
   }
 
@@ -592,9 +632,6 @@ function LeftRulerBar({
     const startY = e.clientY;
     const initialTop = topMargin;
     const initialBottom = bottomMargin;
-
-    const rect = containerRef.current?.getBoundingClientRect();
-    const pxPerMm = rect ? rect.height / heightMm : (96 / 25.4) * zoom;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaY = (moveEvent.clientY - startY) / pxPerMm;
@@ -624,38 +661,42 @@ function LeftRulerBar({
     <div className="draft-left-ruler-bar" ref={containerRef} aria-hidden="true">
       <svg
         className="ruler-svg"
-        viewBox={`0 0 20 ${heightMm}`}
+        viewBox={`0 0 20 ${layout.containerHeight}`}
         preserveAspectRatio="none"
       >
-        {/* Top Gray Margin Track */}
-        <rect x={0} y={0} width={20} height={topMargin} fill="#e2e4e7" />
-        {/* Middle White Printable Track */}
-        <rect x={0} y={topMargin} width={20} height={Math.max(0, heightMm - topMargin - bottomMargin)} fill="#ffffff" />
-        {/* Bottom Gray Margin Track */}
-        <rect x={0} y={heightMm - bottomMargin} width={20} height={bottomMargin} fill="#e2e4e7" />
+        {/* Gray Track Background */}
+        <rect x={0} y={0} width={20} height={layout.containerHeight} fill="#e2e4e7" />
+
+        {/* White Printable Track */}
+        <rect
+          x={0}
+          y={topMarginPx}
+          width={20}
+          height={Math.max(0, bottomMarginPx - topMarginPx)}
+          fill="#ffffff"
+        />
 
         {/* Track Hairline Borders */}
-        <line x1={0} y1={topMargin} x2={20} y2={topMargin} stroke="#a8acb0" strokeWidth="0.4" />
-        <line x1={0} y1={heightMm - bottomMargin} x2={20} y2={heightMm - bottomMargin} stroke="#a8acb0" strokeWidth="0.4" />
-        <line x1={19.5} y1={0} x2={19.5} y2={heightMm} stroke="#b8bcbe" strokeWidth="0.4" />
-        <rect x={0} y={0} width={20} height={heightMm} fill="none" stroke="#a8acb0" strokeWidth="0.4" />
+        <line x1={0} y1={topMarginPx} x2={20} y2={topMarginPx} stroke="#a8acb0" strokeWidth="1" />
+        <line x1={0} y1={bottomMarginPx} x2={20} y2={bottomMarginPx} stroke="#a8acb0" strokeWidth="1" />
+        <line x1={19.5} y1={0} x2={19.5} y2={layout.containerHeight} stroke="#b8bcbe" strokeWidth="1" />
 
         {/* Ticks & Labels */}
         {leftTicks.map(t => (
-          <g key={`left-tick-${t.mm}`}>
+          <g key={`left-tick-${t.yPx}`}>
             <line
-              x1={t.isMajor ? 11 : 15}
-              y1={t.mm}
+              x1={t.isMajor ? 10 : 14}
+              y1={t.yPx}
               x2={20}
-              y2={t.mm}
+              y2={t.yPx}
               stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
-              strokeWidth={t.isMajor ? "0.4" : "0.3"}
+              strokeWidth={t.isMajor ? "1" : "0.75"}
             />
             {t.label !== undefined && (
               <text
-                x={9}
-                y={t.mm}
-                fontSize="2.8"
+                x={7}
+                y={t.yPx}
+                fontSize="9.5"
                 fontFamily="Segoe UI, Calibri, sans-serif"
                 fontWeight="600"
                 fill="#3c4043"
@@ -675,10 +716,10 @@ function LeftRulerBar({
           style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
         >
           <polygon
-            points={`19.5,${topMargin - 3} 19.5,${topMargin + 3} 14,${topMargin}`}
+            points={`19.5,${topMarginPx - 4} 19.5,${topMarginPx + 4} 10.5,${topMarginPx}`}
             fill={activeDrag === "top" ? "#2563eb" : "#5f6368"}
             stroke="#3c4043"
-            strokeWidth="0.3"
+            strokeWidth="0.8"
           />
         </g>
 
@@ -689,13 +730,25 @@ function LeftRulerBar({
           style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
         >
           <polygon
-            points={`19.5,${heightMm - bottomMargin - 3} 19.5,${heightMm - bottomMargin + 3} 14,${heightMm - bottomMargin}`}
+            points={`19.5,${bottomMarginPx - 4} 19.5,${bottomMarginPx + 4} 10.5,${bottomMarginPx}`}
             fill={activeDrag === "bottom" ? "#2563eb" : "#5f6368"}
             stroke="#3c4043"
-            strokeWidth="0.3"
+            strokeWidth="0.8"
           />
         </g>
       </svg>
+
+      {/* Live Guidelines during drag */}
+      {activeDrag === "top" && (
+        <div className="ruler-live-guideline horizontal" style={{ top: `${topMarginPx}px` }}>
+          <span className="ruler-guide-badge">Top Margin: {guideValue ?? topMargin} mm</span>
+        </div>
+      )}
+      {activeDrag === "bottom" && (
+        <div className="ruler-live-guideline horizontal" style={{ top: `${bottomMarginPx}px` }}>
+          <span className="ruler-guide-badge">Bottom Margin: {guideValue ?? bottomMargin} mm</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -828,28 +881,31 @@ function MatterDraftCanvas({
         canvasRef={canvasRef}
         onMarginChange={onMarginChange}
       />
-      <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
-        <div className="draft-workspace-desk">
-          <div className="draft-canvas" ref={canvasRef} style={pageStyle}>
-            <LeftRulerBar
-              profile={profile}
-              showRulers={showRulers}
-              zoom={zoom}
-              onMarginChange={onMarginChange}
-            />
-            <div className="draft-backdrop-deck" aria-hidden="true">
-              {Array.from({ length: pageCount }).map((_, i) => (
-                <div key={i} className="draft-sheet-card">
-                  <div className="draft-sheet-badge">
-                    {draft.draftType === "Noting"
-                      ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
-                      : `Page ${i + 1} of ${pageCount}`}
+      <div className="draft-workspace-row">
+        <LeftRulerBar
+          profile={profile}
+          showRulers={showRulers}
+          zoom={zoom}
+          canvasRef={canvasRef}
+          onMarginChange={onMarginChange}
+        />
+        <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
+          <div className="draft-workspace-desk">
+            <div className="draft-canvas" ref={canvasRef} style={pageStyle}>
+              <div className="draft-backdrop-deck" aria-hidden="true">
+                {Array.from({ length: pageCount }).map((_, i) => (
+                  <div key={i} className="draft-sheet-card">
+                    <div className="draft-sheet-badge">
+                      {draft.draftType === "Noting"
+                        ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
+                        : `Page ${i + 1} of ${pageCount}`}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-            <div className="draft-editor-layer">
-              <EditorContent editor={editor} />
+                ))}
+              </div>
+              <div className="draft-editor-layer">
+                <EditorContent editor={editor} />
+              </div>
             </div>
           </div>
         </div>
