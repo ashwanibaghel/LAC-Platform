@@ -353,6 +353,7 @@ function TopRulerBar({
 
     updateLayout();
     window.addEventListener("resize", updateLayout);
+    window.addEventListener("scroll", updateLayout, true);
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
@@ -363,6 +364,7 @@ function TopRulerBar({
 
     return () => {
       window.removeEventListener("resize", updateLayout);
+      window.removeEventListener("scroll", updateLayout, true);
       observer?.disconnect();
     };
   }, [showRulers, zoom, profile, canvasRef]);
@@ -828,13 +830,13 @@ function MatterDraftCanvas({
       />
       <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
         <div className="draft-workspace-desk">
-          <LeftRulerBar
-            profile={profile}
-            showRulers={showRulers}
-            zoom={zoom}
-            onMarginChange={onMarginChange}
-          />
           <div className="draft-canvas" ref={canvasRef} style={pageStyle}>
+            <LeftRulerBar
+              profile={profile}
+              showRulers={showRulers}
+              zoom={zoom}
+              onMarginChange={onMarginChange}
+            />
             <div className="draft-backdrop-deck" aria-hidden="true">
               {Array.from({ length: pageCount }).map((_, i) => (
                 <div key={i} className="draft-sheet-card">

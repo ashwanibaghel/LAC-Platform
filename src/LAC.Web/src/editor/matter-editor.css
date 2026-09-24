@@ -994,7 +994,42 @@
   zoom: var(--draft-zoom);
 }
 
-/* Screen-Pinned Sticky Paper Rulers (MS Word / Docs Format) */
+/* Screen-Pinned & Layout Paper Rulers (MS Word / Docs Format) */
+.draft-top-ruler-bar {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  background: #e2e4e7;
+  border-bottom: 1px solid #cbd5e1;
+  flex-shrink: 0;
+  z-index: 15;
+  overflow: hidden;
+  user-select: none;
+}
+
+.draft-top-ruler-bar .ruler-svg {
+  width: 100%;
+  height: 20px;
+  display: block;
+}
+
+.draft-left-ruler-bar {
+  position: absolute;
+  left: -22px;
+  top: 0;
+  width: 20px;
+  height: var(--draft-page-height, 1056px);
+  z-index: 15;
+  user-select: none;
+  pointer-events: auto;
+}
+
+.draft-left-ruler-bar .ruler-svg {
+  width: 20px;
+  height: 100%;
+  display: block;
+}
+
 .draft-rulers-overlay {
   position: absolute;
   top: 0;
