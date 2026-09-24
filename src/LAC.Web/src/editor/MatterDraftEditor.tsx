@@ -131,8 +131,8 @@ export function MatterDrafts({ matterId }: { matterId: string }) {
       });
   }, [matterId]);
 
-  const create = async (draftType: string, overrideTitle?: string) => {
-    const finalTitle = (overrideTitle || title).trim();
+  const create = async (draftType: string) => {
+    const finalTitle = title.trim();
     if (!finalTitle || creating) return;
     setCreating(true);
     setError("");
@@ -162,113 +162,22 @@ export function MatterDrafts({ matterId }: { matterId: string }) {
 
   return (
     <div className="matter-drafts-workspace">
-      {/* Header Banner */}
-      <div className="matter-drafts-header">
-        <div className="matter-drafts-intro">
-          <div className="matter-drafts-badge">
-            <IconSparkles />
-            <span>Legal Studio</span>
-          </div>
-          <h2 className="matter-drafts-title">Drafting & Legal Notes Studio</h2>
-          <p className="matter-drafts-subtitle">
-            Create, edit, and print official letters, ADM references, and green office noting sheets with standard revenue department layouts.
+      {/* Header & Creation Bar */}
+      <div className="drafts-clean-header">
+        <div className="drafts-clean-intro">
+          <h2 className="drafts-clean-title">Matter Drafts & Office Notes</h2>
+          <p className="drafts-clean-subtitle">
+            Create, edit, and print official letters and green office noting sheets for this matter.
           </p>
         </div>
 
-        {/* Stats Chips */}
-        <div className="matter-drafts-stats">
-          <div className="draft-stat-chip">
-            <span className="stat-label">Total Drafts</span>
-            <span className="stat-value">{drafts.length}</span>
-          </div>
-          <div className="draft-stat-chip chip-letter">
-            <IconFileText />
-            <div>
-              <span className="stat-label">Formal Letters</span>
-              <span className="stat-value">{letterCount}</span>
-            </div>
-          </div>
-          <div className="draft-stat-chip chip-noting">
-            <IconFeather />
-            <div>
-              <span className="stat-label">Green Notings</span>
-              <span className="stat-value">{notingCount}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Launchpad Templates */}
-      {canCreateDraft && (
-        <div className="draft-launchpad">
-          <div className="launchpad-title-bar">
-            <span className="launchpad-tag">Quick Templates</span>
-            <h3 className="launchpad-heading">Select a Legal Preset or Enter Custom Title</h3>
-          </div>
-
-          <div className="launchpad-grid">
-            <button
-              type="button"
-              className="template-card card-noting"
-              onClick={() => void create("Noting", title.trim() || "Office Noting - Land Acquisition Status")}
-              disabled={creating}
-            >
-              <div className="template-card-header">
-                <span className="template-icon icon-emerald"><IconFeather /></span>
-                <span className="template-type-badge badge-noting">Official Noting Sheet</span>
-              </div>
-              <h4 className="template-title">Green Office Noting Sheet</h4>
-              <p className="template-desc">Standard 2-Column Revenue Noting format with 25mm left margin for file thread clearance.</p>
-              <div className="template-action">
-                <span>Start Noting</span>
-                <IconArrowRight />
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className="template-card card-letter"
-              onClick={() => void create("Letter", title.trim() || "ADM Reference Letter - Status Request")}
-              disabled={creating}
-            >
-              <div className="template-card-header">
-                <span className="template-icon icon-blue"><IconFileText /></span>
-                <span className="template-type-badge badge-letter">Executive Letter</span>
-              </div>
-              <h4 className="template-title">ADM Reference Letter</h4>
-              <p className="template-desc">Formal inter-departmental reference letter to Additional District Magistrate office.</p>
-              <div className="template-action">
-                <span>Start Letter</span>
-                <IconArrowRight />
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className="template-card card-report"
-              onClick={() => void create("Letter", title.trim() || "Land Acquisition Status & Hearing Report")}
-              disabled={creating}
-            >
-              <div className="template-card-header">
-                <span className="template-icon icon-slate"><IconFileText /></span>
-                <span className="template-type-badge badge-report">Status Report</span>
-              </div>
-              <h4 className="template-title">LAC Status Report</h4>
-              <p className="template-desc">Structured status summary note for hearing preparation & village compensation claims.</p>
-              <div className="template-action">
-                <span>Start Report</span>
-                <IconArrowRight />
-              </div>
-            </button>
-          </div>
-
-          {/* Custom Creator Form */}
+        {canCreateDraft && (
           <div className="draft-create-bar">
             <div className="create-input-wrapper">
               <IconFileText />
               <input
                 aria-label="Draft document title"
-                placeholder="Enter custom document title (e.g. ADM Reply Letter dt 24-Sep-2026)..."
+                placeholder="Enter document title (e.g. ADM Reply Letter dt 25-Sep-2026)..."
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 onKeyDown={e => {
@@ -299,8 +208,8 @@ export function MatterDrafts({ matterId }: { matterId: string }) {
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {error && <div className="drafts-error-banner"><p>{error}</p></div>}
 
