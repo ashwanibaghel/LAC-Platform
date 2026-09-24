@@ -218,6 +218,7 @@ function computePageBreaks(
   const marginTopPx = mmToPx(profile.marginTopMm + (profile.reservedTopMm ?? 0));
   const marginBottomPx = mmToPx(profile.marginBottomMm);
   const printableHeightPx = Math.max(120, totalPageHeightPx - marginTopPx - marginBottomPx);
+  const pageStridePx = totalPageHeightPx + SHEET_GAP_PX;
 
   const domRect = view.dom.getBoundingClientRect();
   const viewTop = domRect.top;
@@ -243,18 +244,17 @@ function computePageBreaks(
       pos += n.nodeSize;
     }
 
-    // pageTopY = natural-layout Y of the top of the printable area on the current page.
-    let pageTopY: number;
+    let firstPagePrintableTopY: number;
     if (blocks.length > 0) {
       const firstMeasured = measureBlock(view, blocks[0].start, blocks[0].size, viewTop, safeZoom);
-      pageTopY = firstMeasured ? firstMeasured.topY : marginTopPx;
+      firstPagePrintableTopY = firstMeasured ? firstMeasured.topY : marginTopPx;
     } else {
-      pageTopY = marginTopPx;
+      firstPagePrintableTopY = marginTopPx;
     }
 
-    // lastFitBottomY = natural-layout absolute Y of the bottom of the last block
-    // that fits on the current page. Used to compute remaining space.
-    let lastFitBottomY = pageTopY; // start of page = no content yet
+    let pagePrintableTopY = firstPagePrintableTopY;
+    let pagePrintableBottomY = pagePrintableTopY + printableHeightPx;
+    let lastFitBottomY = pagePrintableTopY;
 
     for (let i = 0; i < blocks.length; i++) {
       const { start: nodeStart, size: nodeSize } = blocks[i];
@@ -266,46 +266,35 @@ function computePageBreaks(
       const { topY: blockTopY, bottomY: blockBottomY } = measured;
       const blockHeight = blockBottomY - blockTopY;
 
-      // Relative to current page's printable top
-      const blockTopOnPage = blockTopY - pageTopY;
-      const blockBottomOnPage = blockBottomY - pageTopY;
-
-      if (blockBottomOnPage <= printableHeightPx) {
-        // Block fits entirely on this page
+      // Check if block fits on current page
+      if (blockBottomY <= pagePrintableBottomY + 0.5) {
         lastFitBottomY = blockBottomY;
         continue;
       }
 
       // Block does NOT fit on the current page.
 
-      // Guard: if the block itself is taller than an entire printable page, we cannot
-      // split it, so accept it across as many pages as it spans and advance pageIndex accordingly.
+      // Guard: oversized paragraph (taller than printable page)
       if (blockHeight >= printableHeightPx - 4 && node.type.name === "paragraph") {
-        // Keep a large paragraph together semantically, but move it to a fresh
-        // sheet if this page already has content.  Its internal line breaks are
-        // then rendered as inline-only pagination widgets below.
-        if (lastFitBottomY > pageTopY) {
-          const contentUsedPx = Math.max(0, lastFitBottomY - pageTopY);
-          const remainingPx = Math.max(0, printableHeightPx - contentUsedPx);
+        if (lastFitBottomY > pagePrintableTopY) {
+          const nextPhysicalPageTopY = firstPagePrintableTopY + (pageIndex + 1) * pageStridePx;
+          const spacerHeightPx = Math.max(0, nextPhysicalPageTopY - lastFitBottomY);
           breaks.push({
             pos: nodeStart,
-            heightPx: remainingPx + marginBottomPx + SHEET_GAP_PX + marginTopPx,
+            heightPx: spacerHeightPx,
             pageIndex: pageIndex + 1,
           });
           pageIndex++;
-          pageTopY = blockTopY;
-          lastFitBottomY = pageTopY;
+          pagePrintableTopY = blockTopY;
+          pagePrintableBottomY = pagePrintableTopY + printableHeightPx;
+          lastFitBottomY = pagePrintableTopY;
           i--;
           continue;
         }
 
-        // We deliberately locate safe *text positions* from Chrome's actual
-        // line coordinates.  The widgets are inline spans, so no invalid block
-        // DOM is inserted inside the ProseMirror paragraph.
         const paragraphFrom = nodeStart + 1;
         const paragraphTo = Math.max(paragraphFrom, nodeStart + nodeSize - 1);
-        const firstInlinePageTopY = pageTopY;
-        let nextPageTopY = pageTopY;
+        let nextPageTopY = pagePrintableTopY;
         let searchFrom = paragraphFrom;
         let priorInlineDisplacementPx = 0;
         while (true) {
@@ -319,12 +308,7 @@ function computePageBreaks(
           );
           if (!overflow || overflow.pos >= paragraphTo) break;
 
-          // Each later inline break must account for the displacement already
-          // introduced by earlier inline widgets.  Calculating every height in
-          // isolation works for page two but drifts upward from page three when
-          // margins change.  Keep one continuous physical coordinate model:
-          // raw text coordinate + prior widgets + this widget = next sheet.
-          const nextPhysicalPageTopY = firstInlinePageTopY + (pageIndex + 1) * (totalPageHeightPx + SHEET_GAP_PX);
+          const nextPhysicalPageTopY = firstPagePrintableTopY + (pageIndex + 1) * pageStridePx;
           const spacerHeightPx = Math.max(
             0,
             nextPhysicalPageTopY - overflow.topY - priorInlineDisplacementPx
@@ -340,24 +324,23 @@ function computePageBreaks(
           nextPageTopY += printableHeightPx;
           searchFrom = overflow.pos + 1;
         }
-        pageTopY = nextPageTopY;
+        pagePrintableTopY = nextPageTopY;
+        pagePrintableBottomY = pagePrintableTopY + printableHeightPx;
         lastFitBottomY = blockBottomY;
         continue;
       }
 
-      // ── Choose spacer position ─────────────────────────────────────────────
+      // Choose spacer position
       let spacerPos: number;
       let isTableBreak = false;
-      let reEvaluateCurrentBlock = false; // whether to re-examine block i on next page
+      let reEvaluateCurrentBlock = false;
 
       if (node.type.name === "table") {
-        const spaceRemaining = printableHeightPx - blockTopOnPage;
-        if (spaceRemaining < mmToPx(35) && i > 0 && lastFitBottomY > pageTopY) {
-          // Push entire table to next page
+        const spaceRemaining = pagePrintableBottomY - blockTopY;
+        if (spaceRemaining < mmToPx(35) && i > 0 && lastFitBottomY > pagePrintableTopY) {
           spacerPos = nodeStart;
           reEvaluateCurrentBlock = true;
         } else {
-          // Find the last table row that fits
           let lastFittingRowEnd = -1;
           let rowDocPos = nodeStart + 1;
           for (let r = 0; r < node.childCount; r++) {
@@ -365,8 +348,8 @@ function computePageBreaks(
             const rowEndPos = rowDocPos + rowNode.nodeSize;
             try {
               const rowBottomCoords = view.coordsAtPos(rowEndPos - 1);
-              const rowBottomOnPage = (rowBottomCoords.bottom - viewTop) / safeZoom - pageTopY;
-              if (rowBottomOnPage <= printableHeightPx) {
+              const rowBottomY = (rowBottomCoords.bottom - viewTop) / safeZoom;
+              if (rowBottomY <= pagePrintableBottomY) {
                 lastFittingRowEnd = rowEndPos;
               } else {
                 break;
@@ -378,45 +361,30 @@ function computePageBreaks(
           if (lastFittingRowEnd > nodeStart) {
             spacerPos = lastFittingRowEnd;
             isTableBreak = true;
-            // table continues on next page; do NOT re-evaluate (advance past table)
-          } else if (i > 0 && lastFitBottomY > pageTopY) {
-            // No rows fit but there's content before — push table to next page
+          } else if (i > 0 && lastFitBottomY > pagePrintableTopY) {
             spacerPos = nodeStart;
             reEvaluateCurrentBlock = true;
           } else {
-            // Table is first on page and no rows fit — accept entire table on this page
             lastFitBottomY = blockBottomY;
             continue;
           }
         }
       } else {
-        // Paragraph, heading, list, etc.
-        // Always break at a block boundary — never mid-paragraph.
-
-        if (blockTopOnPage >= printableHeightPx - 4) {
-          // This block starts at/past the printable bottom (orphaned).
-          // There must be content before it (lastFitBottomY > pageTopY guaranteed by
-          // the early-continue above if there's no content yet).
+        if (blockTopY >= pagePrintableBottomY - 4) {
           spacerPos = nodeStart;
           reEvaluateCurrentBlock = true;
-        } else if (lastFitBottomY > pageTopY) {
-          // There's content before this block on this page.
-          // Break before this block.
+        } else if (lastFitBottomY > pagePrintableTopY) {
           spacerPos = nodeStart;
           reEvaluateCurrentBlock = true;
         } else {
-          // This block is the first on this page and overflows (but blockHeight < printableHeight,
-          // so it theoretically fits — this shouldn't happen if measurements are stable).
-          // Accept it on this page.
           lastFitBottomY = blockBottomY;
           continue;
         }
       }
 
-      // ── Compute spacer height ─────────────────────────────────────────────
-      const contentUsedPx = Math.max(0, lastFitBottomY - pageTopY);
-      const remainingPx = Math.max(0, printableHeightPx - contentUsedPx);
-      const spacerHeightPx = remainingPx + marginBottomPx + SHEET_GAP_PX + marginTopPx;
+      // Compute spacer height anchored to next page's physical top
+      const nextPhysicalPageTopY = firstPagePrintableTopY + (pageIndex + 1) * pageStridePx;
+      const spacerHeightPx = Math.max(0, nextPhysicalPageTopY - lastFitBottomY);
 
       breaks.push({
         pos: spacerPos,
@@ -427,24 +395,23 @@ function computePageBreaks(
 
       pageIndex++;
 
-      // ── Update pageTopY for next page ────────────────────────────────────
-      // The next page's first block (in natural hidden-spacer layout) tells us where
-      // the new page starts. This makes all subsequent relative measurements correct.
+      // Update printable bounds for next page
       const nextIdx = reEvaluateCurrentBlock ? i : i + 1;
       if (nextIdx < blocks.length) {
         const { start: nextStart, size: nextSize } = blocks[nextIdx];
         const nextMeasured = measureBlock(view, nextStart, nextSize, viewTop, safeZoom);
         if (nextMeasured) {
-          pageTopY = nextMeasured.topY;
+          pagePrintableTopY = nextMeasured.topY;
         } else {
-          pageTopY = lastFitBottomY + remainingPx + marginBottomPx + SHEET_GAP_PX;
+          pagePrintableTopY = nextPhysicalPageTopY;
         }
+      } else {
+        pagePrintableTopY = nextPhysicalPageTopY;
       }
-
-      lastFitBottomY = pageTopY; // reset: no content consumed on new page yet
+      pagePrintableBottomY = pagePrintableTopY + printableHeightPx;
+      lastFitBottomY = pagePrintableTopY;
 
       if (reEvaluateCurrentBlock) {
-        // Process block i again on the new page
         i--;
       }
     }

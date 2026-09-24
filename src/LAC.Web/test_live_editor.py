@@ -1,6 +1,9 @@
 import os
 import json
+import sys
 import time
+
+sys.stdout.reconfigure(line_buffering=True)
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -13,36 +16,31 @@ def run_test():
     options.add_argument("--headless=new")
     options.add_argument("--window-size=1280,800")
 
-    username = os.environ.get("LAC_TEST_USER", "ashwanibaghel826@gmail.com")
-    password = os.environ.get("LAC_TEST_PASS", "Baandru@826#")
+    username = os.environ.get("LAC_TEST_USER", "")
+    password = os.environ.get("LAC_TEST_PASS", "")
+
+    if not username or not password:
+        raise ValueError("LAC_TEST_USER and LAC_TEST_PASS environment variables must be set.")
 
     print("Launching Chrome via Selenium...")
     driver = webdriver.Chrome(options=options)
 
     try:
-        print("Navigating to http://127.0.0.1:5174 ...")
-        driver.get("http://127.0.0.1:5174")
+        print("Navigating to http://127.0.0.1:5174/login ...")
+        driver.get("http://127.0.0.1:5174/login")
         time.sleep(1)
 
-        print("Logging in via API...")
-        login_res = driver.execute_async_script("""
-            const done = arguments[arguments.length - 1];
-            const [u, p] = arguments;
-            fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username: u, password: p }),
-                credentials: 'include'
-            })
-            .then(async r => {
-                const text = await r.text();
-                try { return done({ status: r.status, json: JSON.parse(text) }); }
-                catch(e) { return done({ status: r.status, rawText: text }); }
-            })
-            .catch(err => done({ error: err.toString() }));
-        """, username, password)
+        print("Authenticating via login form...")
+        user_input = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
+        user_input.clear()
+        user_input.send_keys(username)
 
-        print(f"Login API response status: {login_res.get('status') if isinstance(login_res, dict) else 'error'}")
+        pass_input = driver.find_element(By.ID, "password")
+        pass_input.clear()
+        pass_input.send_keys(password)
+
+        driver.find_element(By.CSS_SELECTOR, ".login-button").click()
+        time.sleep(2)
 
         print("Fetching matters from API...")
         matters_data = driver.execute_async_script("""
@@ -63,29 +61,43 @@ def run_test():
                 matter_id = items[0]["id"]
                 print(f"Found Matter ID: {matter_id}")
 
-        if matter_id:
-            drafts_data = driver.execute_async_script(f"""
-                const done = arguments[arguments.length - 1];
-                fetch('/api/matters/{matter_id}/drafts', {{ credentials: 'include' }})
-                  .then(r => r.json())
-                  .then(data => done(data))
-                  .catch(err => done({{ error: err.toString() }}));
-            """)
+        assert matter_id, f"Could not find any matter in API response: {matters_data}"
 
-            draft_id = None
-            if isinstance(drafts_data, list) and drafts_data:
-                draft_id = drafts_data[0]["id"]
-            elif isinstance(drafts_data, dict) and "items" in drafts_data and drafts_data["items"]:
-                draft_id = drafts_data["items"][0]["id"]
+        print("Creating fresh test draft for live verification...")
+        created = driver.execute_async_script(f"""
+            const done = arguments[arguments.length - 1];
+            fetch('/api/matters/{matter_id}/drafts', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ title: 'Live Selenium Audit Draft', draftType: 'Letter' }}),
+                credentials: 'include'
+            }})
+            .then(r => r.json())
+            .then(data => done(data))
+            .catch(err => done({{ error: err.toString() }}));
+        """)
 
-            if draft_id:
-                target_url = f"http://127.0.0.1:5174/matter-drafts/{draft_id}"
-                print(f"Navigating to standalone draft editor: {target_url}")
-                driver.get(target_url)
-                
-                print("Waiting for .draft-canvas to load...")
-                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".draft-canvas")))
-                time.sleep(1)
+        draft_id = created.get("id") if isinstance(created, dict) else None
+        assert draft_id, f"Could not create test draft for matter {matter_id}: {created}"
+
+        target_url = f"http://127.0.0.1:5174/matter-drafts/{draft_id}"
+        print(f"Navigating to editor URL: {target_url}")
+        driver.get(target_url)
+        time.sleep(2)
+
+        print(f"Current URL after navigation: {driver.current_url}")
+        print("Waiting for .draft-canvas to load...")
+        try:
+            WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, ".draft-canvas")))
+        except Exception as e:
+            print(f"FAILED waiting for .draft-canvas! Current URL: {driver.current_url}")
+            print(f"Page title: {driver.title}")
+            print(f"Page body snippet:\n{driver.find_element(By.TAG_NAME, 'body').text[:500]}")
+            print("Browser console logs:")
+            for entry in driver.get_log('browser'):
+                print(entry)
+            raise e
+        time.sleep(1)
 
         def record(label):
             script = """

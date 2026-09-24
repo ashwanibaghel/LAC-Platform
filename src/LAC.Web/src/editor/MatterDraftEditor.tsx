@@ -15,8 +15,8 @@ import TableHeader from "@tiptap/extension-table-header";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { EditorToolbar } from "./EditorToolbar";
-import { matterDraftPagination, normalizeDraftPages } from "./pagination";
-import { DELHI_LAC_NOTING_V1, profilePrintSize, resolvePageProfile } from "./pageProfiles";
+import { matterDraftPagination, normalizeDraftPages, paginationPluginKey } from "./pagination";
+import { DELHI_LAC_NOTING_V1, computeSheetGeometry, getPageTopPx, getPrintableBottomPx, getPrintableTopPx, profilePrintSize, resolvePageProfile } from "./pageProfiles";
 import "./matter-editor.css";
 
 const api = "/api";
@@ -507,11 +507,13 @@ function LeftRulerBar({
   profile,
   showRulers,
   geometry,
+  activePageIndex,
   onMarginChange,
 }: {
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
-  geometry: { viewportHeight: number; canvasTop: number; canvasWidth: number };
+  geometry: { viewportHeight: number; canvasTop: number; canvasWidth: number; zoom: number };
+  activePageIndex: number;
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
   const [activeDrag, setActiveDrag] = useState<"top" | "bottom" | null>(null);
@@ -525,11 +527,15 @@ function LeftRulerBar({
   const bottomMargin = profile.marginBottomMm;
   const isLocked = profile.locked;
 
-  const pxPerMm = (geometry.canvasWidth * (heightMm / widthMm)) / heightMm;
-  const topMarginPx = geometry.canvasTop + topMargin * pxPerMm;
-  const bottomMarginPx = geometry.canvasTop + (heightMm - bottomMargin) * pxPerMm;
+  const geom = computeSheetGeometry(profile);
+  const scale = geometry.zoom || 1;
 
-  // Vertical Ticks (0 at top margin line)
+  // Track active page top origin in screen coordinates
+  const activePageTopPx = geometry.canvasTop + activePageIndex * geom.pageStridePx * scale;
+  const topMarginPx = activePageTopPx + topMargin * geom.pxPerMm * scale;
+  const bottomMarginPx = activePageTopPx + (heightMm - bottomMargin) * geom.pxPerMm * scale;
+
+  // Vertical Ticks (0 at top margin line of active page)
   const leftTicks: Array<{ yPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
   for (let mm = 0; mm <= heightMm; mm += 1) {
     const distFromTop = mm - topMargin;
@@ -544,7 +550,7 @@ function LeftRulerBar({
           label = Math.round((mm - topMargin) / 10);
         }
       }
-      const yPx = geometry.canvasTop + mm * pxPerMm;
+      const yPx = activePageTopPx + mm * geom.pxPerMm * scale;
       leftTicks.push({ yPx, isMajor, isMid, label });
     }
   }
@@ -558,6 +564,7 @@ function LeftRulerBar({
     const startY = e.clientY;
     const initialTop = topMargin;
     const initialBottom = bottomMargin;
+    const pxPerMm = geom.pxPerMm * scale;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const deltaY = (moveEvent.clientY - startY) / pxPerMm;
@@ -904,6 +911,35 @@ function MatterDraftCanvas({
     editor,
   ]);
 
+  const activePageIndex = useMemo(() => {
+    if (editor && !editor.isDestroyed) {
+      const { from } = editor.state.selection;
+      const pluginState = paginationPluginKey.getState(editor.state);
+      if (pluginState && pluginState.breaks) {
+        let idx = 0;
+        for (const b of pluginState.breaks) {
+          if (from >= b.pos) {
+            idx = b.pageIndex;
+          } else {
+            break;
+          }
+        }
+        return Math.max(0, Math.min(pageCount - 1, idx));
+      }
+    }
+    if (pageWrapRef.current) {
+      const wrapRect = pageWrapRef.current.getBoundingClientRect();
+      const geom = computeSheetGeometry(profile);
+      const viewportCenterCanvasY = (wrapRect.height / 2 - geometry.canvasTop) / (zoom || 1);
+      const idx = Math.floor(viewportCenterCanvasY / geom.pageStridePx);
+      return Math.max(0, Math.min(pageCount - 1, idx));
+    }
+    return 0;
+  }, [editor, pageCount, profile, geometry.canvasTop, zoom]);
+
+  const geom = useMemo(() => computeSheetGeometry(profile), [profile]);
+  const extentShellHeight = (pageCount * geom.logicalHeightPx + (pageCount - 1) * geom.sheetGapPx) * zoom;
+
   const pageStyle = useMemo(
     () =>
       ({
@@ -949,6 +985,7 @@ function MatterDraftCanvas({
           profile={profile}
           showRulers={showRulers}
           geometry={geometry}
+          activePageIndex={activePageIndex}
           onMarginChange={onMarginChange}
         />
         <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`} ref={pageWrapRef}>
@@ -957,7 +994,7 @@ function MatterDraftCanvas({
               className="draft-extent-shell"
               style={{
                 width: `calc(${profile.widthMm}mm * ${zoom})`,
-                height: canvasRef.current ? `${canvasRef.current.offsetHeight * zoom}px` : undefined,
+                height: `${extentShellHeight}px`,
               }}
             >
               <div
