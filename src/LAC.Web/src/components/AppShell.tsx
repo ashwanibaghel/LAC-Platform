@@ -51,11 +51,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Studio full-screen mode for draft editor
-  if (location.pathname.startsWith("/matter-drafts/")) {
-    return <main className="studio-root" id="main-content" tabIndex={-1}>{children}</main>;
-  }
-
   // Handle Ctrl+K / Cmd+K and Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -118,6 +113,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       clearTimeout(timer);
     };
   }, [searchTerm]);
+
+  // Studio full-screen mode for draft editor (evaluated AFTER all hooks)
+  if (location.pathname.startsWith("/matter-drafts/")) {
+    return <main className="studio-root" id="main-content" tabIndex={-1}>{children}</main>;
+  }
 
   const selectSearchResult = (route: string) => {
     setSearchTerm("");
