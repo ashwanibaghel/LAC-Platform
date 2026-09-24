@@ -440,20 +440,22 @@ function MatterDraftCanvas({
     onPageCountChange: setPageCount,
   }), []);
 
+  const extensions = useMemo(() => [
+    StarterKit,
+    Underline,
+    FontSize,
+    Color,
+    FontFamily,
+    TextAlign.configure({ types: ["heading", "paragraph"] }),
+    CustomTable.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
+    pagination
+  ], [pagination]);
+
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Underline,
-      FontSize,
-      Color,
-      FontFamily,
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      CustomTable.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      pagination
-    ],
+    extensions,
     content: normalizeDraftPages(contentJson || JSON.stringify(emptyDocument)),
     editorProps: {
       attributes: {

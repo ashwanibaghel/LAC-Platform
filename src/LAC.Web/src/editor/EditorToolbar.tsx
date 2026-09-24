@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { ChangeEvent, MouseEvent } from "react";
 import type { Editor } from "@tiptap/react";
 
