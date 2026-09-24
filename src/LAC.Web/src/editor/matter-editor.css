@@ -1003,12 +1003,12 @@
 
 .draft-ruler-corner {
   position: absolute;
-  top: -18px;
-  left: -18px;
-  width: 18px;
-  height: 18px;
-  background: #c5cbcf;
-  border: 1px solid #a0a0a0;
+  top: -16px;
+  left: -16px;
+  width: 16px;
+  height: 16px;
+  background: #e2e4e7;
+  border: 1px solid #a8acb0;
   border-radius: 2px 0 0 0;
   display: flex;
   align-items: center;
@@ -1024,10 +1024,10 @@
 
 .draft-ruler-top {
   position: absolute;
-  top: -18px;
+  top: -16px;
   left: 0;
   width: 100%;
-  height: 18px;
+  height: 16px;
   background: transparent;
   box-sizing: border-box;
   pointer-events: auto;
@@ -1036,8 +1036,8 @@
 .draft-ruler-left {
   position: absolute;
   top: 0;
-  left: -18px;
-  width: 18px;
+  left: -16px;
+  width: 16px;
   height: 100%;
   background: transparent;
   box-sizing: border-box;
@@ -1097,8 +1097,12 @@
 }
 
 .draft-page-wrap.has-rulers {
-  padding-top: 52px;
-  padding-left: 56px;
+  padding-top: 48px;
+  padding-left: 52px;
+}
+
+.has-rulers .draft-sheet-badge {
+  top: -34px;
 }
 
 .draft-backdrop-deck {

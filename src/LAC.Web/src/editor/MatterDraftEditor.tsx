@@ -444,8 +444,8 @@ function PaperRulers({
     <div className={`draft-rulers-container ${activeDrag ? "is-dragging" : ""}`} aria-hidden="true">
       {/* MS Word Top-Left Corner Box */}
       <div className="draft-ruler-corner" title="Tab Stop Corner">
-        <svg viewBox="0 0 18 18" className="corner-svg">
-          <path d="M6 5 v8 h8" stroke="#333333" strokeWidth="1.5" fill="none" />
+        <svg viewBox="0 0 16 16" className="corner-svg">
+          <path d="M5 4 v7 h7" stroke="#444444" strokeWidth="1.2" fill="none" />
         </svg>
       </div>
 
@@ -453,40 +453,40 @@ function PaperRulers({
       <div className="draft-ruler-top" ref={topRulerRef}>
         <svg
           className="ruler-svg"
-          viewBox={`0 0 ${widthMm} 18`}
+          viewBox={`0 0 ${widthMm} 16`}
           preserveAspectRatio="none"
         >
           {/* Left Gray Margin Track */}
-          <rect x={0} y={0} width={leftMargin} height={18} fill="#c5cbcf" />
+          <rect x={0} y={0} width={leftMargin} height={16} fill="#e2e4e7" />
           {/* Middle White Printable Track */}
-          <rect x={leftMargin} y={0} width={Math.max(0, widthMm - leftMargin - rightMargin)} height={18} fill="#ffffff" />
+          <rect x={leftMargin} y={0} width={Math.max(0, widthMm - leftMargin - rightMargin)} height={16} fill="#ffffff" />
           {/* Right Gray Margin Track */}
-          <rect x={widthMm - rightMargin} y={0} width={rightMargin} height={18} fill="#c5cbcf" />
+          <rect x={widthMm - rightMargin} y={0} width={rightMargin} height={16} fill="#e2e4e7" />
 
           {/* Track Borders */}
-          <line x1={leftMargin} y1={0} x2={leftMargin} y2={18} stroke="#999999" strokeWidth="0.5" />
-          <line x1={widthMm - rightMargin} y1={0} x2={widthMm - rightMargin} y2={18} stroke="#999999" strokeWidth="0.5" />
-          <rect x={0} y={0} width={widthMm} height={18} fill="none" stroke="#a0a0a0" strokeWidth="0.5" />
+          <line x1={leftMargin} y1={0} x2={leftMargin} y2={16} stroke="#a8acb0" strokeWidth="0.4" />
+          <line x1={widthMm - rightMargin} y1={0} x2={widthMm - rightMargin} y2={16} stroke="#a8acb0" strokeWidth="0.4" />
+          <rect x={0} y={0} width={widthMm} height={16} fill="none" stroke="#a8acb0" strokeWidth="0.4" />
 
           {/* Ticks & Labels */}
           {topTicks.map(t => (
             <g key={`top-tick-${t.mm}`}>
               <line
                 x1={t.mm}
-                y1={t.isMajor ? 11 : 14}
+                y1={t.isMajor ? 9.5 : 12.5}
                 x2={t.mm}
-                y2={18}
-                stroke={t.isMajor ? "#333333" : "#777777"}
-                strokeWidth={t.isMajor ? "0.5" : "0.35"}
+                y2={16}
+                stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
+                strokeWidth={t.isMajor ? "0.4" : "0.3"}
               />
               {t.label !== undefined && (
                 <text
                   x={t.mm}
-                  y={8.5}
-                  fontSize="3.2"
-                  fontFamily="Calibri, Segoe UI, sans-serif"
+                  y={6.5}
+                  fontSize="2.8"
+                  fontFamily="Segoe UI, Calibri, sans-serif"
                   fontWeight="600"
-                  fill="#222222"
+                  fill="#3c4043"
                   textAnchor="middle"
                 >
                   {t.label}
@@ -501,26 +501,28 @@ function PaperRulers({
             onMouseDown={e => startDrag(e, "left")}
             style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
           >
+            {/* First Line Indent (Top Downward Triangle) */}
             <polygon
-              points={`${leftMargin - 3.5},1 ${leftMargin + 3.5},1 ${leftMargin},6`}
-              fill={activeDrag === "left" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              points={`${leftMargin - 2.5},0.5 ${leftMargin + 2.5},0.5 ${leftMargin},4.5`}
+              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
+            {/* Left Indent (Bottom Upward Triangle + Base Box) */}
             <polygon
-              points={`${leftMargin - 3.5},17 ${leftMargin + 3.5},17 ${leftMargin},12`}
-              fill={activeDrag === "left" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              points={`${leftMargin - 2.5},15.5 ${leftMargin + 2.5},15.5 ${leftMargin},11.5`}
+              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
             <rect
-              x={leftMargin - 3.5}
-              y={17}
-              width={7}
-              height={1}
-              fill={activeDrag === "left" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              x={leftMargin - 2.5}
+              y={15.5}
+              width={5}
+              height={0.5}
+              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
           </g>
 
@@ -531,10 +533,10 @@ function PaperRulers({
             style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
           >
             <polygon
-              points={`${widthMm - rightMargin - 3.5},17 ${widthMm - rightMargin + 3.5},17 ${widthMm - rightMargin},12`}
-              fill={activeDrag === "right" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              points={`${widthMm - rightMargin - 2.5},15.5 ${widthMm - rightMargin + 2.5},15.5 ${widthMm - rightMargin},11.5`}
+              fill={activeDrag === "right" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
           </g>
         </svg>
@@ -544,40 +546,40 @@ function PaperRulers({
       <div className="draft-ruler-left" ref={leftRulerRef}>
         <svg
           className="ruler-svg"
-          viewBox={`0 0 18 ${heightMm}`}
+          viewBox={`0 0 16 ${heightMm}`}
           preserveAspectRatio="none"
         >
           {/* Top Gray Margin Track */}
-          <rect x={0} y={0} width={18} height={topMargin} fill="#c5cbcf" />
+          <rect x={0} y={0} width={16} height={topMargin} fill="#e2e4e7" />
           {/* Middle White Printable Track */}
-          <rect x={0} y={topMargin} width={18} height={Math.max(0, heightMm - topMargin - bottomMargin)} fill="#ffffff" />
+          <rect x={0} y={topMargin} width={16} height={Math.max(0, heightMm - topMargin - bottomMargin)} fill="#ffffff" />
           {/* Bottom Gray Margin Track */}
-          <rect x={0} y={heightMm - bottomMargin} width={18} height={bottomMargin} fill="#c5cbcf" />
+          <rect x={0} y={heightMm - bottomMargin} width={16} height={bottomMargin} fill="#e2e4e7" />
 
           {/* Track Borders */}
-          <line x1={0} y1={topMargin} x2={18} y2={topMargin} stroke="#999999" strokeWidth="0.5" />
-          <line x1={0} y1={heightMm - bottomMargin} x2={18} y2={heightMm - bottomMargin} stroke="#999999" strokeWidth="0.5" />
-          <rect x={0} y={0} width={18} height={heightMm} fill="none" stroke="#a0a0a0" strokeWidth="0.5" />
+          <line x1={0} y1={topMargin} x2={16} y2={topMargin} stroke="#a8acb0" strokeWidth="0.4" />
+          <line x1={0} y1={heightMm - bottomMargin} x2={16} y2={heightMm - bottomMargin} stroke="#a8acb0" strokeWidth="0.4" />
+          <rect x={0} y={0} width={16} height={heightMm} fill="none" stroke="#a8acb0" strokeWidth="0.4" />
 
           {/* Ticks & Labels */}
           {leftTicks.map(t => (
             <g key={`left-tick-${t.mm}`}>
               <line
-                x1={t.isMajor ? 11 : 14}
+                x1={t.isMajor ? 9.5 : 12.5}
                 y1={t.mm}
-                x2={18}
+                x2={16}
                 y2={t.mm}
-                stroke={t.isMajor ? "#333333" : "#777777"}
-                strokeWidth={t.isMajor ? "0.5" : "0.35"}
+                stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
+                strokeWidth={t.isMajor ? "0.4" : "0.3"}
               />
               {t.label !== undefined && (
                 <text
-                  x={8}
+                  x={7.5}
                   y={t.mm}
-                  fontSize="3.2"
-                  fontFamily="Calibri, Segoe UI, sans-serif"
+                  fontSize="2.8"
+                  fontFamily="Segoe UI, Calibri, sans-serif"
                   fontWeight="600"
-                  fill="#222222"
+                  fill="#3c4043"
                   textAnchor="end"
                   dominantBaseline="central"
                 >
@@ -594,10 +596,10 @@ function PaperRulers({
             style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
           >
             <polygon
-              points={`17,${topMargin - 3.5} 17,${topMargin + 3.5} 12,${topMargin}`}
-              fill={activeDrag === "top" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              points={`15.5,${topMargin - 2.5} 15.5,${topMargin + 2.5} 11.5,${topMargin}`}
+              fill={activeDrag === "top" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
           </g>
 
@@ -608,10 +610,10 @@ function PaperRulers({
             style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
           >
             <polygon
-              points={`17,${heightMm - bottomMargin - 3.5} 17,${heightMm - bottomMargin + 3.5} 12,${heightMm - bottomMargin}`}
-              fill={activeDrag === "bottom" ? "#2563eb" : "#4a5568"}
-              stroke="#1e293b"
-              strokeWidth="0.4"
+              points={`15.5,${heightMm - bottomMargin - 2.5} 15.5,${heightMm - bottomMargin + 2.5} 11.5,${heightMm - bottomMargin}`}
+              fill={activeDrag === "bottom" ? "#2563eb" : "#5f6368"}
+              stroke="#3c4043"
+              strokeWidth="0.3"
             />
           </g>
         </svg>
