@@ -977,6 +977,8 @@
   min-height: 0;
   overflow: auto;
   padding: 36px 48px 80px;
+  scroll-padding-top: 48px;
+  scroll-padding-bottom: 80px;
   background: radial-gradient(circle at top, #f8fafc 0, #e9eef5 68%);
   display: flex;
   justify-content: center;

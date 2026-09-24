@@ -818,6 +818,23 @@ function MatterDraftCanvas({
       attributes: {
         class: "draft-prosemirror"
       },
+      scrollThreshold: { top: 60, bottom: 60, left: 20, right: 20 },
+      scrollMargin: { top: 60, bottom: 60, left: 20, right: 20 },
+      handleScrollToSelection(view) {
+        try {
+          const { from } = view.state.selection;
+          const coords = view.coordsAtPos(from);
+          const container = view.dom.closest(".draft-page-wrap");
+          if (!container) return false;
+          const contRect = container.getBoundingClientRect();
+          if (coords.top >= contRect.top + 20 && coords.bottom <= contRect.bottom - 20) {
+            return true;
+          }
+        } catch {
+          // Fall back to standard ProseMirror scrolling
+        }
+        return false;
+      },
       clipboardTextParser(text, _context, _plain, view) {
         const lines = text.split(/\r?\n/);
         const schema = view.state.schema;
