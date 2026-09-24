@@ -10,129 +10,134 @@ type Props = {
   onResetZoom: () => void;
   pageSetupExpanded: boolean;
   onTogglePageSetup: () => void;
+  showRulers: boolean;
+  onToggleRulers: () => void;
   pageCount?: number;
 };
 
-// --- Modern Crisp SVG Icons ---
-function UndoIcon() {
+function RulerIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 7v6h6" />
-      <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+      <path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.4 2.4 0 0 1 0-3.4l2.6-2.6a2.4 2.4 0 0 1 3.4 0l12.6 12.6z" />
+      <line x1="14.5" y1="12.5" x2="17" y2="10" />
+      <line x1="11.5" y1="9.5" x2="14" y2="7" />
+      <line x1="8.5" y1="6.5" x2="11" y2="4" />
     </svg>
   );
 }
 
-function RedoIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 7v6h-6" />
-      <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7" />
-    </svg>
-  );
-}
+function TableMenuPopover({
+  editor,
+  onClose,
+}: {
+  editor: Editor;
+  onClose: () => void;
+}) {
+  const [hoverRows, setHoverRows] = useState(3);
+  const [hoverCols, setHoverCols] = useState(3);
 
-function PrintIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="6 9 6 2 18 2 18 9" />
-      <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-      <rect x="6" y="14" width="12" height="8" />
-    </svg>
-  );
-}
+  const insertWithPreset = (styleName: string) => {
+    editor
+      .chain()
+      .focus()
+      .insertTable({ rows: hoverRows, cols: hoverCols, withHeaderRow: true })
+      .updateAttributes("table", { tableStyle: styleName })
+      .run();
+    onClose();
+  };
 
-function PageSetupIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="16" y1="13" x2="8" y2="13" />
-      <line x1="16" y1="17" x2="8" y2="17" />
-      <polyline points="10 9 9 9 8 9" />
-    </svg>
-  );
-}
+    <div className="table-menu-popover" onMouseDown={e => e.stopPropagation()}>
+      <div className="popover-section">
+        <span className="popover-title">Insert Table ({hoverRows} × {hoverCols})</span>
+        <div className="grid-picker">
+          {Array.from({ length: 6 }).map((_, r) => (
+            <div key={r} className="grid-picker-row">
+              {Array.from({ length: 6 }).map((_, c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={`Grid ${r + 1} rows by ${c + 1} columns`}
+                  className={`grid-cell ${r < hoverRows && c < hoverCols ? "active" : ""}`}
+                  onMouseEnter={() => {
+                    setHoverRows(r + 1);
+                    setHoverCols(c + 1);
+                  }}
+                  onClick={() => insertWithPreset("table-style-legal")}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
 
-function AlignLeftIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="17" y1="10" x2="3" y2="10" />
-      <line x1="21" y1="6" x2="3" y2="6" />
-      <line x1="21" y1="14" x2="3" y2="14" />
-      <line x1="17" y1="18" x2="3" y2="18" />
-    </svg>
-  );
-}
+      <div className="popover-divider" />
 
-function AlignCenterIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="10" x2="6" y2="10" />
-      <line x1="21" y1="6" x2="3" y2="6" />
-      <line x1="21" y1="14" x2="3" y2="14" />
-      <line x1="18" y1="18" x2="6" y2="18" />
-    </svg>
-  );
-}
+      <div className="popover-section">
+        <span className="popover-title">Table Format Presets</span>
+        <div className="table-preset-options">
+          <button
+            type="button"
+            className="preset-btn preset-legal"
+            onClick={() => insertWithPreset("table-style-legal")}
+          >
+            <span className="preset-icon">🏛️</span>
+            <div>
+              <strong>Legal / Revenue</strong>
+              <small>Dark header, clean bottom borders</small>
+            </div>
+          </button>
 
-function AlignRightIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="21" y1="10" x2="7" y2="10" />
-      <line x1="21" y1="6" x2="3" y2="6" />
-      <line x1="21" y1="14" x2="3" y2="14" />
-      <line x1="21" y1="18" x2="7" y2="18" />
-    </svg>
-  );
-}
+          <button
+            type="button"
+            className="preset-btn preset-noting"
+            onClick={() => insertWithPreset("table-style-noting")}
+          >
+            <span className="preset-icon">📗</span>
+            <div>
+              <strong>Government Noting</strong>
+              <small>Emerald green theme & borders</small>
+            </div>
+          </button>
 
-function AlignJustifyIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="21" y1="10" x2="3" y2="10" />
-      <line x1="21" y1="6" x2="3" y2="6" />
-      <line x1="21" y1="14" x2="3" y2="14" />
-      <line x1="21" y1="18" x2="3" y2="18" />
-    </svg>
-  );
-}
+          <button
+            type="button"
+            className="preset-btn preset-executive"
+            onClick={() => insertWithPreset("table-style-executive")}
+          >
+            <span className="preset-icon">💼</span>
+            <div>
+              <strong>Executive Dark</strong>
+              <small>Navy header with striped rows</small>
+            </div>
+          </button>
 
-function BulletListIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="9" y1="6" x2="20" y2="6" />
-      <line x1="9" y1="12" x2="20" y2="12" />
-      <line x1="9" y1="18" x2="20" y2="18" />
-      <circle cx="4" cy="6" r="2" fill="currentColor" />
-      <circle cx="4" cy="12" r="2" fill="currentColor" />
-      <circle cx="4" cy="18" r="2" fill="currentColor" />
-    </svg>
-  );
-}
+          <button
+            type="button"
+            className="preset-btn preset-minimal"
+            onClick={() => insertWithPreset("table-style-minimal")}
+          >
+            <span className="preset-icon">📊</span>
+            <div>
+              <strong>Minimal Grid</strong>
+              <small>Subtle light gray grid</small>
+            </div>
+          </button>
 
-function NumberedListIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="10" y1="6" x2="21" y2="6" />
-      <line x1="10" y1="12" x2="21" y2="12" />
-      <line x1="10" y1="18" x2="21" y2="18" />
-      <path d="M4 6h1v4" />
-      <path d="M4 10h2" />
-      <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" />
-    </svg>
-  );
-}
-
-function TableIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <line x1="3" y1="9" x2="21" y2="9" />
-      <line x1="3" y1="15" x2="21" y2="15" />
-      <line x1="9" y1="3" x2="9" y2="21" />
-      <line x1="15" y1="3" x2="15" y2="21" />
-    </svg>
+          <button
+            type="button"
+            className="preset-btn preset-borderless"
+            onClick={() => insertWithPreset("table-style-borderless")}
+          >
+            <span className="preset-icon">📄</span>
+            <div>
+              <strong>Borderless Layout</strong>
+              <small>Side-by-side text columns</small>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -144,9 +149,12 @@ export function EditorToolbar({
   onResetZoom,
   pageSetupExpanded,
   onTogglePageSetup,
+  showRulers,
+  onToggleRulers,
   pageCount = 1,
 }: Props) {
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const [tableMenuOpen, setTableMenuOpen] = useState(false);
 
   const command = (action: () => boolean) => (e: MouseEvent) => {
     e.preventDefault();
@@ -156,6 +164,8 @@ export function EditorToolbar({
   const handleColorChange = (e: ChangeEvent<HTMLInputElement>) => {
     editor.chain().focus().setColor(e.target.value).run();
   };
+
+  const isTableActive = editor.isActive("table");
 
   return (
     <div
@@ -203,8 +213,17 @@ export function EditorToolbar({
 
       <div className="toolbar-divider" />
 
-      {/* Group: View & Setup */}
+      {/* Group: View, Scale & Setup */}
       <div className="toolbar-section toolbar-view-group">
+        <button
+          type="button"
+          className={`toolbar-btn toolbar-setup-btn ${showRulers ? "active" : ""}`}
+          title="Show or hide page rulers / scales"
+          onClick={onToggleRulers}
+        >
+          <RulerIcon />
+          <span>Scale</span>
+        </button>
         <button
           type="button"
           className={`toolbar-btn toolbar-setup-btn ${pageSetupExpanded ? "active" : ""}`}
@@ -392,62 +411,93 @@ export function EditorToolbar({
 
       <div className="toolbar-divider" />
 
-      {/* Group: Table Tools */}
-      <div className="toolbar-section toolbar-table-group">
+      {/* Group: Table Tools & Format Presets */}
+      <div className="toolbar-section toolbar-table-group" style={{ position: "relative" }}>
         <button
           type="button"
-          className="toolbar-btn toolbar-btn-labeled"
-          title="Insert table"
-          onClick={command(() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run())}
+          className={`toolbar-btn toolbar-btn-labeled ${tableMenuOpen ? "active" : ""}`}
+          title="Insert table & format presets"
+          onClick={() => setTableMenuOpen(open => !open)}
         >
           <TableIcon />
           <span>+ Table</span>
         </button>
 
-        <button
-          type="button"
-          className="toolbar-btn toolbar-btn-sub"
-          title="Add table row"
-          onClick={command(() => editor.chain().focus().addRowAfter().run())}
-        >
-          + Row
-        </button>
+        {tableMenuOpen && (
+          <TableMenuPopover editor={editor} onClose={() => setTableMenuOpen(false)} />
+        )}
 
-        <button
-          type="button"
-          className="toolbar-btn toolbar-btn-sub"
-          title="Delete table row"
-          onClick={command(() => editor.chain().focus().deleteRow().run())}
-        >
-          − Row
-        </button>
+        {isTableActive && (
+          <>
+            <select
+              aria-label="Table format preset"
+              className="toolbar-select table-style-select"
+              title="Change table style preset"
+              onChange={e => editor.chain().focus().updateAttributes("table", { tableStyle: e.target.value }).run()}
+              defaultValue="table-style-legal"
+            >
+              <option value="table-style-legal">🏛️ Legal Format</option>
+              <option value="table-style-noting">📗 Revenue Noting</option>
+              <option value="table-style-executive">💼 Executive Dark</option>
+              <option value="table-style-minimal">📊 Minimal Grid</option>
+              <option value="table-style-borderless">📄 Borderless</option>
+            </select>
 
-        <button
-          type="button"
-          className="toolbar-btn toolbar-btn-sub"
-          title="Add table column"
-          onClick={command(() => editor.chain().focus().addColumnAfter().run())}
-        >
-          + Col
-        </button>
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-sub"
+              title="Add row after"
+              onClick={command(() => editor.chain().focus().addRowAfter().run())}
+            >
+              + Row
+            </button>
 
-        <button
-          type="button"
-          className="toolbar-btn toolbar-btn-sub"
-          title="Delete table column"
-          onClick={command(() => editor.chain().focus().deleteColumn().run())}
-        >
-          − Col
-        </button>
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-sub"
+              title="Delete table row"
+              onClick={command(() => editor.chain().focus().deleteRow().run())}
+            >
+              − Row
+            </button>
 
-        <button
-          type="button"
-          className="toolbar-btn toolbar-btn-danger"
-          title="Delete table"
-          onClick={command(() => editor.chain().focus().deleteTable().run())}
-        >
-          Delete
-        </button>
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-sub"
+              title="Add column after"
+              onClick={command(() => editor.chain().focus().addColumnAfter().run())}
+            >
+              + Col
+            </button>
+
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-sub"
+              title="Delete table column"
+              onClick={command(() => editor.chain().focus().deleteColumn().run())}
+            >
+              − Col
+            </button>
+
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-sub"
+              title="Merge or split cells"
+              onClick={command(() => editor.chain().focus().mergeOrSplit().run())}
+            >
+              Merge/Split
+            </button>
+
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn-danger"
+              title="Delete entire table"
+              onClick={command(() => editor.chain().focus().deleteTable().run())}
+            >
+              Delete
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

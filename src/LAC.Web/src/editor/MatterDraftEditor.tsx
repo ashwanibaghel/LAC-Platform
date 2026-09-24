@@ -303,6 +303,105 @@ export function MatterDrafts({ matterId }: { matterId: string }) {
   );
 }
 
+const CustomTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      tableStyle: {
+        default: "table-style-legal",
+        parseHTML: element => element.getAttribute("data-table-style") || "table-style-legal",
+        renderHTML: attributes => ({
+          "data-table-style": attributes.tableStyle || "table-style-legal",
+          class: `draft-table ${attributes.tableStyle || "table-style-legal"}`
+        })
+      }
+    };
+  }
+});
+
+function PaperRulers({
+  profile,
+  showRulers,
+}: {
+  profile: ReturnType<typeof resolvePageProfile>;
+  showRulers: boolean;
+}) {
+  if (!showRulers) return null;
+
+  const widthMm = profile.widthMm;
+  const heightMm = profile.heightMm;
+  const leftMargin = profile.marginLeftMm;
+  const rightMargin = profile.marginRightMm;
+  const topMargin = profile.marginTopMm + (profile.reservedTopMm ?? 0);
+  const bottomMargin = profile.marginBottomMm;
+
+  const hTicks = Array.from({ length: Math.floor(widthMm / 10) + 1 }, (_, i) => i * 10);
+  const vTicks = Array.from({ length: Math.floor(heightMm / 10) + 1 }, (_, i) => i * 10);
+
+  return (
+    <>
+      <div className="ruler-corner-unit" aria-hidden="true">
+        mm
+      </div>
+      <div className="ruler-horizontal-bar" aria-hidden="true">
+        <div className="ruler-shade-left" style={{ width: `${(leftMargin / widthMm) * 100}%` }} />
+        <div
+          className="ruler-shade-right"
+          style={{
+            left: `${((widthMm - rightMargin) / widthMm) * 100}%`,
+            width: `${(rightMargin / widthMm) * 100}%`,
+          }}
+        />
+        <div
+          className="ruler-marker-handle"
+          style={{ left: `${(leftMargin / widthMm) * 100}%` }}
+          title={`Left margin: ${leftMargin}mm`}
+        >
+          ▼
+        </div>
+        <div
+          className="ruler-marker-handle"
+          style={{ left: `${((widthMm - rightMargin) / widthMm) * 100}%` }}
+          title={`Right margin: ${rightMargin}mm`}
+        >
+          ▼
+        </div>
+        <div className="ruler-ticks-track">
+          {hTicks.map(mm => (
+            <div
+              key={mm}
+              className="ruler-tick-mark major"
+              style={{ left: `${(mm / widthMm) * 100}%` }}
+            >
+              <span className="tick-num">{mm / 10}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="ruler-vertical-bar" aria-hidden="true">
+        <div className="ruler-v-shade-top" style={{ height: `${(topMargin / heightMm) * 100}%` }} />
+        <div
+          className="ruler-v-shade-bottom"
+          style={{
+            top: `${((heightMm - bottomMargin) / heightMm) * 100}%`,
+            height: `${(bottomMargin / heightMm) * 100}%`,
+          }}
+        />
+        {vTicks.map(mm => (
+          <div
+            key={mm}
+            className="ruler-v-tick major"
+            style={{ top: `${(mm / heightMm) * 100}%` }}
+          >
+            <span className="v-tick-num">{mm / 10}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function MatterDraftCanvas({
   draft,
   contentJson,
@@ -328,6 +427,7 @@ function MatterDraftCanvas({
 }) {
   const profile = resolvePageProfile(draft);
   const [pageCount, setPageCount] = useState(1);
+  const [showRulers, setShowRulers] = useState(true);
 
   const profileRef = useRef(profile);
   profileRef.current = profile;
@@ -348,7 +448,7 @@ function MatterDraftCanvas({
       Color,
       FontFamily,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
-      Table.configure({ resizable: true }),
+      CustomTable.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
@@ -409,24 +509,29 @@ function MatterDraftCanvas({
         onResetZoom={onResetZoom}
         pageSetupExpanded={pageSetupExpanded}
         onTogglePageSetup={onTogglePageSetup}
+        showRulers={showRulers}
+        onToggleRulers={() => setShowRulers(s => !s)}
         pageCount={pageCount}
       />
       {pageSetup}
       <div className="draft-page-wrap">
-        <div className="draft-canvas" style={pageStyle}>
-          <div className="draft-backdrop-deck" aria-hidden="true">
-            {Array.from({ length: pageCount }).map((_, i) => (
-              <div key={i} className="draft-sheet-card">
-                <div className="draft-sheet-badge">
-                  {draft.draftType === "Noting"
-                    ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
-                    : `Page ${i + 1} of ${pageCount}`}
+        <div className={`draft-workspace-desk ${showRulers ? "has-rulers" : ""}`}>
+          <PaperRulers profile={profile} showRulers={showRulers} />
+          <div className="draft-canvas" style={pageStyle}>
+            <div className="draft-backdrop-deck" aria-hidden="true">
+              {Array.from({ length: pageCount }).map((_, i) => (
+                <div key={i} className="draft-sheet-card">
+                  <div className="draft-sheet-badge">
+                    {draft.draftType === "Noting"
+                      ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
+                      : `Page ${i + 1} of ${pageCount}`}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="draft-editor-layer">
-            <EditorContent editor={editor} />
+              ))}
+            </div>
+            <div className="draft-editor-layer">
+              <EditorContent editor={editor} />
+            </div>
           </div>
         </div>
       </div>

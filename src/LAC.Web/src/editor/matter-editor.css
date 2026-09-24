@@ -1088,21 +1088,401 @@
   margin: 0.45em 0;
 }
 
+/* Table Presets & Styling */
 .draft-prosemirror table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.8rem 0;
+  margin: 1em 0;
+  box-sizing: border-box;
 }
 
 .draft-prosemirror td,
 .draft-prosemirror th {
-  border: 1px solid #55677a;
-  padding: 0.35rem;
-  min-width: 3rem;
+  padding: 8px 12px;
+  min-width: 48px;
+  box-sizing: border-box;
+  vertical-align: top;
+  font-size: 11pt;
+  line-height: 1.4;
 }
 
-.draft-prosemirror th {
-  background: #eef3f7;
+/* Preset 1: Legal / Revenue Table */
+.draft-prosemirror table.table-style-legal,
+.draft-prosemirror table[data-table-style="table-style-legal"] {
+  border-top: 2px solid #0f172a;
+  border-bottom: 2px solid #0f172a;
+  border-left: none;
+  border-right: none;
+}
+.draft-prosemirror table.table-style-legal th,
+.draft-prosemirror table[data-table-style="table-style-legal"] th {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700;
+  border-top: 2px solid #0f172a;
+  border-bottom: 2px solid #0f172a;
+  border-left: none;
+  border-right: none;
+}
+.draft-prosemirror table.table-style-legal td,
+.draft-prosemirror table[data-table-style="table-style-legal"] td {
+  border-bottom: 1px solid #cbd5e1;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+
+/* Preset 2: Government Noting Table (Emerald Green) */
+.draft-prosemirror table.table-style-noting,
+.draft-prosemirror table[data-table-style="table-style-noting"] {
+  border: 1px solid #a7f3d0;
+}
+.draft-prosemirror table.table-style-noting th,
+.draft-prosemirror table[data-table-style="table-style-noting"] th {
+  background-color: #ecfdf5;
+  color: #047857;
+  font-weight: 700;
+  border: 1px solid #a7f3d0;
+}
+.draft-prosemirror table.table-style-noting td,
+.draft-prosemirror table[data-table-style="table-style-noting"] td {
+  border: 1px solid #a7f3d0;
+}
+
+/* Preset 3: Executive Dark Table */
+.draft-prosemirror table.table-style-executive,
+.draft-prosemirror table[data-table-style="table-style-executive"] {
+  border: 1px solid #cbd5e1;
+}
+.draft-prosemirror table.table-style-executive th,
+.draft-prosemirror table[data-table-style="table-style-executive"] th {
+  background-color: #1e293b;
+  color: #ffffff;
+  font-weight: 700;
+  border: 1px solid #334155;
+}
+.draft-prosemirror table.table-style-executive td,
+.draft-prosemirror table[data-table-style="table-style-executive"] td {
+  border: 1px solid #e2e8f0;
+}
+.draft-prosemirror table.table-style-executive tr:nth-child(even) td,
+.draft-prosemirror table[data-table-style="table-style-executive"] tr:nth-child(even) td {
+  background-color: #f8fafc;
+}
+
+/* Preset 4: Minimal Grid Matrix */
+.draft-prosemirror table.table-style-minimal,
+.draft-prosemirror table[data-table-style="table-style-minimal"] {
+  border: 1px solid #e2e8f0;
+}
+.draft-prosemirror table.table-style-minimal th,
+.draft-prosemirror table[data-table-style="table-style-minimal"] th {
+  background-color: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  border: 1px solid #e2e8f0;
+}
+.draft-prosemirror table.table-style-minimal td,
+.draft-prosemirror table[data-table-style="table-style-minimal"] td {
+  border: 1px solid #e2e8f0;
+}
+
+/* Preset 5: Borderless Layout Table */
+.draft-prosemirror table.table-style-borderless,
+.draft-prosemirror table[data-table-style="table-style-borderless"] {
+  border: none;
+}
+.draft-prosemirror table.table-style-borderless th,
+.draft-prosemirror table.table-style-borderless td,
+.draft-prosemirror table[data-table-style="table-style-borderless"] th,
+.draft-prosemirror table[data-table-style="table-style-borderless"] td {
+  border: 1px dashed #cbd5e1;
+}
+
+/* Table Popover & Grid Picker UI */
+.table-menu-popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 10px 30px -5px rgba(15, 23, 42, 0.18);
+  z-index: 100;
+  width: 270px;
+  box-sizing: border-box;
+}
+
+.popover-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popover-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.05em;
+}
+
+.grid-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  align-items: center;
+}
+
+.grid-picker-row {
+  display: flex;
+  gap: 3px;
+}
+
+.grid-cell {
+  width: 20px;
+  height: 20px;
+  border: 1px solid #cbd5e1;
+  border-radius: 2px;
+  background: #ffffff;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.1s;
+}
+
+.grid-cell.active {
+  background: #3b82f6;
+  border-color: #2563eb;
+}
+
+.popover-divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 12px 0;
+}
+
+.table-preset-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.preset-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.preset-btn:hover {
+  background: #f8fafc;
+  border-color: #3b82f6;
+}
+
+.preset-btn strong {
+  display: block;
+  font-size: 12px;
+  color: #0f172a;
+}
+
+.preset-btn small {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+}
+
+.preset-icon {
+  font-size: 16px;
+}
+
+.table-style-select {
+  width: 140px;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+/* Paper Rulers Container & Layout */
+.draft-workspace-desk {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.draft-workspace-desk.has-rulers {
+  padding-left: 28px;
+  padding-top: 28px;
+}
+
+/* Top Horizontal Ruler Bar */
+.ruler-horizontal-bar {
+  position: absolute;
+  top: 0;
+  left: 28px;
+  height: 24px;
+  width: var(--draft-page-width);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-bottom: 2px solid #94a3b8;
+  box-sizing: border-box;
+  user-select: none;
+  overflow: hidden;
+  border-radius: 2px 2px 0 0;
+  zoom: var(--draft-zoom);
+}
+
+.ruler-ticks-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.ruler-tick-mark {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ruler-tick-mark.major::before {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 9px;
+  background: #64748b;
+}
+
+.ruler-tick-mark.major .tick-num {
+  font-size: 8px;
+  font-weight: 600;
+  color: #475569;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+/* Margin Shades in Horizontal Ruler */
+.ruler-shade-left {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(203, 213, 225, 0.45);
+  border-right: 1.5px solid #2563eb;
+}
+
+.ruler-shade-right {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  background: rgba(203, 213, 225, 0.45);
+  border-left: 1.5px solid #2563eb;
+}
+
+.ruler-marker-handle {
+  position: absolute;
+  top: 0;
+  color: #2563eb;
+  font-size: 8px;
+  line-height: 1;
+  cursor: ew-resize;
+  transform: translateX(-50%);
+  user-select: none;
+  z-index: 2;
+}
+
+/* Left Vertical Ruler */
+.ruler-vertical-bar {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  width: 24px;
+  height: var(--draft-page-height);
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-right: 2px solid #94a3b8;
+  box-sizing: border-box;
+  user-select: none;
+  overflow: hidden;
+  zoom: var(--draft-zoom);
+}
+
+.ruler-v-tick {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.ruler-v-tick.major::before {
+  content: "";
+  display: block;
+  width: 9px;
+  height: 1px;
+  background: #64748b;
+}
+
+.ruler-v-tick.major .v-tick-num {
+  font-size: 8px;
+  font-weight: 600;
+  color: #475569;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.ruler-v-shade-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(203, 213, 225, 0.45);
+  border-bottom: 1.5px solid #2563eb;
+}
+
+.ruler-v-shade-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(203, 213, 225, 0.45);
+  border-top: 1.5px solid #2563eb;
+}
+
+/* Corner box */
+.ruler-corner-unit {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  zoom: var(--draft-zoom);
 }
 
 /* Full Screen Focus Mode */
