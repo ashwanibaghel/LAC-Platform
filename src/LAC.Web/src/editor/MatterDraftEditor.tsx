@@ -322,52 +322,16 @@ const CustomTable = Table.extend({
 function TopRulerBar({
   profile,
   showRulers,
-  zoom,
-  canvasRef,
+  geometry,
   onMarginChange,
 }: {
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
-  zoom: number;
-  canvasRef: React.RefObject<HTMLDivElement>;
+  geometry: { viewportWidth: number; canvasLeft: number; canvasWidth: number };
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [layout, setLayout] = useState({ containerWidth: 1200, canvasLeft: 200, canvasWidth: 793 });
   const [activeDrag, setActiveDrag] = useState<"left" | "right" | null>(null);
   const [guideValue, setGuideValue] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!showRulers) return;
-    const updateLayout = () => {
-      if (containerRef.current && canvasRef.current) {
-        const contRect = containerRef.current.getBoundingClientRect();
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        setLayout({
-          containerWidth: Math.max(400, contRect.width),
-          canvasLeft: canvasRect.left - contRect.left,
-          canvasWidth: canvasRect.width,
-        });
-      }
-    };
-
-    updateLayout();
-    window.addEventListener("resize", updateLayout);
-    window.addEventListener("scroll", updateLayout, true);
-
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(updateLayout);
-      if (containerRef.current) observer.observe(containerRef.current);
-      if (canvasRef.current) observer.observe(canvasRef.current);
-    }
-
-    return () => {
-      window.removeEventListener("resize", updateLayout);
-      window.removeEventListener("scroll", updateLayout, true);
-      observer?.disconnect();
-    };
-  }, [showRulers, zoom, profile, canvasRef]);
 
   if (!showRulers) return null;
 
@@ -376,9 +340,9 @@ function TopRulerBar({
   const rightMargin = profile.marginRightMm;
   const isLocked = profile.locked;
 
-  const pxPerMm = layout.canvasWidth / widthMm;
-  const leftMarginPx = layout.canvasLeft + leftMargin * pxPerMm;
-  const rightMarginPx = layout.canvasLeft + (widthMm - rightMargin) * pxPerMm;
+  const pxPerMm = geometry.canvasWidth / widthMm;
+  const leftMarginPx = geometry.canvasLeft + leftMargin * pxPerMm;
+  const rightMarginPx = geometry.canvasLeft + (widthMm - rightMargin) * pxPerMm;
 
   // Horizontal Ticks (0 at left margin line)
   const topTicks: Array<{ xPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
@@ -395,7 +359,7 @@ function TopRulerBar({
           label = Math.round((mm - leftMargin) / 10);
         }
       }
-      const xPx = layout.canvasLeft + mm * pxPerMm;
+      const xPx = geometry.canvasLeft + mm * pxPerMm;
       topTicks.push({ xPx, isMajor, isMid, label });
     }
   }
@@ -435,14 +399,14 @@ function TopRulerBar({
   };
 
   return (
-    <div className="draft-top-ruler-bar" ref={containerRef} aria-hidden="true">
+    <div className="draft-top-ruler-bar" aria-hidden="true">
       <svg
         className="ruler-svg"
-        viewBox={`0 0 ${layout.containerWidth} 20`}
+        viewBox={`0 0 ${geometry.viewportWidth} 20`}
         preserveAspectRatio="none"
       >
         {/* Gray Track Background */}
-        <rect x={0} y={0} width={layout.containerWidth} height={20} fill="#e2e4e7" />
+        <rect x={0} y={0} width={geometry.viewportWidth} height={20} fill="#e2e4e7" />
 
         {/* White Printable Track */}
         <rect
@@ -453,10 +417,14 @@ function TopRulerBar({
           fill="#ffffff"
         />
 
+        {/* Top-Left Corner Square */}
+        <rect x={0} y={0} width={20} height={20} fill="#e2e4e7" />
+        <line x1={20} y1={0} x2={20} y2={20} stroke="#cbd5e1" strokeWidth="1" />
+
         {/* Hairline Borders */}
         <line x1={leftMarginPx} y1={0} x2={leftMarginPx} y2={20} stroke="#a8acb0" strokeWidth="1" />
         <line x1={rightMarginPx} y1={0} x2={rightMarginPx} y2={20} stroke="#a8acb0" strokeWidth="1" />
-        <line x1={0} y1={19.5} x2={layout.containerWidth} y2={19.5} stroke="#b8bcbe" strokeWidth="1" />
+        <line x1={0} y1={19.5} x2={geometry.viewportWidth} y2={19.5} stroke="#b8bcbe" strokeWidth="1" />
 
         {/* Ticks & Labels */}
         {topTicks.map(t => (
@@ -503,13 +471,6 @@ function TopRulerBar({
             stroke="#3c4043"
             strokeWidth="0.8"
           />
-          <rect
-            x={leftMarginPx - 4.5}
-            y={19.5}
-            width={9}
-            height={0.5}
-            fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
-          />
         </g>
 
         {/* Right Margin Drag Handle */}
@@ -545,63 +506,28 @@ function TopRulerBar({
 function LeftRulerBar({
   profile,
   showRulers,
-  zoom,
-  canvasRef,
+  geometry,
   onMarginChange,
 }: {
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
-  zoom: number;
-  canvasRef: React.RefObject<HTMLDivElement>;
+  geometry: { viewportHeight: number; canvasTop: number; canvasWidth: number };
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [layout, setLayout] = useState({ containerHeight: 800, pageTop: 36, pageHeight: 1056 });
   const [activeDrag, setActiveDrag] = useState<"top" | "bottom" | null>(null);
   const [guideValue, setGuideValue] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!showRulers) return;
-    const updateLayout = () => {
-      if (containerRef.current && canvasRef.current) {
-        const contRect = containerRef.current.getBoundingClientRect();
-        const canvasRect = canvasRef.current.getBoundingClientRect();
-        setLayout({
-          containerHeight: Math.max(200, contRect.height),
-          pageTop: canvasRect.top - contRect.top,
-          pageHeight: canvasRect.width * (profile.heightMm / profile.widthMm),
-        });
-      }
-    };
-
-    updateLayout();
-    window.addEventListener("resize", updateLayout);
-    window.addEventListener("scroll", updateLayout, true);
-
-    let observer: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(updateLayout);
-      if (containerRef.current) observer.observe(containerRef.current);
-      if (canvasRef.current) observer.observe(canvasRef.current);
-    }
-
-    return () => {
-      window.removeEventListener("resize", updateLayout);
-      window.removeEventListener("scroll", updateLayout, true);
-      observer?.disconnect();
-    };
-  }, [showRulers, zoom, profile, canvasRef]);
 
   if (!showRulers) return null;
 
   const heightMm = profile.heightMm;
+  const widthMm = profile.widthMm;
   const topMargin = profile.marginTopMm + (profile.reservedTopMm ?? 0);
   const bottomMargin = profile.marginBottomMm;
   const isLocked = profile.locked;
 
-  const pxPerMm = layout.pageHeight / heightMm;
-  const topMarginPx = layout.pageTop + topMargin * pxPerMm;
-  const bottomMarginPx = layout.pageTop + (heightMm - bottomMargin) * pxPerMm;
+  const pxPerMm = (geometry.canvasWidth * (heightMm / widthMm)) / heightMm;
+  const topMarginPx = geometry.canvasTop + topMargin * pxPerMm;
+  const bottomMarginPx = geometry.canvasTop + (heightMm - bottomMargin) * pxPerMm;
 
   // Vertical Ticks (0 at top margin line)
   const leftTicks: Array<{ yPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
@@ -618,7 +544,7 @@ function LeftRulerBar({
           label = Math.round((mm - topMargin) / 10);
         }
       }
-      const yPx = layout.pageTop + mm * pxPerMm;
+      const yPx = geometry.canvasTop + mm * pxPerMm;
       leftTicks.push({ yPx, isMajor, isMid, label });
     }
   }
@@ -658,14 +584,14 @@ function LeftRulerBar({
   };
 
   return (
-    <div className="draft-left-ruler-bar" ref={containerRef} aria-hidden="true">
+    <div className="draft-left-ruler-bar" aria-hidden="true">
       <svg
         className="ruler-svg"
-        viewBox={`0 0 20 ${layout.containerHeight}`}
+        viewBox={`0 0 20 ${geometry.viewportHeight}`}
         preserveAspectRatio="none"
       >
         {/* Gray Track Background */}
-        <rect x={0} y={0} width={20} height={layout.containerHeight} fill="#e2e4e7" />
+        <rect x={0} y={0} width={20} height={geometry.viewportHeight} fill="#e2e4e7" />
 
         {/* White Printable Track */}
         <rect
@@ -679,7 +605,7 @@ function LeftRulerBar({
         {/* Track Hairline Borders */}
         <line x1={0} y1={topMarginPx} x2={20} y2={topMarginPx} stroke="#a8acb0" strokeWidth="1" />
         <line x1={0} y1={bottomMarginPx} x2={20} y2={bottomMarginPx} stroke="#a8acb0" strokeWidth="1" />
-        <line x1={19.5} y1={0} x2={19.5} y2={layout.containerHeight} stroke="#b8bcbe" strokeWidth="1" />
+        <line x1={19.5} y1={0} x2={19.5} y2={geometry.viewportHeight} stroke="#b8bcbe" strokeWidth="1" />
 
         {/* Ticks & Labels */}
         {leftTicks.map(t => (
@@ -765,7 +691,7 @@ function MatterDraftCanvas({
   onTogglePageSetup,
   onZoomChange,
   onSetZoom,
-  onResetZoom
+  onResetZoom,
 }: {
   draft: Draft;
   contentJson: string;
@@ -784,56 +710,171 @@ function MatterDraftCanvas({
   const [pageCount, setPageCount] = useState(1);
   const [showRulers, setShowRulers] = useState(true);
 
+  const pageWrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const profileRef = useRef(profile);
   profileRef.current = profile;
   const zoomRef = useRef(zoom);
+  const prevZoomRef = useRef(zoom);
   zoomRef.current = zoom;
 
-  const pagination = useMemo(() => matterDraftPagination({
-    getProfile: () => profileRef.current,
-    getZoom: () => zoomRef.current,
-    onPageCountChange: setPageCount,
-  }), []);
+  // ── Single Geometry Calculation Source ────────────────────────────
+  const [geometry, setGeometry] = useState({
+    viewportWidth: 1200,
+    viewportHeight: 800,
+    canvasLeft: 200,
+    canvasTop: 36,
+    canvasWidth: 793,
+    canvasHeight: 1122,
+    zoom: 1,
+  });
 
-  const extensions = useMemo(() => [
-    StarterKit,
-    Underline,
-    FontSize,
-    Color,
-    FontFamily,
-    TextAlign.configure({ types: ["heading", "paragraph"] }),
-    CustomTable.configure({ resizable: true }),
-    TableRow,
-    TableHeader,
-    TableCell,
-    pagination
-  ], [pagination]);
+  const updateGeometry = useMemo(() => {
+    return () => {
+      if (!pageWrapRef.current || !canvasRef.current) return;
+      const wrapRect = pageWrapRef.current.getBoundingClientRect();
+      const canvasRect = canvasRef.current.getBoundingClientRect();
+
+      setGeometry({
+        viewportWidth: Math.max(200, wrapRect.width),
+        viewportHeight: Math.max(200, wrapRect.height),
+        canvasLeft: canvasRect.left - wrapRect.left,
+        canvasTop: canvasRect.top - wrapRect.top,
+        canvasWidth: canvasRect.width,
+        canvasHeight: canvasRect.height,
+        zoom: zoomRef.current,
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    let animationFrameId = 0;
+    const scheduleUpdate = () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      animationFrameId = requestAnimationFrame(updateGeometry);
+    };
+
+    scheduleUpdate();
+
+    const wrapEl = pageWrapRef.current;
+    if (wrapEl) {
+      wrapEl.addEventListener("scroll", scheduleUpdate, { passive: true });
+    }
+    window.addEventListener("resize", scheduleUpdate);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(scheduleUpdate);
+      if (wrapEl) observer.observe(wrapEl);
+      if (canvasRef.current) observer.observe(canvasRef.current);
+    }
+
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+      if (wrapEl) wrapEl.removeEventListener("scroll", scheduleUpdate);
+      window.removeEventListener("resize", scheduleUpdate);
+      observer?.disconnect();
+    };
+  }, [updateGeometry, zoom, profile, showRulers]);
+
+  // ── Viewport-Anchor Preservation on Zoom ───────────────────────────
+  useEffect(() => {
+    const prevZoom = prevZoomRef.current;
+    const currentZoom = zoom;
+    if (prevZoom === currentZoom) return;
+    prevZoomRef.current = currentZoom;
+
+    const wrapEl = pageWrapRef.current;
+    if (!wrapEl) return;
+
+    const clientHeight = wrapEl.clientHeight;
+    const clientWidth = wrapEl.clientWidth;
+    const oldScrollTop = wrapEl.scrollTop;
+    const oldScrollLeft = wrapEl.scrollLeft;
+
+    const paperOriginY = 36;
+    const viewportAnchorY = clientHeight / 2;
+    const viewportAnchorX = clientWidth / 2;
+
+    requestAnimationFrame(() => {
+      if (!pageWrapRef.current) return;
+      if (oldScrollTop < paperOriginY + 20) {
+        wrapEl.scrollTop = 0;
+      } else {
+        const logicalY = (oldScrollTop + viewportAnchorY - paperOriginY) / prevZoom;
+        const newScrollTop = paperOriginY + (logicalY * currentZoom) - viewportAnchorY;
+        wrapEl.scrollTop = Math.max(0, newScrollTop);
+      }
+
+      if (canvasRef.current) {
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const wrapRect = wrapEl.getBoundingClientRect();
+        const paperOriginX = canvasRect.left - wrapRect.left + oldScrollLeft;
+        const logicalX = (oldScrollLeft + viewportAnchorX - paperOriginX) / prevZoom;
+        const newScrollLeft = paperOriginX + (logicalX * currentZoom) - viewportAnchorX;
+        wrapEl.scrollLeft = Math.max(0, newScrollLeft);
+      }
+
+      updateGeometry();
+    });
+  }, [zoom, updateGeometry]);
+
+  // ── Pagination (Decoupled from Zoom) ──────────────────────────────
+  const pagination = useMemo(
+    () =>
+      matterDraftPagination({
+        getProfile: () => profileRef.current,
+        getZoom: () => zoomRef.current,
+        onPageCountChange: setPageCount,
+      }),
+    []
+  );
+
+  const extensions = useMemo(
+    () => [
+      StarterKit,
+      Underline,
+      FontSize,
+      Color,
+      FontFamily,
+      TextAlign.configure({ types: ["heading", "paragraph"] }),
+      CustomTable.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      pagination,
+    ],
+    [pagination]
+  );
 
   const editor = useEditor({
     extensions,
     content: normalizeDraftPages(contentJson || JSON.stringify(emptyDocument)),
     editorProps: {
       attributes: {
-        class: "draft-prosemirror"
+        class: "draft-prosemirror",
       },
-      scrollThreshold: { top: 60, bottom: 60, left: 20, right: 20 },
-      scrollMargin: { top: 60, bottom: 60, left: 20, right: 20 },
       handleScrollToSelection(view) {
         try {
           const { from } = view.state.selection;
           const coords = view.coordsAtPos(from);
-          const container = view.dom.closest(".draft-page-wrap");
-          if (!container) return false;
+          const container = pageWrapRef.current;
+          if (!container) return true;
+
           const contRect = container.getBoundingClientRect();
-          if (coords.top >= contRect.top + 20 && coords.bottom <= contRect.bottom - 20) {
-            return true;
+          const BOTTOM_MARGIN = 40;
+          const TOP_MARGIN = 40;
+
+          if (coords.bottom > contRect.bottom - BOTTOM_MARGIN) {
+            container.scrollTop += (coords.bottom - (contRect.bottom - BOTTOM_MARGIN));
+          } else if (coords.top < contRect.top + TOP_MARGIN && container.scrollTop > 0) {
+            container.scrollTop = Math.max(0, container.scrollTop - ((contRect.top + TOP_MARGIN) - coords.top));
           }
+          return true;
         } catch {
-          // Fall back to standard ProseMirror scrolling
+          return true;
         }
-        return false;
       },
       clipboardTextParser(text, _context, _plain, view) {
         const lines = text.split(/\r?\n/);
@@ -842,11 +883,12 @@ function MatterDraftCanvas({
           line ? schema.nodes.paragraph.create(null, schema.text(line)) : schema.nodes.paragraph.create()
         );
         return new Slice(Fragment.from(nodes), 0, 0);
-      }
+      },
     },
-    onUpdate: ({ editor: current }) => onChange(JSON.stringify(current.getJSON()))
+    onUpdate: ({ editor: current }) => onChange(JSON.stringify(current.getJSON())),
   });
 
+  // Decoupled layoutChanged effect: ONLY triggers on profile changes (paper/margins), NOT on zoom!
   useEffect(() => {
     if (editor && !editor.isDestroyed) {
       editor.view.dispatch(editor.view.state.tr.setMeta("layoutChanged", true));
@@ -859,69 +901,88 @@ function MatterDraftCanvas({
     profile.marginBottomMm,
     profile.marginLeftMm,
     profile.reservedTopMm,
-    zoom,
-    editor
+    editor,
   ]);
 
-  const pageStyle = useMemo(() => ({
-    "--draft-page-width": `${profile.widthMm}mm`,
-    "--draft-page-height": `${profile.heightMm}mm`,
-    "--draft-top": `${profile.marginTopMm + (profile.reservedTopMm ?? 0)}mm`,
-    "--draft-right": `${profile.marginRightMm}mm`,
-    "--draft-bottom": `${profile.marginBottomMm}mm`,
-    "--draft-left": `${profile.marginLeftMm}mm`,
-    "--draft-zoom": zoom,
-  } as CSSProperties), [profile, zoom]);
+  const pageStyle = useMemo(
+    () =>
+      ({
+        "--draft-page-width": `${profile.widthMm}mm`,
+        "--draft-page-height": `${profile.heightMm}mm`,
+        "--draft-top": `${profile.marginTopMm + (profile.reservedTopMm ?? 0)}mm`,
+        "--draft-right": `${profile.marginRightMm}mm`,
+        "--draft-bottom": `${profile.marginBottomMm}mm`,
+        "--draft-left": `${profile.marginLeftMm}mm`,
+        "--draft-zoom": zoom,
+      }) as CSSProperties,
+    [profile, zoom]
+  );
 
   if (!editor) return null;
 
   return (
     <div className="draft-editor-body">
-      <EditorToolbar
-        editor={editor}
-        onPrint={onPrint}
-        zoom={zoom}
-        onZoomChange={onZoomChange}
-        onSetZoom={onSetZoom}
-        onResetZoom={onResetZoom}
-        pageSetupExpanded={pageSetupExpanded}
-        onTogglePageSetup={onTogglePageSetup}
-        showRulers={showRulers}
-        onToggleRulers={() => setShowRulers(s => !s)}
-        pageCount={pageCount}
-      />
-      {pageSetup}
+      <div style={{ position: "relative" }}>
+        <EditorToolbar
+          editor={editor}
+          onPrint={onPrint}
+          zoom={zoom}
+          onZoomChange={onZoomChange}
+          onSetZoom={onSetZoom}
+          onResetZoom={onResetZoom}
+          pageSetupExpanded={pageSetupExpanded}
+          onTogglePageSetup={onTogglePageSetup}
+          showRulers={showRulers}
+          onToggleRulers={() => setShowRulers(s => !s)}
+          pageCount={pageCount}
+        />
+        {pageSetup}
+      </div>
       <TopRulerBar
         profile={profile}
         showRulers={showRulers}
-        zoom={zoom}
-        canvasRef={canvasRef}
+        geometry={geometry}
         onMarginChange={onMarginChange}
       />
       <div className="draft-workspace-row">
         <LeftRulerBar
           profile={profile}
           showRulers={showRulers}
-          zoom={zoom}
-          canvasRef={canvasRef}
+          geometry={geometry}
           onMarginChange={onMarginChange}
         />
-        <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
+        <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`} ref={pageWrapRef}>
           <div className="draft-workspace-desk">
-            <div className="draft-canvas" ref={canvasRef} style={pageStyle}>
-              <div className="draft-backdrop-deck" aria-hidden="true">
-                {Array.from({ length: pageCount }).map((_, i) => (
-                  <div key={i} className="draft-sheet-card">
-                    <div className="draft-sheet-badge">
-                      {draft.draftType === "Noting"
-                        ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
-                        : `Page ${i + 1} of ${pageCount}`}
+            <div
+              className="draft-extent-shell"
+              style={{
+                width: `calc(${profile.widthMm}mm * ${zoom})`,
+                height: canvasRef.current ? `${canvasRef.current.offsetHeight * zoom}px` : undefined,
+              }}
+            >
+              <div
+                className="draft-canvas"
+                ref={canvasRef}
+                style={{
+                  ...pageStyle,
+                  transform: `scale(${zoom})`,
+                  transformOrigin: "0 0",
+                }}
+              >
+                <div className="draft-backdrop-deck" aria-hidden="true">
+                  {Array.from({ length: pageCount }).map((_, i) => (
+                    <div key={i} className="draft-sheet-card">
+                      <div className="draft-sheet-badge">
+                        {draft.draftType === "Noting"
+                          ? `Noting Sheet · Page ${i + 1} of ${pageCount} (Provisional)`
+                          : `Page ${i + 1} of ${pageCount}`}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-              <div className="draft-editor-layer">
-                <EditorContent editor={editor} />
+                  ))}
+                </div>
+                <div className="draft-editor-layer">
+                  <EditorContent editor={editor} />
+                </div>
               </div>
             </div>
           </div>

@@ -409,11 +409,13 @@
 /* Studio Workspace Shell */
 .draft-workspace {
   height: 100vh;
+  height: 100dvh;
   background: #f1f5f9;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* Studio Top Header Bar */
@@ -866,16 +868,20 @@
 
 /* Page Setup Drawer */
 .draft-page-setup-panel {
+  position: absolute;
+  top: 44px;
+  left: 120px;
+  z-index: 100;
   display: flex;
   align-items: center;
   gap: 16px;
-  min-height: 42px;
-  padding: 8px 20px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  padding: 10px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
   color: #475569;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
   box-sizing: border-box;
-  flex-shrink: 0;
 }
 
 .draft-letter-layout-controls {
@@ -982,6 +988,7 @@
   background: radial-gradient(circle at top, #f8fafc 0, #e9eef5 68%);
   display: flex;
   justify-content: center;
+  align-items: flex-start;
 }
 
 .draft-page-wrap.has-rulers {
@@ -993,17 +1000,38 @@
   position: relative;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
   width: 100%;
   min-height: 100%;
-  padding-top: 36px;
   box-sizing: border-box;
 }
 
-.draft-canvas {
+.draft-extent-shell {
   position: relative;
+  margin: 36px auto 80px;
+  flex-shrink: 0;
+}
+
+.draft-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: var(--draft-page-width);
-  margin: 0 auto;
-  zoom: var(--draft-zoom);
+  margin: 0;
+}
+
+/* Page Setup Popover */
+.draft-page-setup-panel {
+  position: absolute;
+  top: 44px;
+  left: 12px;
+  right: 12px;
+  z-index: 100;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 12px 16px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
 }
 
 /* Screen-Pinned & Layout Paper Rulers (MS Word / Docs Format) */
@@ -1041,68 +1069,6 @@
   width: 20px;
   height: 100%;
   display: block;
-}
-
-.draft-rulers-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 20;
-}
-
-.draft-rulers-overlay.is-dragging {
-  user-select: none;
-}
-
-.ruler-corner-pinned {
-  position: sticky;
-  top: 0;
-  left: 0;
-  width: 16px;
-  height: 16px;
-  background: #e2e4e7;
-  border-right: 1px solid #a8acb0;
-  border-bottom: 1px solid #a8acb0;
-  z-index: 35;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  pointer-events: auto;
-}
-
-.corner-svg {
-  width: 12px;
-  height: 12px;
-}
-
-.ruler-top-pinned {
-  position: sticky;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 16px;
-  background: #e2e4e7;
-  z-index: 25;
-  box-sizing: border-box;
-  pointer-events: auto;
-  margin-top: -16px;
-}
-
-.ruler-left-pinned {
-  position: sticky;
-  left: 0;
-  top: 0;
-  width: 16px;
-  height: 100%;
-  background: #e2e4e7;
-  z-index: 24;
-  box-sizing: border-box;
-  pointer-events: auto;
-  margin-top: -16px;
 }
 
 .ruler-svg {
@@ -1506,174 +1472,7 @@
   font-weight: 600;
 }
 
-/* Paper Rulers Container & Layout */
-.draft-workspace-desk {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
 
-.draft-workspace-desk.has-rulers {
-  padding-left: 28px;
-  padding-top: 28px;
-}
-
-/* Top Horizontal Ruler Bar */
-.ruler-horizontal-bar {
-  position: absolute;
-  top: 0;
-  left: 28px;
-  height: 24px;
-  width: var(--draft-page-width);
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  border-bottom: 2px solid #94a3b8;
-  box-sizing: border-box;
-  user-select: none;
-  overflow: hidden;
-  border-radius: 2px 2px 0 0;
-  zoom: var(--draft-zoom);
-}
-
-.ruler-ticks-track {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.ruler-tick-mark {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.ruler-tick-mark.major::before {
-  content: "";
-  display: block;
-  width: 1px;
-  height: 9px;
-  background: #64748b;
-}
-
-.ruler-tick-mark.major .tick-num {
-  font-size: 8px;
-  font-weight: 600;
-  color: #475569;
-  line-height: 1;
-  margin-top: 2px;
-}
-
-/* Margin Shades in Horizontal Ruler */
-.ruler-shade-left {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  background: rgba(203, 213, 225, 0.45);
-  border-right: 1.5px solid #2563eb;
-}
-
-.ruler-shade-right {
-  position: absolute;
-  top: 0;
-  right: 0;
-  height: 100%;
-  background: rgba(203, 213, 225, 0.45);
-  border-left: 1.5px solid #2563eb;
-}
-
-.ruler-marker-handle {
-  position: absolute;
-  top: 0;
-  color: #2563eb;
-  font-size: 8px;
-  line-height: 1;
-  cursor: ew-resize;
-  transform: translateX(-50%);
-  user-select: none;
-  z-index: 2;
-}
-
-/* Left Vertical Ruler */
-.ruler-vertical-bar {
-  position: absolute;
-  top: 28px;
-  left: 0;
-  width: 24px;
-  height: var(--draft-page-height);
-  background: #f8fafc;
-  border: 1px solid #cbd5e1;
-  border-right: 2px solid #94a3b8;
-  box-sizing: border-box;
-  user-select: none;
-  overflow: hidden;
-  zoom: var(--draft-zoom);
-}
-
-.ruler-v-tick {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  display: flex;
-  align-items: center;
-}
-
-.ruler-v-tick.major::before {
-  content: "";
-  display: block;
-  width: 9px;
-  height: 1px;
-  background: #64748b;
-}
-
-.ruler-v-tick.major .v-tick-num {
-  font-size: 8px;
-  font-weight: 600;
-  color: #475569;
-  margin-left: 2px;
-  line-height: 1;
-}
-
-.ruler-v-shade-top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  background: rgba(203, 213, 225, 0.45);
-  border-bottom: 1.5px solid #2563eb;
-}
-
-.ruler-v-shade-bottom {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  background: rgba(203, 213, 225, 0.45);
-  border-top: 1.5px solid #2563eb;
-}
-
-/* Corner box */
-.ruler-corner-unit {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 24px;
-  height: 24px;
-  background: #e2e8f0;
-  border: 1px solid #cbd5e1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 8px;
-  font-weight: 700;
-  color: #475569;
-  text-transform: uppercase;
-  zoom: var(--draft-zoom);
-}
 
 /* Full Screen Focus Mode */
 .draft-focus-mode {

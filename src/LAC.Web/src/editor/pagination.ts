@@ -477,7 +477,6 @@ export function matterDraftPagination(options: MatterDraftPaginationOptions) {
       profile.marginBottomMm,
       profile.marginLeftMm,
       profile.reservedTopMm ?? 0,
-      options.getZoom(),
     ].join(":");
   };
 
