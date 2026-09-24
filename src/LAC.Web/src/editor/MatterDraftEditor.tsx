@@ -319,86 +319,66 @@ const CustomTable = Table.extend({
   }
 });
 
-function PaperRulers({
+function TopRulerBar({
   profile,
   showRulers,
   zoom,
   canvasRef,
-  deskRef,
   onMarginChange,
 }: {
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
   zoom: number;
   canvasRef: React.RefObject<HTMLDivElement>;
-  deskRef: React.RefObject<HTMLDivElement>;
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
-  const [coords, setCoords] = useState({
-    deskWidth: 1200,
-    deskHeight: 800,
-    canvasLeft: 200,
-    canvasWidth: 793,
-    canvasTop: 48,
-    canvasHeight: 1122,
-  });
-
-  const [activeDrag, setActiveDrag] = useState<"left" | "right" | "top" | "bottom" | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState({ containerWidth: 1200, canvasLeft: 200, canvasWidth: 793 });
+  const [activeDrag, setActiveDrag] = useState<"left" | "right" | null>(null);
   const [guideValue, setGuideValue] = useState<number | null>(null);
 
   useEffect(() => {
     if (!showRulers) return;
-    const updateCoords = () => {
-      if (deskRef.current && canvasRef.current) {
-        const deskRect = deskRef.current.getBoundingClientRect();
+    const updateLayout = () => {
+      if (containerRef.current && canvasRef.current) {
+        const contRect = containerRef.current.getBoundingClientRect();
         const canvasRect = canvasRef.current.getBoundingClientRect();
-        setCoords({
-          deskWidth: Math.max(600, deskRect.width),
-          deskHeight: Math.max(600, deskRect.height),
-          canvasLeft: canvasRect.left - deskRect.left,
+        setLayout({
+          containerWidth: Math.max(400, contRect.width),
+          canvasLeft: canvasRect.left - contRect.left,
           canvasWidth: canvasRect.width,
-          canvasTop: canvasRect.top - deskRect.top,
-          canvasHeight: canvasRect.height,
         });
       }
     };
 
-    updateCoords();
-    window.addEventListener("resize", updateCoords);
+    updateLayout();
+    window.addEventListener("resize", updateLayout);
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
-      observer = new ResizeObserver(updateCoords);
-      if (deskRef.current) observer.observe(deskRef.current);
+      observer = new ResizeObserver(updateLayout);
+      if (containerRef.current) observer.observe(containerRef.current);
       if (canvasRef.current) observer.observe(canvasRef.current);
     }
 
     return () => {
-      window.removeEventListener("resize", updateCoords);
+      window.removeEventListener("resize", updateLayout);
       observer?.disconnect();
     };
-  }, [showRulers, zoom, profile, deskRef, canvasRef]);
+  }, [showRulers, zoom, profile, canvasRef]);
 
   if (!showRulers) return null;
 
   const widthMm = profile.widthMm;
-  const heightMm = profile.heightMm;
   const leftMargin = profile.marginLeftMm;
   const rightMargin = profile.marginRightMm;
-  const topMargin = profile.marginTopMm + (profile.reservedTopMm ?? 0);
-  const bottomMargin = profile.marginBottomMm;
   const isLocked = profile.locked;
 
-  const pxPerMmx = coords.canvasWidth / widthMm;
-  const pxPerMmy = coords.canvasHeight / heightMm;
+  const pxPerMm = layout.canvasWidth / widthMm;
+  const leftMarginPx = layout.canvasLeft + leftMargin * pxPerMm;
+  const rightMarginPx = layout.canvasLeft + (widthMm - rightMargin) * pxPerMm;
 
-  const leftMarginPx = coords.canvasLeft + leftMargin * pxPerMmx;
-  const rightMarginPx = coords.canvasLeft + (widthMm - rightMargin) * pxPerMmx;
-
-  const topMarginPx = coords.canvasTop + topMargin * pxPerMmy;
-  const bottomMarginPx = coords.canvasTop + (heightMm - bottomMargin) * pxPerMmy;
-
-  // Horizontal Ticks (0 at left Margin)
+  // Horizontal Ticks (0 at left margin line)
   const topTicks: Array<{ xPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
   for (let mm = 0; mm <= widthMm; mm += 1) {
     const distFromLeft = mm - leftMargin;
@@ -413,13 +393,177 @@ function PaperRulers({
           label = Math.round((mm - leftMargin) / 10);
         }
       }
-      const xPx = coords.canvasLeft + mm * pxPerMmx;
+      const xPx = layout.canvasLeft + mm * pxPerMm;
       topTicks.push({ xPx, isMajor, isMid, label });
     }
   }
 
-  // Vertical Ticks (0 at top Margin)
-  const leftTicks: Array<{ yPx: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
+  const startDrag = (e: React.MouseEvent, target: "left" | "right") => {
+    if (isLocked || !onMarginChange) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setActiveDrag(target);
+    const startX = e.clientX;
+    const initialLeft = leftMargin;
+    const initialRight = rightMargin;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = (moveEvent.clientX - startX) / pxPerMm;
+      if (target === "left") {
+        const val = Math.max(5, Math.min(widthMm - initialRight - 20, Math.round(initialLeft + deltaX)));
+        setGuideValue(val);
+        onMarginChange({ marginLeftMm: val });
+      } else if (target === "right") {
+        const val = Math.max(5, Math.min(widthMm - initialLeft - 20, Math.round(initialRight - deltaX)));
+        setGuideValue(val);
+        onMarginChange({ marginRightMm: val });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setActiveDrag(null);
+      setGuideValue(null);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+  };
+
+  return (
+    <div className="draft-top-ruler-bar" ref={containerRef} aria-hidden="true">
+      <svg
+        className="ruler-svg"
+        viewBox={`0 0 ${layout.containerWidth} 20`}
+        preserveAspectRatio="none"
+      >
+        {/* Gray Track Background */}
+        <rect x={0} y={0} width={layout.containerWidth} height={20} fill="#e2e4e7" />
+
+        {/* White Printable Track */}
+        <rect
+          x={leftMarginPx}
+          y={0}
+          width={Math.max(0, rightMarginPx - leftMarginPx)}
+          height={20}
+          fill="#ffffff"
+        />
+
+        {/* Hairline Borders */}
+        <line x1={leftMarginPx} y1={0} x2={leftMarginPx} y2={20} stroke="#a8acb0" strokeWidth="1" />
+        <line x1={rightMarginPx} y1={0} x2={rightMarginPx} y2={20} stroke="#a8acb0" strokeWidth="1" />
+        <line x1={0} y1={19.5} x2={layout.containerWidth} y2={19.5} stroke="#b8bcbe" strokeWidth="1" />
+
+        {/* Ticks & Labels */}
+        {topTicks.map(t => (
+          <g key={`top-tick-${t.xPx}`}>
+            <line
+              x1={t.xPx}
+              y1={t.isMajor ? 11 : 15}
+              x2={t.xPx}
+              y2={20}
+              stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
+              strokeWidth={t.isMajor ? "1" : "0.75"}
+            />
+            {t.label !== undefined && (
+              <text
+                x={t.xPx}
+                y={8}
+                fontSize="10"
+                fontFamily="Segoe UI, Calibri, sans-serif"
+                fontWeight="600"
+                fill="#3c4043"
+                textAnchor="middle"
+              >
+                {t.label}
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* Left Margin Drag Handle */}
+        <g
+          className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
+          onMouseDown={e => startDrag(e, "left")}
+          style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
+        >
+          <polygon
+            points={`${leftMarginPx - 4.5},1 ${leftMarginPx + 4.5},1 ${leftMarginPx},6.5`}
+            fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+            stroke="#3c4043"
+            strokeWidth="0.8"
+          />
+          <polygon
+            points={`${leftMarginPx - 4.5},19.5 ${leftMarginPx + 4.5},19.5 ${leftMarginPx},14`}
+            fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+            stroke="#3c4043"
+            strokeWidth="0.8"
+          />
+          <rect
+            x={leftMarginPx - 4.5}
+            y={19.5}
+            width={9}
+            height={0.5}
+            fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
+          />
+        </g>
+
+        {/* Right Margin Drag Handle */}
+        <g
+          className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
+          onMouseDown={e => startDrag(e, "right")}
+          style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
+        >
+          <polygon
+            points={`${rightMarginPx - 4.5},19.5 ${rightMarginPx + 4.5},19.5 ${rightMarginPx},14`}
+            fill={activeDrag === "right" ? "#2563eb" : "#5f6368"}
+            stroke="#3c4043"
+            strokeWidth="0.8"
+          />
+        </g>
+      </svg>
+
+      {/* Live Guidelines during drag */}
+      {activeDrag === "left" && (
+        <div className="ruler-live-guideline vertical" style={{ left: `${leftMarginPx}px` }}>
+          <span className="ruler-guide-badge">Left Margin: {guideValue ?? leftMargin} mm</span>
+        </div>
+      )}
+      {activeDrag === "right" && (
+        <div className="ruler-live-guideline vertical" style={{ left: `${rightMarginPx}px` }}>
+          <span className="ruler-guide-badge">Right Margin: {guideValue ?? rightMargin} mm</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LeftRulerBar({
+  profile,
+  showRulers,
+  zoom,
+  onMarginChange,
+}: {
+  profile: ReturnType<typeof resolvePageProfile>;
+  showRulers: boolean;
+  zoom: number;
+  onMarginChange?: (partial: Partial<Layout>) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [activeDrag, setActiveDrag] = useState<"top" | "bottom" | null>(null);
+  const [guideValue, setGuideValue] = useState<number | null>(null);
+
+  if (!showRulers) return null;
+
+  const heightMm = profile.heightMm;
+  const topMargin = profile.marginTopMm + (profile.reservedTopMm ?? 0);
+  const bottomMargin = profile.marginBottomMm;
+  const isLocked = profile.locked;
+
+  // Vertical Ticks (0 at top margin line)
+  const leftTicks: Array<{ mm: number; isMajor: boolean; isMid: boolean; label?: number }> = [];
   for (let mm = 0; mm <= heightMm; mm += 1) {
     const distFromTop = mm - topMargin;
     const isMajor = Math.abs(distFromTop) % 10 === 0;
@@ -433,41 +577,26 @@ function PaperRulers({
           label = Math.round((mm - topMargin) / 10);
         }
       }
-      const yPx = coords.canvasTop + mm * pxPerMmy;
-      leftTicks.push({ yPx, isMajor, isMid, label });
+      leftTicks.push({ mm, isMajor, isMid, label });
     }
   }
 
-  const startDrag = (
-    e: React.MouseEvent,
-    target: "left" | "right" | "top" | "bottom"
-  ) => {
+  const startDrag = (e: React.MouseEvent, target: "top" | "bottom") => {
     if (isLocked || !onMarginChange) return;
     e.preventDefault();
     e.stopPropagation();
 
     setActiveDrag(target);
-    const startX = e.clientX;
     const startY = e.clientY;
-
-    const initialLeft = leftMargin;
-    const initialRight = rightMargin;
     const initialTop = topMargin;
     const initialBottom = bottomMargin;
 
-    const handleMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = (moveEvent.clientX - startX) / pxPerMmx;
-      const deltaY = (moveEvent.clientY - startY) / pxPerMmy;
+    const rect = containerRef.current?.getBoundingClientRect();
+    const pxPerMm = rect ? rect.height / heightMm : (96 / 25.4) * zoom;
 
-      if (target === "left") {
-        const val = Math.max(5, Math.min(widthMm - initialRight - 20, Math.round(initialLeft + deltaX)));
-        setGuideValue(val);
-        onMarginChange({ marginLeftMm: val });
-      } else if (target === "right") {
-        const val = Math.max(5, Math.min(widthMm - initialLeft - 20, Math.round(initialRight - deltaX)));
-        setGuideValue(val);
-        onMarginChange({ marginRightMm: val });
-      } else if (target === "top") {
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = (moveEvent.clientY - startY) / pxPerMm;
+      if (target === "top") {
         const val = Math.max(5, Math.min(heightMm - initialBottom - 20, Math.round(initialTop + deltaY)));
         setGuideValue(val);
         onMarginChange({ marginTopMm: val });
@@ -490,226 +619,81 @@ function PaperRulers({
   };
 
   return (
-    <div className={`draft-rulers-overlay ${activeDrag ? "is-dragging" : ""}`} aria-hidden="true">
-      {/* Top-Left Corner Box (Pinned to Screen Corner) */}
-      <div className="ruler-corner-pinned" title="Tab Stop Corner">
-        <svg viewBox="0 0 16 16" className="corner-svg">
-          <path d="M5 4 v7 h7" stroke="#444444" strokeWidth="1.2" fill="none" />
-        </svg>
-      </div>
+    <div className="draft-left-ruler-bar" ref={containerRef} aria-hidden="true">
+      <svg
+        className="ruler-svg"
+        viewBox={`0 0 20 ${heightMm}`}
+        preserveAspectRatio="none"
+      >
+        {/* Top Gray Margin Track */}
+        <rect x={0} y={0} width={20} height={topMargin} fill="#e2e4e7" />
+        {/* Middle White Printable Track */}
+        <rect x={0} y={topMargin} width={20} height={Math.max(0, heightMm - topMargin - bottomMargin)} fill="#ffffff" />
+        {/* Bottom Gray Margin Track */}
+        <rect x={0} y={heightMm - bottomMargin} width={20} height={bottomMargin} fill="#e2e4e7" />
 
-      {/* Top Sticky Ruler Bar */}
-      <div className="ruler-top-pinned">
-        <svg
-          className="ruler-svg"
-          viewBox={`0 0 ${coords.deskWidth} 16`}
-          preserveAspectRatio="none"
+        {/* Track Hairline Borders */}
+        <line x1={0} y1={topMargin} x2={20} y2={topMargin} stroke="#a8acb0" strokeWidth="0.4" />
+        <line x1={0} y1={heightMm - bottomMargin} x2={20} y2={heightMm - bottomMargin} stroke="#a8acb0" strokeWidth="0.4" />
+        <line x1={19.5} y1={0} x2={19.5} y2={heightMm} stroke="#b8bcbe" strokeWidth="0.4" />
+        <rect x={0} y={0} width={20} height={heightMm} fill="none" stroke="#a8acb0" strokeWidth="0.4" />
+
+        {/* Ticks & Labels */}
+        {leftTicks.map(t => (
+          <g key={`left-tick-${t.mm}`}>
+            <line
+              x1={t.isMajor ? 11 : 15}
+              y1={t.mm}
+              x2={20}
+              y2={t.mm}
+              stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
+              strokeWidth={t.isMajor ? "0.4" : "0.3"}
+            />
+            {t.label !== undefined && (
+              <text
+                x={9}
+                y={t.mm}
+                fontSize="2.8"
+                fontFamily="Segoe UI, Calibri, sans-serif"
+                fontWeight="600"
+                fill="#3c4043"
+                textAnchor="end"
+                dominantBaseline="central"
+              >
+                {t.label}
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* Top Margin Drag Handle */}
+        <g
+          className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
+          onMouseDown={e => startDrag(e, "top")}
+          style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
         >
-          {/* Gray Track Background */}
-          <rect x={0} y={0} width={coords.deskWidth} height={16} fill="#e2e4e7" />
-
-          {/* White Printable Track */}
-          <rect
-            x={leftMarginPx}
-            y={0}
-            width={Math.max(0, rightMarginPx - leftMarginPx)}
-            height={16}
-            fill="#ffffff"
+          <polygon
+            points={`19.5,${topMargin - 3} 19.5,${topMargin + 3} 14,${topMargin}`}
+            fill={activeDrag === "top" ? "#2563eb" : "#5f6368"}
+            stroke="#3c4043"
+            strokeWidth="0.3"
           />
+        </g>
 
-          {/* Track Hairline Borders */}
-          <line x1={leftMarginPx} y1={0} x2={leftMarginPx} y2={16} stroke="#a8acb0" strokeWidth="1" />
-          <line x1={rightMarginPx} y1={0} x2={rightMarginPx} y2={16} stroke="#a8acb0" strokeWidth="1" />
-          <line x1={0} y1={15.5} x2={coords.deskWidth} y2={15.5} stroke="#b8bcbe" strokeWidth="1" />
-
-          {/* Ticks & Labels */}
-          {topTicks.map(t => (
-            <g key={`top-tick-${t.xPx}`}>
-              <line
-                x1={t.xPx}
-                y1={t.isMajor ? 9 : 12}
-                x2={t.xPx}
-                y2={16}
-                stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
-                strokeWidth={t.isMajor ? "1" : "0.75"}
-              />
-              {t.label !== undefined && (
-                <text
-                  x={t.xPx}
-                  y={6.5}
-                  fontSize="9.5"
-                  fontFamily="Segoe UI, Calibri, sans-serif"
-                  fontWeight="600"
-                  fill="#3c4043"
-                  textAnchor="middle"
-                >
-                  {t.label}
-                </text>
-              )}
-            </g>
-          ))}
-
-          {/* Left Margin Drag Handle */}
-          <g
-            className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
-            onMouseDown={e => startDrag(e, "left")}
-            style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
-          >
-            <polygon
-              points={`${leftMarginPx - 4},0.5 ${leftMarginPx + 4},0.5 ${leftMarginPx},5.5`}
-              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
-              stroke="#3c4043"
-              strokeWidth="0.8"
-            />
-            <polygon
-              points={`${leftMarginPx - 4},15.5 ${leftMarginPx + 4},15.5 ${leftMarginPx},10.5`}
-              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
-              stroke="#3c4043"
-              strokeWidth="0.8"
-            />
-            <rect
-              x={leftMarginPx - 4}
-              y={15}
-              width={8}
-              height={1}
-              fill={activeDrag === "left" ? "#2563eb" : "#5f6368"}
-            />
-          </g>
-
-          {/* Right Margin Drag Handle */}
-          <g
-            className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
-            onMouseDown={e => startDrag(e, "right")}
-            style={{ cursor: isLocked ? "not-allowed" : "col-resize" }}
-          >
-            <polygon
-              points={`${rightMarginPx - 4},15.5 ${rightMarginPx + 4},15.5 ${rightMarginPx},10.5`}
-              fill={activeDrag === "right" ? "#2563eb" : "#5f6368"}
-              stroke="#3c4043"
-              strokeWidth="0.8"
-            />
-          </g>
-        </svg>
-      </div>
-
-      {/* Left Sticky Ruler Bar */}
-      <div className="ruler-left-pinned">
-        <svg
-          className="ruler-svg"
-          viewBox={`0 0 16 ${coords.deskHeight}`}
-          preserveAspectRatio="none"
+        {/* Bottom Margin Drag Handle */}
+        <g
+          className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
+          onMouseDown={e => startDrag(e, "bottom")}
+          style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
         >
-          {/* Outer Gray Track */}
-          <rect x={0} y={0} width={16} height={coords.deskHeight} fill="#e2e4e7" />
-
-          {/* White Printable Track */}
-          <rect
-            x={0}
-            y={topMarginPx}
-            width={16}
-            height={Math.max(0, bottomMarginPx - topMarginPx)}
-            fill="#ffffff"
+          <polygon
+            points={`19.5,${heightMm - bottomMargin - 3} 19.5,${heightMm - bottomMargin + 3} 14,${heightMm - bottomMargin}`}
+            fill={activeDrag === "bottom" ? "#2563eb" : "#5f6368"}
+            stroke="#3c4043"
+            strokeWidth="0.3"
           />
-
-          {/* Track Borders */}
-          <line x1={0} y1={topMarginPx} x2={16} y2={topMarginPx} stroke="#a8acb0" strokeWidth="1" />
-          <line x1={0} y1={bottomMarginPx} x2={16} y2={bottomMarginPx} stroke="#a8acb0" strokeWidth="1" />
-          <line x1={15.5} y1={0} x2={15.5} y2={coords.deskHeight} stroke="#b8bcbe" strokeWidth="1" />
-
-          {/* Ticks & Labels */}
-          {leftTicks.map(t => (
-            <g key={`left-tick-${t.yPx}`}>
-              <line
-                x1={t.isMajor ? 9 : 12}
-                y1={t.yPx}
-                x2={16}
-                y2={t.yPx}
-                stroke={t.isMajor ? "#5f6368" : "#9aa0a6"}
-                strokeWidth={t.isMajor ? "1" : "0.75"}
-              />
-              {t.label !== undefined && (
-                <text
-                  x={7}
-                  y={t.yPx}
-                  fontSize="9.5"
-                  fontFamily="Segoe UI, Calibri, sans-serif"
-                  fontWeight="600"
-                  fill="#3c4043"
-                  textAnchor="end"
-                  dominantBaseline="central"
-                >
-                  {t.label}
-                </text>
-              )}
-            </g>
-          ))}
-
-          {/* Top Margin Handle */}
-          <g
-            className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
-            onMouseDown={e => startDrag(e, "top")}
-            style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
-          >
-            <polygon
-              points={`15.5,${topMarginPx - 4} 15.5,${topMarginPx + 4} 10.5,${topMarginPx}`}
-              fill={activeDrag === "top" ? "#2563eb" : "#5f6368"}
-              stroke="#3c4043"
-              strokeWidth="0.8"
-            />
-          </g>
-
-          {/* Bottom Margin Handle */}
-          <g
-            className={`ruler-handle-group ${isLocked ? "locked" : "draggable"}`}
-            onMouseDown={e => startDrag(e, "bottom")}
-            style={{ cursor: isLocked ? "not-allowed" : "row-resize" }}
-          >
-            <polygon
-              points={`15.5,${bottomMarginPx - 4} 15.5,${bottomMarginPx + 4} 10.5,${bottomMarginPx}`}
-              fill={activeDrag === "bottom" ? "#2563eb" : "#5f6368"}
-              stroke="#3c4043"
-              strokeWidth="0.8"
-            />
-          </g>
-        </svg>
-      </div>
-
-      {/* Live Guidelines during dragging */}
-      {activeDrag === "left" && (
-        <div
-          className="ruler-live-guideline vertical"
-          style={{ left: `${leftMarginPx}px` }}
-        >
-          <span className="ruler-guide-badge">Left Margin: {guideValue ?? leftMargin} mm</span>
-        </div>
-      )}
-
-      {activeDrag === "right" && (
-        <div
-          className="ruler-live-guideline vertical"
-          style={{ left: `${rightMarginPx}px` }}
-        >
-          <span className="ruler-guide-badge">Right Margin: {guideValue ?? rightMargin} mm</span>
-        </div>
-      )}
-
-      {activeDrag === "top" && (
-        <div
-          className="ruler-live-guideline horizontal"
-          style={{ top: `${topMarginPx}px` }}
-        >
-          <span className="ruler-guide-badge">Top Margin: {guideValue ?? topMargin} mm</span>
-        </div>
-      )}
-
-      {activeDrag === "bottom" && (
-        <div
-          className="ruler-live-guideline horizontal"
-          style={{ top: `${bottomMarginPx}px` }}
-        >
-          <span className="ruler-guide-badge">Bottom Margin: {guideValue ?? bottomMargin} mm</span>
-        </div>
-      )}
+        </g>
+      </svg>
     </div>
   );
 }
@@ -745,7 +729,6 @@ function MatterDraftCanvas({
   const [pageCount, setPageCount] = useState(1);
   const [showRulers, setShowRulers] = useState(true);
 
-  const deskRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const profileRef = useRef(profile);
@@ -836,14 +819,19 @@ function MatterDraftCanvas({
         pageCount={pageCount}
       />
       {pageSetup}
+      <TopRulerBar
+        profile={profile}
+        showRulers={showRulers}
+        zoom={zoom}
+        canvasRef={canvasRef}
+        onMarginChange={onMarginChange}
+      />
       <div className={`draft-page-wrap ${showRulers ? "has-rulers" : ""}`}>
-        <div className="draft-workspace-desk" ref={deskRef}>
-          <PaperRulers
+        <div className="draft-workspace-desk">
+          <LeftRulerBar
             profile={profile}
             showRulers={showRulers}
             zoom={zoom}
-            deskRef={deskRef}
-            canvasRef={canvasRef}
             onMarginChange={onMarginChange}
           />
           <div className="draft-canvas" ref={canvasRef} style={pageStyle}>
