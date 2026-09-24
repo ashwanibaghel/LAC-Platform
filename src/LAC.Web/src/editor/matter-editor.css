@@ -979,6 +979,14 @@
   padding-left: 72px;
 }
 
+.draft-workspace-desk {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
+}
+
 .draft-canvas {
   position: relative;
   width: var(--draft-page-width);
@@ -986,30 +994,31 @@
   zoom: var(--draft-zoom);
 }
 
-/* Paper Rulers Container & SVG Scales (MS Word Style) */
-.draft-rulers-container {
+/* Screen-Pinned Sticky Paper Rulers (MS Word / Docs Format) */
+.draft-rulers-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: 10;
+  z-index: 20;
 }
 
-.draft-rulers-container.is-dragging {
+.draft-rulers-overlay.is-dragging {
   user-select: none;
 }
 
-.draft-ruler-corner {
-  position: absolute;
-  top: -16px;
-  left: -16px;
+.ruler-corner-pinned {
+  position: sticky;
+  top: 0;
+  left: 0;
   width: 16px;
   height: 16px;
   background: #e2e4e7;
-  border: 1px solid #a8acb0;
-  border-radius: 2px 0 0 0;
+  border-right: 1px solid #a8acb0;
+  border-bottom: 1px solid #a8acb0;
+  z-index: 35;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1022,26 +1031,30 @@
   height: 12px;
 }
 
-.draft-ruler-top {
-  position: absolute;
-  top: -16px;
+.ruler-top-pinned {
+  position: sticky;
+  top: 0;
   left: 0;
   width: 100%;
   height: 16px;
-  background: transparent;
+  background: #e2e4e7;
+  z-index: 25;
   box-sizing: border-box;
   pointer-events: auto;
+  margin-top: -16px;
 }
 
-.draft-ruler-left {
-  position: absolute;
+.ruler-left-pinned {
+  position: sticky;
+  left: 0;
   top: 0;
-  left: -16px;
   width: 16px;
   height: 100%;
-  background: transparent;
+  background: #e2e4e7;
+  z-index: 24;
   box-sizing: border-box;
   pointer-events: auto;
+  margin-top: -16px;
 }
 
 .ruler-svg {
@@ -1097,8 +1110,13 @@
 }
 
 .draft-page-wrap.has-rulers {
-  padding-top: 48px;
-  padding-left: 52px;
+  padding-top: 0;
+  padding-left: 0;
+}
+
+.toolbar-zoom-select {
+  width: 72px;
+  text-align: center;
 }
 
 .has-rulers .draft-sheet-badge {

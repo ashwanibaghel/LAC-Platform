@@ -7,6 +7,7 @@ type Props = {
   onPrint: () => void;
   zoom: number;
   onZoomChange: (delta: number) => void;
+  onSetZoom?: (zoom: number) => void;
   onResetZoom: () => void;
   pageSetupExpanded: boolean;
   onTogglePageSetup: () => void;
@@ -268,6 +269,7 @@ export function EditorToolbar({
   onPrint,
   zoom,
   onZoomChange,
+  onSetZoom,
   onResetZoom,
   pageSetupExpanded,
   onTogglePageSetup,
@@ -365,20 +367,27 @@ export function EditorToolbar({
           >
             −
           </button>
-          <button
-            type="button"
-            className="toolbar-btn toolbar-zoom-val"
-            aria-label="Reset zoom"
-            title="Reset zoom"
-            onClick={onResetZoom}
+          <select
+            aria-label="Zoom percentage"
+            className="toolbar-select toolbar-zoom-select"
+            title="Select zoom level (50% to 300%)"
+            value={Math.round(zoom * 100)}
+            onChange={e => onSetZoom?.(Number(e.target.value) / 100)}
           >
-            {Math.round(zoom * 100)}%
-          </button>
+            <option value="50">50%</option>
+            <option value="75">75%</option>
+            <option value="100">100%</option>
+            <option value="125">125%</option>
+            <option value="150">150%</option>
+            <option value="200">200%</option>
+            <option value="250">250%</option>
+            <option value="300">300%</option>
+          </select>
           <button
             type="button"
             className="toolbar-btn toolbar-zoom-btn"
             aria-label="Zoom in"
-            title="Zoom in"
+            title="Zoom in (up to 300%)"
             onClick={() => onZoomChange(0.1)}
           >
             +
