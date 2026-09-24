@@ -49,48 +49,349 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 const displayDate = (value: string) => new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
+function IconFileText() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <polyline points="10 9 9 9 8 9" />
+    </svg>
+  );
+}
+
+function IconFeather() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L3 13v5h5l12.24-12.24z" />
+      <line x1="16" y1="8" x2="2" y2="22" />
+      <line x1="17.5" y1="15" x2="9" y2="15" />
+    </svg>
+  );
+}
+
+function IconSearch() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function IconPlus() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function IconArrowRight() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  );
+}
+
+function IconSparkles() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z" />
+    </svg>
+  );
+}
+
 export function MatterDrafts({ matterId }: { matterId: string }) {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canCreateDraft = hasPermission("Draft.Create");
   const [drafts, setDrafts] = useState<Array<Pick<Draft, "id" | "title" | "draftType" | "updatedAt">>>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterType, setFilterType] = useState<"All" | "Letter" | "Noting">("All");
   const [error, setError] = useState("");
-  useEffect(() => { request<typeof drafts>(`/matters/${matterId}/drafts`).then(setDrafts).catch(e => setError(e.message)); }, [matterId]);
-  const create = async (draftType: string) => {
+
+  useEffect(() => {
+    setLoading(true);
+    request<typeof drafts>(`/matters/${matterId}/drafts`)
+      .then(res => {
+        setDrafts(res);
+        setLoading(false);
+      })
+      .catch(e => {
+        setError(e.message);
+        setLoading(false);
+      });
+  }, [matterId]);
+
+  const create = async (draftType: string, overrideTitle?: string) => {
+    const finalTitle = (overrideTitle || title).trim();
+    if (!finalTitle || creating) return;
+    setCreating(true);
+    setError("");
     try {
       const result = await request<{ id: string }>(`/matters/${matterId}/drafts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, draftType })
+        body: JSON.stringify({ title: finalTitle, draftType })
       });
       navigate(`/matter-drafts/${result.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create draft.");
+      setCreating(false);
     }
   };
-  return <section className="section draft-list">
-    <h2>Drafts</h2>
-    {canCreateDraft && (
-      <div className="draft-create">
-        <input aria-label="Draft title" placeholder="Draft title" value={title} onChange={e => setTitle(e.target.value)} />
-        <button onClick={() => void create("Letter")} disabled={!title.trim()}>+ Create Letter</button>
-        <button onClick={() => void create("Noting")} disabled={!title.trim()}>+ Create Noting</button>
+
+  const letterCount = useMemo(() => drafts.filter(d => d.draftType === "Letter").length, [drafts]);
+  const notingCount = useMemo(() => drafts.filter(d => d.draftType === "Noting").length, [drafts]);
+
+  const filteredDrafts = useMemo(() => {
+    return drafts.filter(d => {
+      const matchesType = filterType === "All" || d.draftType === filterType;
+      const matchesSearch = !searchQuery.trim() || d.title.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesType && matchesSearch;
+    });
+  }, [drafts, filterType, searchQuery]);
+
+  return (
+    <div className="matter-drafts-workspace">
+      {/* Header Banner */}
+      <div className="matter-drafts-header">
+        <div className="matter-drafts-intro">
+          <div className="matter-drafts-badge">
+            <IconSparkles />
+            <span>Legal Studio</span>
+          </div>
+          <h2 className="matter-drafts-title">Drafting & Legal Notes Studio</h2>
+          <p className="matter-drafts-subtitle">
+            Create, edit, and print official letters, ADM references, and green office noting sheets with standard revenue department layouts.
+          </p>
+        </div>
+
+        {/* Stats Chips */}
+        <div className="matter-drafts-stats">
+          <div className="draft-stat-chip">
+            <span className="stat-label">Total Drafts</span>
+            <span className="stat-value">{drafts.length}</span>
+          </div>
+          <div className="draft-stat-chip chip-letter">
+            <IconFileText />
+            <div>
+              <span className="stat-label">Formal Letters</span>
+              <span className="stat-value">{letterCount}</span>
+            </div>
+          </div>
+          <div className="draft-stat-chip chip-noting">
+            <IconFeather />
+            <div>
+              <span className="stat-label">Green Notings</span>
+              <span className="stat-value">{notingCount}</span>
+            </div>
+          </div>
+        </div>
       </div>
-    )}
-    {error && <p className="error">{error}</p>}
-    {drafts.length === 0 ? <p className="hint">No letters or notings yet.</p> : (
-      <div className="draft-cards">
-        {drafts.map(draft => (
-          <article key={draft.id}>
-            <strong>{draft.title}</strong>
-            <span>{draft.draftType} · Updated {displayDate(draft.updatedAt)}</span>
-            <Link className="button-link" to={`/matter-drafts/${draft.id}`}>Open</Link>
-          </article>
-        ))}
+
+      {/* Quick Launchpad Templates */}
+      {canCreateDraft && (
+        <div className="draft-launchpad">
+          <div className="launchpad-title-bar">
+            <span className="launchpad-tag">Quick Templates</span>
+            <h3 className="launchpad-heading">Select a Legal Preset or Enter Custom Title</h3>
+          </div>
+
+          <div className="launchpad-grid">
+            <button
+              type="button"
+              className="template-card card-noting"
+              onClick={() => void create("Noting", title.trim() || "Office Noting - Land Acquisition Status")}
+              disabled={creating}
+            >
+              <div className="template-card-header">
+                <span className="template-icon icon-emerald"><IconFeather /></span>
+                <span className="template-type-badge badge-noting">Official Noting Sheet</span>
+              </div>
+              <h4 className="template-title">Green Office Noting Sheet</h4>
+              <p className="template-desc">Standard 2-Column Revenue Noting format with 25mm left margin for file thread clearance.</p>
+              <div className="template-action">
+                <span>Start Noting</span>
+                <IconArrowRight />
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="template-card card-letter"
+              onClick={() => void create("Letter", title.trim() || "ADM Reference Letter - Status Request")}
+              disabled={creating}
+            >
+              <div className="template-card-header">
+                <span className="template-icon icon-blue"><IconFileText /></span>
+                <span className="template-type-badge badge-letter">Executive Letter</span>
+              </div>
+              <h4 className="template-title">ADM Reference Letter</h4>
+              <p className="template-desc">Formal inter-departmental reference letter to Additional District Magistrate office.</p>
+              <div className="template-action">
+                <span>Start Letter</span>
+                <IconArrowRight />
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="template-card card-report"
+              onClick={() => void create("Letter", title.trim() || "Land Acquisition Status & Hearing Report")}
+              disabled={creating}
+            >
+              <div className="template-card-header">
+                <span className="template-icon icon-slate"><IconFileText /></span>
+                <span className="template-type-badge badge-report">Status Report</span>
+              </div>
+              <h4 className="template-title">LAC Status Report</h4>
+              <p className="template-desc">Structured status summary note for hearing preparation & village compensation claims.</p>
+              <div className="template-action">
+                <span>Start Report</span>
+                <IconArrowRight />
+              </div>
+            </button>
+          </div>
+
+          {/* Custom Creator Form */}
+          <div className="draft-create-bar">
+            <div className="create-input-wrapper">
+              <IconFileText />
+              <input
+                aria-label="Draft document title"
+                placeholder="Enter custom document title (e.g. ADM Reply Letter dt 24-Sep-2026)..."
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && title.trim()) {
+                    void create("Letter");
+                  }
+                }}
+              />
+            </div>
+            <div className="create-buttons">
+              <button
+                type="button"
+                className="btn-create-letter"
+                onClick={() => void create("Letter")}
+                disabled={!title.trim() || creating}
+              >
+                <IconPlus />
+                <span>+ Create Letter</span>
+              </button>
+              <button
+                type="button"
+                className="btn-create-noting"
+                onClick={() => void create("Noting")}
+                disabled={!title.trim() || creating}
+              >
+                <IconPlus />
+                <span>+ Create Noting Sheet</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && <div className="drafts-error-banner"><p>{error}</p></div>}
+
+      {/* Filter and Search Bar */}
+      <div className="drafts-toolbar">
+        <div className="drafts-filter-tabs">
+          <button
+            type="button"
+            className={`filter-tab ${filterType === "All" ? "active" : ""}`}
+            onClick={() => setFilterType("All")}
+          >
+            All Drafts ({drafts.length})
+          </button>
+          <button
+            type="button"
+            className={`filter-tab ${filterType === "Letter" ? "active" : ""}`}
+            onClick={() => setFilterType("Letter")}
+          >
+            Letters ({letterCount})
+          </button>
+          <button
+            type="button"
+            className={`filter-tab ${filterType === "Noting" ? "active" : ""}`}
+            onClick={() => setFilterType("Noting")}
+          >
+            Noting Sheets ({notingCount})
+          </button>
+        </div>
+
+        <div className="drafts-search-box">
+          <IconSearch />
+          <input
+            type="text"
+            placeholder="Search by title..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+        </div>
       </div>
-    )}
-  </section>;
+
+      {/* Draft Cards Grid */}
+      {loading ? (
+        <div className="drafts-loading-state">
+          <div className="spinner" />
+          <p>Loading document drafts…</p>
+        </div>
+      ) : filteredDrafts.length === 0 ? (
+        <div className="drafts-empty-state">
+          <div className="empty-icon"><IconFileText /></div>
+          <h3>No legal drafts found</h3>
+          <p>
+            {searchQuery
+              ? `No drafts matching "${searchQuery}". Try changing your search.`
+              : filterType !== "All"
+              ? `No ${filterType.toLowerCase()} drafts created yet.`
+              : "No letters or noting sheets created for this matter yet. Click a template above to start."}
+          </p>
+        </div>
+      ) : (
+        <div className="drafts-grid">
+          {filteredDrafts.map(draft => (
+            <div key={draft.id} className={`draft-card card-type-${draft.draftType.toLowerCase()}`}>
+              <div className="draft-card-top">
+                <span className={`draft-type-tag tag-${draft.draftType.toLowerCase()}`}>
+                  {draft.draftType === "Noting" ? <IconFeather /> : <IconFileText />}
+                  <span>{draft.draftType === "Noting" ? "Green Noting Sheet" : "Formal Letter"}</span>
+                </span>
+                <span className="draft-time-tag">Updated {displayDate(draft.updatedAt)}</span>
+              </div>
+
+              <h4 className="draft-card-title">{draft.title}</h4>
+
+              <div className="draft-card-meta">
+                <span className="meta-item">
+                  <span className="meta-label">Layout:</span>
+                  <span className="meta-value">{draft.draftType === "Noting" ? "A4 (Fixed 25mm Margin)" : "Standard (A4 / Legal)"}</span>
+                </span>
+              </div>
+
+              <div className="draft-card-footer">
+                <Link className="btn-open-draft" to={`/matter-drafts/${draft.id}`}>
+                  <span>Open in Editor Studio</span>
+                  <IconArrowRight />
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function MatterDraftCanvas({
