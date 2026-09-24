@@ -976,8 +976,8 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 36px 48px 80px;
-  scroll-padding-top: 48px;
+  padding: 0 48px 80px;
+  scroll-padding-top: 36px;
   scroll-padding-bottom: 80px;
   background: radial-gradient(circle at top, #f8fafc 0, #e9eef5 68%);
   display: flex;
@@ -985,7 +985,7 @@
 }
 
 .draft-page-wrap.has-rulers {
-  padding-top: 36px;
+  padding-top: 0;
   padding-left: 48px;
 }
 
@@ -995,6 +995,8 @@
   justify-content: center;
   width: 100%;
   min-height: 100%;
+  padding-top: 36px;
+  box-sizing: border-box;
 }
 
 .draft-canvas {
