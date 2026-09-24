@@ -2,6 +2,7 @@ using LAC.Api;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -146,6 +147,11 @@ api.MapAttentionEndpoints();
 api.MapCourtEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
+    if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+    {
+        return await next(context);
+    }
+
     var path = context.HttpContext.Request.Path.Value ?? "";
     if (path.StartsWith("/api/health", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(path, "/api/auth/login", StringComparison.OrdinalIgnoreCase))

@@ -59,9 +59,10 @@ public sealed class OnlyOfficeTests : IDisposable
         return await scope.ServiceProvider.GetRequiredService<LacDbContext>().MatterDrafts.AsNoTracking()
             .Include(x => x.OfficeDocument).SingleAsync(x => x.Id == id);
     }
-    private async Task<int> Callback(Guid id, string key, int status, string? url = "http://localhost:8082/cache/output.docx")
+    private async Task<int> Callback(Guid id, string key, int status, string? url = "http://localhost:8082/cache/output.docx", bool anonymous = false)
     {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/matter-drafts/{id}/onlyoffice-callback");
+        if (anonymous) request.Headers.Add("X-Office-Test-Anonymous", "true");
         request.Headers.Authorization = new("Bearer", Tokens.Sign(new { payload = new { key, status, url } }));
         // Deliberately untrusted outer fields: the endpoint must use only the signed payload.
         request.Content = JsonContent.Create(new { key = "wrong", status = 2, url = "http://untrusted.invalid/" });
@@ -190,6 +191,62 @@ public sealed class OnlyOfficeTests : IDisposable
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
         using var unsigned = await Client.PostAsJsonAsync($"/api/matter-drafts/{id}/onlyoffice-callback", new { key = OnlyOfficeDraftService.Key(draft), status = 2 });
         Assert.Equal(HttpStatusCode.Unauthorized, unsigned.StatusCode);
+    }
+
+    [Fact]
+    public async Task Anonymous_onlyoffice_endpoints_bypass_global_cookie_filter_but_retain_their_own_security()
+    {
+        var id = await DraftAsync();
+        var draft = await Read(id);
+        var validToken = Tokens.DownloadToken(id, draft.OfficeDocumentId!.Value);
+
+        using (var signedFile = new HttpRequestMessage(HttpMethod.Get,
+                   $"/api/matter-drafts/{id}/office-file?token={Uri.EscapeDataString(validToken)}"))
+        {
+            signedFile.Headers.Add("X-Office-Test-Anonymous", "true");
+            using var response = await Client.SendAsync(signedFile);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal(MatterDraftDocx.MimeType, response.Content.Headers.ContentType!.MediaType);
+        }
+
+        var expiredToken = Tokens.Sign(new
+        {
+            purpose = "onlyoffice-download", draftId = id, documentId = draft.OfficeDocumentId, exp = 1
+        });
+        using (var expiredFile = new HttpRequestMessage(HttpMethod.Get,
+                   $"/api/matter-drafts/{id}/office-file?token={Uri.EscapeDataString(expiredToken)}"))
+        {
+            expiredFile.Headers.Add("X-Office-Test-Anonymous", "true");
+            using var response = await Client.SendAsync(expiredFile);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        factory.Download.Bytes = MakeDocx("Callback without browser cookie");
+        Assert.Equal(0, await Callback(id, OnlyOfficeDraftService.Key(draft), 6, anonymous: true));
+
+        using (var unsignedCallback = new HttpRequestMessage(HttpMethod.Post, $"/api/matter-drafts/{id}/onlyoffice-callback")
+        {
+            Content = JsonContent.Create(new { key = OnlyOfficeDraftService.Key(draft), status = 6 })
+        })
+        {
+            unsignedCallback.Headers.Add("X-Office-Test-Anonymous", "true");
+            using var response = await Client.SendAsync(unsignedCallback);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using (var config = new HttpRequestMessage(HttpMethod.Get, $"/api/matter-drafts/{id}/office-config"))
+        {
+            config.Headers.Add("X-Office-Test-Anonymous", "true");
+            using var response = await Client.SendAsync(config);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
+
+        using (var protectedEndpoint = new HttpRequestMessage(HttpMethod.Get, "/api/home"))
+        {
+            protectedEndpoint.Headers.Add("X-Office-Test-Anonymous", "true");
+            using var response = await Client.SendAsync(protectedEndpoint);
+            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        }
     }
 
     [Fact]
