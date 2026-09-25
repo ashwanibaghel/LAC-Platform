@@ -18,6 +18,12 @@ public sealed class OnlyOfficeDraftService(
     // Bounded, per-process serialization; Revision is also an EF concurrency token across processes.
     private static readonly SemaphoreSlim[] Gates = Enumerable.Range(0, 64).Select(_ => new SemaphoreSlim(1)).ToArray();
     public static string Key(MatterDraft draft) => $"lac-draft-{draft.Id:N}-g{draft.OfficeKeyGeneration}";
+    public static int ZoomForViewportHeight(int? height) => height switch
+    {
+        > 0 and <= 800 => 85,
+        > 800 and <= 950 => 90,
+        _ => 100
+    };
 
     public async Task MaterializeAsync(MatterDraft draft, CancellationToken ct)
     {
@@ -40,7 +46,8 @@ public sealed class OnlyOfficeDraftService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<object> ConfigurationAsync(Guid id, Guid userId, string displayName, bool canEdit, CancellationToken ct)
+    public async Task<object> ConfigurationAsync(Guid id, Guid userId, string displayName, bool canEdit,
+        int? viewportHeight, CancellationToken ct)
     {
         var gate = Gates[(int)((uint)id.GetHashCode() % Gates.Length)];
         await gate.WaitAsync(ct);
@@ -65,7 +72,22 @@ public sealed class OnlyOfficeDraftService(
                 {
                     callbackUrl = root + "/onlyoffice-callback", mode = canEdit ? "edit" : "view", lang = "en",
                     user = new { id = userId.ToString(), name = displayName },
-                    customization = new { forcesave = true, autosave = true, compactHeader = true, compactToolbar = true }
+                    customization = new
+                    {
+                        forcesave = true, autosave = true, compactHeader = true, compactToolbar = true,
+                        toolbarHideFileName = true, hideRightMenu = true, hideRulers = false,
+                        zoom = ZoomForViewportHeight(viewportHeight),
+                        goback = new
+                        {
+                            url = options.Value.BackOrigin.TrimEnd('/') + $"/matters/{draft.MatterId}",
+                            blank = false, text = "Back to Matter"
+                        },
+                        features = new
+                        {
+                            tabStyle = new { mode = "line", change = false },
+                            tabBackground = new { mode = "toolbar", change = false }
+                        }
+                    }
                 }
             };
             config["token"] = tokens.Sign(config);

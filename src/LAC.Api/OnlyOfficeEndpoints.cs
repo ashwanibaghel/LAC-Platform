@@ -11,7 +11,7 @@ public static class OnlyOfficeEndpoints
     public static void MapOnlyOfficeEndpoints(this RouteGroupBuilder api)
     {
         var routes = api.MapGroup("/matter-drafts");
-        routes.MapGet("/{id:guid}/office-config", async (Guid id, ICurrentUserContext user,
+        routes.MapGet("/{id:guid}/office-config", async (Guid id, int? viewportHeight, ICurrentUserContext user,
             IMatterAuthorizationService auth, OnlyOfficeDraftService office, IOptions<OnlyOfficeOptions> options,
             HttpResponse response, CancellationToken ct) =>
         {
@@ -22,7 +22,7 @@ public static class OnlyOfficeEndpoints
             var edit = await auth.CanAccessDraftAsync(id, PermissionCodes.DraftEdit, user.UserId.Value, ct);
             try
             {
-                return Results.Ok(await office.ConfigurationAsync(id, user.UserId.Value, user.DisplayName ?? "LAC user", edit, ct));
+                return Results.Ok(await office.ConfigurationAsync(id, user.UserId.Value, user.DisplayName ?? "LAC user", edit, viewportHeight, ct));
             }
             catch (DbUpdateConcurrencyException)
             {

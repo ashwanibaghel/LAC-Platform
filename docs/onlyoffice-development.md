@@ -39,6 +39,7 @@ In that same terminal, configure LAC and run it:
 $env:OnlyOffice__Enabled = 'true'
 $env:OnlyOffice__BrowserUrl = 'http://localhost:8082'
 $env:OnlyOffice__AppExternalUrl = 'http://host.docker.internal:5088'
+$env:OnlyOffice__AppBrowserUrl = 'http://localhost:5173'
 $env:OnlyOffice__JwtSecret = $env:ONLYOFFICE_JWT_SECRET
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 dotnet run --project src/LAC.Api -c Release --no-launch-profile --urls http://0.0.0.0:5088
@@ -81,6 +82,12 @@ load dotenv files: the commands above explicitly set its environment.
 
 - `BrowserUrl`: browser-to-Docs script/editor URL.
 - `AppExternalUrl`: Docs-to-LAC API origin. It differs from BrowserUrl.
+- Optional `AppBrowserUrl`: browser-facing LAC origin for ONLYOFFICE's Back to Matter button;
+  defaults to AppExternalUrl when the UI and API share an origin. Set it to the
+  actual web app origin when they differ, as in local Vite development.
+- The signed editor config selects display zoom from the browser viewport height:
+  85% at 800px or below, 90% at 801–950px, and 100% above 950px. Users can
+  change zoom in ONLYOFFICE; DOCX page size and margins are unaffected.
 - `JwtSecret`: same secret as container `JWT_SECRET`; never sent to the browser.
 - Optional `DocumentServerUrl`: exact origin LAC permits for callback downloads;
   defaults to BrowserUrl. When using this override, configure Docs/proxy so the

@@ -67,7 +67,7 @@ function OfficeFrame({ draftId }: { draftId: string }) {
     let readyTimeout: number | undefined;
     const start = async () => {
       const data = await request<{ scriptUrl: string; config: OfficeConfig }>(
-        `/api/matter-drafts/${draftId}/office-config`, controller.signal);
+        `/api/matter-drafts/${draftId}/office-config?viewportHeight=${window.innerHeight}`, controller.signal);
       const api = await loadOfficeScript(data.scriptUrl);
       if (controller.signal.aborted) return;
       // DocsAPI replaces this child; React owns only the stable parent container.
@@ -124,11 +124,6 @@ function DraftRoute({ id }: { id: string }) {
   if (!draft) return <div className="office-message" role="status">Loading draft…</div>;
   if (!draft.officeEnabled && !draft.officeDocumentId) return <LegacyEditor />;
   return <main className="office-draft">
-    <header className="office-header">
-      <Link to={`/matters/${draft.matterId}`}>← Back to Matter</Link>
-      <h1>{draft.title}</h1>
-      <span>{draft.draftType} · {draft.status}</span>
-    </header>
     {draft.officeEnabled ? <OfficeFrame draftId={id} />
       : <div className="office-message" role="alert">ONLYOFFICE is disabled. Enable it to open this Office document.</div>}
   </main>;

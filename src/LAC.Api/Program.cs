@@ -39,7 +39,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
 builder.Services.AddSingleton<LocalStoragePaths>();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddOptions<OnlyOfficeOptions>().BindConfiguration("OnlyOffice")
-    .Validate(x => x.IsValid(), "Enabled ONLYOFFICE requires valid BrowserUrl, AppExternalUrl and optional DocumentServerUrl origins, and a JwtSecret of at least 32 UTF-8 bytes.")
+    .Validate(x => x.IsValid(), "Enabled ONLYOFFICE requires valid BrowserUrl, AppExternalUrl, optional AppBrowserUrl and DocumentServerUrl origins, and a JwtSecret of at least 32 UTF-8 bytes.")
     .ValidateOnStart();
 builder.Services.AddSingleton<OnlyOfficeTokens>();
 builder.Services.AddScoped<OnlyOfficeDraftService>();

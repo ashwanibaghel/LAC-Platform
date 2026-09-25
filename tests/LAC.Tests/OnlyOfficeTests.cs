@@ -53,7 +53,8 @@ public sealed class OnlyOfficeTests : IDisposable
 
     private static string Content(string text) => JsonSerializer.Serialize(new { type = "doc", content = new[] {
         new { type = "paragraph", content = new[] { new { type = "text", text } } } } });
-    private async Task<JsonElement> Config(Guid id) => await Client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{id}/office-config");
+    private async Task<JsonElement> Config(Guid id, int? viewportHeight = null) => await Client.GetFromJsonAsync<JsonElement>(
+        $"/api/matter-drafts/{id}/office-config" + (viewportHeight.HasValue ? $"?viewportHeight={viewportHeight}" : ""));
     private async Task<MatterDraft> Read(Guid id)
     {
         using var scope = factory.Services.CreateScope();
@@ -267,10 +268,22 @@ public sealed class OnlyOfficeTests : IDisposable
     public async Task Config_requires_view_and_reflects_live_edit_permission_and_blocks_legacy_writes()
     {
         var id = await DraftAsync();
-        var edit = (await Config(id)).GetProperty("config");
+        var edit = (await Config(id, 768)).GetProperty("config");
         var customization = edit.GetProperty("editorConfig").GetProperty("customization");
         Assert.True(customization.GetProperty("compactHeader").GetBoolean());
         Assert.True(customization.GetProperty("compactToolbar").GetBoolean());
+        Assert.True(customization.GetProperty("toolbarHideFileName").GetBoolean());
+        Assert.True(customization.GetProperty("hideRightMenu").GetBoolean());
+        Assert.False(customization.GetProperty("hideRulers").GetBoolean());
+        Assert.Equal(85, customization.GetProperty("zoom").GetInt32());
+        Assert.Equal("http://localhost:5173/matters/" + (await Read(id)).MatterId,
+            customization.GetProperty("goback").GetProperty("url").GetString());
+        Assert.False(customization.GetProperty("goback").GetProperty("blank").GetBoolean());
+        Assert.Equal("Back to Matter", customization.GetProperty("goback").GetProperty("text").GetString());
+        Assert.Equal("line", customization.GetProperty("features").GetProperty("tabStyle").GetProperty("mode").GetString());
+        Assert.False(customization.GetProperty("features").GetProperty("tabStyle").GetProperty("change").GetBoolean());
+        Assert.Equal("toolbar", customization.GetProperty("features").GetProperty("tabBackground").GetProperty("mode").GetString());
+        Assert.False(customization.GetProperty("features").GetProperty("tabBackground").GetProperty("change").GetBoolean());
         Assert.True(customization.GetProperty("forcesave").GetBoolean());
         Assert.True(customization.GetProperty("autosave").GetBoolean());
         Assert.False(edit.GetProperty("document").GetProperty("permissions").GetProperty("download").GetBoolean());
@@ -403,6 +416,32 @@ public sealed class OnlyOfficeTests : IDisposable
         Assert.True(new OnlyOfficeOptions().IsValid());
         Assert.False(new OnlyOfficeOptions { Enabled = true }.IsValid());
         Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "javascript:bad", AppExternalUrl = "http://localhost:5088", JwtSecret = new string('x', 32) }.IsValid());
+        Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "http://localhost:8082", AppExternalUrl = "http://localhost:5088", AppBrowserUrl = "javascript:bad", JwtSecret = new string('x', 32) }.IsValid());
+    }
+
+    [Theory]
+    [InlineData(null, 100)]
+    [InlineData(0, 100)]
+    [InlineData(768, 85)]
+    [InlineData(800, 85)]
+    [InlineData(801, 90)]
+    [InlineData(900, 90)]
+    [InlineData(950, 90)]
+    [InlineData(951, 100)]
+    [InlineData(1080, 100)]
+    public void Responsive_zoom_uses_browser_viewport_height(int? height, int expected)
+        => Assert.Equal(expected, OnlyOfficeDraftService.ZoomForViewportHeight(height));
+
+    [Theory]
+    [InlineData(900, 90)]
+    [InlineData(1080, 100)]
+    public async Task Generated_config_signs_responsive_zoom(int height, int expected)
+    {
+        var id = await DraftAsync();
+        var config = (await Config(id, height)).GetProperty("config");
+        Assert.Equal(expected, config.GetProperty("editorConfig").GetProperty("customization").GetProperty("zoom").GetInt32());
+        var signed = Tokens.Verify(config.GetProperty("token").GetString()!);
+        Assert.Equal(config.GetProperty("editorConfig").GetRawText(), signed.GetProperty("editorConfig").GetRawText());
     }
 
     private static byte[] MakeDocx(string text)
@@ -495,6 +534,7 @@ public sealed class OfficeFactory : WebApplicationFactory<Program>
             ["BootstrapAdmin:DisplayName"] = "Office Test User",
             ["OnlyOffice:Enabled"] = "true", ["OnlyOffice:BrowserUrl"] = "http://localhost:8082",
             ["OnlyOffice:AppExternalUrl"] = "http://host.docker.internal:5088",
+            ["OnlyOffice:AppBrowserUrl"] = "http://localhost:5173",
             ["OnlyOffice:JwtSecret"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)),
             ["Storage:DocumentRoot"] = Path.Combine(root, "documents"),
             ["Storage:ExtractionRoot"] = Path.Combine(root, "extraction"), ["Storage:BackupRoot"] = Path.Combine(root, "backups")
