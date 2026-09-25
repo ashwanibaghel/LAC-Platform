@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Validation;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -30,7 +31,7 @@ public sealed class OnlyOfficeTests : IDisposable
     private OnlyOfficeTokens Tokens => factory.Services.GetRequiredService<OnlyOfficeTokens>();
     public void Dispose() => factory.Dispose();
 
-    private async Task<Guid> DraftAsync(bool legacy = false)
+    private async Task<Guid> DraftAsync(MatterDraftType draftType = MatterDraftType.Letter, bool legacy = false)
     {
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -45,7 +46,7 @@ public sealed class OnlyOfficeTests : IDisposable
             await db.SaveChangesAsync();
             return draft.Id;
         }
-        using var response = await Client.PostAsJsonAsync($"/api/matters/{matter.Id}/drafts", new { title = "Letter", draftType = "Letter" });
+        using var response = await Client.PostAsJsonAsync($"/api/matters/{matter.Id}/drafts", new { title = draftType.ToString(), draftType = draftType.ToString() });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
     }
@@ -76,7 +77,7 @@ public sealed class OnlyOfficeTests : IDisposable
     {
         var id = await DraftAsync();
         Assert.NotNull((await Read(id)).OfficeDocumentId);
-        var legacy = await DraftAsync(true);
+        var legacy = await DraftAsync(legacy: true);
         Assert.Null((await Read(legacy)).OfficeDocumentId);
         var config = await Config(legacy);
         var draft = await Read(legacy);
@@ -289,18 +290,92 @@ public sealed class OnlyOfficeTests : IDisposable
         Assert.Equal(draft.ContentJson, (await Read(id)).ContentJson);
     }
 
-    [Theory]
-    [InlineData(MatterDraftType.Letter, 1134, 1134)]
-    [InlineData(MatterDraftType.Noting, 1417, 1417)]
-    public void Generated_document_has_valid_page_profile(MatterDraftType type, int top, int left)
+    [Fact]
+    public void New_noting_document_has_the_delhi_lac_noting_v1_wordprocessing_profile()
     {
-        using var bytes = MatterDraftDocx.Create(new MatterDraft { DraftType = type, ContentJson = Content("Text") });
+        using var bytes = MatterDraftDocx.Create(new MatterDraft { DraftType = MatterDraftType.Noting, ContentJson = Content("Text") });
         using var package = WordprocessingDocument.Open(bytes, false);
         Assert.Empty(new OpenXmlValidator().Validate(package));
         var section = package.MainDocumentPart!.Document!.Body!.GetFirstChild<SectionProperties>()!;
-        Assert.Equal(11906U, section.GetFirstChild<PageSize>()!.Width!.Value);
-        Assert.Equal(top, section.GetFirstChild<PageMargin>()!.Top!.Value);
-        Assert.Equal((uint)left, section.GetFirstChild<PageMargin>()!.Left!.Value);
+        var size = section.GetFirstChild<PageSize>()!;
+        var margins = section.GetFirstChild<PageMargin>()!;
+        Assert.Equal(12240U, size.Width!.Value);
+        Assert.Equal(20160U, size.Height!.Value);
+        Assert.Equal(PageOrientationValues.Portrait, size.Orient!.Value);
+        Assert.Equal(1417, margins.Top!.Value);
+        Assert.Equal(1134U, margins.Right!.Value);
+        Assert.Equal(1134, margins.Bottom!.Value);
+        Assert.Equal(2551U, margins.Left!.Value);
+        Assert.Equal(0U, margins.Gutter!.Value);
+        Assert.NotNull(package.MainDocumentPart.DocumentSettingsPart!.Settings!.GetFirstChild<MirrorMargins>());
+    }
+
+    [Fact]
+    public void Letter_documents_retain_a4_legal_landscape_and_custom_margins_without_mirror_margins()
+    {
+        using var a4 = MatterDraftDocx.Create(new MatterDraft { DraftType = MatterDraftType.Letter, ContentJson = Content("A4") });
+        using var legal = MatterDraftDocx.Create(new MatterDraft
+        {
+            DraftType = MatterDraftType.Letter, PageSize = "Legal", Orientation = "Landscape",
+            MarginTopMm = 30m, MarginRightMm = 15m, MarginBottomMm = 25m, MarginLeftMm = 35m, ContentJson = Content("Legal")
+        });
+        Assert.Equal(11906U, Section(a4).GetFirstChild<PageSize>()!.Width!.Value);
+        var size = Section(legal).GetFirstChild<PageSize>()!;
+        var margins = Section(legal).GetFirstChild<PageMargin>()!;
+        Assert.Equal(20160U, size.Width!.Value);
+        Assert.Equal(12240U, size.Height!.Value);
+        Assert.Equal(PageOrientationValues.Landscape, size.Orient!.Value);
+        Assert.Equal(1701, margins.Top!.Value);
+        Assert.Equal(850U, margins.Right!.Value);
+        Assert.Equal(1417, margins.Bottom!.Value);
+        Assert.Equal(1984U, margins.Left!.Value);
+        Assert.Null(FindMirrorMargins(legal));
+    }
+
+    [Fact]
+    public async Task Noting_callback_restores_layout_preserves_content_and_keeps_save_semantics()
+    {
+        var id = await DraftAsync(MatterDraftType.Noting);
+        var before = await Read(id);
+        var key = OnlyOfficeDraftService.Key(before);
+        factory.Download.Bytes = MakeMalformattedNotingDocx();
+
+        Assert.Equal(0, await Callback(id, key, 6));
+        var forced = await Read(id);
+        Assert.Equal(before.Revision + 1, forced.Revision);
+        Assert.Equal(before.OfficeDocument!.Version + 1, forced.OfficeDocument!.Version);
+        Assert.Equal(before.OfficeKeyGeneration, forced.OfficeKeyGeneration);
+        var forcedBytes = await StoredBytes(forced);
+        AssertNotingLayoutAndContent(forcedBytes);
+
+        Assert.Equal(0, await Callback(id, key, 2));
+        var final = await Read(id);
+        Assert.Equal(forced.Revision + 1, final.Revision);
+        Assert.Equal(forced.OfficeDocument!.Version + 1, final.OfficeDocument!.Version);
+        Assert.Equal(before.OfficeKeyGeneration + 1, final.OfficeKeyGeneration);
+        AssertNotingLayoutAndContent(await StoredBytes(final));
+    }
+
+    [Fact]
+    public async Task Letter_callback_preserves_user_selected_layout_without_mirror_margins()
+    {
+        var id = await DraftAsync();
+        var before = await Read(id);
+        factory.Download.Bytes = MakeLetterLayoutDocx();
+        Assert.Equal(0, await Callback(id, OnlyOfficeDraftService.Key(before), 6));
+        using var bytes = new MemoryStream(await StoredBytes(await Read(id)));
+        using var package = WordprocessingDocument.Open(bytes, false);
+        var section = package.MainDocumentPart!.Document!.Body!.GetFirstChild<SectionProperties>()!;
+        var size = section.GetFirstChild<PageSize>()!;
+        var margins = section.GetFirstChild<PageMargin>()!;
+        Assert.Equal(20160U, size.Width!.Value);
+        Assert.Equal(12240U, size.Height!.Value);
+        Assert.Equal(PageOrientationValues.Landscape, size.Orient!.Value);
+        Assert.Equal(1701, margins.Top!.Value);
+        Assert.Equal(850U, margins.Right!.Value);
+        Assert.Equal(1417, margins.Bottom!.Value);
+        Assert.Equal(1984U, margins.Left!.Value);
+        Assert.Null(package.MainDocumentPart.DocumentSettingsPart?.Settings?.GetFirstChild<MirrorMargins>());
     }
 
     [Fact]
@@ -315,6 +390,75 @@ public sealed class OnlyOfficeTests : IDisposable
     {
         using var bytes = MatterDraftDocx.Create(new MatterDraft { ContentJson = Content(text) });
         return bytes.ToArray();
+    }
+
+    private async Task<byte[]> StoredBytes(MatterDraft draft)
+    {
+        using var scope = factory.Services.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IDocumentStorage>();
+        await using var file = await storage.OpenReadAsync(draft.OfficeDocument!.StoragePath, default);
+        using var bytes = new MemoryStream();
+        await file!.CopyToAsync(bytes);
+        return bytes.ToArray();
+    }
+
+    private static SectionProperties Section(Stream stream)
+    {
+        stream.Position = 0;
+        using var package = WordprocessingDocument.Open(stream, false);
+        return (SectionProperties)package.MainDocumentPart!.Document!.Body!.GetFirstChild<SectionProperties>()!.CloneNode(true);
+    }
+
+    private static MirrorMargins? FindMirrorMargins(Stream stream)
+    {
+        stream.Position = 0;
+        using var package = WordprocessingDocument.Open(stream, false);
+        return package.MainDocumentPart!.DocumentSettingsPart?.Settings?.GetFirstChild<MirrorMargins>();
+    }
+
+    private static void AssertNotingLayoutAndContent(byte[] source)
+    {
+        using var bytes = new MemoryStream(source);
+        using var package = WordprocessingDocument.Open(bytes, false);
+        var body = package.MainDocumentPart!.Document!.Body!;
+        var section = body.GetFirstChild<SectionProperties>()!;
+        var size = section.GetFirstChild<PageSize>()!;
+        var margins = section.GetFirstChild<PageMargin>()!;
+        Assert.Equal(12240U, size.Width!.Value); Assert.Equal(20160U, size.Height!.Value);
+        Assert.Equal(PageOrientationValues.Portrait, size.Orient!.Value);
+        Assert.Equal(1417, margins.Top!.Value); Assert.Equal(1134U, margins.Right!.Value);
+        Assert.Equal(1134, margins.Bottom!.Value); Assert.Equal(2551U, margins.Left!.Value); Assert.Equal(0U, margins.Gutter!.Value);
+        Assert.NotNull(package.MainDocumentPart.DocumentSettingsPart!.Settings!.GetFirstChild<MirrorMargins>());
+        Assert.Contains("Preserved bold text", body.InnerText);
+        Assert.Contains("Preserved table cell", body.InnerText);
+        Assert.Contains(body.Descendants<Table>(), _ => true);
+        Assert.Contains(body.Descendants<Break>(), x => x.Type?.Value == BreakValues.Page);
+        Assert.Contains(body.Descendants<Bold>(), _ => true);
+    }
+
+    private static byte[] MakeMalformattedNotingDocx() => MakeLayoutDocx(
+        width: 16838U, height: 11906U, orientation: PageOrientationValues.Landscape,
+        top: 567, right: 567U, bottom: 567, left: 567U, text: "Preserved bold text", includeTable: true, includePageBreak: true);
+
+    private static byte[] MakeLetterLayoutDocx() => MakeLayoutDocx(
+        width: 20160U, height: 12240U, orientation: PageOrientationValues.Landscape,
+        top: 1701, right: 850U, bottom: 1417, left: 1984U, text: "Letter custom layout", includeTable: false, includePageBreak: false);
+
+    private static byte[] MakeLayoutDocx(uint width, uint height, PageOrientationValues orientation, int top, uint right, int bottom, uint left, string text, bool includeTable, bool includePageBreak)
+    {
+        using var output = new MemoryStream();
+        using (var package = WordprocessingDocument.Create(output, WordprocessingDocumentType.Document, true))
+        {
+            var main = package.AddMainDocumentPart();
+            var body = new Body(new Paragraph(new Run(new RunProperties(new Bold()), new Text(text))));
+            if (includePageBreak) body.Append(new Paragraph(new Run(new Break { Type = BreakValues.Page })));
+            if (includeTable) body.Append(new Table(new TableRow(new TableCell(new Paragraph(new Run(new Text("Preserved table cell")))))));
+            body.Append(new SectionProperties(new PageSize { Width = width, Height = height, Orient = orientation },
+                new PageMargin { Top = top, Right = right, Bottom = bottom, Left = left, Gutter = 0U, Header = 720U, Footer = 720U }));
+            main.Document = new DocumentFormat.OpenXml.Wordprocessing.Document(body);
+            main.Document.Save();
+        }
+        return output.ToArray();
     }
 }
 

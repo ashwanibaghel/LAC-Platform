@@ -10,6 +10,10 @@ namespace LAC.Infrastructure;
 public static class MatterDraftDocx
 {
     public const string MimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    private const uint A4WidthTwips = 11906;
+    private const uint A4HeightTwips = 16838;
+    private const uint LegalWidthTwips = 12240;
+    private const uint LegalHeightTwips = 20160;
 
     public static MemoryStream Create(MatterDraft draft)
     {
@@ -22,17 +26,16 @@ public static class MatterDraftDocx
             AppendParagraphs(json.RootElement, body);
             if (!body.HasChildren) body.Append(new Paragraph());
             var noting = draft.DraftType == MatterDraftType.Noting;
-            uint width = !noting && draft.PageSize == "Legal" ? 12240U : 11906U;
-            uint height = !noting && draft.PageSize == "Legal" ? 20160U : 16838U;
-            var landscape = !noting && draft.Orientation == "Landscape";
+            uint width = draft.PageSize == "Legal" ? LegalWidthTwips : A4WidthTwips;
+            uint height = draft.PageSize == "Legal" ? LegalHeightTwips : A4HeightTwips;
+            var landscape = draft.Orientation == "Landscape";
             body.Append(new SectionProperties(
                 new PageSize { Width = landscape ? height : width, Height = landscape ? width : height,
                     Orient = landscape ? PageOrientationValues.Landscape : PageOrientationValues.Portrait },
-                new PageMargin { Top = Twips(noting ? 25 : draft.MarginTopMm),
-                    Right = (uint)Twips(noting ? 20 : draft.MarginRightMm),
-                    Bottom = Twips(noting ? 20 : draft.MarginBottomMm),
-                    Left = (uint)Twips(noting ? 25 : draft.MarginLeftMm), Header = 720U, Footer = 720U, Gutter = 0U }));
+                new PageMargin { Top = Twips(draft.MarginTopMm), Right = (uint)Twips(draft.MarginRightMm),
+                    Bottom = Twips(draft.MarginBottomMm), Left = (uint)Twips(draft.MarginLeftMm), Header = 720U, Footer = 720U, Gutter = 0U }));
             main.Document = new WordDocument(body);
+            if (noting) ApplyNotingLayout(package);
             main.Document.Save();
         }
         output.Position = 0;
@@ -40,6 +43,51 @@ public static class MatterDraftDocx
     }
 
     private static int Twips(decimal mm) => (int)Math.Round(mm * 1440m / 25.4m);
+
+    /// <summary>Restores the official Noting page policy without touching document content or headers/footers.</summary>
+    public static void EnforceNotingLayout(Stream stream)
+    {
+        stream.Position = 0;
+        using (var package = WordprocessingDocument.Open(stream, true)) ApplyNotingLayout(package);
+        stream.Position = 0;
+    }
+
+    private static void ApplyNotingLayout(WordprocessingDocument package)
+    {
+        var main = package.MainDocumentPart ?? throw new InvalidDataException("DOCX has no main document part.");
+        var document = main.Document ?? throw new InvalidDataException("DOCX has no main document.");
+        var body = document.Body ?? throw new InvalidDataException("DOCX has no body.");
+        var profile = MatterDraftOfficeProfiles.DelhiLacNotingV1;
+        var sections = document.Descendants<SectionProperties>().ToList();
+        if (sections.Count == 0)
+        {
+            var section = new SectionProperties();
+            body.Append(section);
+            sections.Add(section);
+        }
+        foreach (var section in sections)
+        {
+            section.GetFirstChild<PageSize>()?.Remove();
+            var existingMargin = section.GetFirstChild<PageMargin>();
+            var header = existingMargin?.Header?.Value ?? 720U;
+            var footer = existingMargin?.Footer?.Value ?? 720U;
+            existingMargin?.Remove();
+            section.PrependChild(new PageMargin
+            {
+                Top = Twips(profile.MarginTopMm), Right = (uint)Twips(profile.MarginOutsideMm),
+                Bottom = Twips(profile.MarginBottomMm), Left = (uint)Twips(profile.MarginInsideMm),
+                Gutter = (uint)Twips(profile.GutterMm), Header = header, Footer = footer
+            });
+            section.PrependChild(new PageSize { Width = LegalWidthTwips, Height = LegalHeightTwips, Orient = PageOrientationValues.Portrait });
+        }
+        var settings = main.DocumentSettingsPart ?? main.AddNewPart<DocumentSettingsPart>();
+        settings.Settings ??= new Settings();
+        var existingMirrorMargins = settings.Settings.GetFirstChild<MirrorMargins>();
+        if (existingMirrorMargins is null) settings.Settings.Append(new MirrorMargins());
+        else settings.Settings.ReplaceChild(new MirrorMargins(), existingMirrorMargins);
+        settings.Settings.Save();
+        document.Save();
+    }
 
     // Flatten legacy lists/tables into their paragraphs; preserve text, never synthesize it.
     private static void AppendParagraphs(JsonElement node, Body body)

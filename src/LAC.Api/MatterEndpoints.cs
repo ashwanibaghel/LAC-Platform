@@ -423,7 +423,7 @@ public static class MatterEndpoints
 
             if (draftType == MatterDraftType.Noting)
             {
-                MatterDraftLayoutProfiles.ApplyDraftLayout(draft, MatterDraftLayoutProfiles.NotingSheetV1Provisional);
+                MatterDraftLayoutProfiles.ApplyNotingLayout(draft);
             }
 
             db.MatterDrafts.Add(draft);

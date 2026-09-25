@@ -125,6 +125,12 @@ public sealed class OnlyOfficeDraftService(
                     await stage.WriteAsync(buffer.AsMemory(0, read), saveCt);
                 }
                 await stage.FlushAsync(saveCt);
+                // The editor may change page setup. Restore the official Noting policy before hashing and publishing.
+                if (draft.DraftType == MatterDraftType.Noting)
+                {
+                    MatterDraftDocx.EnforceNotingLayout(stage);
+                    await stage.FlushAsync(saveCt);
+                }
                 ValidateDocx(stage);
                 stage.Position = 0;
                 // Force-save URLs may be reused for new bytes in the same session.

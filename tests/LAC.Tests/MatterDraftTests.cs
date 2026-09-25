@@ -60,12 +60,12 @@ public sealed class MatterDraftTests : IClassFixture<ApiFactory>
 
         var draft = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{draftId}");
         Assert.Equal("Noting", draft.GetProperty("draftType").GetString());
-        Assert.Equal("A4", draft.GetProperty("pageSize").GetString());
+        Assert.Equal("Legal", draft.GetProperty("pageSize").GetString());
         Assert.Equal("Portrait", draft.GetProperty("orientation").GetString());
         Assert.Equal(25m, draft.GetProperty("marginTopMm").GetDecimal());
         Assert.Equal(20m, draft.GetProperty("marginRightMm").GetDecimal());
         Assert.Equal(20m, draft.GetProperty("marginBottomMm").GetDecimal());
-        Assert.Equal(25m, draft.GetProperty("marginLeftMm").GetDecimal());
+        Assert.Equal(45m, draft.GetProperty("marginLeftMm").GetDecimal());
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class MatterDraftTests : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, putResponse.StatusCode);
         var body = await putResponse.Content.ReadAsStringAsync();
-        Assert.Contains("Noting Sheet layout is fixed by the office profile", body);
+        Assert.Contains("Noting layout is fixed by the DelhiLacNotingV1 office profile.", body);
     }
 
     [Fact]

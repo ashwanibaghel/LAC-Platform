@@ -181,7 +181,7 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         paged.EnsureSuccessStatusCode();
         using var notingCreated = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Office noting", draftType = "Noting" });
         notingCreated.EnsureSuccessStatusCode(); var notingId = (await notingCreated.Content.ReadFromJsonAsync<IdResponse>())!.Id;
-        var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(25m, noting.GetProperty("marginLeftMm").GetDecimal());
+        var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal("Legal", noting.GetProperty("pageSize").GetString()); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(45m, noting.GetProperty("marginLeftMm").GetDecimal());
         using var alteredNoting = await _client.PutAsJsonAsync($"/api/matter-drafts/{notingId}", new { title = "Office noting", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}", pageSize = "Legal", orientation = "Landscape", marginTopMm = 1, marginRightMm = 1, marginBottomMm = 1, marginLeftMm = 1, expectedRevision = 0 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, alteredNoting.StatusCode);
     }
