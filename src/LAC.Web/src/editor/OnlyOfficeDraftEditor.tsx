@@ -128,7 +128,6 @@ function DraftRoute({ id }: { id: string }) {
       <Link to={`/matters/${draft.matterId}`}>← Back to Matter</Link>
       <h1>{draft.title}</h1>
       <span>{draft.draftType} · {draft.status}</span>
-      <span>Office document</span>
     </header>
     {draft.officeEnabled ? <OfficeFrame draftId={id} />
       : <div className="office-message" role="alert">ONLYOFFICE is disabled. Enable it to open this Office document.</div>}

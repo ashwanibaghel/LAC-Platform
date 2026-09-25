@@ -65,7 +65,7 @@ public sealed class OnlyOfficeDraftService(
                 {
                     callbackUrl = root + "/onlyoffice-callback", mode = canEdit ? "edit" : "view", lang = "en",
                     user = new { id = userId.ToString(), name = displayName },
-                    customization = new { forcesave = true, autosave = true }
+                    customization = new { forcesave = true, autosave = true, compactHeader = true, compactToolbar = true }
                 }
             };
             config["token"] = tokens.Sign(config);

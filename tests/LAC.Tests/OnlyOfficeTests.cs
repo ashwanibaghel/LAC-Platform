@@ -105,6 +105,7 @@ public sealed class OnlyOfficeTests : IDisposable
         factory.Download.Bytes = MakeDocx("Persisted office text");
         Assert.Equal(0, await Callback(id, key, 6));
         var forced = await Read(id);
+        Assert.Equal(before.OfficeDocumentId, forced.OfficeDocumentId);
         Assert.Equal(key, OnlyOfficeDraftService.Key(forced));
         Assert.Equal(before.Revision + 1, forced.Revision);
         Assert.Equal(before.OfficeDocument!.Version + 1, forced.OfficeDocument!.Version);
@@ -123,17 +124,24 @@ public sealed class OnlyOfficeTests : IDisposable
         factory.Download.Bytes = MakeDocx("A second change at the same force-save URL");
         Assert.Equal(0, await Callback(id, key, 6));
         var secondForce = await Read(id);
+        Assert.Equal(before.OfficeDocumentId, secondForce.OfficeDocumentId);
         Assert.Equal(forced.Revision + 1, secondForce.Revision);
         Assert.Equal(key, OnlyOfficeDraftService.Key(secondForce));
         Assert.Equal(Convert.ToHexString(SHA256.HashData(factory.Download.Bytes)).ToLowerInvariant(), secondForce.OfficeDocument!.Sha256Hash);
         Assert.Equal(0, await Callback(id, key, 2));
         var final = await Read(id);
+        Assert.Equal(before.OfficeDocumentId, final.OfficeDocumentId);
         Assert.Equal(before.OfficeKeyGeneration + 1, final.OfficeKeyGeneration);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(factory.Download.Bytes)).ToLowerInvariant(), final.OfficeDocument!.Sha256Hash);
+        Assert.Equal(factory.Download.Bytes, await StoredBytes(final));
         Assert.Equal(0, await Callback(id, key, 2));
         Assert.Equal(final.Revision, (await Read(id)).Revision);
         Assert.Equal(1, await Callback(id, key, 6));
         var reopened = await Config(id);
         Assert.Equal(OnlyOfficeDraftService.Key(final), reopened.GetProperty("config").GetProperty("document").GetProperty("key").GetString());
+        using var reopenedBytes = new MemoryStream(await StoredBytes(await Read(id)));
+        using var reopenedPackage = WordprocessingDocument.Open(reopenedBytes, false);
+        Assert.Contains("A second change at the same force-save URL", reopenedPackage.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
     [Theory]
@@ -166,7 +174,11 @@ public sealed class OnlyOfficeTests : IDisposable
     public async Task Empty_invalid_failed_and_redirect_downloads_do_not_replace_file(int status, bool garbage)
     {
         var id = await DraftAsync();
+        var initial = await Read(id);
+        factory.Download.Bytes = MakeDocx("Last known good content");
+        Assert.Equal(0, await Callback(id, OnlyOfficeDraftService.Key(initial), 6));
         var before = await Read(id);
+        var goodBytes = await StoredBytes(before);
         factory.Download.Status = (HttpStatusCode)status;
         factory.Download.Bytes = garbage ? "not a docx"u8.ToArray() : [];
         Assert.Equal(1, await Callback(id, OnlyOfficeDraftService.Key(before), 2));
@@ -174,6 +186,7 @@ public sealed class OnlyOfficeTests : IDisposable
         Assert.Equal(before.Revision, after.Revision);
         Assert.Equal(before.OfficeDocument!.StoragePath, after.OfficeDocument!.StoragePath);
         Assert.Equal(before.OfficeDocument.Sha256Hash, after.OfficeDocument.Sha256Hash);
+        Assert.Equal(goodBytes, await StoredBytes(after));
     }
 
     [Fact]
@@ -255,6 +268,12 @@ public sealed class OnlyOfficeTests : IDisposable
     {
         var id = await DraftAsync();
         var edit = (await Config(id)).GetProperty("config");
+        var customization = edit.GetProperty("editorConfig").GetProperty("customization");
+        Assert.True(customization.GetProperty("compactHeader").GetBoolean());
+        Assert.True(customization.GetProperty("compactToolbar").GetBoolean());
+        Assert.True(customization.GetProperty("forcesave").GetBoolean());
+        Assert.True(customization.GetProperty("autosave").GetBoolean());
+        Assert.False(edit.GetProperty("document").GetProperty("permissions").GetProperty("download").GetBoolean());
         Assert.Equal("edit", edit.GetProperty("editorConfig").GetProperty("mode").GetString());
         Assert.True(edit.GetProperty("document").GetProperty("permissions").GetProperty("edit").GetBoolean());
         var signed = Tokens.Verify(edit.GetProperty("token").GetString()!);
