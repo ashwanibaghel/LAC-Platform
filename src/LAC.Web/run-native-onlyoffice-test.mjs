@@ -76,6 +76,8 @@ async function main() {
   assert.equal(initialConfigRes.status(), 200, "Initial office-config should return 200");
   const initialConfig = await initialConfigRes.json();
   const initialKey = initialConfig.config.document.key;
+  assert.equal(initialConfig.config.document.permissions.download, false, "permissions.download MUST be false");
+  console.log("✅ Verified document.permissions.download is FALSE (Local download workflow disabled).");
   const initialDraftState = await (await page.request.get(`${API_BASE}/api/matter-drafts/${draftId}`)).json();
   
   console.log("\n--- STATE BEFORE NATIVE EDITING ---");

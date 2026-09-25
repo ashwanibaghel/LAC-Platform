@@ -59,7 +59,7 @@ public sealed class OnlyOfficeDraftService(
                 {
                     fileType = "docx", key = Key(draft), title = draft.Title + ".docx",
                     url = root + "/office-file?token=" + tokens.DownloadToken(id, document.Id),
-                    permissions = new { edit = canEdit, download = true, print = true, review = canEdit, comment = canEdit }
+                    permissions = new { edit = canEdit, download = false, print = true, review = canEdit, comment = canEdit }
                 },
                 ["editorConfig"] = new
                 {
