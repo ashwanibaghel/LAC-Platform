@@ -34,7 +34,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
         KeepAlive = 30
     };
     if (connection.Host?.Contains("supabase", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("Supabase is not a local-first runtime database. Configure ConnectionStrings__DefaultConnection for local PostgreSQL at 127.0.0.1.");
-    builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
+    builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddSingleton<LocalStoragePaths>();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
