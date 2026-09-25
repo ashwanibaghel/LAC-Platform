@@ -1,83 +1,88 @@
-# Office LAN pilot
+# LAC and ONLYOFFICE on the office PC
 
-This urgent pilot runs the published LAC application on the office host and temporarily uses ONLYOFFICE Docs running on the development laptop. Clients use the office host at one origin; ONLYOFFICE receives server-to-server file and callback traffic using the two LAN addresses below.
-
-```text
-Office client -> http://<OFFICE_SERVER_LAN_IP>:5088
-Office LAC host -> http://<LAPTOP_LAN_IP>:8082  (ONLYOFFICE)
-Laptop ONLYOFFICE -> http://<OFFICE_SERVER_LAN_IP>:5088 (callback and office-file)
-```
-
-PostgreSQL remains localhost-only on the office host. Do not expose TCP 5432.
-
-## Build the source-free package
-
-On the development build machine, from the repository root:
-
-```powershell
-.\scripts\publish-office.ps1 -PublishDirectory C:\LAC-Office-Pilot-Package
-```
-
-The script uses `npx vite build`, copies `dist` into API `wwwroot`, then produces a self-contained Windows x64 application. It does not require Node, npm, source code, or the .NET runtime on the office target. The existing `npm run build` path is intentionally not used because the repository has historical TypeScript diagnostics even though Vite production bundling succeeds.
-
-Copy the resulting folder to `C:\LAC-Publish` on the office host. Never copy `.env.onlyoffice`, user secrets, credentials, database passwords, or JWT secrets.
-
-The publish directory is application code only. Use these data locations:
+The development laptop has **no runtime role**. The office PC runs the existing
+LAC IIS site, local PostgreSQL, document storage, and ONLYOFFICE Docs in Docker
+Desktop. Browsers reach LAC through IIS and reach ONLYOFFICE on the same office
+host at port 8082. ONLYOFFICE calls the IIS API for signed file downloads and
+save callbacks.
 
 ```text
-D:\Software Data\Documents
-D:\Software Data\Extraction
-D:\Software Data\DatabaseBackups
-D:\Software Data\Logs
+Office PC
+├── IIS: LAC browser app and API, HTTP port 80
+├── PostgreSQL: localhost only
+├── document storage and backups
+└── Docker Desktop: ONLYOFFICE Docs, office-host port 8082
 ```
 
-Before pointing an existing database at the pilot, create and verify a PostgreSQL backup. Startup applies EF migrations. A new empty pilot database has no data to back up.
+The existing office IIS deployment is **Default Web Site**, using
+**DefaultAppPool**, with physical path `C:\LAC-Publish` and an HTTP port 80
+binding. This describes the current setup; verify these values on the office
+PC before changing it. PostgreSQL remains localhost-only. Do not create a
+firewall rule for TCP 5432. Restrict ports 80 and 8082 to approved office
+clients according to the office network policy.
 
-## Office-host configuration and start
+## Stage an IIS package
 
-Copy `office-pilot-settings.template.ps1` to `office-pilot-settings.ps1` beside `LAC.Api.exe`, set its values securely, then run:
+On the build machine, from the repository root:
 
 ```powershell
-Set-Location C:\LAC-Publish
-.\start-office-pilot.ps1
+.\scripts\publish-office.ps1
 ```
 
-Required settings are `ConnectionStrings__DefaultConnection`, the three `Storage__` paths, `OnlyOffice__Enabled=true`, `OnlyOffice__BrowserUrl`, `OnlyOffice__AppExternalUrl`, `OnlyOffice__DocumentServerUrl`, and `OnlyOffice__JwtSecret`. The start script never prints secrets. The ONLYOFFICE URLs must use the exact LAN IPv4 addresses shown above, and the API and Document Server must share one fresh pilot JWT secret.
+The default output is `C:\LAC-Publish-New`, a **staged** self-contained win-x64
+IIS package. The script runs `npx vite build`, copies the web bundle into API
+`wwwroot`, then runs `dotnet publish -c Release`. The historical TypeScript
+diagnostics do not prevent Vite from producing the production bundle. Use
+`-FrameworkDependent` only when the office PC has the matching .NET runtime.
+The package contains application files, not database passwords or JWT secrets.
 
-For a permanent IIS deployment, install the ASP.NET Core Hosting Bundle and configure IIS separately. IIS is not required for this Kestrel pilot.
+Back up the office PostgreSQL database, the current `C:\LAC-Publish` deployment,
+and document storage before an IIS swap. Startup may apply EF migrations. Verify
+the staged package and IIS configuration before replacing the live files. The
+publish script refuses to write directly to `C:\LAC-Publish`.
 
-## Temporary laptop ONLYOFFICE LAN mode
+## Configure the office PC
 
-Do not change `docker-compose.onlyoffice.yml`; it remains localhost-only development configuration. On the development laptop, create an untracked pilot environment file containing `ONLYOFFICE_LAN_IP=<laptop LAN IPv4>` and a fresh `ONLYOFFICE_JWT_SECRET`, then run:
+Run ONLYOFFICE Docs with Docker Desktop **on the same office PC**, publishing
+the container's HTTP port on office-host port 8082. Give the container
+persistent storage and enable JWT. Use a production JWT secret shared with LAC;
+store it in protected office-host configuration and **never commit it**. The
+normal `docker-compose.onlyoffice.yml` is a loopback-only development example,
+not the office-host deployment configuration.
 
-```powershell
-docker compose --env-file .env.onlyoffice.lan-pilot -f docker-compose.onlyoffice.lan-pilot.yml up -d
-```
-
-The separate compose file binds only the selected laptop LAN IPv4 on TCP 8082. It is a temporary pilot, never public-internet exposure. For an office Windows Server 2016+ permanent installation, use ONLYOFFICE Docs’ native Windows Server deployment route; Docker Desktop is not the production plan. For Windows 10/11 office hosts, keep this laptop topology until permanent hosting is decided.
-
-## Firewall
-
-Run as Administrator with the approved private subnet, for example `192.168.10.0/24`:
-
-```powershell
-# Office LAC host
-.\office-pilot-firewall.ps1 -Role LacHost -ApprovedSubnet 192.168.10.0/24
-
-# Development laptop running ONLYOFFICE
-.\office-pilot-firewall.ps1 -Role OnlyOfficeLaptop -ApprovedSubnet 192.168.10.0/24
-```
-
-This creates Private-profile inbound rules only: TCP 5088 to the LAC host and TCP 8082 to the laptop. Do not add a PostgreSQL 5432 rule.
-
-## Acceptance checks
-
-On the office host, verify `http://localhost:5088/api/health`. From an approved LAN client, verify:
+Set these LAC environment variables through protected IIS/host configuration.
+Replace `<OFFICE_HOST_LAN_IP>` with the office PC's current address or a stable
+office DNS name in the actual deployment; it is not a fixed architecture value.
 
 ```text
-http://<OFFICE_SERVER_LAN_IP>:5088/api/health
-http://<OFFICE_SERVER_LAN_IP>:5088/
-http://<LAPTOP_LAN_IP>:8082/healthcheck
+OnlyOffice__Enabled=true
+OnlyOffice__BrowserUrl=http://<OFFICE_HOST_LAN_IP>:8082
+OnlyOffice__AppExternalUrl=http://<OFFICE_HOST_LAN_IP>
+OnlyOffice__AppBrowserUrl=http://<OFFICE_HOST_LAN_IP>
+OnlyOffice__DocumentServerUrl=http://<OFFICE_HOST_LAN_IP>:8082
+OnlyOffice__JwtSecret=<protected secret>
 ```
 
-Then log in, refresh `/matter`, `/court`, and a `/matter-drafts/{id}` route directly, create a Letter and a Noting, open ONLYOFFICE, edit, save, close, and reopen. The React fallback serves browser routes while unmatched `/api` routes remain 404s.
+The IIS origin serves both the browser app and `/api`. Configure the existing
+`ConnectionStrings__DefaultConnection` to reach PostgreSQL on localhost and
+keep the three `Storage__` paths on office-host persistent storage. Do not put
+secrets in the staged package or in source-controlled files. The ONLYOFFICE
+container must reach the IIS origin to fetch `office-file` and submit signed
+callbacks; office browsers must reach port 8082.
+
+## Verify after the IIS swap
+
+From the office PC and an approved office browser, check:
+
+```text
+http://<OFFICE_HOST_LAN_IP>/api/health
+http://<OFFICE_HOST_LAN_IP>/
+http://<OFFICE_HOST_LAN_IP>:8082/healthcheck
+```
+
+Log in through IIS, open a Letter and a Noting, type distinct markers, use the
+native ONLYOFFICE Save control, close, and reopen each draft. Confirm the text
+remains, the Noting Legal mirror-margin profile is intact, and Back to Matter
+returns to the IIS-hosted Matter page. Verify direct refresh of a draft URL as
+well as `/matter` and `/court` routes. Keep the feature branch until the office
+deployment has passed these checks.
