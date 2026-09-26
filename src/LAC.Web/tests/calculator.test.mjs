@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AREA_UNITS, addRevenueAreas, areaToSqm, fromTotalBiswansi, lengthToMetres, normalizeRevenueTotal, parseRevenueShorthand, revenueToSqm, revenueTotals, sqmToRevenue, subtractRevenueAreas, toTotalBiswansi, validateRevenue } from "../src/calculator/landConversions.js";
+import { AREA_UNITS, addRevenueAreas, areaToSqm, formatRevenueFromSqm, fromTotalBiswansi, isRevenueAreaUnit, lengthToMetres, normalizeRevenueTotal, parseRevenueShorthand, revenueToSqm, revenueTotals, sqmToRevenue, subtractRevenueAreas, toTotalBiswansi, validateRevenue } from "../src/calculator/landConversions.js";
 import { evaluateExpression } from "../src/calculator/arithmetic.js";
 
 test("Delhi revenue hierarchy and canonical basis", () => {
@@ -19,6 +19,18 @@ test("mixed revenue input validates and round-trips", () => {
   // square-yard approximation. A square metre also yields a usable triplet.
   assert.equal(sqmToRevenue(10000).totalBiswansi, 10000 / 2.1075);
   assert.deepEqual(sqmToRevenue(843), { bigha: 1, biswa: 0, biswansi: 0, totalBiswansi: 400 });
+});
+test("area revenue display is rounded, normalized, and only available for revenue sources", () => {
+  assert.equal(formatRevenueFromSqm(843), "1-0-0");
+  assert.equal(formatRevenueFromSqm(revenueToSqm({ bigha: 2, biswa: 9, biswansi: 1 })), "2-9-1");
+  const hectareRevenue = formatRevenueFromSqm(10000);
+  assert.match(hectareRevenue, /^11-17-4\.9585$/);
+  assert.ok(hectareRevenue.split("-")[2].split(".")[1].length <= 4);
+  assert.equal(isRevenueAreaUnit("bigha"), true);
+  assert.equal(isRevenueAreaUnit("biswa"), true);
+  assert.equal(isRevenueAreaUnit("biswansi"), true);
+  assert.equal(isRevenueAreaUnit("hectare"), false);
+  assert.equal(isRevenueAreaUnit("sqm"), false);
 });
 test("standard area and Ghatta conversions", () => {
   assert.equal(areaToSqm(1, "hectare"), 10000); assert.equal(areaToSqm(1, "sqkm"), 1000000);

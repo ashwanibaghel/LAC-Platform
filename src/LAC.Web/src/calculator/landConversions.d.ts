@@ -1,5 +1,6 @@
 export const AREA_UNITS: Record<string, { label: string; sqm: number }>;
 export const LENGTH_UNITS: Record<string, { label: string; metres: number }>;
+export function isRevenueAreaUnit(unit: string): boolean;
 export function validateRevenue(bigha: unknown, biswa: unknown, biswansi: unknown): any;
 export function parseRevenueShorthand(value: string): any;
 export type RevenueArea = { bigha: number; biswa: number; biswansi: number };
@@ -11,6 +12,7 @@ export function revenueTotals(value: RevenueArea): { totalBiswansi: number; tota
 export function normalizeRevenueTotal(value: unknown, unit: "bigha" | "biswa" | "biswansi"): RevenueArea;
 export function revenueToSqm(value: { bigha: number; biswa: number; biswansi: number }): number;
 export function sqmToRevenue(value: number): { bigha: number; biswa: number; biswansi: number; totalBiswansi: number };
+export function formatRevenueFromSqm(value: number): string;
 export function areaToSqm(value: unknown, unit: string): number | null;
 export function sqmToArea(value: number, unit: string): number;
 export function allAreaConversions(value: number): Record<string, number>;

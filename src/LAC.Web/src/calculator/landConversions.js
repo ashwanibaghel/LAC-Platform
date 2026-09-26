@@ -17,6 +17,10 @@ export const LENGTH_UNITS = {
   yard: { label: "Yard", metres: 0.9144 },
 };
 
+export function isRevenueAreaUnit(unit) {
+  return unit === "bigha" || unit === "biswa" || unit === "biswansi";
+}
+
 export function validateRevenue(bigha, biswa, biswansi) {
   const values = [bigha, biswa, biswansi].map(Number);
   if (!values.every(Number.isFinite) || values.some((value) => value < 0)) return { valid: false, error: "Use non-negative numbers." };
@@ -83,6 +87,19 @@ export function sqmToRevenue(squareMetres) {
   const biswa = Math.floor(afterBigha / 20);
   const biswansi = afterBigha - biswa * 20;
   return { bigha, biswa, biswansi, totalBiswansi };
+}
+
+// Display is rounded only at the final revenue notation boundary. This keeps
+// conversion math precise while preventing floating-point tails in the UI.
+export function formatRevenueFromSqm(squareMetres) {
+  const roundedTotal = Math.round((Number(squareMetres) / 2.1075) * 10000) / 10000;
+  let bigha = Math.floor(roundedTotal / 400);
+  let remaining = roundedTotal - bigha * 400;
+  let biswa = Math.floor(remaining / 20);
+  let biswansi = Math.round((remaining - biswa * 20) * 10000) / 10000;
+  if (biswansi >= 20) { biswansi = 0; biswa += 1; }
+  if (biswa >= 20) { biswa = 0; bigha += 1; }
+  return `${bigha}-${biswa}-${Number(biswansi.toFixed(4))}`;
 }
 
 export function areaToSqm(value, unit) {
