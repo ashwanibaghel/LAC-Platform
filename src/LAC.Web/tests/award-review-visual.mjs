@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const out = path.resolve('test-results/award-workbench');
+const baseUrl = process.env.AWARD_TEST_BASE_URL || 'http://127.0.0.1:5173';
 fs.mkdirSync(out, {recursive:true});
 const browser = await chromium.launch({headless:true, executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
 const user = {id:'00000000-0000-0000-0000-000000000001',username:'reviewer',displayName:'Review Officer',roles:['Admin'],permissions:[{code:'Award.View',scope:'All'},{code:'Award.Edit',scope:'All'}],workstreams:[],desks:[]};
@@ -28,7 +29,7 @@ function pdf() {
 }
 const pdfBytes=pdf();
 const cropSvg=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="680" height="150"><rect width="100%" height="100%" fill="white"/><path d="M0 0H680M0 149H680" stroke="#666"/><text x="30" y="87" font-family="serif" font-size="50" fill="#222">2//21     4-16     4-10</text></svg>');
-async function open(size,width,height,state='attention',customRows) {
+async function open(size,width,height,state='attention',customRows,pdfUnavailable=false) {
   const started=performance.now();
   const context=await browser.newContext({viewport:{width,height}});
   const page=await context.newPage();
@@ -47,7 +48,7 @@ async function open(size,width,height,state='attention',customRows) {
     }
     if(endpoint.endsWith('/candidates')){const bucket=url.searchParams.get('bucket');const sourcePage=url.searchParams.get('sourcePage');const index=Number(url.searchParams.get('page')||0);const filtered=rows.filter(r=>(bucket==='attention'?!r.safeToConfirm&&!r.verifiedAt:bucket==='exact'?r.safeToConfirm:bucket==='conflict'?r.status==='Conflict':bucket==='unreadable'?r.status==='Invalid':bucket==='verified'?!!r.verifiedAt:true)&&(!sourcePage||String(r.sourcePage)===sourcePage));return route.fulfill({json:{items:filtered.slice(index*100,index*100+100),page:index,pageSize:100,totalCount:filtered.length}});}
     if(endpoint.includes('/source-crop'))return route.fulfill({body:cropSvg,contentType:'image/svg+xml'});
-    if(endpoint.includes('/documents/')&&endpoint.endsWith('/content')){pdfRequests++;return route.fulfill({body:pdfBytes,contentType:'application/pdf'});}
+    if(endpoint.includes('/documents/')&&endpoint.endsWith('/content')){pdfRequests++;return pdfUnavailable?route.fulfill({status:404,json:{title:'Source file missing'}}):route.fulfill({body:pdfBytes,contentType:'application/pdf'});}
     if(route.request().method()==='POST'){
       posts.push({endpoint,body:route.request().postDataJSON()});
       if(endpoint.endsWith('/confirm-exact')){for(const row of rows.filter(r=>r.safeToConfirm&&!r.verifiedAt)){row.verifiedAt='2026-09-26T10:00:00Z';row.verifiedBy='reviewer';}return route.fulfill({json:{confirmed:1}});}
@@ -56,7 +57,7 @@ async function open(size,width,height,state='attention',customRows) {
     }
     return route.fulfill({status:404,json:{title:'No synthetic response'}});
   });
-  await page.goto('http://127.0.0.1:5173/awards/'+guid(1)+'/ingestion/'+guid(4));
+  await page.goto(baseUrl+'/awards/'+guid(1)+'/ingestion/'+guid(4));
   await page.getByRole('main',{name:'Award review workbench'}).waitFor();
   await page.getByText('Review queue').waitFor();
   await page.screenshot({path:path.join(out,`${width}x${height}-${state}-queue.png`),fullPage:false});
@@ -66,21 +67,34 @@ async function open(size,width,height,state='attention',customRows) {
 function fact(i,type,payload){return {...candidate(i),id:guid(i+700),candidateType:type,status:'NeedsReview',safeToConfirm:false,payloadJson:JSON.stringify(payload),sourcePage:43,fieldReviewJson:'[]'};}
 
 try {
-  for(const [width,height] of [[1366,768],[1440,900],[1920,1080]]) {
+  for(const [width,height] of [[1280,720],[1366,768],[1440,900]]) {
     const {page,context,pdfLoads}=await open(250,width,height);
+    const layout=await page.evaluate(()=>{
+      const box=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height)};};
+      return {viewport:{width:innerWidth,height:innerHeight},root:box('.award-wb'),queue:box('.award-wb-queue'),queueList:box('.award-wb-queue-list'),editor:box('.award-wb-editor'),actions:box('.award-wb-editor-actions'),source:box('.award-wb-evidence'),pdf:box('.award-wb-evidence iframe'),pageOverflow:document.documentElement.scrollWidth>innerWidth};
+    });
+    if(layout.pageOverflow||layout.queueList.height<260||layout.actions.height<40||layout.pdf.height<300)throw Error(`Workbench geometry failed: ${JSON.stringify(layout)}`);
+    console.log(`${width}x${height} layout: ${JSON.stringify(layout)}`);
+    await page.getByRole('button',{name:'Hide Queue'}).click();
+    if(await page.locator('.award-wb-grid').getAttribute('data-queue-hidden')!=='true')throw Error('Hide Queue state failed');
+    await page.getByRole('button',{name:'Show Queue'}).click();
+    await page.getByRole('button',{name:'Focus Source'}).click();
+    const focused=await page.locator('.award-wb-evidence').boundingBox();
+    if(focused.width<=layout.source.width)throw Error('Focus Source did not enlarge evidence');
+    await page.getByRole('button',{name:'Balanced View'}).click();
     await page.getByRole('button',{name:/2\/\/21/}).first().click();
     await page.screenshot({path:path.join(out,`${width}x${height}-conflict.png`)});
     await page.getByRole('button',{name:/3\/\/4/}).first().click().catch(()=>{});
-    await page.getByRole('button',{name:'2. Total area recorded Pending'}).click();
+    await page.getByRole('button',{name:'Total area recorded Pending'}).click();
     const frameBefore=await page.locator('.award-wb-evidence iframe').getAttribute('src');
-    await page.getByRole('button',{name:'3. Area awarded Pending'}).click();
+    await page.getByRole('button',{name:'Area awarded Pending'}).click();
     const frameAfter=await page.locator('.award-wb-evidence iframe').getAttribute('src');
     if(frameBefore!==frameAfter)throw Error('Same-page field focus reloaded PDF');
     await page.screenshot({path:path.join(out,`${width}x${height}-field.png`)});
     const loadsBefore=pdfLoads();
     await page.getByRole('button',{name:/3\/\/5/}).first().click();
     if(pdfLoads()!==loadsBefore)throw Error('Same-page candidate switch reloaded PDF');
-    await page.getByRole('button',{name:'3. Area awarded Pending'}).click();
+    await page.getByRole('button',{name:'Area awarded Pending'}).click();
     const human=page.getByRole('textbox',{name:'Human Area awarded'});
     await human.fill('4-11');
     page.once('dialog',dialog=>dialog.dismiss());
@@ -91,7 +105,7 @@ try {
     if(posts)throw Error('Shortcut fired while typing in input');
     await page.reload();
     await page.getByText('Review queue').waitFor();
-    await page.getByRole('button',{name:'Unreadable',exact:true}).click();
+    await page.getByRole('combobox',{name:'Review status'}).selectOption('unreadable');
     await page.screenshot({path:path.join(out,`${width}x${height}-unreadable.png`)});
     await page.getByRole('combobox',{name:'Review source page'}).selectOption('43');
     await page.getByRole('button',{name:/Confirm \d+ exact on page 43/}).click();
@@ -99,13 +113,17 @@ try {
     await page.getByRole('alertdialog').getByRole('button',{name:'Cancel'}).click();
     await context.close();
     const verified=await open(50,width,height,'verified');
-    await verified.page.getByRole('button',{name:'Verified',exact:true}).click();
-    await verified.page.getByText('Verified as Review Officer').waitFor();
+    await verified.page.getByRole('combobox',{name:'Review status'}).selectOption('verified');
+    await verified.page.getByRole('combobox',{name:'Review status'}).waitFor();
     await verified.page.waitForTimeout(400);
     await verified.page.screenshot({path:path.join(out,`${width}x${height}-completed.png`)});
     await verified.context.close();
   }
   for(const size of [50,250,1000]){const {page,context,loadMs}=await open(size,1366,768);const rendered=await page.locator('.award-wb-queue-list>button').count();if(rendered>100)throw Error(`Rendered ${rendered} queue rows for ${size}`);await context.close();console.log(`${size} candidates: ${rendered} lightweight queue rows rendered; ${loadMs} ms to ready in synthetic browser run`);}
+  const unavailable=await open(5,1280,720,'attention',undefined,true);
+  await unavailable.page.getByText('PDF could not be displayed here.').waitFor();
+  if(!await unavailable.page.getByRole('button',{name:'Retry'}).isVisible()||!await unavailable.page.getByRole('link',{name:/Open PDF/}).count())throw Error('PDF fallback lacks actions');
+  await unavailable.context.close();
   const factRows=[candidate(1,'conflict'),fact(2,'Notification',{sectionType:'Section 4',notificationNumber:'FIC/12',notificationDate:null}),fact(3,'AwardValuationRule',{ruleType:'Rate',rateAmount:null,rateUnit:null,legalSection:null}),fact(4,'AwardCompensationRule',{ruleType:'Solatium',ratePercent:null,rateAmount:null,legalSection:null}),candidate(5,'exact')];
   const review=await open(factRows.length,1366,768,'attention',factRows);
   const selectFact=async type=>review.page.locator('.award-wb-queue-list>button').filter({hasText:type}).click();
@@ -126,10 +144,10 @@ try {
   await review.page.getByRole('button',{name:/Confirm & next/}).click();
   const edits=review.posts.filter(p=>p.endpoint.endsWith('/verify')).map(p=>JSON.parse(p.body.correctedPayloadJson));
   if(edits[0].notificationNumber!=='FIC/13'||edits[0].notificationDate!=='2026-09-26'||typeof edits[1].rateAmount!=='number'||edits[1].rateAmount!==125.75||typeof edits[2].ratePercent!=='number'||typeof edits[2].rateAmount!=='number')throw Error('Typed fact corrections lost their candidate contract types');
-  await review.page.getByRole('button',{name:'Attention',exact:true}).click();
+  await review.page.getByRole('combobox',{name:'Review status'}).selectOption('attention');
   if(!await review.page.locator('.award-wb-queue-list>button').filter({hasText:'Conflict'}).count())throw Error('OCR disagreement left Attention');
   await review.page.screenshot({path:path.join(out,'1366x768-ocr-disagreement-attention.png')});
-  await review.page.getByRole('button',{name:'Exact',exact:true}).click();
+  await review.page.getByRole('combobox',{name:'Review status'}).selectOption('exact');
   await review.page.screenshot({path:path.join(out,'1366x768-exact-positive.png')});
   await review.page.getByRole('button',{name:/Confirm \d+ exact in session/}).click();
   await review.page.getByRole('alertdialog').getByRole('button',{name:'Confirm',exact:true}).click();
