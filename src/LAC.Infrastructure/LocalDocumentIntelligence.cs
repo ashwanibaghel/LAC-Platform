@@ -30,7 +30,8 @@ public sealed record LocalDocumentIntelligenceCandidate(
     string? NormalizedSuggestion,
     string? NormalizationReason,
     decimal? Confidence,
-    IReadOnlyList<string>? InterpretationWarnings);
+    IReadOnlyList<string>? InterpretationWarnings,
+    bool? RequiresIndividualReview = null);
 
 public sealed record LocalDocumentIntelligenceResult(
     int ContractVersion,

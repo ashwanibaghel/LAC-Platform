@@ -244,6 +244,7 @@ public sealed partial class AwardIngestionService
         try {await VerifiedSourcePageAsync(row,ct);} catch(AwardIngestionException){return false;}
         var payload=Deserialize<AwardKhasraCandidate>(row);
         try {ValidateReviewPayload(payload);} catch(AwardIngestionException){return false;}
+        if (!ExactPayloadMatchesSource(row.SourceLocatorJson, payload)) return false;
         if(row.Confidence is null or <.98m) return false;
         var matched=await AnalyzeAsync(row.Session,payload,row.Sequence,ct);
         if(matched.CanonicalEntityId is Guid id)
@@ -253,6 +254,28 @@ public sealed partial class AwardIngestionService
             if(link!=null && AwardAreasDisagree(link,payload)) return false;
         }
         return matched.Status==AwardIngestionCandidateStatus.Ready && matched.CanonicalEntityId!=null && matched.ResolutionAction is "LinkExisting" or "AlreadyLinked";
+    }
+
+    private static bool ExactPayloadMatchesSource(string? locator, AwardKhasraCandidate payload)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(locator ?? "{}");
+            var root = document.RootElement;
+            if (!(root.TryGetProperty("requiresIndividualReview", out var flag) || root.TryGetProperty("RequiresIndividualReview", out flag)) || flag.ValueKind != JsonValueKind.False) return true; // legacy non-worker evidence
+            if (!(root.TryGetProperty("structuredPayload", out var source) || root.TryGetProperty("StructuredPayload", out source)) || !source.TryGetProperty("sourceCells", out var cells)) return false;
+            var khasra = cells.GetProperty("khasra").GetProperty("pageAssignedOcr").GetString();
+            if (khasra is null || !new StrictKhasraParser().TryParse(khasra, out var parsed, out _) ||
+                parsed.NormalizedNumber != payload.KhasraNumber || parsed.Qualifier != Clean(payload.Qualifier)) return false;
+            var parser = new StrictAreaParser();
+            if (!parser.TryParse(cells.GetProperty("recordedArea").GetProperty("normalizedSuggestion").GetString() ?? "", out var recorded) ||
+                !parser.TryParse(cells.GetProperty("awardedArea").GetProperty("normalizedSuggestion").GetString() ?? "", out var awarded)) return false;
+            return recorded.Bigha == payload.RecordedAreaBigha && recorded.Biswa == payload.RecordedAreaBiswa && recorded.Biswansi == payload.RecordedAreaBiswansi &&
+                awarded.Bigha == payload.AwardedAreaBigha && awarded.Biswa == payload.AwardedAreaBiswa && awarded.Biswansi == payload.AwardedAreaBiswansi;
+        }
+        catch (JsonException) { return false; }
+        catch (KeyNotFoundException) { return false; }
+        catch (InvalidOperationException) { return false; }
     }
 
     private static void ValidateReviewPayload(IAwardIngestionCandidatePayload payload)

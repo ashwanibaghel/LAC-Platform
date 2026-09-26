@@ -1,0 +1,1 @@
+export const supportedFact = (type: string) => ["AwardCore", "AwardVillage", "Notification", "PossessionEvent", "CourtCase", "Claim", "AwardLandClass", "AwardValuationRule", "AwardCompensationRule", "AwardAreaIssue", "AwardSupplementaryMatter"].includes(type);

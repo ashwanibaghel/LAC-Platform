@@ -28,33 +28,42 @@ function pdf() {
 }
 const pdfBytes=pdf();
 const cropSvg=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="680" height="150"><rect width="100%" height="100%" fill="white"/><path d="M0 0H680M0 149H680" stroke="#666"/><text x="30" y="87" font-family="serif" font-size="50" fill="#222">2//21     4-16     4-10</text></svg>');
-async function open(size,width,height,state='attention') {
+async function open(size,width,height,state='attention',customRows) {
   const started=performance.now();
   const context=await browser.newContext({viewport:{width,height}});
   const page=await context.newPage();
   let pdfRequests=0;
-  const rows=Array.from({length:size},(_,i)=>candidate(i,i===1?'conflict':i===2?'unreadable':i%9===0?'exact':'attention'));
+  const rows=customRows||Array.from({length:size},(_,i)=>candidate(i,i===1?'conflict':i===2?'unreadable':i%9===0?'exact':'attention'));
+  const posts=[];
   if(state==='verified')rows[1]=candidate(1,'verified');
   await page.route('**/api/**',route=>{
     const url=new URL(route.request().url());const endpoint=url.pathname;
     if(endpoint==='/api/auth/me')return route.fulfill({json:user});
+    if(endpoint.endsWith('/workspace'))return route.fulfill({json:{villages:[{id:guid(2),name:'Bijwasan'}]}});
     if(endpoint.endsWith('/overview')){
-      const groups=new Map();for(const row of rows){const key=JSON.stringify([row.status,row.safeToConfirm,!!row.verifiedAt]);groups.set(key,(groups.get(key)||0)+1);}
-      const sections=[...groups].map(([key,count])=>{const [status,safeToConfirm,verified]=JSON.parse(key);return {candidateType:'AwardKhasra',status,safeToConfirm,verified,count};});
+      const groups=new Map();for(const row of rows){const key=JSON.stringify([row.candidateType,row.status,row.safeToConfirm,!!row.verifiedAt]);groups.set(key,(groups.get(key)||0)+1);}
+      const sections=[...groups].map(([key,count])=>{const [candidateType,status,safeToConfirm,verified]=JSON.parse(key);return {candidateType,status,safeToConfirm,verified,count};});
       return route.fulfill({json:{targetAwardId:guid(1),selectedVillageId:guid(2),sourceDocumentId:guid(3),documentName:'Synthetic Award.pdf',awardNumber:'02/2012',villageName:'Bijwasan',sections,pages:Array.from({length:Math.ceil(size/12)},(_,i)=>({page:43+i,count:rows.filter(r=>r.sourcePage===43+i).length,exact:rows.filter(r=>r.sourcePage===43+i&&r.safeToConfirm).length}))}});
     }
     if(endpoint.endsWith('/candidates')){const bucket=url.searchParams.get('bucket');const sourcePage=url.searchParams.get('sourcePage');const index=Number(url.searchParams.get('page')||0);const filtered=rows.filter(r=>(bucket==='attention'?!r.safeToConfirm&&!r.verifiedAt:bucket==='exact'?r.safeToConfirm:bucket==='conflict'?r.status==='Conflict':bucket==='unreadable'?r.status==='Invalid':bucket==='verified'?!!r.verifiedAt:true)&&(!sourcePage||String(r.sourcePage)===sourcePage));return route.fulfill({json:{items:filtered.slice(index*100,index*100+100),page:index,pageSize:100,totalCount:filtered.length}});}
     if(endpoint.includes('/source-crop'))return route.fulfill({body:cropSvg,contentType:'image/svg+xml'});
     if(endpoint.includes('/documents/')&&endpoint.endsWith('/content')){pdfRequests++;return route.fulfill({body:pdfBytes,contentType:'application/pdf'});}
-    if(route.request().method()==='POST')return route.fulfill({status:204});
+    if(route.request().method()==='POST'){
+      posts.push({endpoint,body:route.request().postDataJSON()});
+      if(endpoint.endsWith('/confirm-exact')){for(const row of rows.filter(r=>r.safeToConfirm&&!r.verifiedAt)){row.verifiedAt='2026-09-26T10:00:00Z';row.verifiedBy='reviewer';}return route.fulfill({json:{confirmed:1}});}
+      if(endpoint.endsWith('/verify')){const row=rows.find(r=>endpoint.includes(r.id));if(row){row.verifiedAt='2026-09-26T10:00:00Z';row.verifiedBy='reviewer';row.status='Ready';}return route.fulfill({status:204});}
+      return route.fulfill({status:204});
+    }
     return route.fulfill({status:404,json:{title:'No synthetic response'}});
   });
   await page.goto('http://127.0.0.1:5173/awards/'+guid(1)+'/ingestion/'+guid(4));
   await page.getByRole('main',{name:'Award review workbench'}).waitFor();
   await page.getByText('Review queue').waitFor();
   await page.screenshot({path:path.join(out,`${width}x${height}-${state}-queue.png`),fullPage:false});
-  return {page,context,rows,loadMs:Math.round(performance.now()-started),pdfLoads:()=>pdfRequests};
+  return {page,context,rows,posts,loadMs:Math.round(performance.now()-started),pdfLoads:()=>pdfRequests};
 }
+
+function fact(i,type,payload){return {...candidate(i),id:guid(i+700),candidateType:type,status:'NeedsReview',safeToConfirm:false,payloadJson:JSON.stringify(payload),sourcePage:43,fieldReviewJson:'[]'};}
 
 try {
   for(const [width,height] of [[1366,768],[1440,900],[1920,1080]]) {
@@ -97,5 +106,35 @@ try {
     await verified.context.close();
   }
   for(const size of [50,250,1000]){const {page,context,loadMs}=await open(size,1366,768);const rendered=await page.locator('.award-wb-queue-list>button').count();if(rendered>100)throw Error(`Rendered ${rendered} queue rows for ${size}`);await context.close();console.log(`${size} candidates: ${rendered} lightweight queue rows rendered; ${loadMs} ms to ready in synthetic browser run`);}
+  const factRows=[candidate(1,'conflict'),fact(2,'Notification',{sectionType:'Section 4',notificationNumber:'FIC/12',notificationDate:null}),fact(3,'AwardValuationRule',{ruleType:'Rate',rateAmount:null,rateUnit:null,legalSection:null}),fact(4,'AwardCompensationRule',{ruleType:'Solatium',ratePercent:null,rateAmount:null,legalSection:null}),candidate(5,'exact')];
+  const review=await open(factRows.length,1366,768,'attention',factRows);
+  const selectFact=async type=>review.page.locator('.award-wb-queue-list>button').filter({hasText:type}).click();
+  await selectFact('Notification');
+  await review.page.getByRole('textbox',{name:'Notification number'}).fill('FIC/13');
+  await review.page.getByRole('textbox',{name:'Notification date'}).fill('2026-09-26');
+  await review.page.screenshot({path:path.join(out,'1366x768-notification-correction.png')});
+  await review.page.getByRole('button',{name:/Confirm & next/}).click();
+  await selectFact('AwardValuationRule');
+  await review.page.getByRole('spinbutton',{name:'Rate amount'}).pressSequentially('125.75');
+  if(await review.page.getByRole('spinbutton',{name:'Rate amount'}).inputValue()!=='125.75')throw Error('Decimal typing was interrupted');
+  await review.page.screenshot({path:path.join(out,'1366x768-valuation-correction.png')});
+  await review.page.getByRole('button',{name:/Confirm & next/}).click();
+  await selectFact('AwardCompensationRule');
+  await review.page.getByRole('spinbutton',{name:'Rate percent'}).fill('30');
+  await review.page.getByRole('spinbutton',{name:'Rate amount'}).fill('1500.5');
+  await review.page.screenshot({path:path.join(out,'1366x768-compensation-correction.png')});
+  await review.page.getByRole('button',{name:/Confirm & next/}).click();
+  const edits=review.posts.filter(p=>p.endpoint.endsWith('/verify')).map(p=>JSON.parse(p.body.correctedPayloadJson));
+  if(edits[0].notificationNumber!=='FIC/13'||edits[0].notificationDate!=='2026-09-26'||typeof edits[1].rateAmount!=='number'||edits[1].rateAmount!==125.75||typeof edits[2].ratePercent!=='number'||typeof edits[2].rateAmount!=='number')throw Error('Typed fact corrections lost their candidate contract types');
+  await review.page.getByRole('button',{name:'Attention',exact:true}).click();
+  if(!await review.page.locator('.award-wb-queue-list>button').filter({hasText:'Conflict'}).count())throw Error('OCR disagreement left Attention');
+  await review.page.screenshot({path:path.join(out,'1366x768-ocr-disagreement-attention.png')});
+  await review.page.getByRole('button',{name:'Exact',exact:true}).click();
+  await review.page.screenshot({path:path.join(out,'1366x768-exact-positive.png')});
+  await review.page.getByRole('button',{name:/Confirm \d+ exact in session/}).click();
+  await review.page.getByRole('alertdialog').getByRole('button',{name:'Confirm',exact:true}).click();
+  if(!factRows[4].verifiedAt||factRows[4].status!=='Ready'||review.posts.some(p=>p.endpoint.endsWith('/commit-verified')))throw Error('Exact confirmation committed canonical data');
+  await review.page.screenshot({path:path.join(out,'1366x768-exact-verified-uncommitted.png')});
+  await review.context.close();
   console.log(`Screenshots: ${out}`);
 }finally{await browser.close();}

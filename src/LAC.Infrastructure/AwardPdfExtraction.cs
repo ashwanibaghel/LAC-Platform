@@ -421,6 +421,7 @@ public static class LocalIntelligenceCandidateMapper
                 candidate.RawOcr,
                 candidate.NormalizedSuggestion,
                 candidate.NormalizationReason,
+                candidate.RequiresIndividualReview,
                 OcrSource = "RapidOCR + Table Transformer",
                 Warnings = (candidate.InterpretationWarnings ?? []).Append("Local document-intelligence suggestion requires human verification.").ToArray()
             }, Json);

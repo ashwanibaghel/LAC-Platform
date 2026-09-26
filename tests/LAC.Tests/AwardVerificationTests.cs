@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -131,6 +132,108 @@ public sealed class AwardVerificationTests
         Assert.Equal(1,await f.Service.ConfirmExactAsync(session.Id,new("Test officer",1),default));
         var c=await f.Db.AwardIngestionCandidates.SingleAsync();Assert.NotNull(c.VerifiedAt);Assert.Equal("Test officer",c.VerifiedBy);
         Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Strong_local_geometry_reaches_exact_and_confirmation_does_not_commit()
+    {
+        await using var f = await Fixture.Create();
+        var session = await f.Preview(StrongLocalInput(f.Document.Id));
+        var row = await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.Equal(AwardIngestionCandidateStatus.Ready, row.Status);
+        Assert.True(row.SafeToConfirm);
+        Assert.Equal(.995m, row.Confidence);
+        Assert.Equal(1, await f.Service.ConfirmExactAsync(session.Id, new("Authenticated officer", 1), default));
+        Assert.NotNull(row.VerifiedAt);
+        Assert.Equal("Authenticated officer", row.VerifiedBy);
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());
+        Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("disagreement")]
+    [InlineData("crop-unreadable")]
+    [InlineData("low-confidence")]
+    [InlineData("impossible-confidence")]
+    [InlineData("missing-confidence")]
+    [InlineData("contamination")]
+    [InlineData("invalid-area")]
+    [InlineData("different-row")]
+    [InlineData("no-master")]
+    [InlineData("identifier-mismatch")]
+    [InlineData("open-review-flag")]
+    [InlineData("existing-award-area-conflict")]
+    public async Task Risky_local_geometry_never_enters_exact_lane(string risk)
+    {
+        await using var f = await Fixture.Create();
+        var input = StrongLocalInput(f.Document.Id);
+        var locator = JsonNode.Parse(input.SourceLocatorJson!)!;
+        var cells = locator["structuredPayload"]!["sourceCells"]!;
+        switch (risk)
+        {
+            case "disagreement":
+                cells["khasra"]!["cellCropOcr"] = "4//13 min";
+                cells["khasra"]!["cellCropConfidence"] = .999;
+                cells["khasra"]!["recognitionAgreement"] = "OcrDisagreement";
+                break;
+            case "crop-unreadable": cells["khasra"]!["cellCropAttempted"] = true; break;
+            case "low-confidence": cells["recordedArea"]!["pageAssignedConfidence"] = .97; input = input with { Confidence = .97m }; break;
+            case "impossible-confidence": cells["recordedArea"]!["pageAssignedConfidence"] = 1.2; break;
+            case "missing-confidence": cells["awardedArea"]!.AsObject().Remove("pageAssignedConfidence"); input = input with { Confidence = null }; break;
+            case "contamination": cells["recordedArea"]!["contaminationStatus"] = "ContaminationRecovered"; break;
+            case "invalid-area": cells["recordedArea"]!["normalizedSuggestion"] = "2-?"; break;
+            case "different-row": cells["awardedArea"]!["rowId"] = 2; break;
+            case "no-master":
+                cells["khasra"]!["pageAssignedOcr"] = "9//9";
+                cells["khasra"]!["normalizedSuggestion"] = "9//9";
+                input = input with { PayloadJson = JsonSerializer.Serialize(new AwardKhasraCandidate("9//9", null, null, null, null, 2, 2, null, 1, 1, null)) };
+                break;
+            case "identifier-mismatch": cells["khasra"]!["pageAssignedOcr"] = "9//9"; break;
+            case "open-review-flag": f.Db.Add(new KhasraReviewFlag { Khasra = f.Khasra, ReasonCode = "Test" }); await f.Db.SaveChangesAsync(); break;
+            case "existing-award-area-conflict": f.Db.Add(new AwardKhasra { Award = f.Award, Khasra = f.Khasra, RecordedTotalAreaBigha = 9 }); await f.Db.SaveChangesAsync(); break;
+        }
+        var session = await f.Preview(input with { SourceLocatorJson = locator.ToJsonString() });
+        var row = await f.Db.AwardIngestionCandidates.SingleAsync(x => x.SessionId == session.Id);
+        Assert.False(row.SafeToConfirm);
+        await Assert.ThrowsAsync<AwardIngestionException>(() => f.Service.ConfirmExactAsync(session.Id, new("Officer", 1), default));
+    }
+
+    [Fact]
+    public async Task Numeric_human_corrections_remain_numbers_and_verify_against_candidate_contracts()
+    {
+        await using var f = await Fixture.Create();
+        var session = await f.Preview(f.Input(new ValuationRuleCandidate("Rate", null, null)),
+            f.Input(new CompensationRuleCandidate("Solatium", null, null, null)),
+            f.Input(new AreaIssueCandidate("Difference", null, null, null)));
+        var rows = await f.Db.AwardIngestionCandidates.Where(x => x.SessionId == session.Id).OrderBy(x => x.Sequence).ToListAsync();
+        var payloads = new[] {
+            "{\"ruleType\":\"Rate\",\"rateAmount\":125.75,\"rateUnit\":\"acre\",\"legalSection\":null}",
+            "{\"ruleType\":\"Solatium\",\"ratePercent\":30,\"rateAmount\":1500.5,\"legalSection\":null}",
+            "{\"issueType\":\"Difference\",\"notificationAreaBigha\":5.25,\"fieldBookAreaBigha\":4,\"differenceBigha\":1.25}"
+        };
+        for (var index = 0; index < rows.Count; index++)
+        {
+            using var parsed = JsonDocument.Parse(payloads[index]);
+            var numeric = index switch { 0 => "rateAmount", 1 => "ratePercent", _ => "differenceBigha" };
+            Assert.Equal(JsonValueKind.Number, parsed.RootElement.GetProperty(numeric).ValueKind);
+            await f.Service.VerifyFactAsync(rows[index].Id, new("Officer", payloads[index]), default);
+            Assert.NotNull(rows[index].VerifiedAt);
+            Assert.Equal(JsonValueKind.Number, JsonDocument.Parse(rows[index].StructuredPayloadJson).RootElement.GetProperty(numeric).ValueKind);
+        }
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());
+    }
+
+    private static IngestionCandidateInput StrongLocalInput(Guid documentId)
+    {
+        static object Cell(string raw, int column, decimal confidence) => new { rawOcr = raw, pageAssignedOcr = raw, normalizedSuggestion = raw, pageAssignedConfidence = confidence,
+            sourceRegion = new { x = column * 20 + 1, y = 10, width = 18, height = 8 }, tableId = 1, logicalGroupId = 1, rowId = 1, columnIndex = column,
+            recognitionAgreement = "SingleRecognizer", multiViewPredictions = Array.Empty<object>() };
+        var sourceCells = new { khasra = Cell("4//12 min", 0, .999m), recordedArea = Cell("2-2", 1, .995m), awardedArea = Cell("1-1", 2, .997m) };
+        var structured = JsonSerializer.SerializeToElement(new { khasraNumber = "4//12", qualifier = "min", recordedArea = new { normalizedSuggestion = "2-2" }, awardedArea = new { normalizedSuggestion = "1-1" }, sourceCells });
+        var candidate = new LocalDocumentIntelligenceCandidate("AwardKhasra", structured, 1, JsonSerializer.SerializeToElement(new { x = 1, y = 10, width = 18, height = 8 }), "4//12 min", "4//12 min", "4//12 min", null, .995m,
+            ["Geometry-backed OCR suggestion; human review required"], false);
+        var result = new LocalDocumentIntelligenceResult(1, documentId, "Completed", 1, [candidate], [], JsonSerializer.SerializeToElement(new { }));
+        return Assert.Single(LocalIntelligenceCandidateMapper.Map(result));
     }
 
     [Theory]

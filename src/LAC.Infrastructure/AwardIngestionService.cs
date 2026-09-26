@@ -296,11 +296,81 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
                 reason = "Award Khasra source cells do not prove one table, logical group, and row; review is required.";
                 return true;
             }
+            if ((root.TryGetProperty("requiresIndividualReview", out var required) || root.TryGetProperty("RequiresIndividualReview", out required)) &&
+                required.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            {
+                if (required.ValueKind == JsonValueKind.True)
+                {
+                    reason = "Local OCR evidence requires individual review.";
+                    return true;
+                }
+                // The explicit non-blocking flag is accepted only with complete,
+                // independently checked source evidence. A producer cannot make a
+                // risky row safe by changing generic warning text.
+                if (!SafeExactCellEvidence(payload, out reason)) return true;
+                if (root.TryGetProperty("Warnings", out var explicitWarnings) || root.TryGetProperty("warnings", out explicitWarnings))
+                    foreach (var warning in explicitWarnings.EnumerateArray())
+                        if (warning.ValueKind == JsonValueKind.String && !AdvisoryWarning(warning.GetString()))
+                        {
+                            reason = warning.GetString() ?? "Unresolved OCR warning.";
+                            return true;
+                        }
+                return false;
+            }
             if (!root.TryGetProperty("Warnings", out var warnings) && !root.TryGetProperty("warnings", out warnings)) return false;
             var values = warnings.EnumerateArray().Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
             if (values.Count == 0) return false; reason = string.Join(" ", values!); return true;
         }
-        catch (JsonException) { return false; }
+        catch (JsonException) { reason = "Malformed source evidence requires review."; return true; }
+        catch (InvalidOperationException) { reason = "Malformed source evidence requires review."; return true; }
+        catch (FormatException) { reason = "Malformed source confidence requires review."; return true; }
+    }
+    private static bool AdvisoryWarning(string? warning) => warning is
+        "Local document-intelligence suggestion requires human verification." or
+        "Geometry-backed OCR suggestion; human review required" or
+        "Rectangle/Mustatil not structurally present; not inherited";
+
+    private static bool SafeExactCellEvidence(JsonElement payload, out string reason)
+    {
+        reason = "Required source-cell geometry, readings, or confidence is missing.";
+        if (payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty("sourceCells", out var cells) ||
+            cells.ValueKind != JsonValueKind.Object || !SameSourceRow(cells)) return false;
+        var columns = new HashSet<int>();
+        foreach (var name in new[] { "khasra", "recordedArea", "awardedArea" })
+        {
+            if (!cells.TryGetProperty(name, out var cell) || cell.ValueKind != JsonValueKind.Object ||
+                !cell.TryGetProperty("sourceRegion", out var region) || region.ValueKind != JsonValueKind.Object ||
+                !region.TryGetProperty("width", out var width) || width.GetDouble() <= 0 ||
+                !region.TryGetProperty("height", out var height) || height.GetDouble() <= 0 ||
+                !cell.TryGetProperty("tableId", out var table) || !table.TryGetInt32(out var tableId) || tableId < 0 ||
+                !cell.TryGetProperty("logicalGroupId", out var group) || !group.TryGetInt32(out var groupId) || groupId < 0 ||
+                !cell.TryGetProperty("rowId", out var row) || !row.TryGetInt32(out var rowId) || rowId < 0 ||
+                !cell.TryGetProperty("columnIndex", out var column) || !column.TryGetInt32(out var columnId) || !columns.Add(columnId) ||
+                !cell.TryGetProperty("pageAssignedConfidence", out var confidence) || confidence.ValueKind != JsonValueKind.Number || confidence.GetDecimal() is < .98m or > 1m)
+                return false;
+            if (!cell.TryGetProperty("pageAssignedOcr", out var pageReading) || pageReading.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(pageReading.GetString()) ||
+                !cell.TryGetProperty("normalizedSuggestion", out var suggestion) || suggestion.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(suggestion.GetString())) return false;
+            var original = pageReading.GetString()!.Trim();
+            if (cell.TryGetProperty("cellCropAttempted", out var attempted) && attempted.ValueKind == JsonValueKind.True &&
+                (!cell.TryGetProperty("cellCropOcr", out var attemptedReading) || attemptedReading.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(attemptedReading.GetString()))) return false;
+            if (cell.TryGetProperty("cellCropOcr", out var crop) && crop.ValueKind == JsonValueKind.String)
+            {
+                if (!string.Equals(original, crop.GetString()?.Trim(), StringComparison.Ordinal) ||
+                    !cell.TryGetProperty("cellCropConfidence", out var cropConfidence) || cropConfidence.ValueKind != JsonValueKind.Number || cropConfidence.GetDecimal() is < .98m or > 1m) return false;
+            }
+            if (cell.TryGetProperty("recognitionAgreement", out var agreement) && agreement.ValueKind == JsonValueKind.String && agreement.GetString() is "OcrDisagreement" or "Unreadable") return false;
+            if (cell.TryGetProperty("contaminationStatus", out var contamination) && contamination.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(contamination.GetString())) return false;
+            if (cell.TryGetProperty("innerCellOcr", out var inner) && inner.ValueKind == JsonValueKind.String && !string.Equals(original, inner.GetString()?.Trim(), StringComparison.Ordinal)) return false;
+            if (cell.TryGetProperty("multiViewPredictions", out var alternatives))
+            {
+                if (alternatives.ValueKind != JsonValueKind.Array) return false;
+                foreach (var alternative in alternatives.EnumerateArray())
+                    if (alternative.ValueKind != JsonValueKind.Object || !alternative.TryGetProperty("rawPrediction", out var reading) || reading.ValueKind != JsonValueKind.String || !string.Equals(original, reading.GetString()?.Trim(), StringComparison.Ordinal)) return false;
+            }
+            if (name != "khasra" && !new StrictAreaParser().TryParse(suggestion.GetString()!, out _)) return false;
+        }
+        reason = "";
+        return true;
     }
     private static bool SameSourceRow(JsonElement cells)
     {

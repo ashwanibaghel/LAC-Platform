@@ -153,7 +153,7 @@ def award_table_groups(header_cells: dict[int, str], column_count: int | None = 
     return groups
 
 
-def field(value: str | None, region: dict | None, *, area: bool = False, cell_crop_ocr: str | None = None, cell_identity: dict | None = None, multi_view_predictions: list[dict] | None = None, recognition_agreement: str | None = None, inner_cell_ocr: str | None = None, contamination_status: str | None = None) -> dict:
+def field(value: str | None, region: dict | None, *, area: bool = False, cell_crop_ocr: str | None = None, cell_identity: dict | None = None, multi_view_predictions: list[dict] | None = None, recognition_agreement: str | None = None, inner_cell_ocr: str | None = None, contamination_status: str | None = None, page_assigned_confidence: float | None = None, cell_crop_confidence: float | None = None, cell_crop_attempted: bool = False) -> dict:
     raw = " ".join(str(value or "").split())
     crop = " ".join(str(cell_crop_ocr or "").split()) or None
     chosen = crop or raw
@@ -162,6 +162,9 @@ def field(value: str | None, region: dict | None, *, area: bool = False, cell_cr
         "rawOcr": raw,
         "pageAssignedOcr": raw,
         "cellCropOcr": crop,
+        "cellCropAttempted": cell_crop_attempted,
+        "pageAssignedConfidence": page_assigned_confidence,
+        "cellCropConfidence": cell_crop_confidence,
         "innerCellOcr": inner_cell_ocr,
         "contaminationStatus": contamination_status,
         "multiViewPredictions": multi_view_predictions or [],
@@ -186,14 +189,14 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
         cell = cells.get(column, {})
         return {"tableId": table_id, "rowId": row_id, "columnIndex": column, "logicalGroupId": group_id}
     khasra_cell = cells.get(roles["khasra"], {})
-    khasra = field(khasra_cell.get("text"), khasra_cell.get("region"), cell_crop_ocr=khasra_cell.get("cellCropOcr"), cell_identity=source(roles["khasra"]), multi_view_predictions=khasra_cell.get("multiViewPredictions"), recognition_agreement=khasra_cell.get("recognitionAgreement"))
+    khasra = field(khasra_cell.get("text"), khasra_cell.get("region"), cell_crop_ocr=khasra_cell.get("cellCropOcr"), cell_identity=source(roles["khasra"]), multi_view_predictions=khasra_cell.get("multiViewPredictions"), recognition_agreement=khasra_cell.get("recognitionAgreement"), page_assigned_confidence=khasra_cell.get("confidence"), cell_crop_confidence=khasra_cell.get("cellCropConfidence"), cell_crop_attempted="cellCropOcr" in khasra_cell)
     number, qualifier = strict_khasra(khasra["rawOcr"])
     if not number:
         return None
     recorded_cell = cells.get(roles["recordedArea"], {})
     awarded_cell = cells.get(roles["awardedArea"], {})
-    recorded = field(recorded_cell.get("text"), recorded_cell.get("region"), area=True, cell_crop_ocr=recorded_cell.get("cellCropOcr"), cell_identity=source(roles["recordedArea"]), multi_view_predictions=recorded_cell.get("multiViewPredictions"), recognition_agreement=recorded_cell.get("recognitionAgreement"), inner_cell_ocr=recorded_cell.get("innerCellOcr"), contamination_status=recorded_cell.get("contaminationStatus"))
-    awarded = field(awarded_cell.get("text"), awarded_cell.get("region"), area=True, cell_crop_ocr=awarded_cell.get("cellCropOcr"), cell_identity=source(roles["awardedArea"]), multi_view_predictions=awarded_cell.get("multiViewPredictions"), recognition_agreement=awarded_cell.get("recognitionAgreement"), inner_cell_ocr=awarded_cell.get("innerCellOcr"), contamination_status=awarded_cell.get("contaminationStatus"))
+    recorded = field(recorded_cell.get("text"), recorded_cell.get("region"), area=True, cell_crop_ocr=recorded_cell.get("cellCropOcr"), cell_identity=source(roles["recordedArea"]), multi_view_predictions=recorded_cell.get("multiViewPredictions"), recognition_agreement=recorded_cell.get("recognitionAgreement"), inner_cell_ocr=recorded_cell.get("innerCellOcr"), contamination_status=recorded_cell.get("contaminationStatus"), page_assigned_confidence=recorded_cell.get("confidence"), cell_crop_confidence=recorded_cell.get("cellCropConfidence"), cell_crop_attempted="cellCropOcr" in recorded_cell)
+    awarded = field(awarded_cell.get("text"), awarded_cell.get("region"), area=True, cell_crop_ocr=awarded_cell.get("cellCropOcr"), cell_identity=source(roles["awardedArea"]), multi_view_predictions=awarded_cell.get("multiViewPredictions"), recognition_agreement=awarded_cell.get("recognitionAgreement"), inner_cell_ocr=awarded_cell.get("innerCellOcr"), contamination_status=awarded_cell.get("contaminationStatus"), page_assigned_confidence=awarded_cell.get("confidence"), cell_crop_confidence=awarded_cell.get("cellCropConfidence"), cell_crop_attempted="cellCropOcr" in awarded_cell)
     rectangle = field(cells.get(roles.get("rectangle"), {}).get("text"), cells.get(roles.get("rectangle"), {}).get("region"), cell_identity=source(roles["rectangle"])) if "rectangle" in roles else None
     warnings = ["Geometry-backed OCR suggestion; human review required"]
     if rectangle is None or not rectangle["normalizedSuggestion"]:
@@ -204,6 +207,15 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
         warnings.append("OCR readings disagree; verify each source cell visually")
     if any(cell["contaminationStatus"] == "ContaminationRecovered" for cell in (recorded, awarded)):
         warnings.append("Inner cell reading suggests border contamination; both readings require human verification")
+    required = (khasra, recorded, awarded)
+    confidences = [reading["pageAssignedConfidence"] for reading in required]
+    confidence = min(confidences) if all(value is not None and 0 <= value <= 1 for value in confidences) else None
+    requires_individual_review = (confidence is None or confidence < .98 or
+        any(reading["sourceRegion"] is None or reading["recognitionAgreement"] in ("OcrDisagreement", "Unreadable") or
+            reading["contaminationStatus"] is not None or not reading["normalizedSuggestion"] or
+            (reading["cellCropAttempted"] and (reading["cellCropOcr"] is None or reading["cellCropOcr"] != reading["pageAssignedOcr"] or reading["cellCropConfidence"] is None or reading["cellCropConfidence"] < .98)) or
+            any(item.get("rawPrediction") != reading["pageAssignedOcr"] for item in reading["multiViewPredictions"])
+            for reading in required))
     return {
         "candidateType": "AwardKhasra",
         "structuredPayload": {"tableType": "AwardLandTable", "tableId": table_id, "rowId": row_id, "logicalGroupId": group_id, "rectangle": rectangle, "khasraNumber": number, "qualifier": qualifier, "recordedArea": recorded, "awardedArea": awarded, "sourceCells": {"khasra": khasra, "recordedArea": recorded, "awardedArea": awarded}},
@@ -213,7 +225,8 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
         "rawOcr": khasra["rawOcr"],
         "normalizedSuggestion": f"{number}{' min' if qualifier else ''}",
         "normalizationReason": None,
-        "confidence": cells[roles["khasra"]].get("confidence"),
+        "confidence": confidence,
+        "requiresIndividualReview": requires_individual_review,
         "interpretationWarnings": warnings,
     }
 

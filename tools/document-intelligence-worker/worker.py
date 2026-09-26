@@ -61,12 +61,22 @@ def rows_for_table(geometry: list[dict], table_box: dict, words, page: int, tabl
     rows.sort(key=lambda value: value.y)
     columns.sort(key=lambda value: value.x)
     table, _ = join_words_to_grid(table_box=BoundingBox(**table_box), row_boxes=rows, column_boxes=columns, words=words)
+    assigned_scores: dict[tuple[int, int], list[float | None]] = {}
+    for word in words:
+        box = region(word.bounding_box)
+        if not inside(table_box, box):
+            continue
+        row_ids = [index for index, row in enumerate(rows) if inside(region(row), box)]
+        column_ids = [index for index, column in enumerate(columns) if inside(region(column), box)]
+        if len(row_ids) == len(column_ids) == 1:
+            assigned_scores.setdefault((row_ids[0], column_ids[0]), []).append(word.confidence)
     grouped: dict[int, dict[int, dict]] = {}
     for cell in table.cells:
+        scores = assigned_scores.get((cell.row, cell.column), [])
         grouped.setdefault(cell.row, {})[cell.column] = {
             "text": cell.text,
             "region": region(cell.bounding_box),
-            "confidence": None,
+            "confidence": min(scores) if scores and all(score is not None and 0 <= score <= 1 for score in scores) else None,
             "page": page,
             "tableId": table_id,
         }
@@ -89,7 +99,7 @@ def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict
     return {column: " ".join(text) for column, text in values.items()}
 
 
-def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int]) -> str | None:
+def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int]) -> str | None:
     """Recognition-only unified crop; never used outside Table Transformer cells."""
     from benchmark.cell_crop_pipeline_v9 import normalize_from_page
 
@@ -97,15 +107,19 @@ def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float,
     key = (float(box["x"]), float(box["y"]), float(box["width"]), float(box["height"]))
     if key in crop_cache:
         counters["cellOcrCacheHits"] += 1
-        return crop_cache[key]
+        cell["cellCropConfidence"] = crop_cache[key][1]
+        return crop_cache[key][0]
     started = time.perf_counter()
     _, normalized, _ = normalize_from_page(image, cell["region"])
     output = ocr(normalized)
     counters["selectiveCellOcrSeconds"] += time.perf_counter() - started
     counters["cellOcrCalls"] += 1
     texts = list(output.txts) if output.txts is not None else []
-    crop_cache[key] = " ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None
-    return crop_cache[key]
+    scores = list(output.scores) if output.scores is not None else []
+    confidence = min(float(score) for score in scores) if scores and len(scores) == len(texts) and all(score is not None and 0 <= float(score) <= 1 for score in scores) else None
+    crop_cache[key] = (" ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None, confidence)
+    cell["cellCropConfidence"] = confidence
+    return crop_cache[key][0]
 
 
 def reading_agreement(readings: list[str | None]) -> str:
@@ -143,7 +157,7 @@ def difficult_cell_views(image, cell: dict, ocr, counters: dict[str, int]) -> No
         counters["ocrDisagreements"] += 1
 
 
-def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
+def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
     from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, infer_court_table_kind, table_kind
 
     candidates: list[dict] = []
@@ -791,7 +805,7 @@ def main() -> int:
                 geometry = geometry_engine.detect(image)
                 counters["tableTransformerCalls"] += 1
                 stages["tableLayout"] += time.perf_counter() - stage_started
-                crop_cache: dict[tuple[float, float, float, float], str | None] = {}
+                crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]] = {}
                 geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr, crop_cache, counters, not args.disable_court)
                 # Court parsing is pure same-row interpretation. Crop OCR is
                 # timed at the call site, so geometry parsing is not falsely

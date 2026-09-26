@@ -6,3 +6,4 @@
 @media(max-width:1100px){.award-wb-grid{grid-template-columns:230px minmax(330px,390px) minmax(0,1fr)}.award-wb-header{padding:8px 12px}.award-wb-crop{height:175px}}@media(max-width:800px){.award-wb{position:relative;min-height:100vh}.award-wb-header{height:auto;flex-wrap:wrap}.award-wb-grid{display:flex;flex-direction:column}.award-wb-queue{height:300px}.award-wb-editor{min-height:480px}.award-wb-evidence{height:600px}.award-wb-group-actions{height:auto;flex-wrap:wrap}}
 .award-wb-readings{font-size:11px;color:#557086}.award-wb-readings summary{cursor:pointer;font-weight:700}.award-wb-readings div{padding:3px 0;border-top:1px solid #e4ebf0;overflow-wrap:anywhere}
 .award-wb-crop{overflow:auto}
+.award-wb-other select,.award-wb-other textarea{width:100%;min-height:35px;padding:6px 8px;border:1px solid #a9c0d2;border-radius:4px;background:#fff;color:#18364c;font:inherit}.award-wb-other textarea{min-height:75px;resize:vertical}.award-wb-other small{color:#607688}

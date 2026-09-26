@@ -52,6 +52,27 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Quality_dataset_requires_AwardEdit_even_for_an_AwardView_user()
+    {
+        await using var viewOnlyFactory = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAccessControlService>();
+            services.AddScoped<IAccessControlService, AwardViewOnlyAccessControl>();
+        }));
+        using var client = viewOnlyFactory.CreateClient();
+        using var denied = await client.GetAsync($"/api/award-ingestion-sessions/{Guid.NewGuid()}/quality-dataset");
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, denied.StatusCode);
+        using var allowed = await client.GetAsync($"/api/award-ingestion-sessions/{Guid.NewGuid()}/overview");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, allowed.StatusCode);
+    }
+
+    private sealed class AwardViewOnlyAccessControl : IAccessControlService
+    {
+        public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken ct = default) => Task.FromResult(permissionCode == PermissionCodes.AwardView);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+    }
+
+    [Fact]
     public async Task Unknown_api_route_is_not_served_as_the_spa()
     {
         using var response = await _client.GetAsync("/api/does-not-exist");
