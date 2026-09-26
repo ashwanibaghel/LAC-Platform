@@ -14,6 +14,11 @@ test("mixed revenue input validates and round-trips", () => {
   assert.equal(validateRevenue(2, 20, 0).valid, false); assert.equal(validateRevenue(2, 9, 20).valid, false);
   const result = sqmToRevenue(revenueToSqm({ bigha: 2, biswa: 9, biswansi: 1 }));
   assert.equal(result.bigha, 2); assert.equal(result.biswa, 9); assert.equal(result.biswansi, 1);
+
+  // A hectare must convert through the exact canonical hierarchy, not a rounded
+  // square-yard approximation. A square metre also yields a usable triplet.
+  assert.equal(sqmToRevenue(10000).totalBiswansi, 10000 / 2.1075);
+  assert.deepEqual(sqmToRevenue(843), { bigha: 1, biswa: 0, biswansi: 0, totalBiswansi: 400 });
 });
 test("standard area and Ghatta conversions", () => {
   assert.equal(areaToSqm(1, "hectare"), 10000); assert.equal(areaToSqm(1, "sqkm"), 1000000);
