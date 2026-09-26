@@ -39,7 +39,7 @@ public sealed partial class AwardIngestionService
     public async Task<IngestionCommitResult> CommitVerifiedAsync(Guid sessionId,CommitVerifiedRequest request,CancellationToken ct)
     {
         RequireReviewer(request.VerifiedBy);
-        var ids=await db.AwardIngestionCandidates.Where(x=>x.SessionId==sessionId && x.VerifiedAt!=null && x.Status==AwardIngestionCandidateStatus.Ready).Select(x=>x.Id).ToListAsync(ct);
+        var ids=await db.AwardIngestionCandidates.Reviewable().Where(x=>x.SessionId==sessionId && x.VerifiedAt!=null && x.Status==AwardIngestionCandidateStatus.Ready).Select(x=>x.Id).ToListAsync(ct);
         if(ids.Count==0 || ids.Count!=request.ExpectedCount) throw new AwardIngestionException("Verified selection changed. Refresh before committing.",409);
         return await CommitAsync(sessionId,ids,request.VerifiedBy,ct);
     }
@@ -56,7 +56,7 @@ public sealed partial class AwardIngestionService
     public async Task<object> GetReviewOverviewAsync(Guid sessionId,CancellationToken ct)
     {
         var session = await db.AwardIngestionSessions.AsNoTracking().Where(x=>x.Id==sessionId).Select(x=>new {x.Id,x.TargetAwardId,x.SelectedVillageId,x.SourceDocumentId,DocumentName=x.SourceDocument==null?null:x.SourceDocument.OriginalFileName,AwardNumber=x.TargetAward==null?null:x.TargetAward.AwardNumber,VillageName=x.SelectedVillage==null?null:x.SelectedVillage.Name}).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("Review not found.",404);
-        var q=db.AwardIngestionCandidates.AsNoTracking().Where(x=>x.SessionId==sessionId);
+        var q=db.AwardIngestionCandidates.AsNoTracking().Reviewable().Where(x=>x.SessionId==sessionId);
         var sections=await q.GroupBy(x=>new{x.CandidateType,x.Status,x.SafeToConfirm,Verified=x.VerifiedAt!=null}).Select(g=>new{g.Key.CandidateType,g.Key.Status,g.Key.SafeToConfirm,g.Key.Verified,Count=g.Count()}).ToListAsync(ct);
         var pages=await q.Where(x=>x.CandidateType==AwardIngestionCandidateType.AwardKhasra).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
         var job=await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x=>x.IngestionSessionId==sessionId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Status,x.TotalPages,x.ProcessedPages}).FirstOrDefaultAsync(ct);

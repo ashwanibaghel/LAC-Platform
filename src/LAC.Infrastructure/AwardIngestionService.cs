@@ -101,7 +101,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
 
     public async Task<IngestionPage<IngestionCandidateReview>> GetCandidatesAsync(Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, CancellationToken ct, string? bucket = null, int? sourcePage = null)
     {
-        var query = db.AwardIngestionCandidates.AsNoTracking().Where(x => x.SessionId == id);
+        var query = db.AwardIngestionCandidates.AsNoTracking().Reviewable().Where(x => x.SessionId == id);
         if (type is not null) query = query.Where(x => x.CandidateType == type);
         if (status is not null) query = query.Where(x => x.Status == status);
         if(sourcePage is not null) query=query.Where(x=>x.SourcePage==sourcePage);
@@ -192,7 +192,7 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
                 if (session.SourceDocumentId is not null) await SavePermanentEvidenceAsync(session, candidate, ct);
                 db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardIngestionCandidate), EntityId = candidate.Id, Action = "IngestionCandidateCommitted", ChangedAt = DateTimeOffset.UtcNow, ChangedBy = Clean(committedBy) });
             }
-            var remaining = session.Candidates.Count(x => x.Status is not AwardIngestionCandidateStatus.Committed and not AwardIngestionCandidateStatus.Skipped and not AwardIngestionCandidateStatus.Rejected);
+            var remaining = session.Candidates.Count(x => x.CandidateType != AwardIngestionCandidateType.UnmappedAwardFinding && x.Status is not AwardIngestionCandidateStatus.Committed and not AwardIngestionCandidateStatus.Skipped and not AwardIngestionCandidateStatus.Rejected);
             session.Status = remaining == 0 ? AwardIngestionSessionStatus.Committed : AwardIngestionSessionStatus.PartiallyCommitted; session.CommittedAt = DateTimeOffset.UtcNow; session.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct); if (transaction is not null) await transaction.CommitAsync(ct);
             return new(created, reused, flags, skipped, remaining);
@@ -393,8 +393,8 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         return !hasIdentity || expected.All(value => value is not null);
     }
     private static string RemoveQualifier(string value, string? qualifier) => qualifier is null ? value : value.EndsWith($" {qualifier}", StringComparison.OrdinalIgnoreCase) ? value[..^(qualifier.Length + 1)] : value;
-    private static AwardIngestionSessionStatus SessionStatus(IEnumerable<AwardIngestionCandidate> items) => items.Any(x => x.Status is AwardIngestionCandidateStatus.Conflict or AwardIngestionCandidateStatus.Ambiguous or AwardIngestionCandidateStatus.Invalid or AwardIngestionCandidateStatus.NeedsReview or AwardIngestionCandidateStatus.DuplicateInBatch) ? AwardIngestionSessionStatus.NeedsReview : AwardIngestionSessionStatus.ReadyToCommit;
-    private static IngestionSessionSummary Summary(AwardIngestionSession session) => new(session.Id, session.SourceType, session.Status, session.SourceDocumentId, session.TargetAwardId, session.SelectedVillageId, session.CreatedAt, session.CommittedAt, session.Candidates.GroupBy(x => x.Status.ToString()).ToDictionary(x => x.Key, x => x.Count()));
+    private static AwardIngestionSessionStatus SessionStatus(IEnumerable<AwardIngestionCandidate> items) => items.Any(x => x.CandidateType != AwardIngestionCandidateType.UnmappedAwardFinding && x.Status is (AwardIngestionCandidateStatus.Conflict or AwardIngestionCandidateStatus.Ambiguous or AwardIngestionCandidateStatus.Invalid or AwardIngestionCandidateStatus.NeedsReview or AwardIngestionCandidateStatus.DuplicateInBatch)) ? AwardIngestionSessionStatus.NeedsReview : AwardIngestionSessionStatus.ReadyToCommit;
+    private static IngestionSessionSummary Summary(AwardIngestionSession session) => new(session.Id, session.SourceType, session.Status is AwardIngestionSessionStatus.NeedsReview or AwardIngestionSessionStatus.ReadyToCommit ? SessionStatus(session.Candidates) : session.Status, session.SourceDocumentId, session.TargetAwardId, session.SelectedVillageId, session.CreatedAt, session.CommittedAt, session.Candidates.Where(x => x.CandidateType != AwardIngestionCandidateType.UnmappedAwardFinding).GroupBy(x => x.Status.ToString()).ToDictionary(x => x.Key, x => x.Count()));
     private static async Task<IngestionPage<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct) { page = Math.Max(page, 0); pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100); var total = await query.CountAsync(ct); return new(await query.Skip(page * pageSize).Take(pageSize).ToListAsync(ct), page, pageSize, total); }
 }
 file sealed record UnsupportedCandidate(AwardIngestionCandidateType CandidateType) : IAwardIngestionCandidatePayload;
