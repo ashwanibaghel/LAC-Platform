@@ -56,8 +56,10 @@ else { $publishArgs += @('--self-contained', 'true') }
 if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed; staging directory is incomplete.' }
 
 Copy-Item (Join-Path $repoRoot 'docs\office-lan-pilot.md') (Join-Path $resolvedPublish 'OFFICE-DEPLOYMENT-README.md') -Force
+Copy-Item (Join-Path $repoRoot 'scripts\diagnose-office-auth.ps1') (Join-Path $resolvedPublish 'diagnose-office-auth.ps1') -Force
 
 Write-Host ''
 Write-Host "IIS package staged at $resolvedPublish."
 Write-Host 'Back up the office database, current deployment, and document storage before the IIS swap.'
 Write-Host 'Configure secrets in protected office-host settings, then verify IIS and ONLYOFFICE after deployment.'
+Write-Host 'On the office host, run .\diagnose-office-auth.ps1 -PackageDirectory <staged-or-live-path> -OfficePreflight before the IIS swap.'

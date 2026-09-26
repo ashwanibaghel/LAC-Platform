@@ -35,6 +35,8 @@ IIS package. The script runs `npx vite build`, copies the web bundle into API
 diagnostics do not prevent Vite from producing the production bundle. Use
 `-FrameworkDependent` only when the office PC has the matching .NET runtime.
 The package contains application files, not database passwords or JWT secrets.
+It also contains `diagnose-office-auth.ps1` and the local `LAC.Api.exe`
+maintenance commands. No maintenance command is exposed over HTTP.
 
 Back up the office PostgreSQL database, the current `C:\LAC-Publish` deployment,
 and document storage before an IIS swap. Startup may apply EF migrations. Verify
@@ -69,6 +71,50 @@ keep the three `Storage__` paths on office-host persistent storage. Do not put
 secrets in the staged package or in source-controlled files. The ONLYOFFICE
 container must reach the IIS origin to fetch `office-file` and submit signed
 callbacks; office browsers must reach port 8082.
+
+## Diagnose office login before changing credentials
+
+Run from an elevated or otherwise authorized PowerShell session **on the office
+PC**, with the same effective environment as the IIS app pool. User-scoped
+environment variables belonging to a different Windows account are not
+automatically visible to IIS. First inspect the generated `web.config` and the
+IIS app pool's environment settings; the doctor prints configuration source
+and process/user/machine presence without printing secrets:
+
+```powershell
+.\diagnose-office-auth.ps1 -PackageDirectory C:\LAC-Publish -OfficePreflight -Username <admin-login> -HealthUrl http://localhost/api/health
+```
+
+Compare the `DB fingerprint` (host, port, database, database username),
+`AppUsers count`, and target user state with the development laptop. A healthy
+`/api/health` only proves that **some** configured database is reachable; it
+does not prove it is the intended database or that its admin password matches.
+For a password check, add `-VerifyPassword`. It prompts without echoing the
+password. Alternatively set `LAC_AUTH_DOCTOR_PASSWORD` in a protected temporary
+process environment; clear it in the calling shell immediately afterwards. Its output is only
+`SUCCESS` or `FAILED`.
+
+The `BootstrapAdmin__Username` and `BootstrapAdmin__Password` settings create
+the first administrator **only when `AppUsers` is empty**. Changing the
+bootstrap password in IIS after users exist does not reset any account.
+Normal startup never updates an existing user's password. A 401 with an
+existing, active user and a failed doctor password check therefore indicates
+that the supplied password differs from the stored hash. An absent user or a
+different DB fingerprint points to database/configuration instead.
+
+For an authorized reset of an **existing** account, stop the IIS site or app
+pool, open a local interactive console on the office PC, then run:
+
+```powershell
+Set-Location C:\LAC-Publish
+.\LAC.Api.exe reset-admin-password --username <admin-login>
+```
+
+The command reads the new password without echo, hashes it using the same
+ASP.NET PasswordHasher as login, updates `PasswordChangedAt`, and exits. It
+will not create a user. Restart IIS, run the doctor with `-VerifyPassword`,
+then test login in the office browser. Do not pass plaintext passwords as
+command-line arguments or place them in `web.config`, the package, or source.
 
 ## Verify after the IIS swap
 

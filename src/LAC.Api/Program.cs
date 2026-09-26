@@ -12,6 +12,9 @@ using System.Text.Json;
 using System.IO.Compression;
 
 var builder = WebApplication.CreateBuilder(args);
+var maintenanceMode = args.Length > 0 && args[0] is "auth-doctor" or "reset-admin-password";
+if (maintenanceMode)
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 var pdfMaxFileSizeMb = Math.Clamp(builder.Configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024);
 var pdfMaxRequestBytes = pdfMaxFileSizeMb * 1024L * 1024L;
 var matterDocumentExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".png", ".jpg", ".jpeg", ".tif", ".tiff" };
@@ -24,8 +27,17 @@ builder.Services.AddMemoryCache();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 if (!builder.Environment.IsEnvironment("Testing"))
 {
-    var configuredConnection = builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured.");
+    var configuredConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(configuredConnection))
+    {
+        if (maintenanceMode)
+        {
+            OfficeAuthMaintenance.ReportMissingConnection(builder.Configuration, builder.Environment);
+            Environment.ExitCode = 1;
+            return;
+        }
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured.");
+    }
     var connection = new NpgsqlConnectionStringBuilder(configuredConnection)
     {
         Pooling = true,
@@ -114,6 +126,11 @@ builder.Services.AddAuthorization();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
+if (maintenanceMode)
+{
+    Environment.ExitCode = await OfficeAuthMaintenance.RunAsync(app.Services, app.Configuration, app.Environment, args);
+    return;
+}
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 if (app.Environment.IsDevelopment()) app.UseDeveloperExceptionPage(); else app.UseExceptionHandler();
 app.UseSwagger();
