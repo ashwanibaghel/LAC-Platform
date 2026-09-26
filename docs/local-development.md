@@ -37,21 +37,24 @@ Restart terminals/IIS after changing environment variables. The document root ca
 ## 3. Run locally
 
 ```powershell
-cd C:\LAC-Platform
-dotnet restore
-dotnet ef database update --project src\LAC.Infrastructure --startup-project src\LAC.Api --context LacDbContext
-dotnet run --project src\LAC.Api --urls http://127.0.0.1:5088
-```
-
-In another terminal:
-
-```powershell
 cd C:\LAC-Platform\src\LAC.Web
-npm install
+npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` and check `http://127.0.0.1:5088/api/health`. A healthy response reports API/database/document-storage status without revealing connection strings or storage paths.
+`npm run dev` builds and starts the API on port 5088, waits for its health
+endpoint, then starts Vite on port 5173. Keep this terminal open. The launcher
+checks the API while you work and restarts it if it exits or stops responding.
+If the API is already healthy, it reuses that process. Use `npm run dev:web`
+only when another process manages the API. Vite alone cannot authenticate users:
+its `/api` proxy returns HTTP 502 while port 5088 is down.
+When `OnlyOffice__Enabled=true`, the launcher binds the API to `0.0.0.0:5088`
+so the Docker document server can reach it; otherwise it uses loopback.
+
+Open `http://127.0.0.1:5173` and check `http://127.0.0.1:5088/api/health`.
+A healthy response reports API/database/document-storage status without
+revealing connection strings or storage paths. A 502 is an API connectivity
+problem; the UI does not treat it as an incorrect password.
 
 ## PDF/OCR and size limits
 
