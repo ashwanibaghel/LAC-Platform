@@ -77,11 +77,12 @@ try {
     console.log(`${width}x${height} layout: ${JSON.stringify(layout)}`);
     await page.getByRole('button',{name:'Hide Queue'}).click();
     if(await page.locator('.award-wb-grid').getAttribute('data-queue-hidden')!=='true')throw Error('Hide Queue state failed');
-    await page.getByRole('button',{name:'Show Queue'}).click();
     await page.getByRole('button',{name:'Focus Source'}).click();
     const focused=await page.locator('.award-wb-evidence').boundingBox();
     if(focused.width<=layout.source.width)throw Error('Focus Source did not enlarge evidence');
     await page.getByRole('button',{name:'Balanced View'}).click();
+    const grid=page.locator('.award-wb-grid');
+    if(await grid.getAttribute('data-queue-hidden')!=='false'||await grid.getAttribute('data-source-focused')!=='false'||!await page.locator('.award-wb-queue').isVisible())throw Error('Balanced View did not restore the three-pane queue');
     await page.getByRole('button',{name:/2\/\/21/}).first().click();
     await page.screenshot({path:path.join(out,`${width}x${height}-conflict.png`)});
     await page.getByRole('button',{name:/3\/\/4/}).first().click().catch(()=>{});
