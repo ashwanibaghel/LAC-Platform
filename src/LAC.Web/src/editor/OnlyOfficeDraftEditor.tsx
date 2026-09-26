@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { MatterDraftEditorPage as LegacyEditor } from "./MatterDraftEditor";
+import { createOfficeHostId } from "./officeHostId";
 import "./onlyoffice-editor.css";
 
 type Draft = {
@@ -72,7 +73,7 @@ function OfficeFrame({ draftId }: { draftId: string }) {
       if (controller.signal.aborted) return;
       // DocsAPI replaces this child; React owns only the stable parent container.
       const placeholder = document.createElement("div");
-      placeholder.id = `office-${crypto.randomUUID()}`;
+      placeholder.id = createOfficeHostId(draftId);
       container.replaceChildren(placeholder);
       readyTimeout = window.setTimeout(() => {
         setLoading(false);
