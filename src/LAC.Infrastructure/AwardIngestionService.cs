@@ -206,13 +206,14 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         if (payload is AwardCoreCandidate core && session.TargetAwardId is Guid targetAwardId)
         {
             var target = await db.Awards.AsNoTracking().SingleAsync(x => x.Id == targetAwardId, ct);
-            if (!string.IsNullOrWhiteSpace(core.AwardNumber) && !string.Equals(target.AwardNumber?.Trim(), core.AwardNumber.Trim(), StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(core.AwardNumber) && !AwardNumberIdentity.Equivalent(target.AwardNumber, core.AwardNumber))
             {
                 item.Status = AwardIngestionCandidateStatus.Conflict;
                 item.ValidationIssuesJson = "[\"Document Award number differs from the current Award context. It was not changed automatically.\"]";
                 item.ConflictDetailsJson = JsonSerializer.Serialize(new { field = "AwardNumber", currentAward = target.AwardNumber, documentSuggestion = core.AwardNumber }, Json);
                 return item;
             }
+            return item;
         }
         if (payload is NotificationCandidate notification)
         {

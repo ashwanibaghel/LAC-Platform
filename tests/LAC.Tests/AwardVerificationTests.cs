@@ -123,6 +123,57 @@ public sealed class AwardVerificationTests
         Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.FactName=="awardNumber");
     }
 
+    [Theory]
+    [InlineData("30/2002-03")]
+    [InlineData("30/2002-2003")]
+    [InlineData("30/2002-2003.")]
+    [InlineData(" 30/2002-2003. ")]
+    public async Task Award_core_year_range_variants_confirm_without_changing_official_number(string documentNumber)
+    {
+        await using var f=await Fixture.Create();
+        f.Award.AwardNumber="30/2002-03";
+        await f.Db.SaveChangesAsync();
+        var session=await f.Preview(f.Input(new AwardCoreCandidate(documentNumber,new DateOnly(2002,12,9),"Main","Source purpose")));
+        var candidate=await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.NotEqual(AwardIngestionCandidateStatus.Conflict,candidate.Status);
+        if(documentNumber=="30/2002-2003.")
+        {
+            // Existing reviews may still carry the conflict stored by the old comparison.
+            candidate.Status=AwardIngestionCandidateStatus.Conflict;
+            candidate.ValidationIssuesJson="[\"Document Award number differs from the current Award context.\"]";
+            candidate.ConflictDetailsJson="{\"field\":\"AwardNumber\"}";
+            await f.Db.SaveChangesAsync();
+        }
+
+        await f.Service.VerifyFactAsync(candidate.Id,new("Officer",null),default);
+        Assert.NotNull(candidate.VerifiedAt);
+        Assert.Null(candidate.ValidationIssuesJson);
+        Assert.Null(candidate.ConflictDetailsJson);
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+
+        Assert.Equal("30/2002-03",f.Award.AwardNumber);
+        Assert.Equal(new DateOnly(2002,12,9),f.Award.AwardDate);
+        Assert.Contains(documentNumber.Trim(),candidate.StructuredPayloadJson);
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.FactName=="awardNumber");
+    }
+
+    [Theory]
+    [InlineData("31/2002-2003")]
+    [InlineData("30/2002-2004")]
+    [InlineData("30/2003-2004")]
+    [InlineData("30/2002-2103")]
+    public async Task Award_core_distinct_numbers_still_conflict(string documentNumber)
+    {
+        await using var f=await Fixture.Create();
+        f.Award.AwardNumber="30/2002-03";
+        await f.Db.SaveChangesAsync();
+        await f.Preview(f.Input(new AwardCoreCandidate(documentNumber,null,"Main",null)));
+        var candidate=await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.Equal(AwardIngestionCandidateStatus.Conflict,candidate.Status);
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.VerifyFactAsync(candidate.Id,new("Officer",null),default));
+        Assert.Equal("30/2002-03",f.Award.AwardNumber);
+    }
+
     [Fact]
     public async Task Exact_group_confirmation_is_human_verification_not_canonical_commit()
     {

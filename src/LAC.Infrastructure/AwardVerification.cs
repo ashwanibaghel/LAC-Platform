@@ -161,6 +161,7 @@ public sealed partial class AwardIngestionService
         var old=row.StructuredPayloadJson;
         row.StructuredPayloadJson=JsonSerializer.Serialize(payload,payload.GetType(),Json);
         row.CanonicalEntityId=checkedRow.CanonicalEntityId; row.CanonicalEntityType=checkedRow.CanonicalEntityType;
+        if(payload is AwardCoreCandidate) {row.ValidationIssuesJson=checkedRow.ValidationIssuesJson;row.ConflictDetailsJson=checkedRow.ConflictDetailsJson;}
         MarkVerified(row,request.VerifiedBy,old,request.Action);
         // This records a local training label only after an explicit human
         // confirmation/correction.  It is not canonical data and commit is
@@ -307,7 +308,9 @@ public sealed partial class AwardIngestionService
         if(payload is AwardCoreCandidate core)
         {
             var award=await db.Awards.SingleAsync(x=>x.Id==session.TargetAwardId,ct);
-            award.AwardNumber=core.AwardNumber.Trim(); award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
+            // Equivalent source spellings confirm the same Award; keep its existing official number.
+            if (!AwardNumberIdentity.Equivalent(award.AwardNumber,core.AwardNumber)) throw new AwardIngestionException("The confirmed Award number no longer matches the linked Award.",409);
+            award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
             candidate.CanonicalEntityId=award.Id;candidate.CanonicalEntityType=nameof(Award);candidate.Status=AwardIngestionCandidateStatus.Committed;return true;
         }
         if(payload is AwardVillageCandidate village)
