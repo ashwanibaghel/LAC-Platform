@@ -72,6 +72,7 @@
 .award-wb-other p{margin:0;color:#607688}
 .award-wb-other textarea{min-height:65px;resize:vertical}
 .award-wb-other small{color:#607688}
+.award-wb-other .award-wb-field-hint{color:#5b7385;font-size:10px;font-weight:400;letter-spacing:normal;line-height:1.3}
 .award-wb-conflict{padding:7px;border-left:3px solid #b65b45;background:#fcf4f1;color:#804837}
 .award-wb-editor-actions{flex:none;min-height:62px;padding:7px 10px;background:#fff;border-top:1px solid #d6e2e9;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .award-wb-editor-actions small{flex-basis:100%;min-height:12px;color:#8c6734;font-size:10px}
