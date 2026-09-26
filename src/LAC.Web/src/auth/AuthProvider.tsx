@@ -28,14 +28,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refreshUser]);
 
   const login = async (username: string, password: string) => {
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-      credentials: "include",
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+        credentials: "include",
+      });
+    } catch {
+      throw new Error("Cannot reach the sign-in server. Your password was not checked; please retry when the API is running.");
+    }
 
     if (!response.ok) {
+      if (response.status === 502 || response.status === 503 || response.status === 504) {
+        throw new Error("Sign-in server is unavailable. Your password was not checked; please retry when the API is running.");
+      }
+      if (response.status !== 401 && response.status !== 400) {
+        throw new Error(`Sign-in failed because of a server error (HTTP ${response.status}). Please retry.`);
+      }
       const err = (await response.json().catch(() => null)) as { message?: string } | null;
       throw new Error(err?.message || "Invalid username or password");
     }
