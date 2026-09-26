@@ -15,7 +15,8 @@ import {
   IconShield,
   IconPlus,
   IconArrowRight,
-  IconAward
+  IconAward,
+  IconCalculator
 } from "../components/Icons";
 import "./home.css";
 
@@ -249,7 +250,7 @@ export const Home: React.FC = () => {
 
         <div className="home-dense-modules-grid">
           <button type="button" onClick={openCalculator} className="home-clean-card calc-home-card">
-            <div className="home-clean-card-head"><div className="home-clean-icon">▦</div><div className="home-clean-info"><h3>Land &amp; Area Calculator</h3><p>Revenue conversions &amp; calculator.</p></div></div>
+            <div className="home-clean-card-head"><div className="home-clean-icon"><IconCalculator size={18} /></div><div className="home-clean-info"><h3>Land &amp; Area Calculator</h3><p>Revenue conversions &amp; calculator.</p></div></div>
             <div className="home-clean-action"><span>Open</span><IconArrowRight size={14} /></div>
           </button>
           {/* Module 1: Land Records */}

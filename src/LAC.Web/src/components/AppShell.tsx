@@ -22,7 +22,8 @@ import {
   IconSearch,
   IconMenu,
   IconLogOut,
-  IconChevronRight
+  IconChevronRight,
+  IconCalculator
 } from "./Icons";
 
 const api = "/api";
@@ -350,7 +351,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* Right: Actions & User Identity */}
         <div className="lac-header-right">
-          <button className="lac-header-attention-btn" onClick={openCalculator} title="Land and Area Calculator">▦ <span>Calculator</span></button>
+          <button className="lac-header-attention-btn" onClick={openCalculator} title="Land and Area Calculator"><IconCalculator size={15} /> <span>Calculator</span></button>
           {canAccessAttention() && (
             <Link to="/my-attention" className="lac-header-attention-btn" title="Needs Attention">
               <IconAttention size={16} />
