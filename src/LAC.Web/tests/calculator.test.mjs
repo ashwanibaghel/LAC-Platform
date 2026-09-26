@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AREA_UNITS, areaToSqm, lengthToMetres, parseRevenueShorthand, revenueToSqm, sqmToRevenue, validateRevenue } from "../src/calculator/landConversions.js";
+import { AREA_UNITS, addRevenueAreas, areaToSqm, fromTotalBiswansi, lengthToMetres, normalizeRevenueTotal, parseRevenueShorthand, revenueToSqm, revenueTotals, sqmToRevenue, subtractRevenueAreas, toTotalBiswansi, validateRevenue } from "../src/calculator/landConversions.js";
 import { evaluateExpression } from "../src/calculator/arithmetic.js";
 
 test("Delhi revenue hierarchy and canonical basis", () => {
@@ -27,4 +27,27 @@ test("standard area and Ghatta conversions", () => {
 });
 test("normal calculator supports precedence, brackets, decimals, percentage and divide by zero", () => {
   assert.equal(evaluateExpression("2 + 3 * 4"), 14); assert.equal(evaluateExpression("(2 + 3) * 4"), 20); assert.equal(evaluateExpression("1.5 + 2.25"), 3.75); assert.equal(evaluateExpression("100 * 15%"), 15); assert.throws(() => evaluateExpression("1 / 0"), /divide by zero/i);
+});
+
+test("revenue arithmetic carries Biswansi and Biswa through the canonical integer hierarchy", () => {
+  assert.deepEqual(addRevenueAreas([{ bigha: 20, biswa: 19, biswansi: 9 }, { bigha: 12, biswa: 8, biswansi: 11 }]), { bigha: 33, biswa: 8, biswansi: 0 });
+  assert.deepEqual(addRevenueAreas([{ bigha: 0, biswa: 0, biswansi: 19 }, { bigha: 0, biswa: 0, biswansi: 1 }]), { bigha: 0, biswa: 1, biswansi: 0 });
+  assert.deepEqual(addRevenueAreas([{ bigha: 0, biswa: 19, biswansi: 0 }, { bigha: 0, biswa: 1, biswansi: 0 }]), { bigha: 1, biswa: 0, biswansi: 0 });
+  assert.deepEqual(addRevenueAreas([{ bigha: 1, biswa: 1, biswansi: 1 }, { bigha: 2, biswa: 2, biswansi: 2 }, { bigha: 3, biswa: 3, biswansi: 3 }]), { bigha: 6, biswa: 6, biswansi: 6 });
+});
+
+test("revenue subtraction borrows safely and rejects negative results", () => {
+  assert.deepEqual(subtractRevenueAreas({ bigha: 5, biswa: 13, biswansi: 0 }, { bigha: 0, biswa: 4, biswansi: 7 }), { bigha: 5, biswa: 8, biswansi: 13 });
+  assert.deepEqual(subtractRevenueAreas({ bigha: 1, biswa: 0, biswansi: 0 }, { bigha: 0, biswa: 0, biswansi: 1 }), { bigha: 0, biswa: 19, biswansi: 19 });
+  assert.throws(() => subtractRevenueAreas({ bigha: 0, biswa: 0, biswansi: 1 }, { bigha: 0, biswa: 0, biswansi: 2 }), /cannot be negative/i);
+});
+
+test("revenue normalizer and reverse totals remain exact", () => {
+  assert.deepEqual(normalizeRevenueTotal(152, "biswa"), { bigha: 7, biswa: 12, biswansi: 0 });
+  assert.deepEqual(normalizeRevenueTotal(487, "biswansi"), { bigha: 1, biswa: 4, biswansi: 7 });
+  assert.equal(toTotalBiswansi({ bigha: 2, biswa: 9, biswansi: 1 }), 981);
+  assert.deepEqual(revenueTotals({ bigha: 2, biswa: 9, biswansi: 1 }), { totalBiswansi: 981, totalBiswa: 49.05, totalBigha: 2.4525 });
+  assert.throws(() => fromTotalBiswansi(-1), /non-negative/i);
+  assert.equal(validateRevenue(1, 20, 0).valid, false);
+  assert.equal(validateRevenue(1, 0, 20).valid, false);
 });

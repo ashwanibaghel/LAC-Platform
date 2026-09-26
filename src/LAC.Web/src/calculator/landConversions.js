@@ -31,6 +31,47 @@ export function parseRevenueShorthand(text) {
   return validateRevenue(match[1], match[2], match[3]);
 }
 
+// Revenue arithmetic is deliberately integer-only.  Area conversion may use
+// decimals, but a valid Delhi revenue triplet always has an exact Biswansi total.
+export function toTotalBiswansi(revenue) {
+  const checked = validateRevenue(revenue?.bigha, revenue?.biswa, revenue?.biswansi);
+  if (!checked.valid) throw new RangeError(checked.error);
+  const { bigha, biswa, biswansi } = checked.value;
+  return bigha * 400 + biswa * 20 + biswansi;
+}
+
+export function fromTotalBiswansi(total) {
+  const value = Number(total);
+  if (!Number.isSafeInteger(value) || value < 0) throw new RangeError("Total Biswansi must be a non-negative whole number.");
+  const bigha = Math.floor(value / 400);
+  const remaining = value % 400;
+  return { bigha, biswa: Math.floor(remaining / 20), biswansi: remaining % 20 };
+}
+
+export function addRevenueAreas(values) {
+  if (!Array.isArray(values) || values.length === 0) throw new RangeError("Add at least one revenue area.");
+  return fromTotalBiswansi(values.reduce((total, value) => total + toTotalBiswansi(value), 0));
+}
+
+export function subtractRevenueAreas(a, b) {
+  const remainder = toTotalBiswansi(a) - toTotalBiswansi(b);
+  if (remainder < 0) throw new RangeError("The subtraction result cannot be negative.");
+  return fromTotalBiswansi(remainder);
+}
+
+export function revenueTotals(revenue) {
+  const totalBiswansi = toTotalBiswansi(revenue);
+  return { totalBiswansi, totalBiswa: totalBiswansi / 20, totalBigha: totalBiswansi / 400 };
+}
+
+export function normalizeRevenueTotal(value, unit) {
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) throw new RangeError("Enter a non-negative whole total.");
+  const multiplier = unit === "bigha" ? 400 : unit === "biswa" ? 20 : unit === "biswansi" ? 1 : null;
+  if (multiplier === null) throw new RangeError("Unknown revenue unit.");
+  return fromTotalBiswansi(number * multiplier);
+}
+
 export function revenueToSqm(revenue) {
   return revenue.bigha * 843 + revenue.biswa * 42.15 + revenue.biswansi * 2.1075;
 }
