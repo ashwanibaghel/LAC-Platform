@@ -8,6 +8,59 @@ namespace LAC.Tests;
 
 public sealed class AwardVerificationTests
 {
+    [Theory]
+    [InlineData(50)]
+    [InlineData(250)]
+    [InlineData(1000)]
+    public async Task Attention_queue_prioritizes_conflict_before_pagination(int volume)
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var session = new AwardIngestionSession { SourceType = AwardIngestionSourceType.Document };
+        db.AwardIngestionSessions.Add(session);
+        for (var sequence = 0; sequence < volume; sequence++)
+            db.AwardIngestionCandidates.Add(new AwardIngestionCandidate {
+                Session = session, Sequence = sequence, CandidateType = AwardIngestionCandidateType.AwardKhasra,
+                Status = sequence == volume - 1 ? AwardIngestionCandidateStatus.Conflict : AwardIngestionCandidateStatus.NeedsReview,
+                StructuredPayloadJson = "{}", SourcePage = sequence / 12 + 1
+            });
+        await db.SaveChangesAsync();
+        var service = new AwardIngestionService(db, new AwardWorkflowService(db));
+        var page = await service.GetCandidatesAsync(session.Id, null, null, 0, 100, default, "attention");
+        Assert.Equal(volume, page.TotalCount);
+        Assert.Equal(volume - 1, page.Items[0].Sequence);
+        Assert.Equal(AwardIngestionCandidateStatus.Conflict, page.Items[0].Status);
+        Assert.True(page.Items.Count <= 100);
+    }
+
+    [Fact]
+    public async Task Quality_dataset_contains_only_source_backed_human_field_decisions()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var award = new Award { AwardNumber = "FICTIONAL-QUALITY" };
+        var village = new Village { Name = "Fictional Village" };
+        var document = new Document { OriginalFileName = "fictional.pdf", StoragePath = "fictional.pdf" };
+        db.AddRange(award, village, document, new AwardVillage { Award = award, Village = village });
+        await db.SaveChangesAsync();
+        var locator = JsonSerializer.Serialize(new { page = 1, structuredPayload = new { sourceCells = new {
+            khasra = new { rawOcr = "6//10", sourceRegion = new { x = 1, y = 1, width = 5, height = 5 } },
+            recordedArea = new { rawOcr = "2-3", sourceRegion = new { x = 8, y = 1, width = 5, height = 5 } },
+            awardedArea = new { rawOcr = "2-1", sourceRegion = new { x = 15, y = 1, width = 5, height = 5 } }
+        } } });
+        var input = new IngestionCandidateInput(AwardIngestionCandidateType.AwardKhasra,
+            JsonSerializer.Serialize(new AwardKhasraCandidate("6//10", null, null, null, null, 2, 3, null, 2, 1, null)), locator, "fictional", .9m);
+        var service = new AwardIngestionService(db, new AwardWorkflowService(db));
+        var session = await service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, document.Id, null, null, [input], default);
+        var candidate = await db.AwardIngestionCandidates.SingleAsync();
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "Khasra", "6//10", "Confirm"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "RecordedArea", "2-3", "Confirm"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "RecordedArea", null, "Uncertain"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "AwardedArea", null, "Skip"), default);
+        Assert.Equal(2, await db.DocumentTrainingExamples.CountAsync());
+        var exported = (System.Collections.IEnumerable)await service.GetQualityDatasetAsync(session.Id, default);
+        Assert.Single(exported.Cast<object>());
+        Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+    }
+
     [Fact]
     public async Task Geometry_backed_award_khasra_requires_every_source_cell_and_creates_gold_per_field()
     {

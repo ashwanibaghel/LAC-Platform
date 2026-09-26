@@ -15,6 +15,7 @@ import {
 import { ExportMenu } from "./components/ExportMenu";
 import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
@@ -3799,9 +3800,9 @@ function AuthenticatedApp() {
         <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
         <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
         <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
-        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
+        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardReviewWorkbench />} />
         <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
-        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
+        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardReviewWorkbench />} />
         <Route path="/awards/:id" element={<Award />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/notifications/:id" element={<Notification />} />

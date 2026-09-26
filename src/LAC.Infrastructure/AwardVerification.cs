@@ -63,6 +63,55 @@ public sealed partial class AwardIngestionService
         return new {session.Id,session.TargetAwardId,session.SelectedVillageId,session.SourceDocumentId,session.DocumentName,session.AwardNumber,session.VillageName,AnalysisStatus=job?.Status,TotalPages=job?.TotalPages,ProcessedPages=job?.ProcessedPages,Sections=sections,Pages=pages};
     }
 
+    public async Task<object> GetQualityDatasetAsync(Guid sessionId, CancellationToken ct)
+    {
+        if (!await db.AwardIngestionSessions.AnyAsync(x => x.Id == sessionId, ct))
+            throw new AwardIngestionException("Review not found.", 404);
+        var rows = await db.DocumentTrainingExamples.AsNoTracking()
+            .Where(x => x.SourceCandidateId != null && x.SourceCandidate!.SessionId == sessionId &&
+                (x.ReviewDecision == "Confirm" || x.ReviewDecision == "Correct"))
+            .OrderBy(x => x.PageNumber).ThenBy(x => x.VerifiedAt)
+            .Select(x => new { x.DocumentId, x.PageNumber, x.SourceRegionJson, x.CellRole, x.RawOcr,
+                x.NormalizedSuggestion, x.HumanFinalValue, x.WasCorrected, x.ReviewDecision,
+                x.VerifiedBy, x.VerifiedAt, x.SourceCandidateId, x.VerificationRevision,
+                SourceLocatorJson = x.SourceCandidate!.SourceLocatorJson,
+                FieldReviewJson = x.SourceCandidate.FieldReviewJson,
+                CandidateVerifiedAt = x.SourceCandidate.VerifiedAt })
+            .ToListAsync(ct);
+        return rows.Where(x => x.FieldReviewJson is null
+                ? x.CandidateVerifiedAt is not null
+                : ReadDecisions(x.FieldReviewJson).Any(d => d.FieldRole == x.CellRole &&
+                    (d.Decision is "Confirm" or "Correct") && d.HumanValue == x.HumanFinalValue))
+            .Select(x => new {
+            x.DocumentId, x.PageNumber, x.SourceRegionJson, x.CellRole, x.RawOcr,
+            x.NormalizedSuggestion, AlternativeOcrReadings = AlternativeReadings(x.SourceLocatorJson, x.CellRole),
+            x.HumanFinalValue, x.WasCorrected, x.ReviewDecision, x.VerifiedBy, x.VerifiedAt,
+            x.SourceCandidateId, x.VerificationRevision
+        }).ToList();
+    }
+
+    private static object[] AlternativeReadings(string? locator, string role)
+    {
+        try
+        {
+            using var json = JsonDocument.Parse(locator ?? "{}");
+            var root = json.RootElement;
+            if (!(root.TryGetProperty("StructuredPayload", out var payload) || root.TryGetProperty("structuredPayload", out payload)) ||
+                !payload.TryGetProperty("sourceCells", out var cells)) return [];
+            var key = role switch { "Khasra" or "Qualifier" => "khasra", "RecordedArea" => "recordedArea", "AwardedArea" => "awardedArea", _ => "" };
+            if (!cells.TryGetProperty(key, out var cell)) return [];
+            var values = new List<object>();
+            foreach (var name in new[] { "pageAssignedOcr", "cellCropOcr", "innerCellOcr" })
+                if (cell.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+                    values.Add(new { View = name, RawPrediction = value.GetString() });
+            if (cell.TryGetProperty("multiViewPredictions", out var alternatives) && alternatives.ValueKind == JsonValueKind.Array)
+                foreach (var alternative in alternatives.EnumerateArray())
+                    values.Add(new { View = Value(alternative, "view"), RawPrediction = Value(alternative, "rawPrediction") });
+            return values.ToArray();
+        }
+        catch (JsonException) { return []; }
+    }
+
     public async Task<int> ConfirmExactAsync(Guid sessionId,ConfirmExactRequest request,CancellationToken ct)
     {
         RequireReviewer(request.VerifiedBy);

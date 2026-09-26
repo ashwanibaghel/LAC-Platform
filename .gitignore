@@ -2,6 +2,7 @@ bin/
 obj/
 node_modules/
 dist/
+src/LAC.Web/test-results/
 src/LAC.Api/wwwroot/
 .env
 .env.*

@@ -113,7 +113,17 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
             "verified"=>query.VerifiedWaiting(),
             "committed"=>query.Committed(),
             _=>query};
-        return await ToPageAsync(query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence).Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
+        // Risk ordering happens before pagination, so a 1000-row review does
+        // not hide a conflict on a later source page behind ordinary rows.
+        var ordered = bucket is "attention" or null
+            ? query.OrderBy(x => x.Status == AwardIngestionCandidateStatus.Conflict || x.Status == AwardIngestionCandidateStatus.Ambiguous || x.Status == AwardIngestionCandidateStatus.DuplicateInBatch ? 0
+                : x.Status == AwardIngestionCandidateStatus.Invalid ? 1
+                : x.FieldReviewJson != null && x.FieldReviewJson.Contains("Uncertain") ? 2
+                : x.Status == AwardIngestionCandidateStatus.Committed ? 6
+                : x.VerifiedAt != null ? 5 : x.SafeToConfirm ? 4 : 3)
+                .ThenBy(x => x.SourcePage).ThenBy(x => x.Sequence)
+            : query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence);
+        return await ToPageAsync(ordered.Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
     }
 
     public async Task ResolveAsync(Guid candidateId, string action, CancellationToken ct)

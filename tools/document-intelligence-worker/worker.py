@@ -108,6 +108,41 @@ def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float,
     return crop_cache[key]
 
 
+def reading_agreement(readings: list[str | None]) -> str:
+    """Describe evidence only; no reading is elected as a corrected value."""
+    usable = [" ".join(value.split()) for value in readings if value and value.strip()]
+    if not usable:
+        return "Unreadable"
+    if len(usable) == 1:
+        return "SingleRecognizer"
+    return "StrongAgreement" if len(set(usable)) == 1 else "OcrDisagreement"
+
+
+def difficult_cell_views(image, cell: dict, ocr, counters: dict[str, int]) -> None:
+    """Retain two extra local readings for a disputed authoritative table cell."""
+    from PIL import Image, ImageOps
+    from benchmark.cell_crop_pipeline_v9 import normalize_from_page
+
+    _, normalized, _ = normalize_from_page(image, cell["region"])
+    views = {
+        "upscale2": normalized.resize((normalized.width * 2, normalized.height * 2), Image.Resampling.LANCZOS),
+        "contrastUpscale": ImageOps.autocontrast(ImageOps.grayscale(normalized), cutoff=1).resize(
+            (normalized.width * 2, normalized.height * 2), Image.Resampling.LANCZOS).convert("RGB"),
+    }
+    predictions = []
+    for name, view in views.items():
+        output = ocr(view)
+        raw = " ".join(" ".join(str(value).split()) for value in (list(output.txts) if output.txts is not None else [])).strip()
+        predictions.append({"view": name, "rawPrediction": raw or None})
+        counters["multiviewOcrCalls"] += 1
+    cell["multiViewPredictions"] = predictions
+    cell["recognitionAgreement"] = reading_agreement([
+        cell.get("text"), cell.get("cellCropOcr"), *(item["rawPrediction"] for item in predictions)])
+    counters["multiviewCells"] += 1
+    if cell["recognitionAgreement"] == "OcrDisagreement":
+        counters["ocrDisagreements"] += 1
+
+
 def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
     from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, infer_court_table_kind, table_kind
 
@@ -153,7 +188,7 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
             candidate = None
             if kind == "AwardLandTable":
                 from benchmark.worker_semantics import strict_khasra
-                from benchmark.cell_safety_v12 import normalize_area_evidence
+                from benchmark.cell_safety_v12 import normalize_area_evidence, inner_cell_box, contamination_status
                 for group in award_table_groups(header_cells, column_count):
                     # A candidate is built from one physical row and one repeated
                     # schema only. Missing area cells stay missing; they never
@@ -163,10 +198,22 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
                     khasra_column = group["khasra"]
                     if khasra_column in cells:
                         cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr, crop_cache, counters)
+                        if cells[khasra_column]["cellCropOcr"] != cells[khasra_column]["text"]:
+                            difficult_cell_views(image, cells[khasra_column], ocr, counters)
                     for role in ("recordedArea", "awardedArea"):
                         column = group[role]
                         if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
                             cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr, crop_cache, counters)
+                            difficult_cell_views(image, cells[column], ocr, counters)
+                            # An inner view is evidence of border contamination,
+                            # never a silent replacement for the outer reading.
+                            if normalize_area_evidence(cells[column]["cellCropOcr"])["status"] != "Valid":
+                                inner = {"region": inner_cell_box(cells[column]["region"])}
+                                cells[column]["innerCellOcr"] = crop_ocr(image, inner, ocr, crop_cache, counters)
+                                status, _, _ = contamination_status(cells[column]["cellCropOcr"], cells[column]["innerCellOcr"], "area")
+                                cells[column]["contaminationStatus"] = status
+                                if status == "ContaminationRecovered":
+                                    counters["contaminationRecovered"] += 1
                     candidate = award_candidate(page, table_id, row_id, cells, group)
                     if candidate:
                         candidates.append(candidate)
@@ -673,7 +720,7 @@ def main() -> int:
 
         started = time.perf_counter()
         stages = {key: 0.0 for key in ("pageRendering", "rapidOcr", "tableLayout", "awardKhasraInterpretation", "valuationCompensationInterpretation", "possessionInterpretation", "courtNarrativeInterpretation", "courtTableInterpretation", "selectiveCellOcr", "serialization")}
-        counters = {key: 0 for key in ("pageOcrCalls", "tableTransformerCalls", "cellOcrCalls", "cellOcrCacheHits", "courtTableRowsInspected", "headerFallbackInvocations", "geometryTables", "tablesWithoutGridRows", "tablesWithGridRows", "tablesUnclassified", "courtHeaderSignals", "khasraHeaderSignals")}
+        counters = {key: 0 for key in ("pageOcrCalls", "tableTransformerCalls", "cellOcrCalls", "cellOcrCacheHits", "multiviewOcrCalls", "multiviewCells", "ocrDisagreements", "contaminationRecovered", "courtTableRowsInspected", "headerFallbackInvocations", "geometryTables", "tablesWithoutGridRows", "tablesWithGridRows", "tablesUnclassified", "courtHeaderSignals", "khasraHeaderSignals")}
         counters["selectiveCellOcrSeconds"] = 0.0
         ocr = RapidOCR(params={"Det.engine_type": EngineType.TORCH, "Cls.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH})
         document = fitz.open(pdf)

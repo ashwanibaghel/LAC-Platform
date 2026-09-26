@@ -153,7 +153,7 @@ def award_table_groups(header_cells: dict[int, str], column_count: int | None = 
     return groups
 
 
-def field(value: str | None, region: dict | None, *, area: bool = False, cell_crop_ocr: str | None = None, cell_identity: dict | None = None) -> dict:
+def field(value: str | None, region: dict | None, *, area: bool = False, cell_crop_ocr: str | None = None, cell_identity: dict | None = None, multi_view_predictions: list[dict] | None = None, recognition_agreement: str | None = None, inner_cell_ocr: str | None = None, contamination_status: str | None = None) -> dict:
     raw = " ".join(str(value or "").split())
     crop = " ".join(str(cell_crop_ocr or "").split()) or None
     chosen = crop or raw
@@ -162,6 +162,10 @@ def field(value: str | None, region: dict | None, *, area: bool = False, cell_cr
         "rawOcr": raw,
         "pageAssignedOcr": raw,
         "cellCropOcr": crop,
+        "innerCellOcr": inner_cell_ocr,
+        "contaminationStatus": contamination_status,
+        "multiViewPredictions": multi_view_predictions or [],
+        "recognitionAgreement": recognition_agreement or ("OcrDisagreement" if crop and crop != raw else "StrongAgreement" if crop and raw else "SingleRecognizer" if crop or raw else "Unreadable"),
         "normalizedSuggestion": normalized["normalizedValue"],
         "normalizationReason": normalized["normalizationReason"],
         "sourceRegion": region,
@@ -181,18 +185,25 @@ def award_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
     def source(column: int) -> dict:
         cell = cells.get(column, {})
         return {"tableId": table_id, "rowId": row_id, "columnIndex": column, "logicalGroupId": group_id}
-    khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_crop_ocr=cells.get(roles["khasra"], {}).get("cellCropOcr"), cell_identity=source(roles["khasra"]))
+    khasra_cell = cells.get(roles["khasra"], {})
+    khasra = field(khasra_cell.get("text"), khasra_cell.get("region"), cell_crop_ocr=khasra_cell.get("cellCropOcr"), cell_identity=source(roles["khasra"]), multi_view_predictions=khasra_cell.get("multiViewPredictions"), recognition_agreement=khasra_cell.get("recognitionAgreement"))
     number, qualifier = strict_khasra(khasra["rawOcr"])
     if not number:
         return None
-    recorded = field(cells.get(roles["recordedArea"], {}).get("text"), cells.get(roles["recordedArea"], {}).get("region"), area=True, cell_crop_ocr=cells.get(roles["recordedArea"], {}).get("cellCropOcr"), cell_identity=source(roles["recordedArea"]))
-    awarded = field(cells.get(roles["awardedArea"], {}).get("text"), cells.get(roles["awardedArea"], {}).get("region"), area=True, cell_crop_ocr=cells.get(roles["awardedArea"], {}).get("cellCropOcr"), cell_identity=source(roles["awardedArea"]))
+    recorded_cell = cells.get(roles["recordedArea"], {})
+    awarded_cell = cells.get(roles["awardedArea"], {})
+    recorded = field(recorded_cell.get("text"), recorded_cell.get("region"), area=True, cell_crop_ocr=recorded_cell.get("cellCropOcr"), cell_identity=source(roles["recordedArea"]), multi_view_predictions=recorded_cell.get("multiViewPredictions"), recognition_agreement=recorded_cell.get("recognitionAgreement"), inner_cell_ocr=recorded_cell.get("innerCellOcr"), contamination_status=recorded_cell.get("contaminationStatus"))
+    awarded = field(awarded_cell.get("text"), awarded_cell.get("region"), area=True, cell_crop_ocr=awarded_cell.get("cellCropOcr"), cell_identity=source(roles["awardedArea"]), multi_view_predictions=awarded_cell.get("multiViewPredictions"), recognition_agreement=awarded_cell.get("recognitionAgreement"), inner_cell_ocr=awarded_cell.get("innerCellOcr"), contamination_status=awarded_cell.get("contaminationStatus"))
     rectangle = field(cells.get(roles.get("rectangle"), {}).get("text"), cells.get(roles.get("rectangle"), {}).get("region"), cell_identity=source(roles["rectangle"])) if "rectangle" in roles else None
     warnings = ["Geometry-backed OCR suggestion; human review required"]
     if rectangle is None or not rectangle["normalizedSuggestion"]:
         warnings.append("Rectangle/Mustatil not structurally present; not inherited")
     if not recorded["normalizedSuggestion"] or not awarded["normalizedSuggestion"]:
         warnings.append("Recorded and awarded area are separate fields; one or both require review")
+    if any(cell["recognitionAgreement"] == "OcrDisagreement" for cell in (khasra, recorded, awarded)):
+        warnings.append("OCR readings disagree; verify each source cell visually")
+    if any(cell["contaminationStatus"] == "ContaminationRecovered" for cell in (recorded, awarded)):
+        warnings.append("Inner cell reading suggests border contamination; both readings require human verification")
     return {
         "candidateType": "AwardKhasra",
         "structuredPayload": {"tableType": "AwardLandTable", "tableId": table_id, "rowId": row_id, "logicalGroupId": group_id, "rectangle": rectangle, "khasraNumber": number, "qualifier": qualifier, "recordedArea": recorded, "awardedArea": awarded, "sourceCells": {"khasra": khasra, "recordedArea": recorded, "awardedArea": awarded}},
