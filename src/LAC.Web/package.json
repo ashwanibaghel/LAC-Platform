@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:onlyoffice-host-id": "node --test tests/onlyoffice-host-id.test.mjs",
+    "test:calculator": "node --test tests/calculator.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

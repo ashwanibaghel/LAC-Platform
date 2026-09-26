@@ -41,6 +41,7 @@ import { CourtDirectory } from "./court/CourtDirectory";
 import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
+import { CalculatorProvider } from "./calculator/CalculatorContext";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
 import "./attention/attention.css";
 import "./work/work.css";
@@ -3773,7 +3774,7 @@ function AuthenticatedApp() {
     return <LoginPage />;
   }
   return (
-    <AppShell>
+    <CalculatorProvider><AppShell>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/land-records" element={<LandRecordsHierarchy />} />
@@ -3830,7 +3831,7 @@ function AuthenticatedApp() {
         <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
         <Route path="*" element={<SearchPage />} />
       </Routes>
-    </AppShell>
+    </AppShell></CalculatorProvider>
   );
 }
 function App() {
