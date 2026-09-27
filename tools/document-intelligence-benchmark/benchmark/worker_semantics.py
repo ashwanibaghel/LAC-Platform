@@ -10,6 +10,33 @@ STRICT_KHASRA = re.compile(r"^(?P<number>[1-9]\d{0,2}//[1-9]\d{0,2}(?:/[1-9]\d{0
 # ``1/2002`` as a fictional case.  The neighbours are part of the identity.
 CASE_IDENTIFIER = re.compile(r"(?<![0-9?])\d{1,6}\s*/\s*\d{4}(?!\d)")
 
+# Court registries use jurisdiction-specific case-type abbreviations. Keep the
+# source's type where it is explicit; never infer a case type from the number.
+_CASE_TYPES = (
+    (r"\bCONT\.?\s*CAS\.?\s*\(\s*CRL\s*\)", "CONT.CAS(CRL)"),
+    (r"\bCONT\.?\s*CAS\.?\s*\(\s*C\s*\)", "CONT.CAS(C)"),
+    (r"\bCONT\.?\s*CAS\.?(?![A-Z(])", "CONT.CAS."),
+    (r"\bW\.?\s*P\.?\s*\(\s*CRL\s*\)", "W.P.(CRL)"),
+    (r"\bW\.?\s*P\.?\s*\(\s*C\s*\)", "W.P.(C)"),
+    (r"\bLA\.?\s*APP\.?(?![A-Z])", "LA.APP."),
+    (r"\bCM\s*\(\s*M\s*\)", "CM(M)"),
+    (r"\b(?:CRWP|CWP|WCP|LPA|RFA|FAO|RSA|CRP)\b", None),
+)
+
+
+def case_type_from_label(value: str | None) -> str | None:
+    text = " ".join(str(value or "").split())
+    for pattern, normalized in _CASE_TYPES:
+        match = re.search(pattern, text, re.I)
+        if match:
+            return normalized or match.group(0).upper()
+    # Preserve an unfamiliar explicit abbreviation in the case column; it is
+    # source text, not a claim that the abbreviation is a known court category.
+    match = re.search(r"\b([A-Z][A-Z.\-]{1,14}(?:\([A-Z]{1,3}\))?)\s*(?:NO\.?|NOS\.?)\b", text, re.I)
+    if match and match.group(1).upper().rstrip(".") not in {"S", "SR", "SERIAL", "KHASRA", "KILLA", "AREA", "TOTAL", "STATUS", "CASE"}:
+        return match.group(1).upper()
+    return None
+
 
 def page_likely_has_table(words: list[str]) -> bool:
     text = " ".join(words).lower()
@@ -38,7 +65,7 @@ def table_kind(header_cells: dict[int, str]) -> tuple[str | None, dict[str, int]
         elif re.search(r"rec\s*no|rectangle|mustatil", text): roles.setdefault("rectangle", column)
         elif re.search(r"total\s*area|recorded\s*area", text): roles.setdefault("recordedArea", column)
         elif re.search(r"area\s*awarded|awarded", text): roles.setdefault("awardedArea", column)
-        elif re.search(r"cwp|case\s*no", text): roles.setdefault("caseNumber", column)
+        elif case_type_from_label(text) or re.search(r"\bcase\s*(?:no\.?|number)\b", text): roles.setdefault("caseNumber", column)
         elif re.search(r"status", text): roles.setdefault("status", column)
         elif re.fullmatch(r"area", text.strip()): roles.setdefault("area", column)
         elif re.search(r"block|class", text): roles.setdefault("block", column)
@@ -235,8 +262,14 @@ def court_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
     """Interpret one geometry-proven Court/CWP row without parcel linking."""
     def source(column: int) -> dict:
         return {"tableId": table_id, "rowId": row_id, "columnIndex": column, "logicalGroupId": 1}
-    case = field(cells.get(roles["caseNumber"], {}).get("text"), cells.get(roles["caseNumber"], {}).get("region"), cell_identity=source(roles["caseNumber"]))
-    identifier = CASE_IDENTIFIER.search(case["rawOcr"])
+    case_cell = cells.get(roles["caseNumber"], {})
+    page_reading = case_cell.get("text") or ""
+    crop_reading = case_cell.get("cellCropOcr") or ""
+    page_identifier = CASE_IDENTIFIER.search(page_reading)
+    crop_identifier = CASE_IDENTIFIER.search(crop_reading)
+    if page_identifier and crop_identifier and page_identifier.group(0) != crop_identifier.group(0):
+        return None
+    identifier = page_identifier or crop_identifier
     # A table header proves the case label; the row value itself must still be
     # a complete number/year identifier. No digit or year is repaired.
     if not identifier:
@@ -244,12 +277,14 @@ def court_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict
     khasra = field(cells.get(roles["khasra"], {}).get("text"), cells.get(roles["khasra"], {}).get("region"), cell_identity=source(roles["khasra"]))
     status = field(cells.get(roles["status"], {}).get("text"), cells.get(roles["status"], {}).get("region"), cell_identity=source(roles["status"])) if "status" in roles else None
     area = field(cells.get(roles["area"], {}).get("text"), cells.get(roles["area"], {}).get("region"), area=True, cell_identity=source(roles["area"])) if "area" in roles else None
-    header = " ".join(str(value) for value in roles.get("headerLabels", []))
-    case_type = "CWP" if re.search(r"\bcwp\b", header, re.I) else "W.P.(C)" if re.search(r"w\.?p", header, re.I) else "Case"
+    labels = roles.get("headerLabels", [])
+    column_label = labels[roles["caseNumber"]] if roles["caseNumber"] < len(labels) else None
+    case_type = case_type_from_label(page_reading) or case_type_from_label(crop_reading) or roles.get("caseType") or case_type_from_label(column_label)
     raw_identifier = identifier.group(0)
-    case_value = field(raw_identifier, case["sourceRegion"], cell_identity=source(roles["caseNumber"]))
+    case_value = field(page_reading, case_cell.get("region"), cell_crop_ocr=crop_reading, cell_identity=source(roles["caseNumber"]))
+    case_value["normalizedSuggestion"] = raw_identifier
     warnings = ["Case reference is source evidence only; no stay or legal effect is inferred.", "Khasra and area values are source references only; no canonical relationship is created.", "Human review required."]
-    return {"candidateType": "CourtCase", "structuredPayload": {"tableType": "CourtCwpTable", "tableId": table_id, "rowId": row_id, "caseNumber": case_value, "caseType": case_type, "courtName": None, "khasraReferences": khasra, "relatedAreaText": area, "status": status, "sourceCells": {"caseNumber": case_value, "khasraReferences": khasra, "relatedAreaText": area, "status": status}}, "page": page, "sourceRegion": case["sourceRegion"], "rawSourceText": case["rawOcr"], "rawOcr": case["rawOcr"], "normalizedSuggestion": raw_identifier, "normalizationReason": None, "confidence": cells[roles["caseNumber"]].get("confidence"), "interpretationWarnings": warnings}
+    return {"candidateType": "CourtCase", "structuredPayload": {"tableType": "CourtCwpTable", "tableId": table_id, "rowId": row_id, "caseNumber": case_value, "caseType": case_type, "courtName": None, "khasraReferences": khasra, "relatedAreaText": area, "status": status, "sourceCells": {"caseNumber": case_value, "khasraReferences": khasra, "relatedAreaText": area, "status": status}}, "page": page, "sourceRegion": case_value["sourceRegion"], "rawSourceText": page_reading or crop_reading, "rawOcr": page_reading or crop_reading, "normalizedSuggestion": raw_identifier, "normalizationReason": None, "confidence": case_cell.get("confidence"), "interpretationWarnings": warnings}
 
 
 def classification_candidate(page: int, table_id: int, row_id: int, cells: dict[int, dict], roles: dict[str, int]) -> dict | None:

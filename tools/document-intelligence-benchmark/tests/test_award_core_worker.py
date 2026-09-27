@@ -1,11 +1,13 @@
 import sys
 import unittest
+from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "document-intelligence-worker"))
-from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates, ocr_words, targeted_area_from_words
+from worker import narrative_core_and_statutory_candidates, valuation_and_compensation_candidates, possession_candidates, court_case_candidates, _nm_band, nm_pilot_candidates, nm_semantic_candidates, ocr_words, targeted_area_from_words, structured_from_geometry
 
 
 def words(*values):
@@ -21,6 +23,26 @@ def words(*values):
 
 
 class AwardCoreWorkerTests(unittest.TestCase):
+    def test_cwp_table_header_band_preserves_first_data_row_and_type(self):
+        table = {"label": "table", "box": {"x": 0, "y": 30, "width": 400, "height": 120}}
+        columns = [{"label": "table column", "box": {"x": x, "y": 30, "width": width, "height": 120}}
+                   for x, width in ((0, 80), (80, 80), (160, 100), (260, 100))]
+        grid_rows = [{"label": "table row", "box": {"x": 0, "y": y, "width": 400, "height": 25}} for y in (50, 85)]
+        header_words = [SimpleNamespace(text=text, bounding_box=SimpleNamespace(x=x, y=20, width=70, height=12))
+                        for text, x in (("CWP NO", 85), ("KHASRA NO", 165), ("STATUS", 265))]
+        header_words.append(SimpleNamespace(text="4721/2002", bounding_box=SimpleNamespace(x=85, y=44, width=70, height=11)))
+        def row(case, row_id):
+            return {col: {"text": text, "region": {"x": col * 80, "y": 50 + row_id * 35, "width": 75, "height": 25}, "confidence": .9}
+                    for col, text in enumerate((str(row_id + 1), case, "12//11", "Status quo"))}
+        rows = {0: row("4721/2002", 0), 1: row("CONT.CAS(C) 2909/2002", 1)}
+        rows[0].pop(1)  # OCR centre fell just above the first data-row boundary.
+        with patch("worker.rows_for_table", return_value=(rows, 4)):
+            candidates, counts = structured_from_geometry(7, [table, *columns, *grid_rows], header_words, None, None, {}, defaultdict(int))
+        court = [item["structuredPayload"] for item in candidates if item["candidateType"] == "CourtCase"]
+        self.assertEqual(2, counts["courtRows"])
+        self.assertEqual(["4721/2002", "2909/2002"], [item["caseNumber"]["normalizedSuggestion"] for item in court])
+        self.assertEqual(["CWP", "CONT.CAS(C)"], [item["caseType"] for item in court])
+
     def test_nm_incomplete_fragment_never_becomes_review_row(self):
         item = _nm_band(1, 1, [("Ramesh Khasra 12//2", {"x": 1, "y": 1, "width": 80, "height": 12})])
         self.assertEqual("UnassignedSourceFragment", item["candidateType"])
@@ -171,6 +193,15 @@ class AwardCoreWorkerTests(unittest.TestCase):
         self.assertEqual("12//11", value["khasraReferences"])
         self.assertEqual("23-14", value["relatedAreaText"])
         self.assertNotIn("stay", str(value).lower())
+
+    def test_explicit_court_type_in_narrative_is_preserved(self):
+        for source, expected in (("WCP No. 55/2002", "WCP"), ("W.P.(C) 56/2002", "W.P.(C)"),
+                                 ("CONT.CAS(C) 57/2002", "CONT.CAS(C)"), ("CONT. CAS. No. 59/2002", "CONT.CAS."),
+                                 ("LA.APP. 58/2002", "LA.APP.")):
+            with self.subTest(source=source):
+                output = court_case_candidates(1, words(source))
+                self.assertEqual(1, len(output))
+                self.assertEqual(expected, output[0]["structuredPayload"]["caseType"])
 
     def test_court_procedural_clause_or_uncertain_digit_never_becomes_case(self):
         self.assertEqual([], court_case_candidates(1, words("The dispute shall be referred to Civil Court.")))

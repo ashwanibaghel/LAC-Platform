@@ -84,19 +84,63 @@ def rows_for_table(geometry: list[dict], table_box: dict, words, page: int, tabl
 
 
 def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict[int, str]:
-    """Bind header OCR to Table Transformer header + column geometry only."""
+    """Bind header OCR to this table's header band and column geometry only."""
     columns = [item["box"] for item in geometry if item["label"] == "table column" and inside(table_box, item["box"])]
     columns.sort(key=lambda value: value["x"])
     headers = [item["box"] for item in geometry if item["label"] in {"table column header", "table spanning cell"} and inside(table_box, item["box"])]
+    row_tops = [item["box"]["y"] for item in geometry if item["label"] == "table row" and inside(table_box, item["box"])]
+    first_row_top = min(row_tops) if row_tops else None
     values: dict[int, list[str]] = {}
     for word in words:
         word_box = region(word.bounding_box)
-        if not any(inside(header, word_box) for header in headers):
+        in_detected_header = any(inside(header, word_box) for header in headers)
+        centre_x = word_box["x"] + word_box["width"] / 2
+        centre_y = word_box["y"] + word_box["height"] / 2
+        # A detected table may start a few pixels below its printed header.
+        in_table_header_band = first_row_top is not None and table_box["x"] <= centre_x <= table_box["x"] + table_box["width"] and table_box["y"] - 40 <= centre_y < first_row_top
+        if not (in_detected_header or in_table_header_band):
             continue
-        matching = [index for index, column in enumerate(columns) if inside(column, word_box)]
+        matching = [index for index, column in enumerate(columns) if column["x"] <= centre_x <= column["x"] + column["width"]]
         if len(matching) == 1:
             values.setdefault(matching[0], []).append(word.text)
     return {column: " ".join(text) for column, text in values.items()}
+
+
+def recover_court_case_cell(geometry: list[dict], table_box: dict, words, row_id: int, column: int, cells: dict[int, dict], image, ocr, crop_cache, counters: dict[str, int]) -> None:
+    """Recover a complete identifier only inside the same Court grid cell."""
+    from benchmark.worker_semantics import CASE_IDENTIFIER
+
+    current = cells.get(column, {})
+    if CASE_IDENTIFIER.search(current.get("text", "")):
+        return
+    rows = sorted((item["box"] for item in geometry if item["label"] == "table row" and inside(table_box, item["box"])), key=lambda box: box["y"])
+    columns = sorted((item["box"] for item in geometry if item["label"] == "table column" and inside(table_box, item["box"])), key=lambda box: box["x"])
+    if row_id >= len(rows) or column >= len(columns):
+        return
+    row, col = rows[row_id], columns[column]
+    box = {"x": max(row["x"], col["x"]), "y": max(row["y"], col["y"]),
+           "width": min(row["x"] + row["width"], col["x"] + col["width"]) - max(row["x"], col["x"]),
+           "height": min(row["y"] + row["height"], col["y"] + col["height"]) - max(row["y"], col["y"])}
+    if box["width"] <= 0 or box["height"] <= 0:
+        return
+    matches = []
+    for word in words:
+        source = region(word.bounding_box)
+        x, y = source["x"] + source["width"] / 2, source["y"] + source["height"] / 2
+        if not CASE_IDENTIFIER.search(word.text) or not (col["x"] <= x <= col["x"] + col["width"] and row["y"] - 2 <= y <= row["y"] + row["height"] + 2):
+            continue
+        if any(other is not row and other["y"] <= y <= other["y"] + other["height"] for other in rows):
+            continue
+        matches.append(word)
+    if len(matches) == 1:
+        cells[column] = {"text": matches[0].text, "region": box, "confidence": getattr(matches[0], "confidence", None)}
+        return
+    if matches or image is None or ocr is None:
+        return
+    recovered = {"text": current.get("text", ""), "region": box, "confidence": current.get("confidence")}
+    recovered["cellCropOcr"] = crop_ocr(image, recovered, ocr, crop_cache, counters)
+    if CASE_IDENTIFIER.search(recovered["cellCropOcr"] or ""):
+        cells[column] = recovered
 
 
 def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int]) -> str | None:
@@ -158,7 +202,7 @@ def difficult_cell_views(image, cell: dict, ocr, counters: dict[str, int]) -> No
 
 
 def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
-    from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, infer_court_table_kind, table_kind
+    from benchmark.worker_semantics import CASE_IDENTIFIER, award_candidate, award_table_groups, case_type_from_label, classification_candidate, court_candidate, infer_court_table_kind, table_kind
 
     candidates: list[dict] = []
     counts = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0,
@@ -178,14 +222,17 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
         # table or promotes an Award/Khasra grid to a new interpretation path.
         grid_header = {column: cell["text"] for column, cell in rows[min(rows)].items() if cell.get("text")}
         merged_headers = {**grid_header, **header_cells}
+        _, grid_roles = table_kind(grid_header)
+        first_row_is_header = len(grid_roles) >= 2 and not any(CASE_IDENTIFIER.search(value) for value in grid_header.values())
+        header_index = min(rows) if first_row_is_header else min(rows) - 1
         header_text = " ".join(merged_headers.values()).lower()
         if re.search(r"cwp|case\s*no", header_text):
             counters["courtHeaderSignals"] += 1
         if re.search(r"khasra|killa", header_text):
             counters["khasraHeaderSignals"] += 1
-        kind, roles = infer_court_table_kind(merged_headers, rows, min(rows))
+        kind, roles = infer_court_table_kind(merged_headers, rows, header_index)
         if kind is None:
-            fallback_kind, fallback_roles = infer_court_table_kind(grid_header, rows, min(rows))
+            fallback_kind, fallback_roles = infer_court_table_kind(grid_header, rows, header_index)
             if fallback_kind != "CourtCwpTable":
                 counters["tablesUnclassified"] += 1
                 continue
@@ -193,8 +240,9 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
             counters["headerFallbackInvocations"] += 1
         else:
             header_cells = merged_headers
-        header_index = min(rows)
         roles["headerLabels"] = list(header_cells.values())
+        if kind == "CourtCwpTable":
+            roles["caseType"] = case_type_from_label(header_cells.get(roles["caseNumber"]))
         counts["tables"] += 1
         for row_id, cells in sorted(rows.items()):
             if row_id <= header_index:
@@ -238,6 +286,7 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
                 if not enable_court:
                     continue
                 started = time.perf_counter()
+                recover_court_case_cell(geometry, item["box"], words, row_id, roles["caseNumber"], cells, image, ocr, crop_cache, counters)
                 candidate = court_candidate(page, table_id, row_id, cells, roles)
                 counts["courtTableSeconds"] += time.perf_counter() - started
                 if candidate:
@@ -432,18 +481,19 @@ def possession_candidates(page: int, words) -> list[dict]:
     return result
 
 
-_NARRATIVE_CASE = re.compile(r"\b(?P<label>CWP|W\.?P\.?\s*\(?C\)?|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?P<number>\d{1,6}\s*/\s*\d{4})\b", re.I)
+_NARRATIVE_CASE = re.compile(r"\b(?P<label>CONT\.?\s*CAS\.?\s*\(\s*(?:C|CRL)\s*\)|CONT\.?\s*CAS\.?|W\.?\s*P\.?\s*\(\s*(?:C|CRL)\s*\)|LA\.?\s*APP\.?|CRWP|CWP|WCP|LPA|RFA|FAO|RSA|CRP|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?P<number>\d{1,6}\s*/\s*\d{4})\b", re.I)
 
 
 def court_case_candidates(page: int, words) -> list[dict]:
     """Extract only identifiable local source case occurrences, never legal effect."""
+    from benchmark.worker_semantics import case_type_from_label
     result = []
     for text, box in _lines(words):
         match = _NARRATIVE_CASE.search(text)
         if not match:
             continue
         label = re.sub(r"\s+", " ", match.group("label")).strip()
-        case_type = "CWP" if label.lower() == "cwp" else "W.P.(C)" if re.match(r"w\.?p", label, re.I) else "Writ Petition" if "writ" in label.lower() else "Case"
+        case_type = case_type_from_label(label) or ("Writ Petition" if "writ" in label.lower() else None)
         raw_identifier = match.group(0)
         status = None
         status_match = re.search(r"\b(stay\s+granted|stay\s+vacated|pending|dismissed|disposed|status\s+quo)\b|\b(?:status|order)\s*[:.-]\s*(.{1,160}?)(?=\s*,?\s*(?:khasra|killa|(?:total\s+)?area)\b|$)", text, re.I)
