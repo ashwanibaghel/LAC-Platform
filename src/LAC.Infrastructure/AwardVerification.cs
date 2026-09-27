@@ -338,9 +338,9 @@ public sealed partial class AwardIngestionService
             // consolidate events, but analysis/commit never silently merges them.
             PossessionEventCandidate => null,
             CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==(p.CourtName ?? "") && x.CaseType==p.CaseType,ct),
-            // Keep each reviewed schedule row distinct. Preserve legacy Claim
-            // deduplication for callers without a source serial.
-            ClaimCandidate p when !string.IsNullOrWhiteSpace(p.SourceSerialNumber) => null,
+            // A serial identifies a physical row only within this Award and source document.
+            // Permanent evidence supplies the document side of that identity.
+            ClaimCandidate p when !string.IsNullOrWhiteSpace(p.SourceSerialNumber) => await FindCommittedClaimOccurrenceAsync(session,p,ct),
             ClaimCandidate p => await db.Claims.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.ClaimReference==p.ClaimReference && x.ClaimDate==p.ClaimDate && x.ClaimText==p.ClaimText,ct),
             LandClassCandidate p => await db.Set<AwardLandClass>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.Code==p.Code && x.Description==p.Description,ct),
             ValuationRuleCandidate p => await db.Set<AwardValuationRule>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.RuleType==p.RuleType && x.RateAmount==p.RateAmount && x.RateUnit==p.RateUnit && x.LegalSection==p.LegalSection,ct),
@@ -349,11 +349,44 @@ public sealed partial class AwardIngestionService
             SupplementaryMatterCandidate p => await db.Set<AwardSupplementaryMatter>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.MatterType==p.MatterType && x.Description==p.Description,ct),
             _=>null
         };
-        if(existing is null) db.Add(record); else record=existing;
+        if(existing is null) db.Add(record);
+        else
+        {
+            record=existing;
+            if(payload is ClaimCandidate claim && !string.IsNullOrWhiteSpace(claim.SourceSerialNumber)) candidate.ResolutionAction="ReuseSourceOccurrence";
+        }
         if(record is CourtCase court && !await db.Set<CourtCaseAward>().AnyAsync(x=>x.AwardId==session.TargetAwardId && x.CourtCaseId==court.Id,ct)) db.Add(new CourtCaseAward{AwardId=session.TargetAwardId!.Value,CourtCase=court});
         await db.SaveChangesAsync(ct);
         candidate.CanonicalEntityId=record.Id;candidate.CanonicalEntityType=record.GetType().Name;candidate.Status=AwardIngestionCandidateStatus.Committed;
         return true;
+    }
+
+    private async Task<Claim?> FindCommittedClaimOccurrenceAsync(AwardIngestionSession session,ClaimCandidate candidate,CancellationToken ct)
+    {
+        var matches=await db.Claims.Where(x=>x.AwardId==session.TargetAwardId &&
+            x.SourceSerialNumber==candidate.SourceSerialNumber &&
+            db.SourceEvidence.Any(e=>e.ClaimId==x.Id && e.DocumentId==session.SourceDocumentId))
+            .Take(2).ToListAsync(ct);
+        if(matches.Count>1) throw new AwardIngestionException("More than one committed Claim has this source claimant row. Resolve the existing records before continuing.",409);
+        var existing=matches.SingleOrDefault();
+        if(existing is not null && !EquivalentClaimSource(existing,candidate))
+            throw new AwardIngestionException("This source claimant row was previously committed with different verified values. Compare the existing verified record and the current source before continuing.",409);
+        return existing;
+    }
+
+    private static bool EquivalentClaimSource(Claim existing,ClaimCandidate current)
+    {
+        static string? Text(string? value)=>string.IsNullOrWhiteSpace(value)?null:string.Join(' ',value.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
+        return Text(existing.SourceSerialNumber)==Text(current.SourceSerialNumber) &&
+            Text(existing.ClaimantText)==Text(current.ClaimantText) &&
+            Text(existing.KhasraReferences)==Text(current.KhasraReferences) &&
+            Text(existing.ClaimedAreaText)==Text(current.ClaimedAreaText) &&
+            Text(existing.ClaimText)==Text(current.ClaimText) &&
+            existing.ClaimedRateAmount==current.ClaimedRateAmount &&
+            Text(existing.ClaimedRateUnit)==Text(current.ClaimedRateUnit) &&
+            existing.ClaimedAmount==current.ClaimedAmount &&
+            Text(existing.ClaimReference)==Text(current.ClaimReference) &&
+            existing.ClaimDate==current.ClaimDate;
     }
 
     private static string? PossessionRemarks(PossessionEventCandidate value)
@@ -384,6 +417,17 @@ public sealed partial class AwardIngestionService
         var hasSourcePayload=locator.TryGetProperty("structuredPayload",out var sourcePayload) || locator.TryGetProperty("StructuredPayload",out sourcePayload);
         JsonElement sourceCells=default;
         var hasSourceCells=hasSourcePayload && sourcePayload.TryGetProperty("sourceCells",out sourceCells);
+        var existingClaimFacts=new HashSet<(string FactName,string? Region,string Value)>();
+        if(candidate.CandidateType==AwardIngestionCandidateType.Claim)
+        {
+            var facts=await db.SourceEvidence.AsNoTracking().Where(x=>x.DocumentId==session.SourceDocumentId &&
+                x.ClaimId==candidate.CanonicalEntityId && x.PageNumber==page)
+                .Select(x=>new{x.FactName,x.SourceRegionJson,x.ConfirmedValueJson}).ToListAsync(ct);
+            existingClaimFacts.UnionWith(facts.Select(x=>(x.FactName,x.SourceRegionJson,x.ConfirmedValueJson)));
+            existingClaimFacts.UnionWith(db.SourceEvidence.Local.Where(x=>x.DocumentId==session.SourceDocumentId &&
+                x.ClaimId==candidate.CanonicalEntityId && x.PageNumber==page)
+                .Select(x=>(x.FactName,x.SourceRegionJson,x.ConfirmedValueJson)));
+        }
         // Award extraction does not verify Village master area. Do not attribute it to the Award link.
         foreach(var field in payload.RootElement.EnumerateObject().Where(p=>p.Name!="candidateType" && !p.Name.StartsWith("canonicalArea",StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind!=JsonValueKind.Null))
         {
@@ -421,6 +465,8 @@ public sealed partial class AwardIngestionService
                 case AwardIngestionCandidateType.AwardSupplementaryMatter:evidence.AwardSupplementaryMatterId=candidate.CanonicalEntityId;break;
                 default:throw new AwardIngestionException("Permanent evidence target is not supported.");
             }
+            if(candidate.CandidateType==AwardIngestionCandidateType.Claim &&
+                !existingClaimFacts.Add((evidence.FactName,evidence.SourceRegionJson,evidence.ConfirmedValueJson))) continue;
             db.SourceEvidence.Add(evidence);
         }
     }

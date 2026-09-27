@@ -429,6 +429,121 @@ public sealed class AwardVerificationTests
         Assert.Contains("\"x\":20",evidence.SourceRegionJson);
     }
 
+    private static ClaimCandidate ScheduleClaim(string serial="3",string claimant="Ved Prakash") =>
+        new(null,null,"Rs.3000/- per sq yard for land",serial,claimant,"12//20/2 etc.","9-18",3000m,"sq yard");
+
+    private static async Task<IngestionCommitResult> CommitScheduleClaim(Fixture f,Guid documentId,ClaimCandidate claim)
+    {
+        var locator=JsonSerializer.Serialize(new {page=1,sourceRegion=new{x=10,y=20,width=300,height=60},
+            structuredPayload=new{sourceCells=new{
+                serial=new{rawOcr=claim.SourceSerialNumber,sourceRegion=new{x=10,y=20,width=20,height=60}},
+                claimant=new{rawOcr=claim.ClaimantText,sourceRegion=new{x=30,y=20,width=90,height=60}},
+                khasra=new{rawOcr=claim.KhasraReferences,sourceRegion=new{x=120,y=20,width=70,height=60}},
+                area=new{rawOcr=claim.ClaimedAreaText,sourceRegion=new{x=190,y=20,width=40,height=60}},
+                claim=new{rawOcr=claim.ClaimText,sourceRegion=new{x=230,y=20,width=80,height=60}}
+            }}});
+        var input=new IngestionCandidateInput(AwardIngestionCandidateType.Claim,JsonSerializer.Serialize(claim),locator,"Source claimant row",.99m);
+        var session=await f.Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,f.Award.Id,f.Village.Id,documentId,null,null,[input],default);
+        var row=await f.Db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==session.Id);
+        Assert.False(row.SafeToConfirm);
+        await f.Service.VerifyFactAsync(row.Id,new("Officer",null),default);
+        return await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+    }
+
+    [Fact]
+    public async Task Reanalyzing_the_same_document_and_claimant_row_reuses_claim_without_duplicate_evidence()
+    {
+        await using var f=await Fixture.Create();
+        var first=await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        Assert.Equal(1,first.Created);
+        var original=await f.Db.Claims.SingleAsync();
+        var evidenceCount=await f.Db.SourceEvidence.CountAsync(x=>x.ClaimId==original.Id);
+        Assert.True(evidenceCount>0);
+        Assert.NotNull((await f.Db.SourceEvidence.SingleAsync(x=>x.ClaimId==original.Id && x.FactName=="claimantText")).SourceRegionJson);
+
+        var second=await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        Assert.Equal(0,second.Created);
+        Assert.Equal(1,second.Reused);
+
+        var claim=await f.Db.Claims.SingleAsync();
+        Assert.Equal(original.Id,claim.Id);
+        Assert.Equal("3",claim.SourceSerialNumber);
+        Assert.Equal("Ved Prakash",claim.ClaimantText);
+        Assert.Null(claim.ClaimantPartyId);
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
+        Assert.Empty(await f.Db.Parties.ToListAsync());
+        Assert.Equal(evidenceCount,await f.Db.SourceEvidence.CountAsync(x=>x.ClaimId==claim.Id));
+    }
+
+    [Fact]
+    public async Task Same_serial_in_another_document_or_a_different_row_remains_a_distinct_claim()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim("4"));
+        var other=new Document{OriginalFileName="second.pdf",StoragePath="second.pdf"};
+        var job=new AwardDocumentExtractionJob{Document=other,TargetAward=f.Award,SelectedVillage=f.Village};
+        f.Db.Add(job);f.Db.Add(new AwardDocumentPageExtraction{Job=job,PageNumber=1});
+        await f.Db.SaveChangesAsync();
+
+        await CommitScheduleClaim(f,other.Id,ScheduleClaim());
+
+        Assert.Equal(3,await f.Db.Claims.CountAsync());
+        Assert.Equal(2,await f.Db.Claims.CountAsync(x=>x.SourceSerialNumber=="3"));
+        Assert.Equal(1,await f.Db.Claims.CountAsync(x=>x.SourceSerialNumber=="4"));
+        Assert.All(await f.Db.Claims.ToListAsync(),x=>Assert.Null(x.ClaimantPartyId));
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Changed_verified_values_for_the_same_source_claimant_row_conflict_without_overwrite()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        var original=await f.Db.Claims.SingleAsync();
+        var evidenceCount=await f.Db.SourceEvidence.CountAsync();
+
+        var error=await Assert.ThrowsAsync<AwardIngestionException>(()=>CommitScheduleClaim(f,f.Document.Id,ScheduleClaim(claimant:"Different claimant")));
+
+        Assert.Contains("previously committed with different verified values",error.Message);
+        Assert.Single(await f.Db.Claims.ToListAsync());
+        Assert.Equal("Ved Prakash",(await f.Db.Claims.SingleAsync()).ClaimantText);
+        Assert.Equal(original.Id,(await f.Db.Claims.SingleAsync()).Id);
+        Assert.Equal(evidenceCount,await f.Db.SourceEvidence.CountAsync());
+    }
+
+    [Fact]
+    public async Task Ambiguous_preexisting_claimant_source_occurrence_is_not_chosen()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        var duplicate=new Claim{AwardId=f.Award.Id,SourceSerialNumber="3",ClaimantText="Ved Prakash",KhasraReferences="12//20/2 etc.",ClaimedAreaText="9-18",ClaimText="Rs.3000/- per sq yard for land",ClaimedRateAmount=3000m,ClaimedRateUnit="sq yard"};
+        f.Db.Claims.Add(duplicate);
+        f.Db.SourceEvidence.Add(new SourceEvidence{DocumentId=f.Document.Id,Claim=duplicate,PageNumber=1,FactName="sourceSerialNumber",ConfirmedValueJson="\"3\"",VerifiedBy="Officer",VerifiedAt=DateTimeOffset.UtcNow});
+        await f.Db.SaveChangesAsync();
+
+        var error=await Assert.ThrowsAsync<AwardIngestionException>(()=>CommitScheduleClaim(f,f.Document.Id,ScheduleClaim()));
+
+        Assert.Contains("More than one committed Claim",error.Message);
+        Assert.Equal(2,await f.Db.Claims.CountAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_claim_without_source_serial_keeps_its_existing_deduplication()
+    {
+        await using var f=await Fixture.Create();
+        var legacy=new ClaimCandidate("Legacy-1",null,"Legacy claim text");
+        for(var attempt=0;attempt<2;attempt++)
+        {
+            var session=await f.Preview(f.Input(legacy));
+            var row=await f.Db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==session.Id);
+            await f.Service.VerifyFactAsync(row.Id,new("Officer",null),default);
+            await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        }
+        Assert.Single(await f.Db.Claims.ToListAsync());
+        Assert.Null((await f.Db.Claims.SingleAsync()).SourceSerialNumber);
+    }
+
     [Fact]
     public async Task Claim_search_and_type_filter_apply_before_pagination()
     {

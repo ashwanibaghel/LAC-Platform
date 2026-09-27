@@ -214,7 +214,11 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
                     if (!await db.AwardNotifications.AnyAsync(x => x.AwardId == session.TargetAwardId && x.NotificationId == notification.Id, ct)) db.AwardNotifications.Add(new AwardNotification { AwardId = session.TargetAwardId.Value, Notification = notification });
                     candidate.CanonicalEntityId = notification.Id; candidate.CanonicalEntityType = nameof(Notification); candidate.Status = AwardIngestionCandidateStatus.Committed; candidate.UpdatedAt = DateTimeOffset.UtcNow;
                 }
-                else if (session.SourceDocumentId is not null && await CommitVerifiedRelatedAsync(session, candidate, ct)) { created++; }
+                else if (session.SourceDocumentId is not null && await CommitVerifiedRelatedAsync(session, candidate, ct))
+                {
+                    if (candidate.CandidateType == AwardIngestionCandidateType.Claim && candidate.ResolutionAction == "ReuseSourceOccurrence") reused++;
+                    else created++;
+                }
                 else { candidate.Status = AwardIngestionCandidateStatus.Skipped; skipped++; continue; }
                 if (session.SourceDocumentId is not null) await SavePermanentEvidenceAsync(session, candidate, ct);
                 db.AuditLogs.Add(new AuditLog { EntityType = nameof(AwardIngestionCandidate), EntityId = candidate.Id, Action = "IngestionCandidateCommitted", ChangedAt = DateTimeOffset.UtcNow, ChangedBy = Clean(committedBy) });
