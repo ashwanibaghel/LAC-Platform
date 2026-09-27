@@ -781,6 +781,7 @@ def main() -> int:
         from benchmark.normalized import BoundingBox
         from benchmark.table_transformer_geometry import TableTransformerGeometry
         from benchmark.worker_semantics import page_likely_has_table
+        from claimant_schedule import extract_claimant_tables
 
         started = time.perf_counter()
         stages = {key: 0.0 for key in ("pageRendering", "rapidOcr", "tableLayout", "awardKhasraInterpretation", "valuationCompensationInterpretation", "possessionInterpretation", "courtNarrativeInterpretation", "courtTableInterpretation", "selectiveCellOcr", "serialization")}
@@ -800,6 +801,10 @@ def main() -> int:
         candidates: list[dict] = []
         table_pages = 0
         totals = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0}
+        claimant_layout = None
+        claimant_counts = {"rowsDetected": 0, "claimsStaged": 0, "withClaimant": 0,
+                           "withKhasra": 0, "withArea": 0, "withLandRate": 0,
+                           "incompleteRows": 0, "valuationDuplicatesPrevented": 0}
 
         for page_number in selected_pages:
             pdf_page = document[page_number - 1]
@@ -832,23 +837,40 @@ def main() -> int:
                 # rejected registration strategy. It emits review staging only.
                 candidates.extend(nm_pilot_candidates(page_number, words, image.width, image.height))
                 continue
+            claim_rows, consumed, claimant_layout, row_counts = extract_claimant_tables(
+                page_number, words, image.width, claimant_layout)
+            page_candidates.extend(claim_rows)
+            claimant_counts["rowsDetected"] += row_counts["rowsDetected"]
+            claimant_counts["incompleteRows"] += row_counts["incompleteRows"]
+            claimant_counts["claimsStaged"] += len(claim_rows)
+            for row in claim_rows:
+                payload = row["structuredPayload"]
+                claimant_counts["withClaimant"] += bool(payload["claimantText"])
+                claimant_counts["withKhasra"] += bool(payload["khasraReferences"])
+                claimant_counts["withArea"] += bool(payload["claimedAreaText"])
+                claimant_counts["withLandRate"] += payload["claimedRateAmount"] is not None
+            if consumed:
+                claimant_counts["valuationDuplicatesPrevented"] += sum(
+                    bool(re.search(r"market\s+value|market\s+rate|rate\s+per|assessed\s+value|value\s+assessed", word.text, re.I))
+                    for word in words if id(word) in consumed)
+            narrative_words = [word for word in words if id(word) not in consumed]
             # Core/header and statutory suggestions are label-led narrative
             # extraction.  They deliberately do not depend on Award table
             # geometry and cannot influence Khasra interpretation.
             stage_started = time.perf_counter()
-            page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
+            page_candidates.extend(narrative_core_and_statutory_candidates(page_number, narrative_words))
             stages["awardKhasraInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
-            page_candidates.extend(valuation_and_compensation_candidates(page_number, words))
+            page_candidates.extend(valuation_and_compensation_candidates(page_number, narrative_words))
             stages["valuationCompensationInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
-            page_candidates.extend(possession_candidates(page_number, words))
+            page_candidates.extend(possession_candidates(page_number, narrative_words))
             stages["possessionInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
             if not args.disable_court:
-                page_candidates.extend(court_case_candidates(page_number, words))
+                page_candidates.extend(court_case_candidates(page_number, narrative_words))
             stages["courtNarrativeInterpretation"] += time.perf_counter() - stage_started
-            if page_likely_has_table([word.text for word in words]):
+            if page_likely_has_table([word.text for word in narrative_words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
                 stage_started = time.perf_counter()
@@ -856,7 +878,7 @@ def main() -> int:
                 counters["tableTransformerCalls"] += 1
                 stages["tableLayout"] += time.perf_counter() - stage_started
                 crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]] = {}
-                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr, crop_cache, counters, not args.disable_court)
+                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, narrative_words, image, ocr, crop_cache, counters, not args.disable_court)
                 # Court parsing is pure same-row interpretation. Crop OCR is
                 # timed at the call site, so geometry parsing is not falsely
                 # attributed to either stage.
@@ -867,7 +889,7 @@ def main() -> int:
                     for key in totals:
                         totals[key] += page_counts[key]
             candidates.extend(page_candidates)
-            if words:
+            if narrative_words:
                 candidates.append({
                     "candidateType": "UnmappedAwardFinding",
                     "structuredPayload": {"category": "Local OCR narrative", "summary": "Page OCR retained outside geometry-backed structured rows"},
@@ -890,7 +912,7 @@ def main() -> int:
             "pagesProcessed": len(selected_pages),
             "candidates": candidates,
             "warnings": ["Structured candidates require detected table geometry, header roles, and human review."],
-            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, "stageSeconds": {}, **counters},
+            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, **claimant_counts, "stageSeconds": {}, **counters},
         }
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)

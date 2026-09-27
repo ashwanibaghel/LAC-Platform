@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,7 +26,7 @@ public sealed record PossessionEventCandidate(DateOnly? PossessionDate, string? 
 // Khasra and area values remain source references until a reviewer explicitly
 // resolves any canonical CourtCaseKhasra relationship during a later workflow.
 public sealed record CourtCaseCandidate(string CaseNumber, string? CourtName, string? CaseType, string? Status = null, string? KhasraReferences = null, string? RelatedAreaText = null, string? Parties = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.CourtCase; }
-public sealed record ClaimCandidate(string? ClaimReference, DateOnly? ClaimDate, string? ClaimText) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.Claim; }
+public sealed record ClaimCandidate(string? ClaimReference, DateOnly? ClaimDate, string? ClaimText, string? SourceSerialNumber = null, string? ClaimantText = null, string? KhasraReferences = null, string? ClaimedAreaText = null, decimal? ClaimedRateAmount = null, string? ClaimedRateUnit = null, decimal? ClaimedAmount = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.Claim; }
 public sealed record LandClassCandidate(string Code, string? Description) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardLandClass; }
 public sealed record ValuationRuleCandidate(string RuleType, decimal? RateAmount, string? LegalSection, string? RateUnit = null) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardValuationRule; }
 public sealed record CompensationRuleCandidate(string RuleType, decimal? RatePercent, decimal? RateAmount, string? LegalSection) : IAwardIngestionCandidatePayload { public AwardIngestionCandidateType CandidateType => AwardIngestionCandidateType.AwardCompensationRule; }
@@ -34,7 +35,8 @@ public sealed record SupplementaryMatterCandidate(string MatterType, string? Des
 public sealed record IngestionSessionInput(AwardIngestionSourceType SourceType, Guid? TargetAwardId, Guid? SelectedVillageId, Guid? SourceDocumentId, string? CreatedBy, string? Remarks, IReadOnlyList<IAwardIngestionCandidatePayload> Candidates);
 public sealed record IngestionCandidateInput(AwardIngestionCandidateType CandidateType, string PayloadJson, string? SourceLocatorJson = null, string? RawSourceText = null, decimal? Confidence = null);
 public sealed record IngestionSessionSummary(Guid Id, AwardIngestionSourceType SourceType, AwardIngestionSessionStatus Status, Guid? SourceDocumentId, Guid? TargetAwardId, Guid? SelectedVillageId, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, IReadOnlyDictionary<string, int> Counts);
-public sealed record IngestionCandidateReview(Guid Id, AwardIngestionCandidateType CandidateType, int Sequence, AwardIngestionCandidateStatus Status, string PayloadJson, Guid? CanonicalEntityId, string? CanonicalEntityType, string? ResolutionAction, string? ValidationIssuesJson, string? ConflictDetailsJson, string? SourceLocatorJson, string? RawSourceText, decimal? Confidence, bool SafeToConfirm = false, int? SourcePage = null, DateTimeOffset? VerifiedAt = null, string? VerifiedBy = null, string? FieldReviewJson = null);
+public sealed record ClaimKhasraMasterMatch(string SourceReference, Guid? KhasraId, string? DisplayNumber);
+public sealed record IngestionCandidateReview(Guid Id, AwardIngestionCandidateType CandidateType, int Sequence, AwardIngestionCandidateStatus Status, string PayloadJson, Guid? CanonicalEntityId, string? CanonicalEntityType, string? ResolutionAction, string? ValidationIssuesJson, string? ConflictDetailsJson, string? SourceLocatorJson, string? RawSourceText, decimal? Confidence, bool SafeToConfirm = false, int? SourcePage = null, DateTimeOffset? VerifiedAt = null, string? VerifiedBy = null, string? FieldReviewJson = null, IReadOnlyList<ClaimKhasraMasterMatch>? KhasraMatches = null);
 public sealed record IngestionCommitResult(int Created, int Reused, int ReviewFlagsCreated, int Skipped, int Remaining);
 public sealed record IngestionPage<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
@@ -99,10 +101,17 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
         return new(sessions.Select(Summary).ToList(), page, pageSize, total);
     }
 
-    public async Task<IngestionPage<IngestionCandidateReview>> GetCandidatesAsync(Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, CancellationToken ct, string? bucket = null, int? sourcePage = null)
+    public async Task<IngestionPage<IngestionCandidateReview>> GetCandidatesAsync(Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, CancellationToken ct, string? bucket = null, int? sourcePage = null, string? typeGroup = null, string? search = null)
     {
         var query = db.AwardIngestionCandidates.AsNoTracking().Reviewable().Where(x => x.SessionId == id);
         if (type is not null) query = query.Where(x => x.CandidateType == type);
+        if (typeGroup == "other") query = query.Where(x => x.CandidateType != AwardIngestionCandidateType.AwardKhasra && x.CandidateType != AwardIngestionCandidateType.Claim);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var needle = search.Trim().ToLowerInvariant();
+            if (needle.Length > 100) throw new AwardIngestionException("Search text is too long.");
+            query = query.Where(x => x.StructuredPayloadJson.ToLower().Contains(needle));
+        }
         if (status is not null) query = query.Where(x => x.Status == status);
         if(sourcePage is not null) query=query.Where(x=>x.SourcePage==sourcePage);
         query=bucket switch {
@@ -123,7 +132,25 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
                 : x.VerifiedAt != null ? 5 : x.SafeToConfirm ? 4 : 3)
                 .ThenBy(x => x.SourcePage).ThenBy(x => x.Sequence)
             : query.OrderBy(x => x.SourcePage).ThenBy(x => x.Sequence);
-        return await ToPageAsync(ordered.Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
+        var result = await ToPageAsync(ordered.Select(x => new IngestionCandidateReview(x.Id, x.CandidateType, x.Sequence, x.Status, x.StructuredPayloadJson, x.CanonicalEntityId, x.CanonicalEntityType, x.ResolutionAction, x.ValidationIssuesJson, x.ConflictDetailsJson, x.SourceLocatorJson, x.RawSourceText, x.Confidence,x.SafeToConfirm,x.SourcePage,x.VerifiedAt,x.VerifiedBy,x.FieldReviewJson)), page, pageSize, ct);
+        var claims = result.Items.Where(x => x.CandidateType == AwardIngestionCandidateType.Claim).ToList();
+        if (claims.Count == 0) return result;
+        var villageId = await db.AwardIngestionSessions.AsNoTracking().Where(x => x.Id == id).Select(x => x.SelectedVillageId).SingleOrDefaultAsync(ct);
+        if (villageId is null) return result;
+        var parser = new StrictKhasraParser();
+        var references = claims.ToDictionary(x => x.Id, x => Regex.Matches(JsonSerializer.Deserialize<ClaimCandidate>(x.PayloadJson, Json)?.KhasraReferences ?? "", @"(?<![\w/])\d{1,3}//\d{1,3}(?:/\d{1,3})*(?:\s+min)?(?![\w/])", RegexOptions.IgnoreCase)
+            .Select(match => match.Value).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(value => parser.TryParse(value, out var parsed, out _) ? parsed : null)
+            .Where(value => value is not null).ToList());
+        var numbers = references.Values.SelectMany(x => x).Select(x => x!.NormalizedNumber).Distinct().ToList();
+        var masters = await db.Khasras.AsNoTracking().Where(x => x.VillageId == villageId && numbers.Contains(x.NormalizedNumber))
+            .Select(x => new { x.Id, x.NormalizedNumber, x.Qualifier, x.DisplayNumber }).ToListAsync(ct);
+        return result with { Items = result.Items.Select(item => item.CandidateType != AwardIngestionCandidateType.Claim ? item : item with {
+            KhasraMatches = references[item.Id].Select(reference => {
+                var master = masters.FirstOrDefault(x => x.NormalizedNumber == reference!.NormalizedNumber && x.Qualifier == reference.Qualifier);
+                return new ClaimKhasraMasterMatch(reference!.NormalizedNumber + (reference.Qualifier is null ? "" : " " + reference.Qualifier), master?.Id, master?.DisplayNumber);
+            }).ToList()
+        }).ToList() };
     }
 
     public async Task ResolveAsync(Guid candidateId, string action, CancellationToken ct)
@@ -226,6 +253,11 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
             item.Status = AwardIngestionCandidateStatus.Ready; item.ResolutionAction = "CreateNew"; item.ValidationIssuesJson = "[\"New canonical Notification will be linked to this Award on commit.\"]"; return item;
         }
         if (payload is AwardVillageCandidate village) { item.Status = AwardIngestionCandidateStatus.NeedsReview; item.ValidationIssuesJson = JsonSerializer.Serialize(new[] { village.ExactCanonicalVillageName is null ? "Village requires human confirmation; no exact official master match was found." : "Exact official Village master match found; confirm before linking it to the Award." }, Json); return item; }
+        if (payload is ClaimCandidate)
+        {
+            item.ValidationIssuesJson = "[\"Check the claimant, Khasra references, area and claimed terms against this source row. No ownership or payment is inferred.\"]";
+            return item;
+        }
         if (payload is not AwardKhasraCandidate khasra) { item.ValidationIssuesJson = "[\"Candidate contract is stored for future review; canonical commit is not implemented for this candidate type yet.\"]"; return item; }
         if (session.SelectedVillageId is null || session.TargetAwardId is null) { item.Status = AwardIngestionCandidateStatus.NeedsReview; item.ValidationIssuesJson = "[\"Pending context: select an Award and Village before reviewing this Khasra.\"]"; return item; }
         if (string.IsNullOrWhiteSpace(khasra.KhasraNumber)) { item.Status = AwardIngestionCandidateStatus.Invalid; item.ValidationIssuesJson = "[\"Khasra number is required.\"]"; return item; }

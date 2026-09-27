@@ -58,7 +58,7 @@ public sealed partial class AwardIngestionService
         var session = await db.AwardIngestionSessions.AsNoTracking().Where(x=>x.Id==sessionId).Select(x=>new {x.Id,x.TargetAwardId,x.SelectedVillageId,x.SourceDocumentId,DocumentName=x.SourceDocument==null?null:x.SourceDocument.OriginalFileName,AwardNumber=x.TargetAward==null?null:x.TargetAward.AwardNumber,VillageName=x.SelectedVillage==null?null:x.SelectedVillage.Name}).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("Review not found.",404);
         var q=db.AwardIngestionCandidates.AsNoTracking().Reviewable().Where(x=>x.SessionId==sessionId);
         var sections=await q.GroupBy(x=>new{x.CandidateType,x.Status,x.SafeToConfirm,Verified=x.VerifiedAt!=null}).Select(g=>new{g.Key.CandidateType,g.Key.Status,g.Key.SafeToConfirm,g.Key.Verified,Count=g.Count()}).ToListAsync(ct);
-        var pages=await q.Where(x=>x.CandidateType==AwardIngestionCandidateType.AwardKhasra).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
+        var pages=await q.Where(x=>x.SourcePage!=null).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
         var job=await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x=>x.IngestionSessionId==sessionId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Status,x.TotalPages,x.ProcessedPages}).FirstOrDefaultAsync(ct);
         return new {session.Id,session.TargetAwardId,session.SelectedVillageId,session.SourceDocumentId,session.DocumentName,session.AwardNumber,session.VillageName,AnalysisStatus=job?.Status,TotalPages=job?.TotalPages,ProcessedPages=job?.ProcessedPages,Sections=sections,Pages=pages};
     }
@@ -292,7 +292,9 @@ public sealed partial class AwardIngestionService
             case NotificationCandidate n when !string.IsNullOrWhiteSpace(n.SectionType) && !string.IsNullOrWhiteSpace(n.NotificationNumber) && n.NotificationDate!=null: break;
             case PossessionEventCandidate p when p.PossessionDate!=null || !string.IsNullOrWhiteSpace(p.Status): break;
             case CourtCaseCandidate c when !string.IsNullOrWhiteSpace(c.CaseNumber): break;
-            case ClaimCandidate c when !string.IsNullOrWhiteSpace(c.ClaimText): break;
+            case ClaimCandidate c when string.IsNullOrWhiteSpace(c.SourceSerialNumber)
+                ? !string.IsNullOrWhiteSpace(c.ClaimText)
+                : !string.IsNullOrWhiteSpace(c.ClaimantText): break;
             case LandClassCandidate l when !string.IsNullOrWhiteSpace(l.Code): break;
             case ValuationRuleCandidate v when !string.IsNullOrWhiteSpace(v.RuleType) && !string.IsNullOrWhiteSpace(v.RateUnit) && v.RateAmount>=0: break;
             case CompensationRuleCandidate c when !string.IsNullOrWhiteSpace(c.RuleType) && (c.RatePercent>=0 || c.RateAmount>=0): break;
@@ -322,7 +324,7 @@ public sealed partial class AwardIngestionService
         {
             PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status,Remarks=PossessionRemarks(p)},
             CourtCaseCandidate p => new CourtCase{CaseNumber=p.CaseNumber,CourtName=p.CourtName ?? "",CaseType=p.CaseType,CurrentStatus=p.Status,Remarks=CourtRemarks(p)},
-            ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText},
+            ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText,SourceSerialNumber=p.SourceSerialNumber,ClaimantText=p.ClaimantText,KhasraReferences=p.KhasraReferences,ClaimedAreaText=p.ClaimedAreaText,ClaimedRateAmount=p.ClaimedRateAmount,ClaimedRateUnit=p.ClaimedRateUnit,ClaimedAmount=p.ClaimedAmount},
             LandClassCandidate p => new AwardLandClass{AwardId=session.TargetAwardId!.Value,Code=p.Code,Description=p.Description},
             ValuationRuleCandidate p => new AwardValuationRule{AwardId=session.TargetAwardId!.Value,RuleType=p.RuleType,RateAmount=p.RateAmount,RateUnit=p.RateUnit,LegalSection=p.LegalSection},
             CompensationRuleCandidate p => new AwardCompensationRule{AwardId=session.TargetAwardId!.Value,RuleType=p.RuleType,RateAmount=p.RateAmount,RatePercent=p.RatePercent,LegalSection=p.LegalSection},
@@ -336,6 +338,9 @@ public sealed partial class AwardIngestionService
             // consolidate events, but analysis/commit never silently merges them.
             PossessionEventCandidate => null,
             CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==(p.CourtName ?? "") && x.CaseType==p.CaseType,ct),
+            // Keep each reviewed schedule row distinct. Preserve legacy Claim
+            // deduplication for callers without a source serial.
+            ClaimCandidate p when !string.IsNullOrWhiteSpace(p.SourceSerialNumber) => null,
             ClaimCandidate p => await db.Claims.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.ClaimReference==p.ClaimReference && x.ClaimDate==p.ClaimDate && x.ClaimText==p.ClaimText,ct),
             LandClassCandidate p => await db.Set<AwardLandClass>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.Code==p.Code && x.Description==p.Description,ct),
             ValuationRuleCandidate p => await db.Set<AwardValuationRule>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.RuleType==p.RuleType && x.RateAmount==p.RateAmount && x.RateUnit==p.RateUnit && x.LegalSection==p.LegalSection,ct),
@@ -374,10 +379,32 @@ public sealed partial class AwardIngestionService
         var page=await VerifiedSourcePageAsync(candidate,ct);
         var linkId=candidate.CandidateType==AwardIngestionCandidateType.AwardKhasra ? await db.Set<AwardKhasra>().Where(x=>x.AwardId==session.TargetAwardId && x.KhasraId==candidate.CanonicalEntityId).Select(x=>(Guid?)x.Id).SingleAsync(ct):null;
         using var payload=JsonDocument.Parse(candidate.VerifiedPayloadJson!);
+        using var sourceLocator=JsonDocument.Parse(candidate.CandidateType==AwardIngestionCandidateType.Claim ? candidate.SourceLocatorJson ?? "{}" : "{}");
+        var locator=sourceLocator.RootElement;
+        var hasSourcePayload=locator.TryGetProperty("structuredPayload",out var sourcePayload) || locator.TryGetProperty("StructuredPayload",out sourcePayload);
+        JsonElement sourceCells=default;
+        var hasSourceCells=hasSourcePayload && sourcePayload.TryGetProperty("sourceCells",out sourceCells);
         // Award extraction does not verify Village master area. Do not attribute it to the Award link.
         foreach(var field in payload.RootElement.EnumerateObject().Where(p=>p.Name!="candidateType" && !p.Name.StartsWith("canonicalArea",StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind!=JsonValueKind.Null))
         {
             var evidence=new SourceEvidence{DocumentId=session.SourceDocumentId!.Value,PageNumber=page,FactName=field.Name,ConfirmedValueJson=field.Value.GetRawText(),ExtractedSnippet=candidate.RawSourceText,VerifiedAt=candidate.VerifiedAt!.Value,VerifiedBy=candidate.VerifiedBy!};
+            if(candidate.CandidateType==AwardIngestionCandidateType.Claim)
+            {
+                var role=field.Name switch {
+                    "sourceSerialNumber"=>"serial",
+                    "claimantText"=>"claimant",
+                    "khasraReferences"=>"khasra",
+                    "claimedAreaText"=>"area",
+                    "claimText" or "claimedRateAmount" or "claimedRateUnit" or "claimedAmount"=>"claim",
+                    _=>null
+                };
+                if(role is not null && hasSourceCells && sourceCells.TryGetProperty(role,out var sourceCell))
+                {
+                    if(sourceCell.TryGetProperty("sourceRegion",out var region)) evidence.SourceRegionJson=region.GetRawText();
+                    if(sourceCell.TryGetProperty("rawOcr",out var raw) && raw.ValueKind==JsonValueKind.String) evidence.ExtractedSnippet=raw.GetString();
+                }
+                evidence.SourceRegionJson ??= locator.TryGetProperty("sourceRegion",out var rowRegion) ? rowRegion.GetRawText() : null;
+            }
             switch(candidate.CandidateType)
             {
                 case AwardIngestionCandidateType.AwardCore:evidence.AwardId=session.TargetAwardId;break;
