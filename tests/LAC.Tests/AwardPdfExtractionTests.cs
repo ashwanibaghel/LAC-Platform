@@ -97,11 +97,8 @@ public sealed class AwardPdfExtractionTests
             var job=json.RootElement[0].GetProperty("Job");
             return (job.GetProperty("Reviewed").GetBoolean(),job.GetProperty("Attention").GetInt32());
         }
-        var before=await Read(db,award.Id); Assert.True(before.reviewed); Assert.Equal(0,before.attention);
-        db.Add(new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Conflict });
-        await db.SaveChangesAsync();
-        var actionable=await Read(db,award.Id); Assert.False(actionable.reviewed); Assert.Equal(1,actionable.attention);
-        var candidate=await db.AwardIngestionCandidates.SingleAsync(x=>x.CandidateType==AwardIngestionCandidateType.AwardCore);candidate.Status=AwardIngestionCandidateStatus.Skipped;await db.SaveChangesAsync();
+        var before=await Read(db,award.Id); Assert.False(before.reviewed); Assert.Equal(1,before.attention);
+        var candidate=await db.AwardIngestionCandidates.SingleAsync();candidate.Status=AwardIngestionCandidateStatus.Skipped;await db.SaveChangesAsync();
         var after=await Read(db,award.Id); Assert.True(after.reviewed); Assert.Equal(0,after.attention);
     }
 
@@ -165,26 +162,6 @@ public sealed class AwardPdfExtractionTests
         Assert.Equal(AwardIngestionCandidateType.CourtCase, mapped.CandidateType); Assert.Equal("CWP 4721/2002", payload.CaseNumber);
         Assert.Equal("Status quo", payload.Status); Assert.Equal("12//11", payload.KhasraReferences); Assert.Equal("23-14", payload.RelatedAreaText);
         Assert.Contains("sourceRegion", mapped.SourceLocatorJson!, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Local_worker_claim_row_maps_source_fields_without_creating_an_owner()
-    {
-        static JsonElement Element(string value) => JsonDocument.Parse(value).RootElement.Clone();
-        var result = new LocalDocumentIntelligenceResult(1, Guid.NewGuid(), "Completed", 1,
-            [new("Claim", Element("{\"sourceSerialNumber\":\"3\",\"claimantText\":\"Ved Prakash s/o Sardar Singh\",\"khasraReferences\":\"12//20/2 etc.\",\"claimedAreaText\":\"9-18\",\"claimText\":\"Rs.3000/- per sq yard for land; Rs.5 lacs for boundary wall\",\"claimedRateAmount\":\"3000\",\"claimedRateUnit\":\"sq yard\",\"sourceCells\":{\"claimant\":{\"rawOcr\":\"Ved Prakash\",\"sourceRegion\":{\"x\":1,\"y\":2,\"width\":3,\"height\":4}}}}"),
-                8, Element("{\"x\":1,\"y\":2,\"width\":300,\"height\":40}"), "source row", "source row", null, null, .9m, [])], [], Element("{}"));
-        var mapped = Assert.Single(LocalIntelligenceCandidateMapper.Map(result));
-        var payload = JsonSerializer.Deserialize<ClaimCandidate>(mapped.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.Equal(AwardIngestionCandidateType.Claim, mapped.CandidateType);
-        Assert.Equal("3", payload.SourceSerialNumber);
-        Assert.Equal("Ved Prakash s/o Sardar Singh", payload.ClaimantText);
-        Assert.Equal("12//20/2 etc.", payload.KhasraReferences);
-        Assert.Equal("9-18", payload.ClaimedAreaText);
-        Assert.Equal(3000m, payload.ClaimedRateAmount);
-        Assert.Equal("sq yard", payload.ClaimedRateUnit);
-        Assert.Contains("boundary wall", payload.ClaimText);
-        Assert.Contains("sourceCells", mapped.SourceLocatorJson!);
     }
 
     private sealed class MemoryStorage(byte[] pdf) : IDocumentStorage

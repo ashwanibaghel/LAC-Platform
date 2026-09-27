@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
 import type { Designation, Workstream } from "../auth/types";
-import { PasswordInput } from "../auth/PasswordInput";
 
 interface UserItem {
   id: string;
@@ -561,7 +560,8 @@ export const UsersAdmin: React.FC = () => {
                 </label>
                 <label className="span-two">
                   Initial Password *
-                  <PasswordInput
+                  <input
+                    type="password"
                     required
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
@@ -673,7 +673,8 @@ export const UsersAdmin: React.FC = () => {
             <form onSubmit={handleResetPassword} className="lr-form">
               <label>
                 New Password *
-                <PasswordInput
+                <input
+                  type="password"
                   required
                   value={resetPasswordValue}
                   onChange={(e) => setResetPasswordValue(e.target.value)}

@@ -5,11 +5,8 @@ namespace LAC.Infrastructure;
 /// <summary>Single query source for the durable Award document review states.</summary>
 public static class AwardReviewState
 {
-    public static IQueryable<AwardIngestionCandidate> Reviewable(this IQueryable<AwardIngestionCandidate> query) =>
-        query.Where(x => x.CandidateType != AwardIngestionCandidateType.UnmappedAwardFinding);
-
     public static IQueryable<AwardIngestionCandidate> Pending(this IQueryable<AwardIngestionCandidate> query) =>
-        query.Reviewable().Where(x => x.VerifiedAt == null &&
+        query.Where(x => x.VerifiedAt == null &&
             x.Status != AwardIngestionCandidateStatus.Committed &&
             x.Status != AwardIngestionCandidateStatus.Skipped &&
             x.Status != AwardIngestionCandidateStatus.Rejected);

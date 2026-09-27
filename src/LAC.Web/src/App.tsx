@@ -13,9 +13,8 @@ import {
   useSearchParams,
 } from "react-router-dom";
 import { ExportMenu } from "./components/ExportMenu";
-import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
+import { MatterDraftEditorPage } from "./editor/MatterDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
-import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
@@ -41,7 +40,6 @@ import { CourtDirectory } from "./court/CourtDirectory";
 import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
-import { CalculatorProvider } from "./calculator/CalculatorContext";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
 import "./attention/attention.css";
 import "./work/work.css";
@@ -3774,7 +3772,7 @@ function AuthenticatedApp() {
     return <LoginPage />;
   }
   return (
-    <CalculatorProvider><AppShell>
+    <AppShell>
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/land-records" element={<LandRecordsHierarchy />} />
@@ -3784,7 +3782,7 @@ function AuthenticatedApp() {
         <Route path="/villages/:id" element={<Village />} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
-        <Route path="/matter-drafts/:id" element={<OnlyOfficeDraftEditorPage />} />
+        <Route path="/matter-drafts/:id" element={<MatterDraftEditorPage />} />
         <Route path="/court-cases" element={<CourtDirectory />} />
         <Route path="/court-cases/:id" element={<CourtCaseWorkspace />} />
         <Route path="/court" element={<Navigate to="/court-cases" replace />} />
@@ -3801,9 +3799,9 @@ function AuthenticatedApp() {
         <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
         <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
         <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
-        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardReviewWorkbench />} />
+        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardIngestionReview />} />
         <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
-        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardReviewWorkbench />} />
+        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardIngestionReview />} />
         <Route path="/awards/:id" element={<Award />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/notifications/:id" element={<Notification />} />
@@ -3831,7 +3829,7 @@ function AuthenticatedApp() {
         <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
         <Route path="*" element={<SearchPage />} />
       </Routes>
-    </AppShell></CalculatorProvider>
+    </AppShell>
   );
 }
 function App() {

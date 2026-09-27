@@ -96,14 +96,13 @@ public sealed class AwardIngestionTests
         var session=new AwardIngestionSession { SourceType=AwardIngestionSourceType.Document };
         db.Add(session);
         db.AddRange(
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.NeedsReview },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Conflict },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Invalid },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Skipped },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Rejected },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Committed },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.AwardCore, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Ready, VerifiedAt=DateTimeOffset.UtcNow },
-            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{\"category\":\"Local OCR narrative\"}", Status=AwardIngestionCandidateStatus.NeedsReview });
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.NeedsReview },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Conflict },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Invalid },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Skipped },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Rejected },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Committed },
+            new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{}", Status=AwardIngestionCandidateStatus.Ready, VerifiedAt=DateTimeOffset.UtcNow });
         await db.SaveChangesAsync();
         var service=Service(db);
         var attention=await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"attention");
@@ -112,27 +111,6 @@ public sealed class AwardIngestionTests
         Assert.True(attention.TotalCount==3, $"attention={attention.TotalCount} [{string.Join(",",attention.Items.Select(x=>x.Status))}]");
         Assert.True(verified.TotalCount==1, $"verified={verified.TotalCount}");
         Assert.True(committed.TotalCount==1, $"committed={committed.TotalCount}");
-        Assert.Equal(7,(await service.GetCandidatesAsync(session.Id,null,null,0,25,default)).TotalCount);
-        Assert.Equal(0,(await service.GetCandidatesAsync(session.Id,AwardIngestionCandidateType.UnmappedAwardFinding,null,0,25,default)).TotalCount);
-        Assert.Equal(8,await db.AwardIngestionCandidates.CountAsync());
-    }
-
-    [Fact]
-    public async Task Unmapped_ocr_evidence_does_not_block_an_existing_review_or_appear_in_progress()
-    {
-        await using var db=Db();
-        var session=new AwardIngestionSession { SourceType=AwardIngestionSourceType.Document, Status=AwardIngestionSessionStatus.NeedsReview };
-        db.Add(new AwardIngestionCandidate { Session=session, CandidateType=AwardIngestionCandidateType.UnmappedAwardFinding, StructuredPayloadJson="{\"category\":\"Local OCR narrative\"}", RawSourceText="Original OCR text", Status=AwardIngestionCandidateStatus.NeedsReview });
-        await db.SaveChangesAsync();
-        var service=Service(db);
-
-        var summary=await service.GetSummaryAsync(session.Id,default);
-        Assert.Equal(AwardIngestionSessionStatus.ReadyToCommit,summary.Status);
-        Assert.Empty(summary.Counts);
-        using var overview=JsonDocument.Parse(JsonSerializer.Serialize(await service.GetReviewOverviewAsync(session.Id,default)));
-        Assert.Empty(overview.RootElement.GetProperty("Sections").EnumerateArray());
-        Assert.Equal(0,(await service.GetCandidatesAsync(session.Id,null,null,0,25,default,"attention")).TotalCount);
-        Assert.Equal("Original OCR text",(await db.AwardIngestionCandidates.SingleAsync()).RawSourceText);
     }
 
     private static IngestionCandidateInput Candidate(string number, string? qualifier, decimal? canonicalArea) => new(AwardIngestionCandidateType.AwardKhasra, JsonSerializer.Serialize(new AwardKhasraCandidate(number, qualifier, canonicalArea, null, null, null, null, null, null, null, null)));

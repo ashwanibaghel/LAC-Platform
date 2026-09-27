@@ -162,19 +162,6 @@ public sealed class AwardExtractionRuleEngineTests
         Assert.DoesNotContain(Engine().Extract(Page("CWP 4721/2002 status: Status quo"),Context()),x=>x.Input.CandidateType==AwardIngestionCandidateType.PossessionEvent);
     }
 
-    [Theory]
-    [InlineData("WCP No. 55/2002", "WCP")]
-    [InlineData("W.P.(C) 56/2002", "W.P.(C)")]
-    [InlineData("CONT.CAS(C) 57/2002", "CONT.CAS(C)")]
-    [InlineData("CONT. CAS. No. 59/2002", "CONT.CAS.")]
-    [InlineData("LA.APP. 58/2002", "LA.APP.")]
-    public void Court_narrative_preserves_explicit_case_type(string source,string expectedType)
-    {
-        var candidate=Assert.Single(Engine().Extract(Page(source),Context()),x=>x.Input.CandidateType==AwardIngestionCandidateType.CourtCase);
-        var payload=JsonSerializer.Deserialize<CourtCaseCandidate>(candidate.Input.PayloadJson)!;
-        Assert.Equal(expectedType,payload.CaseType);
-    }
-
     [Fact]
     public void Procedural_civil_court_clause_is_not_a_court_case()
     {

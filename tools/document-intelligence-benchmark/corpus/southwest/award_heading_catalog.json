@@ -1,0 +1,64 @@
+{
+  "catalog_metadata": {
+    "corpus": "South-West Delhi LAC Award Corpus",
+    "total_awards_scanned": 476,
+    "downloadable_pdfs_scanned": 350,
+    "deeply_inspected_sample": 40,
+    "lightly_profiled_sample": 40,
+    "scope": "Official Revenue Department Source Scope"
+  },
+  "section_headings": {
+    "preamble_and_title": [
+      "BEFORE THE LAND ACQUISITION COLLECTOR, SOUTH WEST DISTRICT, DELHI",
+      "OFFICE OF THE LAND ACQUISITION COLLECTOR (SOUTH WEST)",
+      "AWARD NO.",
+      "LAND ACQUISITION AWARD NO."
+    ],
+    "notification_section_4": [
+      "NOTIFICATION UNDER SECTION 4 OF LAND ACQUISITION ACT, 1894",
+      "NOTIFICATION U/S 4",
+      "PRELIMINARY NOTIFICATION"
+    ],
+    "declaration_section_6": [
+      "DECLARATION UNDER SECTION 6 OF LAND ACQUISITION ACT, 1894",
+      "DECLARATION U/S 6",
+      "SECTION 6 DECLARATION"
+    ],
+    "claims_and_notices": [
+      "NOTICES UNDER SECTION 9 & 10",
+      "CLAIMS AND OBJECTIONS U/S 9",
+      "PUBLIC NOTICES U/S 9(1) & 9(2)"
+    ],
+    "valuation_and_compensation": [
+      "MARKET VALUE OF LAND",
+      "DETERMINATION OF COMPENSATION",
+      "VALUATION OF TREES AND STRUCTURES",
+      "SOLATIUM U/S 23(2)",
+      "ADDITIONAL AMOUNT U/S 23(1-A)",
+      "INTEREST U/S 34"
+    ],
+    "khasra_schedule": [
+      "STATEMENT OF LAND UNDER ACQUISITION",
+      "KHASRA WISE AREA STATEMENT",
+      "SUMMARY OF LAND ACQUIRED",
+      "SCHEDULE OF KHASRA NUMBERS"
+    ],
+    "possession_and_takings": [
+      "TAKING OVER PHYSICAL POSSESSION",
+      "POSSESSION PROCEEDINGS U/S 16",
+      "DATE OF POSSESSION"
+    ],
+    "apportionment_and_ownership": [
+      "APPORTIONMENT OF COMPENSATION",
+      "KHATAUNI WISE ENTITLEMENT STATEMENT",
+      "NAQSHA MUTZAMIN (ENM) SCHEDULE"
+    ]
+  },
+  "spelling_variations_and_ocr_typos": [
+    { "canonical": "Khasra", "variants": ["Khasara", "Kh. No.", "Khasra No.", "Kh.No"] },
+    { "canonical": "Bigha", "variants": ["Bighas", "Big.", "Bigha-Biswa"] },
+    { "canonical": "Biswa", "variants": ["Biswas", "Bis.", "Biswansi"] },
+    { "canonical": "Solatium", "variants": ["Solatiam", "Solatium @ 30%", "Solatium u/s 23(2)"] },
+    { "canonical": "Naqsha Mutzamin", "variants": ["Naksha Mutzamin", "Naqsa Mutzamin", "ENM"] }
+  ]
+}

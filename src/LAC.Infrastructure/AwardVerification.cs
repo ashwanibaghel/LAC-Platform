@@ -39,7 +39,7 @@ public sealed partial class AwardIngestionService
     public async Task<IngestionCommitResult> CommitVerifiedAsync(Guid sessionId,CommitVerifiedRequest request,CancellationToken ct)
     {
         RequireReviewer(request.VerifiedBy);
-        var ids=await db.AwardIngestionCandidates.Reviewable().Where(x=>x.SessionId==sessionId && x.VerifiedAt!=null && x.Status==AwardIngestionCandidateStatus.Ready).Select(x=>x.Id).ToListAsync(ct);
+        var ids=await db.AwardIngestionCandidates.Where(x=>x.SessionId==sessionId && x.VerifiedAt!=null && x.Status==AwardIngestionCandidateStatus.Ready).Select(x=>x.Id).ToListAsync(ct);
         if(ids.Count==0 || ids.Count!=request.ExpectedCount) throw new AwardIngestionException("Verified selection changed. Refresh before committing.",409);
         return await CommitAsync(sessionId,ids,request.VerifiedBy,ct);
     }
@@ -56,60 +56,11 @@ public sealed partial class AwardIngestionService
     public async Task<object> GetReviewOverviewAsync(Guid sessionId,CancellationToken ct)
     {
         var session = await db.AwardIngestionSessions.AsNoTracking().Where(x=>x.Id==sessionId).Select(x=>new {x.Id,x.TargetAwardId,x.SelectedVillageId,x.SourceDocumentId,DocumentName=x.SourceDocument==null?null:x.SourceDocument.OriginalFileName,AwardNumber=x.TargetAward==null?null:x.TargetAward.AwardNumber,VillageName=x.SelectedVillage==null?null:x.SelectedVillage.Name}).SingleOrDefaultAsync(ct) ?? throw new AwardIngestionException("Review not found.",404);
-        var q=db.AwardIngestionCandidates.AsNoTracking().Reviewable().Where(x=>x.SessionId==sessionId);
+        var q=db.AwardIngestionCandidates.AsNoTracking().Where(x=>x.SessionId==sessionId);
         var sections=await q.GroupBy(x=>new{x.CandidateType,x.Status,x.SafeToConfirm,Verified=x.VerifiedAt!=null}).Select(g=>new{g.Key.CandidateType,g.Key.Status,g.Key.SafeToConfirm,g.Key.Verified,Count=g.Count()}).ToListAsync(ct);
-        var pages=await q.Where(x=>x.SourcePage!=null).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
+        var pages=await q.Where(x=>x.CandidateType==AwardIngestionCandidateType.AwardKhasra).GroupBy(x=>x.SourcePage).Select(g=>new{Page=g.Key,Count=g.Count(),Exact=g.Count(x=>x.SafeToConfirm && x.VerifiedAt==null && x.Status==AwardIngestionCandidateStatus.Ready)}).ToListAsync(ct);
         var job=await db.AwardDocumentExtractionJobs.AsNoTracking().Where(x=>x.IngestionSessionId==sessionId).OrderByDescending(x=>x.CreatedAt).Select(x=>new{x.Status,x.TotalPages,x.ProcessedPages}).FirstOrDefaultAsync(ct);
         return new {session.Id,session.TargetAwardId,session.SelectedVillageId,session.SourceDocumentId,session.DocumentName,session.AwardNumber,session.VillageName,AnalysisStatus=job?.Status,TotalPages=job?.TotalPages,ProcessedPages=job?.ProcessedPages,Sections=sections,Pages=pages};
-    }
-
-    public async Task<object> GetQualityDatasetAsync(Guid sessionId, CancellationToken ct)
-    {
-        if (!await db.AwardIngestionSessions.AnyAsync(x => x.Id == sessionId, ct))
-            throw new AwardIngestionException("Review not found.", 404);
-        var rows = await db.DocumentTrainingExamples.AsNoTracking()
-            .Where(x => x.SourceCandidateId != null && x.SourceCandidate!.SessionId == sessionId &&
-                (x.ReviewDecision == "Confirm" || x.ReviewDecision == "Correct"))
-            .OrderBy(x => x.PageNumber).ThenBy(x => x.VerifiedAt)
-            .Select(x => new { x.DocumentId, x.PageNumber, x.SourceRegionJson, x.CellRole, x.RawOcr,
-                x.NormalizedSuggestion, x.HumanFinalValue, x.WasCorrected, x.ReviewDecision,
-                x.VerifiedBy, x.VerifiedAt, x.SourceCandidateId, x.VerificationRevision,
-                SourceLocatorJson = x.SourceCandidate!.SourceLocatorJson,
-                FieldReviewJson = x.SourceCandidate.FieldReviewJson,
-                CandidateVerifiedAt = x.SourceCandidate.VerifiedAt })
-            .ToListAsync(ct);
-        return rows.Where(x => x.FieldReviewJson is null
-                ? x.CandidateVerifiedAt is not null
-                : ReadDecisions(x.FieldReviewJson).Any(d => d.FieldRole == x.CellRole &&
-                    (d.Decision is "Confirm" or "Correct") && d.HumanValue == x.HumanFinalValue))
-            .Select(x => new {
-            x.DocumentId, x.PageNumber, x.SourceRegionJson, x.CellRole, x.RawOcr,
-            x.NormalizedSuggestion, AlternativeOcrReadings = AlternativeReadings(x.SourceLocatorJson, x.CellRole),
-            x.HumanFinalValue, x.WasCorrected, x.ReviewDecision, x.VerifiedBy, x.VerifiedAt,
-            x.SourceCandidateId, x.VerificationRevision
-        }).ToList();
-    }
-
-    private static object[] AlternativeReadings(string? locator, string role)
-    {
-        try
-        {
-            using var json = JsonDocument.Parse(locator ?? "{}");
-            var root = json.RootElement;
-            if (!(root.TryGetProperty("StructuredPayload", out var payload) || root.TryGetProperty("structuredPayload", out payload)) ||
-                !payload.TryGetProperty("sourceCells", out var cells)) return [];
-            var key = role switch { "Khasra" or "Qualifier" => "khasra", "RecordedArea" => "recordedArea", "AwardedArea" => "awardedArea", _ => "" };
-            if (!cells.TryGetProperty(key, out var cell)) return [];
-            var values = new List<object>();
-            foreach (var name in new[] { "pageAssignedOcr", "cellCropOcr", "innerCellOcr" })
-                if (cell.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
-                    values.Add(new { View = name, RawPrediction = value.GetString() });
-            if (cell.TryGetProperty("multiViewPredictions", out var alternatives) && alternatives.ValueKind == JsonValueKind.Array)
-                foreach (var alternative in alternatives.EnumerateArray())
-                    values.Add(new { View = Value(alternative, "view"), RawPrediction = Value(alternative, "rawPrediction") });
-            return values.ToArray();
-        }
-        catch (JsonException) { return []; }
     }
 
     public async Task<int> ConfirmExactAsync(Guid sessionId,ConfirmExactRequest request,CancellationToken ct)
@@ -161,7 +112,6 @@ public sealed partial class AwardIngestionService
         var old=row.StructuredPayloadJson;
         row.StructuredPayloadJson=JsonSerializer.Serialize(payload,payload.GetType(),Json);
         row.CanonicalEntityId=checkedRow.CanonicalEntityId; row.CanonicalEntityType=checkedRow.CanonicalEntityType;
-        if(payload is AwardCoreCandidate) {row.ValidationIssuesJson=checkedRow.ValidationIssuesJson;row.ConflictDetailsJson=checkedRow.ConflictDetailsJson;}
         MarkVerified(row,request.VerifiedBy,old,request.Action);
         // This records a local training label only after an explicit human
         // confirmation/correction.  It is not canonical data and commit is
@@ -245,7 +195,6 @@ public sealed partial class AwardIngestionService
         try {await VerifiedSourcePageAsync(row,ct);} catch(AwardIngestionException){return false;}
         var payload=Deserialize<AwardKhasraCandidate>(row);
         try {ValidateReviewPayload(payload);} catch(AwardIngestionException){return false;}
-        if (!ExactPayloadMatchesSource(row.SourceLocatorJson, payload)) return false;
         if(row.Confidence is null or <.98m) return false;
         var matched=await AnalyzeAsync(row.Session,payload,row.Sequence,ct);
         if(matched.CanonicalEntityId is Guid id)
@@ -255,28 +204,6 @@ public sealed partial class AwardIngestionService
             if(link!=null && AwardAreasDisagree(link,payload)) return false;
         }
         return matched.Status==AwardIngestionCandidateStatus.Ready && matched.CanonicalEntityId!=null && matched.ResolutionAction is "LinkExisting" or "AlreadyLinked";
-    }
-
-    private static bool ExactPayloadMatchesSource(string? locator, AwardKhasraCandidate payload)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(locator ?? "{}");
-            var root = document.RootElement;
-            if (!(root.TryGetProperty("requiresIndividualReview", out var flag) || root.TryGetProperty("RequiresIndividualReview", out flag)) || flag.ValueKind != JsonValueKind.False) return true; // legacy non-worker evidence
-            if (!(root.TryGetProperty("structuredPayload", out var source) || root.TryGetProperty("StructuredPayload", out source)) || !source.TryGetProperty("sourceCells", out var cells)) return false;
-            var khasra = cells.GetProperty("khasra").GetProperty("pageAssignedOcr").GetString();
-            if (khasra is null || !new StrictKhasraParser().TryParse(khasra, out var parsed, out _) ||
-                parsed.NormalizedNumber != payload.KhasraNumber || parsed.Qualifier != Clean(payload.Qualifier)) return false;
-            var parser = new StrictAreaParser();
-            if (!parser.TryParse(cells.GetProperty("recordedArea").GetProperty("normalizedSuggestion").GetString() ?? "", out var recorded) ||
-                !parser.TryParse(cells.GetProperty("awardedArea").GetProperty("normalizedSuggestion").GetString() ?? "", out var awarded)) return false;
-            return recorded.Bigha == payload.RecordedAreaBigha && recorded.Biswa == payload.RecordedAreaBiswa && recorded.Biswansi == payload.RecordedAreaBiswansi &&
-                awarded.Bigha == payload.AwardedAreaBigha && awarded.Biswa == payload.AwardedAreaBiswa && awarded.Biswansi == payload.AwardedAreaBiswansi;
-        }
-        catch (JsonException) { return false; }
-        catch (KeyNotFoundException) { return false; }
-        catch (InvalidOperationException) { return false; }
     }
 
     private static void ValidateReviewPayload(IAwardIngestionCandidatePayload payload)
@@ -292,9 +219,7 @@ public sealed partial class AwardIngestionService
             case NotificationCandidate n when !string.IsNullOrWhiteSpace(n.SectionType) && !string.IsNullOrWhiteSpace(n.NotificationNumber) && n.NotificationDate!=null: break;
             case PossessionEventCandidate p when p.PossessionDate!=null || !string.IsNullOrWhiteSpace(p.Status): break;
             case CourtCaseCandidate c when !string.IsNullOrWhiteSpace(c.CaseNumber): break;
-            case ClaimCandidate c when string.IsNullOrWhiteSpace(c.SourceSerialNumber)
-                ? !string.IsNullOrWhiteSpace(c.ClaimText)
-                : !string.IsNullOrWhiteSpace(c.ClaimantText): break;
+            case ClaimCandidate c when !string.IsNullOrWhiteSpace(c.ClaimText): break;
             case LandClassCandidate l when !string.IsNullOrWhiteSpace(l.Code): break;
             case ValuationRuleCandidate v when !string.IsNullOrWhiteSpace(v.RuleType) && !string.IsNullOrWhiteSpace(v.RateUnit) && v.RateAmount>=0: break;
             case CompensationRuleCandidate c when !string.IsNullOrWhiteSpace(c.RuleType) && (c.RatePercent>=0 || c.RateAmount>=0): break;
@@ -310,9 +235,7 @@ public sealed partial class AwardIngestionService
         if(payload is AwardCoreCandidate core)
         {
             var award=await db.Awards.SingleAsync(x=>x.Id==session.TargetAwardId,ct);
-            // Equivalent source spellings confirm the same Award; keep its existing official number.
-            if (!AwardNumberIdentity.Equivalent(award.AwardNumber,core.AwardNumber)) throw new AwardIngestionException("The confirmed Award number no longer matches the linked Award.",409);
-            award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
+            award.AwardNumber=core.AwardNumber.Trim(); award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);
             candidate.CanonicalEntityId=award.Id;candidate.CanonicalEntityType=nameof(Award);candidate.Status=AwardIngestionCandidateStatus.Committed;return true;
         }
         if(payload is AwardVillageCandidate village)
@@ -324,7 +247,7 @@ public sealed partial class AwardIngestionService
         {
             PossessionEventCandidate p => new PossessionEvent{AwardId=session.TargetAwardId!.Value,PossessionDate=p.PossessionDate,EventType=p.EventType,Status=p.Status,Remarks=PossessionRemarks(p)},
             CourtCaseCandidate p => new CourtCase{CaseNumber=p.CaseNumber,CourtName=p.CourtName ?? "",CaseType=p.CaseType,CurrentStatus=p.Status,Remarks=CourtRemarks(p)},
-            ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText,SourceSerialNumber=p.SourceSerialNumber,ClaimantText=p.ClaimantText,KhasraReferences=p.KhasraReferences,ClaimedAreaText=p.ClaimedAreaText,ClaimedRateAmount=p.ClaimedRateAmount,ClaimedRateUnit=p.ClaimedRateUnit,ClaimedAmount=p.ClaimedAmount},
+            ClaimCandidate p => new Claim{AwardId=session.TargetAwardId!.Value,ClaimReference=p.ClaimReference,ClaimDate=p.ClaimDate,ClaimText=p.ClaimText},
             LandClassCandidate p => new AwardLandClass{AwardId=session.TargetAwardId!.Value,Code=p.Code,Description=p.Description},
             ValuationRuleCandidate p => new AwardValuationRule{AwardId=session.TargetAwardId!.Value,RuleType=p.RuleType,RateAmount=p.RateAmount,RateUnit=p.RateUnit,LegalSection=p.LegalSection},
             CompensationRuleCandidate p => new AwardCompensationRule{AwardId=session.TargetAwardId!.Value,RuleType=p.RuleType,RateAmount=p.RateAmount,RatePercent=p.RatePercent,LegalSection=p.LegalSection},
@@ -338,9 +261,6 @@ public sealed partial class AwardIngestionService
             // consolidate events, but analysis/commit never silently merges them.
             PossessionEventCandidate => null,
             CourtCaseCandidate p => await db.CourtCases.SingleOrDefaultAsync(x=>x.CaseNumber==p.CaseNumber && x.CourtName==(p.CourtName ?? "") && x.CaseType==p.CaseType,ct),
-            // A serial identifies a physical row only within this Award and source document.
-            // Permanent evidence supplies the document side of that identity.
-            ClaimCandidate p when !string.IsNullOrWhiteSpace(p.SourceSerialNumber) => await FindCommittedClaimOccurrenceAsync(session,p,ct),
             ClaimCandidate p => await db.Claims.SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.ClaimReference==p.ClaimReference && x.ClaimDate==p.ClaimDate && x.ClaimText==p.ClaimText,ct),
             LandClassCandidate p => await db.Set<AwardLandClass>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.Code==p.Code && x.Description==p.Description,ct),
             ValuationRuleCandidate p => await db.Set<AwardValuationRule>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.RuleType==p.RuleType && x.RateAmount==p.RateAmount && x.RateUnit==p.RateUnit && x.LegalSection==p.LegalSection,ct),
@@ -349,44 +269,11 @@ public sealed partial class AwardIngestionService
             SupplementaryMatterCandidate p => await db.Set<AwardSupplementaryMatter>().SingleOrDefaultAsync(x=>x.AwardId==session.TargetAwardId && x.MatterType==p.MatterType && x.Description==p.Description,ct),
             _=>null
         };
-        if(existing is null) db.Add(record);
-        else
-        {
-            record=existing;
-            if(payload is ClaimCandidate claim && !string.IsNullOrWhiteSpace(claim.SourceSerialNumber)) candidate.ResolutionAction="ReuseSourceOccurrence";
-        }
+        if(existing is null) db.Add(record); else record=existing;
         if(record is CourtCase court && !await db.Set<CourtCaseAward>().AnyAsync(x=>x.AwardId==session.TargetAwardId && x.CourtCaseId==court.Id,ct)) db.Add(new CourtCaseAward{AwardId=session.TargetAwardId!.Value,CourtCase=court});
         await db.SaveChangesAsync(ct);
         candidate.CanonicalEntityId=record.Id;candidate.CanonicalEntityType=record.GetType().Name;candidate.Status=AwardIngestionCandidateStatus.Committed;
         return true;
-    }
-
-    private async Task<Claim?> FindCommittedClaimOccurrenceAsync(AwardIngestionSession session,ClaimCandidate candidate,CancellationToken ct)
-    {
-        var matches=await db.Claims.Where(x=>x.AwardId==session.TargetAwardId &&
-            x.SourceSerialNumber==candidate.SourceSerialNumber &&
-            db.SourceEvidence.Any(e=>e.ClaimId==x.Id && e.DocumentId==session.SourceDocumentId))
-            .Take(2).ToListAsync(ct);
-        if(matches.Count>1) throw new AwardIngestionException("More than one committed Claim has this source claimant row. Resolve the existing records before continuing.",409);
-        var existing=matches.SingleOrDefault();
-        if(existing is not null && !EquivalentClaimSource(existing,candidate))
-            throw new AwardIngestionException("This source claimant row was previously committed with different verified values. Compare the existing verified record and the current source before continuing.",409);
-        return existing;
-    }
-
-    private static bool EquivalentClaimSource(Claim existing,ClaimCandidate current)
-    {
-        static string? Text(string? value)=>string.IsNullOrWhiteSpace(value)?null:string.Join(' ',value.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
-        return Text(existing.SourceSerialNumber)==Text(current.SourceSerialNumber) &&
-            Text(existing.ClaimantText)==Text(current.ClaimantText) &&
-            Text(existing.KhasraReferences)==Text(current.KhasraReferences) &&
-            Text(existing.ClaimedAreaText)==Text(current.ClaimedAreaText) &&
-            Text(existing.ClaimText)==Text(current.ClaimText) &&
-            existing.ClaimedRateAmount==current.ClaimedRateAmount &&
-            Text(existing.ClaimedRateUnit)==Text(current.ClaimedRateUnit) &&
-            existing.ClaimedAmount==current.ClaimedAmount &&
-            Text(existing.ClaimReference)==Text(current.ClaimReference) &&
-            existing.ClaimDate==current.ClaimDate;
     }
 
     private static string? PossessionRemarks(PossessionEventCandidate value)
@@ -412,43 +299,10 @@ public sealed partial class AwardIngestionService
         var page=await VerifiedSourcePageAsync(candidate,ct);
         var linkId=candidate.CandidateType==AwardIngestionCandidateType.AwardKhasra ? await db.Set<AwardKhasra>().Where(x=>x.AwardId==session.TargetAwardId && x.KhasraId==candidate.CanonicalEntityId).Select(x=>(Guid?)x.Id).SingleAsync(ct):null;
         using var payload=JsonDocument.Parse(candidate.VerifiedPayloadJson!);
-        using var sourceLocator=JsonDocument.Parse(candidate.CandidateType==AwardIngestionCandidateType.Claim ? candidate.SourceLocatorJson ?? "{}" : "{}");
-        var locator=sourceLocator.RootElement;
-        var hasSourcePayload=locator.TryGetProperty("structuredPayload",out var sourcePayload) || locator.TryGetProperty("StructuredPayload",out sourcePayload);
-        JsonElement sourceCells=default;
-        var hasSourceCells=hasSourcePayload && sourcePayload.TryGetProperty("sourceCells",out sourceCells);
-        var existingClaimFacts=new HashSet<(string FactName,string? Region,string Value)>();
-        if(candidate.CandidateType==AwardIngestionCandidateType.Claim)
-        {
-            var facts=await db.SourceEvidence.AsNoTracking().Where(x=>x.DocumentId==session.SourceDocumentId &&
-                x.ClaimId==candidate.CanonicalEntityId && x.PageNumber==page)
-                .Select(x=>new{x.FactName,x.SourceRegionJson,x.ConfirmedValueJson}).ToListAsync(ct);
-            existingClaimFacts.UnionWith(facts.Select(x=>(x.FactName,x.SourceRegionJson,x.ConfirmedValueJson)));
-            existingClaimFacts.UnionWith(db.SourceEvidence.Local.Where(x=>x.DocumentId==session.SourceDocumentId &&
-                x.ClaimId==candidate.CanonicalEntityId && x.PageNumber==page)
-                .Select(x=>(x.FactName,x.SourceRegionJson,x.ConfirmedValueJson)));
-        }
         // Award extraction does not verify Village master area. Do not attribute it to the Award link.
         foreach(var field in payload.RootElement.EnumerateObject().Where(p=>p.Name!="candidateType" && !p.Name.StartsWith("canonicalArea",StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind!=JsonValueKind.Null))
         {
             var evidence=new SourceEvidence{DocumentId=session.SourceDocumentId!.Value,PageNumber=page,FactName=field.Name,ConfirmedValueJson=field.Value.GetRawText(),ExtractedSnippet=candidate.RawSourceText,VerifiedAt=candidate.VerifiedAt!.Value,VerifiedBy=candidate.VerifiedBy!};
-            if(candidate.CandidateType==AwardIngestionCandidateType.Claim)
-            {
-                var role=field.Name switch {
-                    "sourceSerialNumber"=>"serial",
-                    "claimantText"=>"claimant",
-                    "khasraReferences"=>"khasra",
-                    "claimedAreaText"=>"area",
-                    "claimText" or "claimedRateAmount" or "claimedRateUnit" or "claimedAmount"=>"claim",
-                    _=>null
-                };
-                if(role is not null && hasSourceCells && sourceCells.TryGetProperty(role,out var sourceCell))
-                {
-                    if(sourceCell.TryGetProperty("sourceRegion",out var region)) evidence.SourceRegionJson=region.GetRawText();
-                    if(sourceCell.TryGetProperty("rawOcr",out var raw) && raw.ValueKind==JsonValueKind.String) evidence.ExtractedSnippet=raw.GetString();
-                }
-                evidence.SourceRegionJson ??= locator.TryGetProperty("sourceRegion",out var rowRegion) ? rowRegion.GetRawText() : null;
-            }
             switch(candidate.CandidateType)
             {
                 case AwardIngestionCandidateType.AwardCore:evidence.AwardId=session.TargetAwardId;break;
@@ -465,8 +319,6 @@ public sealed partial class AwardIngestionService
                 case AwardIngestionCandidateType.AwardSupplementaryMatter:evidence.AwardSupplementaryMatterId=candidate.CanonicalEntityId;break;
                 default:throw new AwardIngestionException("Permanent evidence target is not supported.");
             }
-            if(candidate.CandidateType==AwardIngestionCandidateType.Claim &&
-                !existingClaimFacts.Add((evidence.FactName,evidence.SourceRegionJson,evidence.ConfirmedValueJson))) continue;
             db.SourceEvidence.Add(evidence);
         }
     }

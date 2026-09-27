@@ -389,8 +389,6 @@ public static class MatterEndpoints
             Guid id,
             CreateMatterDraftRequest request,
             LacDbContext db,
-            OnlyOfficeDraftService office,
-            Microsoft.Extensions.Options.IOptions<OnlyOfficeOptions> officeOptions,
             IMatterAuthorizationService matterAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -423,12 +421,11 @@ public static class MatterEndpoints
 
             if (draftType == MatterDraftType.Noting)
             {
-                MatterDraftLayoutProfiles.ApplyNotingLayout(draft);
+                MatterDraftLayoutProfiles.ApplyDraftLayout(draft, MatterDraftLayoutProfiles.NotingSheetV1Provisional);
             }
 
             db.MatterDrafts.Add(draft);
-            if (officeOptions.Value.Enabled) await office.MaterializeAsync(draft, ct);
-            else await db.SaveChangesAsync(ct);
+            await db.SaveChangesAsync(ct);
 
             return Results.Created($"/api/matter-drafts/{draft.Id}", new { id = draft.Id });
         });
@@ -942,7 +939,6 @@ public static class MatterEndpoints
         drafts.MapGet("/{id:guid}", async (
             Guid id,
             LacDbContext db,
-            Microsoft.Extensions.Options.IOptions<OnlyOfficeOptions> officeOptions,
             IMatterAuthorizationService matterAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -968,8 +964,6 @@ public static class MatterEndpoints
                 draftType = draft.DraftType.ToString(),
                 status = draft.Status.ToString(),
                 draft.ContentJson,
-                draft.OfficeDocumentId,
-                officeEnabled = officeOptions.Value.Enabled,
                 draft.Revision,
                 layout.PageSize,
                 layout.Orientation,
@@ -997,9 +991,6 @@ public static class MatterEndpoints
 
             var draft = await db.MatterDrafts.SingleOrDefaultAsync(x => x.Id == id && x.RecordStatus == RecordStatus.Active, ct);
             if (draft is null) return Results.NotFound(new { message = "Matter draft not found." });
-
-            if (draft.OfficeDocumentId.HasValue)
-                return Results.Problem(statusCode: 409, title: "This draft uses an Office document. Open it in ONLYOFFICE to edit.");
 
             if (draft.Revision != request.ExpectedRevision)
                 return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Draft conflict", detail: "This draft was changed elsewhere. Reload before saving.");

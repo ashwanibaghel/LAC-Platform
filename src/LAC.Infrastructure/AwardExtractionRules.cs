@@ -364,14 +364,10 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
     private static bool TryCourtCase(string text, out CourtCaseCandidate candidate)
     {
         candidate = default!;
-        var match = Regex.Match(text, @"\b(?<label>CONT\.?\s*CAS\.?\s*\(\s*(?:C|CRL)\s*\)|CONT\.?\s*CAS\.?|W\.?\s*P\.?\s*\(\s*(?:C|CRL)\s*\)|LA\.?\s*APP\.?|CRWP|CWP|WCP|LPA|RFA|FAO|RSA|CRP|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?<number>\d{1,6}\s*/\s*\d{4})\b", RegexOptions.IgnoreCase);
+        var match = Regex.Match(text, @"\b(?<label>CWP|W\.?P\.?\s*\(?C\)?|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?<number>\d{1,6}\s*/\s*\d{4})\b", RegexOptions.IgnoreCase);
         if (!match.Success) return false;
         var label = Regex.Replace(match.Groups["label"].Value, @"\s+", " ").Trim();
-        var type = Regex.IsMatch(label, @"^CONT\.?\s*CAS", RegexOptions.IgnoreCase) ? Regex.IsMatch(label, @"CRL", RegexOptions.IgnoreCase) ? "CONT.CAS(CRL)" : Regex.IsMatch(label, @"\(\s*C\s*\)", RegexOptions.IgnoreCase) ? "CONT.CAS(C)" : "CONT.CAS."
-            : Regex.IsMatch(label, @"^w\.?\s*p", RegexOptions.IgnoreCase) ? Regex.IsMatch(label, @"CRL", RegexOptions.IgnoreCase) ? "W.P.(CRL)" : "W.P.(C)"
-            : Regex.IsMatch(label, @"^LA\.?\s*APP", RegexOptions.IgnoreCase) ? "LA.APP."
-            : label.Contains("writ", StringComparison.OrdinalIgnoreCase) ? "Writ Petition"
-            : label.StartsWith("Case", StringComparison.OrdinalIgnoreCase) ? null : label.ToUpperInvariant();
+        var type = label.Equals("CWP", StringComparison.OrdinalIgnoreCase) ? "CWP" : Regex.IsMatch(label, @"^w\.?p", RegexOptions.IgnoreCase) ? "W.P.(C)" : label.Contains("writ", StringComparison.OrdinalIgnoreCase) ? "Writ Petition" : "Case";
         var status = Regex.Match(text, @"\b(?<status>stay\s+granted|stay\s+vacated|pending|dismissed|disposed|status\s+quo)\b|\b(?:status|order)\s*[:.-]\s*(?<status>.{1,160}?)(?=\s*,?\s*(?:khasra|killa|(?:total\s+)?area)\b|$)", RegexOptions.IgnoreCase);
         var khasra = Regex.Match(text, @"\b(?:khasra|killa)\s*(?:no\.?|number)?\s*[:.-]?\s*(?<refs>[0-9][0-9/,\.\-\s]*(?:\bmin\b)?)", RegexOptions.IgnoreCase);
         var area = Regex.Match(text, @"\b(?:total\s+)?area\s*[:.-]?\s*(?<area>\d+(?:\s*[-–—]\s*\d+){1,2}|\d+(?:\.\d+)?\s*(?:acre|acres|bigha|biswa|sq\.?\s*yards?))", RegexOptions.IgnoreCase);

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from benchmark.worker_semantics import award_candidate, award_table_groups, case_type_from_label, court_candidate, field, infer_court_table_kind, strict_khasra, table_kind
+from benchmark.worker_semantics import award_candidate, award_table_groups, court_candidate, field, infer_court_table_kind, strict_khasra, table_kind
 
 
 def cell(text, x=0):
@@ -70,25 +70,6 @@ class WorkerSemanticsTests(unittest.TestCase):
         self.assertEqual("Status quo", payload["status"]["rawOcr"])
         self.assertNotIn("stay", payload)
         self.assertEqual(1, payload["sourceCells"]["status"]["rowId"])
-
-    def test_case_type_uses_row_then_same_table_header(self):
-        cells = {0: cell("4721/2002"), 1: cell("22//2"), 2: cell("23-14"), 3: cell("Status quo")}
-        roles = {"caseNumber": 0, "khasra": 1, "area": 2, "status": 3, "caseType": "CWP"}
-        self.assertEqual("CWP", court_candidate(1, 1, 1, cells, roles)["structuredPayload"]["caseType"])
-        cells[0] = cell("CONT.CAS(C) 4721/2002")
-        self.assertEqual("CONT.CAS(C)", court_candidate(1, 1, 1, cells, roles)["structuredPayload"]["caseType"])
-        self.assertIsNone(court_candidate(1, 1, 1, {**cells, 0: cell("4721/2002")}, {**roles, "caseType": None})["structuredPayload"]["caseType"])
-
-    def test_recognized_and_literal_case_type_headers(self):
-        for source, expected in (("CWP NO", "CWP"), ("WCP No", "WCP"), ("W.P.(C) No.", "W.P.(C)"),
-                                 ("CONT.CAS(C) No", "CONT.CAS(C)"), ("CONT.CAS(CRL) No", "CONT.CAS(CRL)"),
-                                 ("CONT. CAS. No", "CONT.CAS."),
-                                 ("LA.APP. No", "LA.APP.")):
-            with self.subTest(source=source):
-                self.assertEqual(expected, case_type_from_label(source))
-                self.assertEqual("CourtCwpTable", table_kind({0: source, 1: "Khasra No", 3: "Status"})[0])
-        self.assertIsNone(case_type_from_label("Case No"))
-        self.assertIsNone(case_type_from_label("Khasra No"))
 
     def test_court_table_requires_complete_case_number_and_never_crosses_rows(self):
         roles = {"caseNumber": 0, "khasra": 1, "area": 2, "status": 3, "headerLabels": ["CWP No", "Khasra No", "Total Area", "Status"]}

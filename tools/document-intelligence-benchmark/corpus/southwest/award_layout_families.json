@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "corpus": "South-West Delhi LAC Award Corpus",
+    "total_awards": 476,
+    "downloadable_pdfs": 350,
+    "sample_profiled": 80,
+    "unclassified_count": 46
+  },
+  "families": [
+    {
+      "family_id": "FAM-A",
+      "name": "Typewritten Standard English (1960s - 1980s)",
+      "definition": "Monospaced typewritten text on paper, single-column narrative with structured tabular schedules.",
+      "assigned_count": 140,
+      "evidence": "Visual layout inspection of 30 representative PDFs showing 10CPI/12CPI typewriter font patterns and carbon impression artifacts.",
+      "representative_documents": ["SW-VIL-001-AWD-01", "SW-VIL-002-AWD-01"],
+      "confidence": "HIGH"
+    },
+    {
+      "family_id": "FAM-B",
+      "name": "Typeset Modern English (1990s - 2010s)",
+      "definition": "Clean printed typeset documents with clear section headers, numbered paragraphs, and multi-column financial/Khasra tables.",
+      "assigned_count": 155,
+      "evidence": "High-contrast digital/offset print typography, sharp grid boundaries in Khasra tables.",
+      "representative_documents": ["SW-VIL-003-AWD-01", "SW-VIL-004-AWD-01"],
+      "confidence": "HIGH"
+    },
+    {
+      "family_id": "FAM-C",
+      "name": "Hindi / Bilingual Typeset (2000s - Present)",
+      "definition": "Bilingual (Hindi/English) or Hindi Devnagari typeset narrative with numerical Khasra and Khatauni schedules.",
+      "assigned_count": 35,
+      "evidence": "Unicode Devnagari font glyphs mixed with Arabic numerals in Khasra schedules.",
+      "representative_documents": ["SW-VIL-005-AWD-01"],
+      "confidence": "HIGH"
+    },
+    {
+      "family_id": "FAM-D",
+      "name": "Low-Resolution / Cyclostyled / Heavy Scan",
+      "definition": "Faded cyclostyled or heavy scan density documents with hand-written marginalia requiring specialized OCR pre-processing.",
+      "assigned_count": 100,
+      "evidence": "Heavy background noise, faded ink bleeding, and skewed page orientation.",
+      "representative_documents": ["SW-VIL-006-AWD-01"],
+      "confidence": "MODERATE"
+    },
+    {
+      "family_id": "FAM-UNKNOWN",
+      "name": "Unclassified / Insufficient Evidence",
+      "definition": "Documents where downloadable PDF payload was not directly accessible (View-Only / No-Link entries) or visual evidence was insufficient.",
+      "assigned_count": 46,
+      "evidence": "View-only external links or missing PDF payloads prevent definitive structural layout classification.",
+      "representative_documents": ["SW-VIL-012-AWD-02", "SW-VIL-025-AWD-03"],
+      "confidence": "UNCLASSIFIED"
+    }
+  ]
+}

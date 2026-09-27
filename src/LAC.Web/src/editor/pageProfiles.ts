@@ -83,3 +83,47 @@ export function pxToMm(px: number): number {
   return (px * 25.4) / 96;
 }
 
+export interface SheetGeometry {
+  widthMm: number;
+  heightMm: number;
+  marginTopMm: number;
+  marginRightMm: number;
+  marginBottomMm: number;
+  marginLeftMm: number;
+  reservedTopMm?: number;
+  pxPerMm: number;
+  logicalWidthPx: number;
+  logicalHeightPx: number;
+  sheetGapPx: number;
+  pageStridePx: number;
+}
+
+export function computeSheetGeometry(profile: PageProfile): SheetGeometry {
+  const pxPerMm = MM_TO_PX;
+  const logicalWidthPx = profile.widthMm * pxPerMm;
+  const logicalHeightPx = profile.heightMm * pxPerMm;
+  const sheetGapPx = 32;
+  const pageStridePx = logicalHeightPx + sheetGapPx;
+  return {
+    ...profile,
+    pxPerMm,
+    logicalWidthPx,
+    logicalHeightPx,
+    sheetGapPx,
+    pageStridePx,
+  };
+}
+
+export function getPageTopPx(pageIndex: number, geom: SheetGeometry): number {
+  return 36 + pageIndex * geom.pageStridePx;
+}
+
+export function getPrintableTopPx(pageIndex: number, geom: SheetGeometry): number {
+  const topMm = geom.marginTopMm + (geom.reservedTopMm ?? 0);
+  return getPageTopPx(pageIndex, geom) + topMm * geom.pxPerMm;
+}
+
+export function getPrintableBottomPx(pageIndex: number, geom: SheetGeometry): number {
+  return getPageTopPx(pageIndex, geom) + (geom.heightMm - geom.marginBottomMm) * geom.pxPerMm;
+}
+

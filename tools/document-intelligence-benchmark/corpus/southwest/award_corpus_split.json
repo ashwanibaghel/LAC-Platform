@@ -1,0 +1,44 @@
+{
+  "split_metadata": {
+    "corpus": "South-West Delhi LAC Award Corpus",
+    "total_awards": 476,
+    "split_naming_convention": "Development / Validation / Hold-out",
+    "audit_note": "Hold-out set tracks explicit exposure levels. 30 documents remain TRUE_UNSEEN_HOLDOUT with zero text/layout inspection performed."
+  },
+  "splits": {
+    "Development": {
+      "count": 286,
+      "percentage": 60.08,
+      "exposure_summary": "40 deeply inspected, 40 lightly profiled, 206 inventory-only",
+      "award_ids": [
+        "SW-VIL-001-AWD-01",
+        "SW-VIL-002-AWD-01",
+        "SW-VIL-003-AWD-01",
+        "SW-VIL-004-AWD-01",
+        "SW-VIL-005-AWD-01"
+      ]
+    },
+    "Validation": {
+      "count": 95,
+      "percentage": 19.96,
+      "exposure_summary": "95 inventory-only / lightly profiled",
+      "award_ids": [
+        "SW-VIL-007-AWD-01",
+        "SW-VIL-008-AWD-01"
+      ]
+    },
+    "Hold-out": {
+      "count": 95,
+      "percentage": 19.96,
+      "exposure_breakdown": {
+        "HOLDOUT_METADATA_ONLY": 40,
+        "HOLDOUT_LIGHTLY_PROFILED": 25,
+        "TRUE_UNSEEN_HOLDOUT": 30
+      },
+      "award_ids": [
+        "SW-VIL-009-AWD-01",
+        "SW-VIL-010-AWD-01"
+      ]
+    }
+  }
+}

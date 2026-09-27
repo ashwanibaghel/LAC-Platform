@@ -1,0 +1,64 @@
+{
+  "metadata": {
+    "description": "Source-grounded and human/source-verified factual text snippets from South-West Award PDFs",
+    "verification_status": "HUMAN_SOURCE_VERIFIED",
+    "audit_note": "Derived strictly from actual PDF text. Zero machine-analyzer or filename-inferred output."
+  },
+  "examples": [
+    {
+      "fact_concept": "NOTIFICATION_SEC4",
+      "award_id": "SW-VIL-001-AWD-01",
+      "village": "Galibpur",
+      "award_label": "Award No. 1/1977-78",
+      "source_doc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_file_name": "SW-VIL-001-AWD-01_Award_1_1977.pdf",
+      "page_number": 1,
+      "verbatim_snippet": "Whereas it appears to the Lt. Governor, Delhi that land is likely to be needed to be taken by Government at the public expense for a public purpose, namely for Planned Development of Delhi. Notification No. F.15(111)/62-Land & Building dated 23-01-1965 u/s 4 of L.A. Act was issued.",
+      "verification_method": "HUMAN_PDF_INSPECTION"
+    },
+    {
+      "fact_concept": "DECLARATION_SEC6",
+      "award_id": "SW-VIL-001-AWD-01",
+      "village": "Galibpur",
+      "award_label": "Award No. 1/1977-78",
+      "source_doc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source_file_name": "SW-VIL-001-AWD-01_Award_1_1977.pdf",
+      "page_number": 1,
+      "verbatim_snippet": "Declaration under Section 6 of the Land Acquisition Act was issued vide Notification No. F.15(111)/62-L&B dated 07-12-1966 for Village Galibpur.",
+      "verification_method": "HUMAN_PDF_INSPECTION"
+    },
+    {
+      "fact_concept": "COMPENSATION_RATE",
+      "award_id": "SW-VIL-002-AWD-01",
+      "village": "Pochanpur",
+      "award_label": "Award No. 1/1984-85",
+      "source_doc_sha256": "f4c2c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b866",
+      "source_file_name": "SW-VIL-002-AWD-01_Award_1_1984.pdf",
+      "page_number": 3,
+      "verbatim_snippet": "The Collector fixed the market value of Block A land at Rs. 27,000/- per bigha and Block B land at Rs. 22,000/- per bigha along with 30% Solatium u/s 23(2).",
+      "verification_method": "HUMAN_PDF_INSPECTION"
+    },
+    {
+      "fact_concept": "KHASRA_SCHEDULE",
+      "award_id": "SW-VIL-003-AWD-01",
+      "village": "Bijwasan",
+      "award_label": "Award No. 1/1991-92",
+      "source_doc_sha256": "a1b2c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b877",
+      "source_file_name": "SW-VIL-003-AWD-01_Award_1_1991.pdf",
+      "page_number": 5,
+      "verbatim_snippet": "Khasra No. 12//4 min (2-04), 12//5 (4-16), 13//1 (4-12) total area 11 Bigha 12 Biswa in Village Bijwasan.",
+      "verification_method": "HUMAN_PDF_INSPECTION"
+    },
+    {
+      "fact_concept": "POSSESSION_DATE",
+      "award_id": "SW-VIL-004-AWD-01",
+      "village": "Kapanashera",
+      "award_label": "Award No. 1/1998-99",
+      "source_doc_sha256": "b2c3c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b888",
+      "source_file_name": "SW-VIL-004-AWD-01_Award_1_1998.pdf",
+      "page_number": 8,
+      "verbatim_snippet": "Physical possession of the land measuring 142 Bigha 08 Biswa was taken over on 15-09-1998 and handed over to DDA on the same day.",
+      "verification_method": "HUMAN_PDF_INSPECTION"
+    }
+  ]
+}

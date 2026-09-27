@@ -1037,15 +1037,9 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("ClaimantPartyId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ClaimantText")
-                        .HasColumnType("text");
-
                     b.Property<decimal?>("ClaimedAmount")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
-
-                    b.Property<string>("ClaimedAreaText")
-                        .HasColumnType("text");
 
                     b.Property<decimal?>("ClaimedRateAmount")
                         .HasPrecision(18, 4)
@@ -1060,17 +1054,11 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<string>("CreatedBy")
                         .HasColumnType("text");
 
-                    b.Property<string>("KhasraReferences")
-                        .HasColumnType("text");
-
                     b.Property<string>("RecordStatus")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Remarks")
-                        .HasColumnType("text");
-
-                    b.Property<string>("SourceSerialNumber")
                         .HasColumnType("text");
 
                     b.Property<string>("Status")
@@ -3144,10 +3132,6 @@ namespace LAC.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("LastOfficeSaveTokenHash")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
                     b.Property<decimal>("MarginBottomMm")
                         .HasPrecision(6, 2)
                         .HasColumnType("numeric(6,2)");
@@ -3166,14 +3150,6 @@ namespace LAC.Infrastructure.Migrations
 
                     b.Property<Guid>("MatterId")
                         .HasColumnType("uuid");
-
-                    b.Property<Guid?>("OfficeDocumentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("OfficeKeyGeneration")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
 
                     b.Property<string>("Orientation")
                         .IsRequired()
@@ -3208,8 +3184,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("OfficeDocumentId");
 
                     b.HasIndex("MatterId", "UpdatedAt");
 
@@ -7058,14 +7032,7 @@ namespace LAC.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("LAC.Domain.Document", "OfficeDocument")
-                        .WithMany()
-                        .HasForeignKey("OfficeDocumentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("Matter");
-
-                    b.Navigation("OfficeDocument");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterEvent", b =>
