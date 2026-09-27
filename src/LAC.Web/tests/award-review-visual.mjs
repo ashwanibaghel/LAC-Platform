@@ -199,12 +199,21 @@ try {
   if(realOutputPath&&realPdfPath&&realCropPath){
     const extracted=JSON.parse(fs.readFileSync(realOutputPath,'utf8'));
     const realClaims=extracted.candidates.filter(item=>item.candidateType==='Claim');
+    const realCourt=extracted.candidates.filter(item=>item.candidateType==='CourtCase'&&item.page===7);
+    if(realCourt.length!==6||realCourt[0].structuredPayload.caseNumber?.normalizedSuggestion!=='4721/2002'||realCourt.some(item=>item.structuredPayload.caseType!=='CWP'))throw Error('Real Pochanpur Court table regression');
     const realRows=realClaims.map((item,index)=>{
       const row=fact(index+2000,'Claim',item.structuredPayload);
       row.sourcePage=item.page;row.rawSourceText=item.rawSourceText;
       row.sourceLocatorJson=JSON.stringify({page:item.page,sourceRegion:item.sourceRegion,structuredPayload:item.structuredPayload});
       return row;
     });
+    realRows.push(...realCourt.map((item,index)=>{
+      const payload=Object.fromEntries(Object.entries(item.structuredPayload).map(([key,value])=>[key,value&&typeof value==='object'&&!Array.isArray(value)?value.normalizedSuggestion??null:value]));
+      const row=fact(index+5000,'CourtCase',payload);
+      row.sourcePage=item.page;row.rawSourceText=item.rawSourceText;
+      row.sourceLocatorJson=JSON.stringify({page:item.page,sourceRegion:item.sourceRegion});
+      return row;
+    }));
     if(realRows.length<150)throw Error(`Real claimant schedule too short: ${realRows.length}`);
     const actual=await open(realRows.length,1366,768,'real-claim',realRows,false,fs.readFileSync(realPdfPath),fs.readFileSync(realCropPath));
     await actual.page.getByRole('combobox',{name:'Candidate type'}).selectOption('claims');
@@ -220,8 +229,14 @@ try {
     if(actual.pdfLoads()<1)throw Error('Real Pochanpur PDF was not requested by browser');
     await actual.page.waitForTimeout(3000);
     await actual.page.screenshot({path:path.join(out,'1366x768-real-pochanpur-claimant.png')});
+    await actual.page.getByRole('combobox',{name:'Candidate type'}).selectOption('other');
+    await actual.page.getByRole('textbox',{name:'Search review queue'}).fill('4721/2002');
+    await actual.page.getByRole('button',{name:/4721\/2002/}).waitFor();
+    await actual.page.getByText('Original PDF · Page 7').waitFor();
+    await actual.page.waitForTimeout(3000);
+    await actual.page.screenshot({path:path.join(out,'1366x768-real-pochanpur-court.png')});
     await actual.context.close();
-    console.log(`Real Pochanpur browser acceptance: ${realRows.length} claimant rows, Ved Prakash source fields and page 8 PDF verified`);
+    console.log(`Real Pochanpur browser acceptance: ${realClaims.length} claimant rows, Ved Prakash source fields and page 8 PDF, plus ${realCourt.length} CWP Court rows and page 7 PDF verified`);
   }
   console.log(`Screenshots: ${out}`);
 }finally{await browser.close();}
