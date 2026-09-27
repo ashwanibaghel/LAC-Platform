@@ -5,14 +5,13 @@ public readonly record struct MatterDraftLayout(string PageSize, string Orientat
 
 public static class MatterDraftLayoutProfiles
 {
-    // Provisional calibration only: update this one profile after measuring the real office noting sheet.
-    public static readonly MatterDraftLayout NotingSheetV1Provisional = new("A4", "Portrait", 25m, 20m, 20m, 25m);
+    public static MatterDraftLayoutProfile DelhiLacNotingV1 => MatterDraftOfficeProfiles.DelhiLacNotingV1;
 
-    // Official alias matching the centralized DelhiLacNotingV1 terminology
-    public static readonly MatterDraftLayout DelhiLacNotingV1 = NotingSheetV1Provisional;
+    // The persisted left/right fields predate mirror margins. For Noting, left is inside and right is outside.
+    public static MatterDraftLayout NotingLayout => ToStoredLayout(DelhiLacNotingV1);
 
     public static MatterDraftLayout For(MatterDraft draft) => draft.DraftType == MatterDraftType.Noting
-        ? DelhiLacNotingV1
+        ? NotingLayout
         : new MatterDraftLayout(draft.PageSize, draft.Orientation, draft.MarginTopMm, draft.MarginRightMm, draft.MarginBottomMm, draft.MarginLeftMm);
 
     public static void ApplyDraftLayout(MatterDraft draft, MatterDraftLayout layout)
@@ -24,6 +23,12 @@ public static class MatterDraftLayoutProfiles
         draft.MarginBottomMm = layout.MarginBottomMm;
         draft.MarginLeftMm = layout.MarginLeftMm;
     }
+
+    public static void ApplyNotingLayout(MatterDraft draft) => ApplyDraftLayout(draft, NotingLayout);
+
+    private static MatterDraftLayout ToStoredLayout(MatterDraftLayoutProfile profile) => new(
+        profile.PageSize, profile.Orientation, profile.MarginTopMm, profile.MarginOutsideMm,
+        profile.MarginBottomMm, profile.MarginInsideMm);
 
     public static bool TryDraftTitle(string? value, out string title, out string problem)
     {
@@ -43,10 +48,10 @@ public static class MatterDraftLayoutProfiles
         layout = default;
         if (draftType == MatterDraftType.Noting)
         {
-            layout = NotingSheetV1Provisional;
+            layout = NotingLayout;
             if (request.PageSize != layout.PageSize || request.Orientation != layout.Orientation || request.MarginTopMm != layout.MarginTopMm || request.MarginRightMm != layout.MarginRightMm || request.MarginBottomMm != layout.MarginBottomMm || request.MarginLeftMm != layout.MarginLeftMm)
             {
-                problem = "Noting Sheet layout is fixed by the office profile.";
+                problem = "Noting layout is fixed by the DelhiLacNotingV1 office profile.";
                 return false;
             }
             return true;

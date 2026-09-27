@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +9,59 @@ namespace LAC.Tests;
 
 public sealed class AwardVerificationTests
 {
+    [Theory]
+    [InlineData(50)]
+    [InlineData(250)]
+    [InlineData(1000)]
+    public async Task Attention_queue_prioritizes_conflict_before_pagination(int volume)
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var session = new AwardIngestionSession { SourceType = AwardIngestionSourceType.Document };
+        db.AwardIngestionSessions.Add(session);
+        for (var sequence = 0; sequence < volume; sequence++)
+            db.AwardIngestionCandidates.Add(new AwardIngestionCandidate {
+                Session = session, Sequence = sequence, CandidateType = AwardIngestionCandidateType.AwardKhasra,
+                Status = sequence == volume - 1 ? AwardIngestionCandidateStatus.Conflict : AwardIngestionCandidateStatus.NeedsReview,
+                StructuredPayloadJson = "{}", SourcePage = sequence / 12 + 1
+            });
+        await db.SaveChangesAsync();
+        var service = new AwardIngestionService(db, new AwardWorkflowService(db));
+        var page = await service.GetCandidatesAsync(session.Id, null, null, 0, 100, default, "attention");
+        Assert.Equal(volume, page.TotalCount);
+        Assert.Equal(volume - 1, page.Items[0].Sequence);
+        Assert.Equal(AwardIngestionCandidateStatus.Conflict, page.Items[0].Status);
+        Assert.True(page.Items.Count <= 100);
+    }
+
+    [Fact]
+    public async Task Quality_dataset_contains_only_source_backed_human_field_decisions()
+    {
+        await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var award = new Award { AwardNumber = "FICTIONAL-QUALITY" };
+        var village = new Village { Name = "Fictional Village" };
+        var document = new Document { OriginalFileName = "fictional.pdf", StoragePath = "fictional.pdf" };
+        db.AddRange(award, village, document, new AwardVillage { Award = award, Village = village });
+        await db.SaveChangesAsync();
+        var locator = JsonSerializer.Serialize(new { page = 1, structuredPayload = new { sourceCells = new {
+            khasra = new { rawOcr = "6//10", sourceRegion = new { x = 1, y = 1, width = 5, height = 5 } },
+            recordedArea = new { rawOcr = "2-3", sourceRegion = new { x = 8, y = 1, width = 5, height = 5 } },
+            awardedArea = new { rawOcr = "2-1", sourceRegion = new { x = 15, y = 1, width = 5, height = 5 } }
+        } } });
+        var input = new IngestionCandidateInput(AwardIngestionCandidateType.AwardKhasra,
+            JsonSerializer.Serialize(new AwardKhasraCandidate("6//10", null, null, null, null, 2, 3, null, 2, 1, null)), locator, "fictional", .9m);
+        var service = new AwardIngestionService(db, new AwardWorkflowService(db));
+        var session = await service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, document.Id, null, null, [input], default);
+        var candidate = await db.AwardIngestionCandidates.SingleAsync();
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "Khasra", "6//10", "Confirm"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "RecordedArea", "2-3", "Confirm"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "RecordedArea", null, "Uncertain"), default);
+        await service.VerifyAwardKhasraFieldAsync(candidate.Id, new("Officer", "AwardedArea", null, "Skip"), default);
+        Assert.Equal(2, await db.DocumentTrainingExamples.CountAsync());
+        var exported = (System.Collections.IEnumerable)await service.GetQualityDatasetAsync(session.Id, default);
+        Assert.Single(exported.Cast<object>());
+        Assert.Empty(await db.Set<AwardKhasra>().ToListAsync());
+    }
+
     [Fact]
     public async Task Geometry_backed_award_khasra_requires_every_source_cell_and_creates_gold_per_field()
     {
@@ -69,6 +123,57 @@ public sealed class AwardVerificationTests
         Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.FactName=="awardNumber");
     }
 
+    [Theory]
+    [InlineData("30/2002-03")]
+    [InlineData("30/2002-2003")]
+    [InlineData("30/2002-2003.")]
+    [InlineData(" 30/2002-2003. ")]
+    public async Task Award_core_year_range_variants_confirm_without_changing_official_number(string documentNumber)
+    {
+        await using var f=await Fixture.Create();
+        f.Award.AwardNumber="30/2002-03";
+        await f.Db.SaveChangesAsync();
+        var session=await f.Preview(f.Input(new AwardCoreCandidate(documentNumber,new DateOnly(2002,12,9),"Main","Source purpose")));
+        var candidate=await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.NotEqual(AwardIngestionCandidateStatus.Conflict,candidate.Status);
+        if(documentNumber=="30/2002-2003.")
+        {
+            // Existing reviews may still carry the conflict stored by the old comparison.
+            candidate.Status=AwardIngestionCandidateStatus.Conflict;
+            candidate.ValidationIssuesJson="[\"Document Award number differs from the current Award context.\"]";
+            candidate.ConflictDetailsJson="{\"field\":\"AwardNumber\"}";
+            await f.Db.SaveChangesAsync();
+        }
+
+        await f.Service.VerifyFactAsync(candidate.Id,new("Officer",null),default);
+        Assert.NotNull(candidate.VerifiedAt);
+        Assert.Null(candidate.ValidationIssuesJson);
+        Assert.Null(candidate.ConflictDetailsJson);
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+
+        Assert.Equal("30/2002-03",f.Award.AwardNumber);
+        Assert.Equal(new DateOnly(2002,12,9),f.Award.AwardDate);
+        Assert.Contains(documentNumber.Trim(),candidate.StructuredPayloadJson);
+        Assert.Contains(await f.Db.SourceEvidence.ToListAsync(),e=>e.AwardId==f.Award.Id && e.FactName=="awardNumber");
+    }
+
+    [Theory]
+    [InlineData("31/2002-2003")]
+    [InlineData("30/2002-2004")]
+    [InlineData("30/2003-2004")]
+    [InlineData("30/2002-2103")]
+    public async Task Award_core_distinct_numbers_still_conflict(string documentNumber)
+    {
+        await using var f=await Fixture.Create();
+        f.Award.AwardNumber="30/2002-03";
+        await f.Db.SaveChangesAsync();
+        await f.Preview(f.Input(new AwardCoreCandidate(documentNumber,null,"Main",null)));
+        var candidate=await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.Equal(AwardIngestionCandidateStatus.Conflict,candidate.Status);
+        await Assert.ThrowsAsync<AwardIngestionException>(()=>f.Service.VerifyFactAsync(candidate.Id,new("Officer",null),default));
+        Assert.Equal("30/2002-03",f.Award.AwardNumber);
+    }
+
     [Fact]
     public async Task Exact_group_confirmation_is_human_verification_not_canonical_commit()
     {
@@ -78,6 +183,108 @@ public sealed class AwardVerificationTests
         Assert.Equal(1,await f.Service.ConfirmExactAsync(session.Id,new("Test officer",1),default));
         var c=await f.Db.AwardIngestionCandidates.SingleAsync();Assert.NotNull(c.VerifiedAt);Assert.Equal("Test officer",c.VerifiedBy);
         Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Fact]
+    public async Task Strong_local_geometry_reaches_exact_and_confirmation_does_not_commit()
+    {
+        await using var f = await Fixture.Create();
+        var session = await f.Preview(StrongLocalInput(f.Document.Id));
+        var row = await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.Equal(AwardIngestionCandidateStatus.Ready, row.Status);
+        Assert.True(row.SafeToConfirm);
+        Assert.Equal(.995m, row.Confidence);
+        Assert.Equal(1, await f.Service.ConfirmExactAsync(session.Id, new("Authenticated officer", 1), default));
+        Assert.NotNull(row.VerifiedAt);
+        Assert.Equal("Authenticated officer", row.VerifiedBy);
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());
+        Assert.Empty(await f.Db.SourceEvidence.ToListAsync());
+    }
+
+    [Theory]
+    [InlineData("disagreement")]
+    [InlineData("crop-unreadable")]
+    [InlineData("low-confidence")]
+    [InlineData("impossible-confidence")]
+    [InlineData("missing-confidence")]
+    [InlineData("contamination")]
+    [InlineData("invalid-area")]
+    [InlineData("different-row")]
+    [InlineData("no-master")]
+    [InlineData("identifier-mismatch")]
+    [InlineData("open-review-flag")]
+    [InlineData("existing-award-area-conflict")]
+    public async Task Risky_local_geometry_never_enters_exact_lane(string risk)
+    {
+        await using var f = await Fixture.Create();
+        var input = StrongLocalInput(f.Document.Id);
+        var locator = JsonNode.Parse(input.SourceLocatorJson!)!;
+        var cells = locator["structuredPayload"]!["sourceCells"]!;
+        switch (risk)
+        {
+            case "disagreement":
+                cells["khasra"]!["cellCropOcr"] = "4//13 min";
+                cells["khasra"]!["cellCropConfidence"] = .999;
+                cells["khasra"]!["recognitionAgreement"] = "OcrDisagreement";
+                break;
+            case "crop-unreadable": cells["khasra"]!["cellCropAttempted"] = true; break;
+            case "low-confidence": cells["recordedArea"]!["pageAssignedConfidence"] = .97; input = input with { Confidence = .97m }; break;
+            case "impossible-confidence": cells["recordedArea"]!["pageAssignedConfidence"] = 1.2; break;
+            case "missing-confidence": cells["awardedArea"]!.AsObject().Remove("pageAssignedConfidence"); input = input with { Confidence = null }; break;
+            case "contamination": cells["recordedArea"]!["contaminationStatus"] = "ContaminationRecovered"; break;
+            case "invalid-area": cells["recordedArea"]!["normalizedSuggestion"] = "2-?"; break;
+            case "different-row": cells["awardedArea"]!["rowId"] = 2; break;
+            case "no-master":
+                cells["khasra"]!["pageAssignedOcr"] = "9//9";
+                cells["khasra"]!["normalizedSuggestion"] = "9//9";
+                input = input with { PayloadJson = JsonSerializer.Serialize(new AwardKhasraCandidate("9//9", null, null, null, null, 2, 2, null, 1, 1, null)) };
+                break;
+            case "identifier-mismatch": cells["khasra"]!["pageAssignedOcr"] = "9//9"; break;
+            case "open-review-flag": f.Db.Add(new KhasraReviewFlag { Khasra = f.Khasra, ReasonCode = "Test" }); await f.Db.SaveChangesAsync(); break;
+            case "existing-award-area-conflict": f.Db.Add(new AwardKhasra { Award = f.Award, Khasra = f.Khasra, RecordedTotalAreaBigha = 9 }); await f.Db.SaveChangesAsync(); break;
+        }
+        var session = await f.Preview(input with { SourceLocatorJson = locator.ToJsonString() });
+        var row = await f.Db.AwardIngestionCandidates.SingleAsync(x => x.SessionId == session.Id);
+        Assert.False(row.SafeToConfirm);
+        await Assert.ThrowsAsync<AwardIngestionException>(() => f.Service.ConfirmExactAsync(session.Id, new("Officer", 1), default));
+    }
+
+    [Fact]
+    public async Task Numeric_human_corrections_remain_numbers_and_verify_against_candidate_contracts()
+    {
+        await using var f = await Fixture.Create();
+        var session = await f.Preview(f.Input(new ValuationRuleCandidate("Rate", null, null)),
+            f.Input(new CompensationRuleCandidate("Solatium", null, null, null)),
+            f.Input(new AreaIssueCandidate("Difference", null, null, null)));
+        var rows = await f.Db.AwardIngestionCandidates.Where(x => x.SessionId == session.Id).OrderBy(x => x.Sequence).ToListAsync();
+        var payloads = new[] {
+            "{\"ruleType\":\"Rate\",\"rateAmount\":125.75,\"rateUnit\":\"acre\",\"legalSection\":null}",
+            "{\"ruleType\":\"Solatium\",\"ratePercent\":30,\"rateAmount\":1500.5,\"legalSection\":null}",
+            "{\"issueType\":\"Difference\",\"notificationAreaBigha\":5.25,\"fieldBookAreaBigha\":4,\"differenceBigha\":1.25}"
+        };
+        for (var index = 0; index < rows.Count; index++)
+        {
+            using var parsed = JsonDocument.Parse(payloads[index]);
+            var numeric = index switch { 0 => "rateAmount", 1 => "ratePercent", _ => "differenceBigha" };
+            Assert.Equal(JsonValueKind.Number, parsed.RootElement.GetProperty(numeric).ValueKind);
+            await f.Service.VerifyFactAsync(rows[index].Id, new("Officer", payloads[index]), default);
+            Assert.NotNull(rows[index].VerifiedAt);
+            Assert.Equal(JsonValueKind.Number, JsonDocument.Parse(rows[index].StructuredPayloadJson).RootElement.GetProperty(numeric).ValueKind);
+        }
+        Assert.Empty(await f.Db.Set<AwardKhasra>().ToListAsync());
+    }
+
+    private static IngestionCandidateInput StrongLocalInput(Guid documentId)
+    {
+        static object Cell(string raw, int column, decimal confidence) => new { rawOcr = raw, pageAssignedOcr = raw, normalizedSuggestion = raw, pageAssignedConfidence = confidence,
+            sourceRegion = new { x = column * 20 + 1, y = 10, width = 18, height = 8 }, tableId = 1, logicalGroupId = 1, rowId = 1, columnIndex = column,
+            recognitionAgreement = "SingleRecognizer", multiViewPredictions = Array.Empty<object>() };
+        var sourceCells = new { khasra = Cell("4//12 min", 0, .999m), recordedArea = Cell("2-2", 1, .995m), awardedArea = Cell("1-1", 2, .997m) };
+        var structured = JsonSerializer.SerializeToElement(new { khasraNumber = "4//12", qualifier = "min", recordedArea = new { normalizedSuggestion = "2-2" }, awardedArea = new { normalizedSuggestion = "1-1" }, sourceCells });
+        var candidate = new LocalDocumentIntelligenceCandidate("AwardKhasra", structured, 1, JsonSerializer.SerializeToElement(new { x = 1, y = 10, width = 18, height = 8 }), "4//12 min", "4//12 min", "4//12 min", null, .995m,
+            ["Geometry-backed OCR suggestion; human review required"], false);
+        var result = new LocalDocumentIntelligenceResult(1, documentId, "Completed", 1, [candidate], [], JsonSerializer.SerializeToElement(new { }));
+        return Assert.Single(LocalIntelligenceCandidateMapper.Map(result));
     }
 
     [Theory]
@@ -181,6 +388,197 @@ public sealed class AwardVerificationTests
         var other=new Document{OriginalFileName="fictional-second.pdf",StoragePath="fictional-second.pdf"};f.Db.Documents.Add(other);var job=new AwardDocumentExtractionJob{Document=other,TargetAward=f.Award,SelectedVillage=f.Village};f.Db.Add(job);f.Db.Add(new AwardDocumentPageExtraction{Job=job,PageNumber=1});await f.Db.SaveChangesAsync();
         var s=await f.Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,f.Award.Id,f.Village.Id,other.Id,null,null,[f.KhasraInput()],default);await f.Service.ConfirmExactAsync(s.Id,new("Second officer",1),default);await f.Service.CommitVerifiedAsync(s.Id,new("Second officer",1),default);
         Assert.Single(await f.Db.Khasras.ToListAsync());Assert.Single(await f.Db.Set<AwardKhasra>().ToListAsync());Assert.Equal(2,await f.Db.SourceEvidence.Select(x=>x.DocumentId).Distinct().CountAsync());
+    }
+
+    [Fact]
+    public async Task Claimant_schedule_commit_keeps_party_null_and_source_fields_with_cell_evidence()
+    {
+        await using var f=await Fixture.Create();
+        var locator=JsonSerializer.Serialize(new {page=1,sourceRegion=new{x=10,y=20,width=300,height=60},
+            structuredPayload=new{sourceCells=new{
+                claimant=new{rawOcr="Ved Praksh",sourceRegion=new{x=20,y=22,width=90,height=40}},
+                khasra=new{rawOcr="12//20/2 etc.",sourceRegion=new{x=120,y=22,width=70,height=40}},
+                area=new{rawOcr="9-18",sourceRegion=new{x=195,y=22,width=35,height=40}},
+                claim=new{rawOcr="Rs.3000/- per sq yard for land",sourceRegion=new{x=235,y=22,width=70,height=40}}
+            }}});
+        var source=new ClaimCandidate(null,null,"Rs.3000/- per sq yard for land","3","Ved Praksh","12//20/2 etc.","9-18",3000m,"sq yard");
+        var input=new IngestionCandidateInput(AwardIngestionCandidateType.Claim,JsonSerializer.Serialize(source),locator,"original claimant row",.99m);
+        var session=await f.Preview(input);
+        var row=await f.Db.AwardIngestionCandidates.SingleAsync();
+        Assert.False(row.SafeToConfirm);
+        Assert.Equal(AwardIngestionCandidateStatus.NeedsReview,row.Status);
+        Assert.Empty(await f.Db.Claims.ToListAsync());
+        var corrected=source with {ClaimantText="Ved Prakash"};
+        await f.Service.VerifyFactAsync(row.Id,new("Officer",JsonSerializer.Serialize(corrected)),default);
+        Assert.Empty(await f.Db.Claims.ToListAsync());
+        await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        var claim=await f.Db.Claims.SingleAsync();
+        Assert.Equal(f.Award.Id,claim.AwardId);
+        Assert.Null(claim.ClaimantPartyId);
+        Assert.Equal("Ved Prakash",claim.ClaimantText);
+        Assert.Equal("12//20/2 etc.",claim.KhasraReferences);
+        Assert.Equal("9-18",claim.ClaimedAreaText);
+        Assert.Equal(3000m,claim.ClaimedRateAmount);
+        Assert.Null(claim.ClaimedAmount);
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
+        Assert.Empty(await f.Db.Parties.ToListAsync());
+        var evidence=await f.Db.SourceEvidence.SingleAsync(x=>x.ClaimId==claim.Id && x.FactName=="claimantText");
+        Assert.Equal(1,evidence.PageNumber);
+        Assert.Contains("Ved Praksh",evidence.ExtractedSnippet);
+        Assert.Contains("Ved Prakash",evidence.ConfirmedValueJson);
+        Assert.Contains("\"x\":20",evidence.SourceRegionJson);
+    }
+
+    private static ClaimCandidate ScheduleClaim(string serial="3",string claimant="Ved Prakash") =>
+        new(null,null,"Rs.3000/- per sq yard for land",serial,claimant,"12//20/2 etc.","9-18",3000m,"sq yard");
+
+    private static async Task<IngestionCommitResult> CommitScheduleClaim(Fixture f,Guid documentId,ClaimCandidate claim)
+    {
+        var locator=JsonSerializer.Serialize(new {page=1,sourceRegion=new{x=10,y=20,width=300,height=60},
+            structuredPayload=new{sourceCells=new{
+                serial=new{rawOcr=claim.SourceSerialNumber,sourceRegion=new{x=10,y=20,width=20,height=60}},
+                claimant=new{rawOcr=claim.ClaimantText,sourceRegion=new{x=30,y=20,width=90,height=60}},
+                khasra=new{rawOcr=claim.KhasraReferences,sourceRegion=new{x=120,y=20,width=70,height=60}},
+                area=new{rawOcr=claim.ClaimedAreaText,sourceRegion=new{x=190,y=20,width=40,height=60}},
+                claim=new{rawOcr=claim.ClaimText,sourceRegion=new{x=230,y=20,width=80,height=60}}
+            }}});
+        var input=new IngestionCandidateInput(AwardIngestionCandidateType.Claim,JsonSerializer.Serialize(claim),locator,"Source claimant row",.99m);
+        var session=await f.Service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document,f.Award.Id,f.Village.Id,documentId,null,null,[input],default);
+        var row=await f.Db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==session.Id);
+        Assert.False(row.SafeToConfirm);
+        await f.Service.VerifyFactAsync(row.Id,new("Officer",null),default);
+        return await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+    }
+
+    [Fact]
+    public async Task Reanalyzing_the_same_document_and_claimant_row_reuses_claim_without_duplicate_evidence()
+    {
+        await using var f=await Fixture.Create();
+        var first=await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        Assert.Equal(1,first.Created);
+        var original=await f.Db.Claims.SingleAsync();
+        var evidenceCount=await f.Db.SourceEvidence.CountAsync(x=>x.ClaimId==original.Id);
+        Assert.True(evidenceCount>0);
+        Assert.NotNull((await f.Db.SourceEvidence.SingleAsync(x=>x.ClaimId==original.Id && x.FactName=="claimantText")).SourceRegionJson);
+
+        var second=await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        Assert.Equal(0,second.Created);
+        Assert.Equal(1,second.Reused);
+
+        var claim=await f.Db.Claims.SingleAsync();
+        Assert.Equal(original.Id,claim.Id);
+        Assert.Equal("3",claim.SourceSerialNumber);
+        Assert.Equal("Ved Prakash",claim.ClaimantText);
+        Assert.Null(claim.ClaimantPartyId);
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
+        Assert.Empty(await f.Db.Parties.ToListAsync());
+        Assert.Equal(evidenceCount,await f.Db.SourceEvidence.CountAsync(x=>x.ClaimId==claim.Id));
+    }
+
+    [Fact]
+    public async Task Same_serial_in_another_document_or_a_different_row_remains_a_distinct_claim()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim("4"));
+        var other=new Document{OriginalFileName="second.pdf",StoragePath="second.pdf"};
+        var job=new AwardDocumentExtractionJob{Document=other,TargetAward=f.Award,SelectedVillage=f.Village};
+        f.Db.Add(job);f.Db.Add(new AwardDocumentPageExtraction{Job=job,PageNumber=1});
+        await f.Db.SaveChangesAsync();
+
+        await CommitScheduleClaim(f,other.Id,ScheduleClaim());
+
+        Assert.Equal(3,await f.Db.Claims.CountAsync());
+        Assert.Equal(2,await f.Db.Claims.CountAsync(x=>x.SourceSerialNumber=="3"));
+        Assert.Equal(1,await f.Db.Claims.CountAsync(x=>x.SourceSerialNumber=="4"));
+        Assert.All(await f.Db.Claims.ToListAsync(),x=>Assert.Null(x.ClaimantPartyId));
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
+    }
+
+    [Fact]
+    public async Task Changed_verified_values_for_the_same_source_claimant_row_conflict_without_overwrite()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        var original=await f.Db.Claims.SingleAsync();
+        var evidenceCount=await f.Db.SourceEvidence.CountAsync();
+
+        var error=await Assert.ThrowsAsync<AwardIngestionException>(()=>CommitScheduleClaim(f,f.Document.Id,ScheduleClaim(claimant:"Different claimant")));
+
+        Assert.Contains("previously committed with different verified values",error.Message);
+        Assert.Single(await f.Db.Claims.ToListAsync());
+        Assert.Equal("Ved Prakash",(await f.Db.Claims.SingleAsync()).ClaimantText);
+        Assert.Equal(original.Id,(await f.Db.Claims.SingleAsync()).Id);
+        Assert.Equal(evidenceCount,await f.Db.SourceEvidence.CountAsync());
+    }
+
+    [Fact]
+    public async Task Ambiguous_preexisting_claimant_source_occurrence_is_not_chosen()
+    {
+        await using var f=await Fixture.Create();
+        await CommitScheduleClaim(f,f.Document.Id,ScheduleClaim());
+        var duplicate=new Claim{AwardId=f.Award.Id,SourceSerialNumber="3",ClaimantText="Ved Prakash",KhasraReferences="12//20/2 etc.",ClaimedAreaText="9-18",ClaimText="Rs.3000/- per sq yard for land",ClaimedRateAmount=3000m,ClaimedRateUnit="sq yard"};
+        f.Db.Claims.Add(duplicate);
+        f.Db.SourceEvidence.Add(new SourceEvidence{DocumentId=f.Document.Id,Claim=duplicate,PageNumber=1,FactName="sourceSerialNumber",ConfirmedValueJson="\"3\"",VerifiedBy="Officer",VerifiedAt=DateTimeOffset.UtcNow});
+        await f.Db.SaveChangesAsync();
+
+        var error=await Assert.ThrowsAsync<AwardIngestionException>(()=>CommitScheduleClaim(f,f.Document.Id,ScheduleClaim()));
+
+        Assert.Contains("More than one committed Claim",error.Message);
+        Assert.Equal(2,await f.Db.Claims.CountAsync());
+    }
+
+    [Fact]
+    public async Task Legacy_claim_without_source_serial_keeps_its_existing_deduplication()
+    {
+        await using var f=await Fixture.Create();
+        var legacy=new ClaimCandidate("Legacy-1",null,"Legacy claim text");
+        for(var attempt=0;attempt<2;attempt++)
+        {
+            var session=await f.Preview(f.Input(legacy));
+            var row=await f.Db.AwardIngestionCandidates.SingleAsync(x=>x.SessionId==session.Id);
+            await f.Service.VerifyFactAsync(row.Id,new("Officer",null),default);
+            await f.Service.CommitVerifiedAsync(session.Id,new("Officer",1),default);
+        }
+        Assert.Single(await f.Db.Claims.ToListAsync());
+        Assert.Null((await f.Db.Claims.SingleAsync()).SourceSerialNumber);
+    }
+
+    [Fact]
+    public async Task Claim_search_and_type_filter_apply_before_pagination()
+    {
+        await using var db=new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var session=new AwardIngestionSession {SourceType=AwardIngestionSourceType.Document};
+        db.AwardIngestionSessions.Add(session);
+        for(var number=1;number<=160;number++)
+            db.AwardIngestionCandidates.Add(new AwardIngestionCandidate {Session=session,Sequence=number,
+                CandidateType=AwardIngestionCandidateType.Claim,Status=AwardIngestionCandidateStatus.NeedsReview,
+                StructuredPayloadJson=JsonSerializer.Serialize(new ClaimCandidate(null,null,"Rs.3000/- per sq yard",number.ToString(),number==150?"Target Claimant":"Person "+number,number==150?"12//20/2 etc.":"9//1",null))});
+        await db.SaveChangesAsync();
+        var service=new AwardIngestionService(db,new AwardWorkflowService(db));
+        var claims=await service.GetCandidatesAsync(session.Id,AwardIngestionCandidateType.Claim,null,1,100,default,"attention");
+        Assert.Equal(160,claims.TotalCount);
+        Assert.Equal(60,claims.Items.Count);
+        var byName=await service.GetCandidatesAsync(session.Id,AwardIngestionCandidateType.Claim,null,0,100,default,"attention",null,null,"Target Claimant");
+        Assert.Single(byName.Items);
+        var byKhasra=await service.GetCandidatesAsync(session.Id,AwardIngestionCandidateType.Claim,null,0,100,default,"attention",null,null,"12//20/2");
+        Assert.Single(byKhasra.Items);
+    }
+
+    [Fact]
+    public async Task Claim_review_reports_only_strict_explicit_village_master_matches_without_linking()
+    {
+        await using var f=await Fixture.Create();
+        var session=await f.Preview(f.Input(new ClaimCandidate(null,null,"Claimed rate", "3", "Source claimant", "4//12 min etc. 1627//154 5//7", "9-18")));
+        var page=await f.Service.GetCandidatesAsync(session.Id,AwardIngestionCandidateType.Claim,null,0,100,default,"attention");
+        var matches=Assert.Single(page.Items).KhasraMatches;
+        Assert.NotNull(matches);
+        Assert.Equal(2,matches.Count);
+        Assert.Equal("4//12 min",matches[0].SourceReference);
+        Assert.Equal(f.Khasra.Id,matches[0].KhasraId);
+        Assert.Equal("5//7",matches[1].SourceReference);
+        Assert.Null(matches[1].KhasraId);
+        Assert.Empty(await f.Db.Set<ClaimKhasra>().ToListAsync());
     }
 
     private sealed class Fixture : IAsyncDisposable

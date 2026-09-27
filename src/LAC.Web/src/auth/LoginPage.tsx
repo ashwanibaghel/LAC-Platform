@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useAuth } from "./AuthProvider";
+import { PasswordInput } from "./PasswordInput";
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -59,9 +60,8 @@ export const LoginPage: React.FC = () => {
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
+            <PasswordInput
               id="password"
-              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"

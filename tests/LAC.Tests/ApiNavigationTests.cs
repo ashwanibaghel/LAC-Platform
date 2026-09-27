@@ -26,6 +26,53 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     public ApiNavigationTests(ApiFactory factory) { _factory = factory; _client = factory.CreateClient(); }
 
     [Fact]
+    public async Task Award_review_audit_identity_comes_from_authentication_not_request_body()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var award = new Award { AwardNumber = $"TEST-{Guid.NewGuid():N}" };
+        var village = new Village { Name = $"Fictional-{Guid.NewGuid():N}" };
+        var document = new LAC.Domain.Document { OriginalFileName = "synthetic.pdf", StoragePath = "synthetic.pdf" };
+        var khasra = new Khasra { Village = village, NormalizedNumber = "4//12", DisplayNumber = "4//12", Qualifier = null };
+        var job = new AwardDocumentExtractionJob { Document = document, TargetAward = award, SelectedVillage = village, TotalPages = 1, ProcessedPages = 1 };
+        db.AddRange(award, village, document, khasra, new AwardVillage { Award = award, Village = village }, job,
+            new AwardDocumentPageExtraction { Job = job, PageNumber = 1 });
+        await db.SaveChangesAsync();
+        var service = scope.ServiceProvider.GetRequiredService<AwardIngestionService>();
+        var input = new IngestionCandidateInput(AwardIngestionCandidateType.AwardKhasra,
+            JsonSerializer.Serialize(new AwardKhasraCandidate("4//12", null, null, null, null, 2, 2, null, 1, 1, null)),
+            JsonSerializer.Serialize(new CandidateEvidence(1, "test", "KhasraTable", "Geometry", ["source"], [])), "4//12", 1m);
+        var session = await service.CreatePreviewFromJsonAsync(AwardIngestionSourceType.Document, award.Id, village.Id, document.Id, null, null, [input], default);
+        using var response = await _client.PostAsJsonAsync($"/api/award-ingestion-sessions/{session.Id}/confirm-exact",
+            new ConfirmExactRequest("Forged officer", 1));
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        var candidate = await db.AwardIngestionCandidates.AsNoTracking().SingleAsync(x => x.SessionId == session.Id);
+        Assert.Equal("admin", candidate.VerifiedBy);
+        Assert.Empty(await db.Set<AwardKhasra>().Where(x => x.AwardId == award.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Quality_dataset_requires_AwardEdit_even_for_an_AwardView_user()
+    {
+        await using var viewOnlyFactory = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+        {
+            services.RemoveAll<IAccessControlService>();
+            services.AddScoped<IAccessControlService, AwardViewOnlyAccessControl>();
+        }));
+        using var client = viewOnlyFactory.CreateClient();
+        using var denied = await client.GetAsync($"/api/award-ingestion-sessions/{Guid.NewGuid()}/quality-dataset");
+        Assert.Equal(System.Net.HttpStatusCode.Forbidden, denied.StatusCode);
+        using var allowed = await client.GetAsync($"/api/award-ingestion-sessions/{Guid.NewGuid()}/overview");
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, allowed.StatusCode);
+    }
+
+    private sealed class AwardViewOnlyAccessControl : IAccessControlService
+    {
+        public Task<bool> CanAsync(string permissionCode, AccessResourceContext? context = null, CancellationToken ct = default) => Task.FromResult(permissionCode == PermissionCodes.AwardView);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyDictionary<string, ScopeMode>>(new Dictionary<string, ScopeMode>());
+    }
+
+    [Fact]
     public async Task Unknown_api_route_is_not_served_as_the_spa()
     {
         using var response = await _client.GetAsync("/api/does-not-exist");
@@ -181,7 +228,7 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
         paged.EnsureSuccessStatusCode();
         using var notingCreated = await _client.PostAsJsonAsync($"/api/matters/{firstMatter}/drafts", new { title = "Office noting", draftType = "Noting" });
         notingCreated.EnsureSuccessStatusCode(); var notingId = (await notingCreated.Content.ReadFromJsonAsync<IdResponse>())!.Id;
-        var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(25m, noting.GetProperty("marginLeftMm").GetDecimal());
+        var noting = await _client.GetFromJsonAsync<JsonElement>($"/api/matter-drafts/{notingId}"); Assert.Equal("Legal", noting.GetProperty("pageSize").GetString()); Assert.Equal(25m, noting.GetProperty("marginTopMm").GetDecimal()); Assert.Equal(45m, noting.GetProperty("marginLeftMm").GetDecimal());
         using var alteredNoting = await _client.PutAsJsonAsync($"/api/matter-drafts/{notingId}", new { title = "Office noting", contentJson = "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}", pageSize = "Legal", orientation = "Landscape", marginTopMm = 1, marginRightMm = 1, marginBottomMm = 1, marginLeftMm = 1, expectedRevision = 0 });
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, alteredNoting.StatusCode);
     }

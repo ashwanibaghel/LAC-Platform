@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { useCalculator } from "../calculator/CalculatorContext";
 import {
   IconDesk,
   IconWorkItem,
@@ -14,7 +15,8 @@ import {
   IconShield,
   IconPlus,
   IconArrowRight,
-  IconAward
+  IconAward,
+  IconCalculator
 } from "../components/Icons";
 import "./home.css";
 
@@ -26,6 +28,7 @@ interface OperationalCounts {
 
 export const Home: React.FC = () => {
   const { user, hasPermission } = useAuth();
+  const { openCalculator } = useCalculator();
   const [counts, setCounts] = useState<OperationalCounts>({});
 
   const userDisplayName = user?.displayName || user?.username || "Officer";
@@ -246,6 +249,10 @@ export const Home: React.FC = () => {
         </div>
 
         <div className="home-dense-modules-grid">
+          <button type="button" onClick={openCalculator} className="home-clean-card calc-home-card">
+            <div className="home-clean-card-head"><div className="home-clean-icon"><IconCalculator size={18} /></div><div className="home-clean-info"><h3>Land &amp; Area Calculator</h3><p>Revenue conversions &amp; calculator.</p></div></div>
+            <div className="home-clean-action"><span>Open</span><IconArrowRight size={14} /></div>
+          </button>
           {/* Module 1: Land Records */}
           <Link to="/land-records" className="home-clean-card">
             <div className="home-clean-card-head">

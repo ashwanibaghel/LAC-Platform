@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { useCalculator } from "../calculator/CalculatorContext";
 import {
   IconHome,
   IconDesk,
@@ -21,7 +22,8 @@ import {
   IconSearch,
   IconMenu,
   IconLogOut,
-  IconChevronRight
+  IconChevronRight,
+  IconCalculator
 } from "./Icons";
 
 const api = "/api";
@@ -39,6 +41,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
+  const { openCalculator } = useCalculator();
 
   // State
   const [launcherOpen, setLauncherOpen] = useState(false);
@@ -348,6 +351,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         {/* Right: Actions & User Identity */}
         <div className="lac-header-right">
+          <button className="lac-header-attention-btn" onClick={openCalculator} title="Land and Area Calculator"><IconCalculator size={15} /> <span>Calculator</span></button>
           {canAccessAttention() && (
             <Link to="/my-attention" className="lac-header-attention-btn" title="Needs Attention">
               <IconAttention size={16} />

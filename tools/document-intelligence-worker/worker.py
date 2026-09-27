@@ -61,12 +61,22 @@ def rows_for_table(geometry: list[dict], table_box: dict, words, page: int, tabl
     rows.sort(key=lambda value: value.y)
     columns.sort(key=lambda value: value.x)
     table, _ = join_words_to_grid(table_box=BoundingBox(**table_box), row_boxes=rows, column_boxes=columns, words=words)
+    assigned_scores: dict[tuple[int, int], list[float | None]] = {}
+    for word in words:
+        box = region(word.bounding_box)
+        if not inside(table_box, box):
+            continue
+        row_ids = [index for index, row in enumerate(rows) if inside(region(row), box)]
+        column_ids = [index for index, column in enumerate(columns) if inside(region(column), box)]
+        if len(row_ids) == len(column_ids) == 1:
+            assigned_scores.setdefault((row_ids[0], column_ids[0]), []).append(word.confidence)
     grouped: dict[int, dict[int, dict]] = {}
     for cell in table.cells:
+        scores = assigned_scores.get((cell.row, cell.column), [])
         grouped.setdefault(cell.row, {})[cell.column] = {
             "text": cell.text,
             "region": region(cell.bounding_box),
-            "confidence": None,
+            "confidence": min(scores) if scores and all(score is not None and 0 <= score <= 1 for score in scores) else None,
             "page": page,
             "tableId": table_id,
         }
@@ -74,22 +84,66 @@ def rows_for_table(geometry: list[dict], table_box: dict, words, page: int, tabl
 
 
 def header_cells_for_table(geometry: list[dict], table_box: dict, words) -> dict[int, str]:
-    """Bind header OCR to Table Transformer header + column geometry only."""
+    """Bind header OCR to this table's header band and column geometry only."""
     columns = [item["box"] for item in geometry if item["label"] == "table column" and inside(table_box, item["box"])]
     columns.sort(key=lambda value: value["x"])
     headers = [item["box"] for item in geometry if item["label"] in {"table column header", "table spanning cell"} and inside(table_box, item["box"])]
+    row_tops = [item["box"]["y"] for item in geometry if item["label"] == "table row" and inside(table_box, item["box"])]
+    first_row_top = min(row_tops) if row_tops else None
     values: dict[int, list[str]] = {}
     for word in words:
         word_box = region(word.bounding_box)
-        if not any(inside(header, word_box) for header in headers):
+        in_detected_header = any(inside(header, word_box) for header in headers)
+        centre_x = word_box["x"] + word_box["width"] / 2
+        centre_y = word_box["y"] + word_box["height"] / 2
+        # A detected table may start a few pixels below its printed header.
+        in_table_header_band = first_row_top is not None and table_box["x"] <= centre_x <= table_box["x"] + table_box["width"] and table_box["y"] - 40 <= centre_y < first_row_top
+        if not (in_detected_header or in_table_header_band):
             continue
-        matching = [index for index, column in enumerate(columns) if inside(column, word_box)]
+        matching = [index for index, column in enumerate(columns) if column["x"] <= centre_x <= column["x"] + column["width"]]
         if len(matching) == 1:
             values.setdefault(matching[0], []).append(word.text)
     return {column: " ".join(text) for column, text in values.items()}
 
 
-def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int]) -> str | None:
+def recover_court_case_cell(geometry: list[dict], table_box: dict, words, row_id: int, column: int, cells: dict[int, dict], image, ocr, crop_cache, counters: dict[str, int]) -> None:
+    """Recover a complete identifier only inside the same Court grid cell."""
+    from benchmark.worker_semantics import CASE_IDENTIFIER
+
+    current = cells.get(column, {})
+    if CASE_IDENTIFIER.search(current.get("text", "")):
+        return
+    rows = sorted((item["box"] for item in geometry if item["label"] == "table row" and inside(table_box, item["box"])), key=lambda box: box["y"])
+    columns = sorted((item["box"] for item in geometry if item["label"] == "table column" and inside(table_box, item["box"])), key=lambda box: box["x"])
+    if row_id >= len(rows) or column >= len(columns):
+        return
+    row, col = rows[row_id], columns[column]
+    box = {"x": max(row["x"], col["x"]), "y": max(row["y"], col["y"]),
+           "width": min(row["x"] + row["width"], col["x"] + col["width"]) - max(row["x"], col["x"]),
+           "height": min(row["y"] + row["height"], col["y"] + col["height"]) - max(row["y"], col["y"])}
+    if box["width"] <= 0 or box["height"] <= 0:
+        return
+    matches = []
+    for word in words:
+        source = region(word.bounding_box)
+        x, y = source["x"] + source["width"] / 2, source["y"] + source["height"] / 2
+        if not CASE_IDENTIFIER.search(word.text) or not (col["x"] <= x <= col["x"] + col["width"] and row["y"] - 2 <= y <= row["y"] + row["height"] + 2):
+            continue
+        if any(other is not row and other["y"] <= y <= other["y"] + other["height"] for other in rows):
+            continue
+        matches.append(word)
+    if len(matches) == 1:
+        cells[column] = {"text": matches[0].text, "region": box, "confidence": getattr(matches[0], "confidence", None)}
+        return
+    if matches or image is None or ocr is None:
+        return
+    recovered = {"text": current.get("text", ""), "region": box, "confidence": current.get("confidence")}
+    recovered["cellCropOcr"] = crop_ocr(image, recovered, ocr, crop_cache, counters)
+    if CASE_IDENTIFIER.search(recovered["cellCropOcr"] or ""):
+        cells[column] = recovered
+
+
+def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int]) -> str | None:
     """Recognition-only unified crop; never used outside Table Transformer cells."""
     from benchmark.cell_crop_pipeline_v9 import normalize_from_page
 
@@ -97,19 +151,59 @@ def crop_ocr(image, cell: dict, ocr, crop_cache: dict[tuple[float, float, float,
     key = (float(box["x"]), float(box["y"]), float(box["width"]), float(box["height"]))
     if key in crop_cache:
         counters["cellOcrCacheHits"] += 1
-        return crop_cache[key]
+        cell["cellCropConfidence"] = crop_cache[key][1]
+        return crop_cache[key][0]
     started = time.perf_counter()
     _, normalized, _ = normalize_from_page(image, cell["region"])
     output = ocr(normalized)
     counters["selectiveCellOcrSeconds"] += time.perf_counter() - started
     counters["cellOcrCalls"] += 1
     texts = list(output.txts) if output.txts is not None else []
-    crop_cache[key] = " ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None
-    return crop_cache[key]
+    scores = list(output.scores) if output.scores is not None else []
+    confidence = min(float(score) for score in scores) if scores and len(scores) == len(texts) and all(score is not None and 0 <= float(score) <= 1 for score in scores) else None
+    crop_cache[key] = (" ".join(" ".join(str(text).split()) for text in texts if str(text).strip()) or None, confidence)
+    cell["cellCropConfidence"] = confidence
+    return crop_cache[key][0]
 
 
-def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], str | None], counters: dict[str, int], enable_court: bool = True) -> tuple[list[dict], dict[str, int]]:
-    from benchmark.worker_semantics import award_candidate, award_table_groups, classification_candidate, court_candidate, infer_court_table_kind, table_kind
+def reading_agreement(readings: list[str | None]) -> str:
+    """Describe evidence only; no reading is elected as a corrected value."""
+    usable = [" ".join(value.split()) for value in readings if value and value.strip()]
+    if not usable:
+        return "Unreadable"
+    if len(usable) == 1:
+        return "SingleRecognizer"
+    return "StrongAgreement" if len(set(usable)) == 1 else "OcrDisagreement"
+
+
+def difficult_cell_views(image, cell: dict, ocr, counters: dict[str, int]) -> None:
+    """Retain two extra local readings for a disputed authoritative table cell."""
+    from PIL import Image, ImageOps
+    from benchmark.cell_crop_pipeline_v9 import normalize_from_page
+
+    _, normalized, _ = normalize_from_page(image, cell["region"])
+    views = {
+        "upscale2": normalized.resize((normalized.width * 2, normalized.height * 2), Image.Resampling.LANCZOS),
+        "contrastUpscale": ImageOps.autocontrast(ImageOps.grayscale(normalized), cutoff=1).resize(
+            (normalized.width * 2, normalized.height * 2), Image.Resampling.LANCZOS).convert("RGB"),
+    }
+    predictions = []
+    for name, view in views.items():
+        output = ocr(view)
+        raw = " ".join(" ".join(str(value).split()) for value in (list(output.txts) if output.txts is not None else [])).strip()
+        predictions.append({"view": name, "rawPrediction": raw or None})
+        counters["multiviewOcrCalls"] += 1
+    cell["multiViewPredictions"] = predictions
+    cell["recognitionAgreement"] = reading_agreement([
+        cell.get("text"), cell.get("cellCropOcr"), *(item["rawPrediction"] for item in predictions)])
+    counters["multiviewCells"] += 1
+    if cell["recognitionAgreement"] == "OcrDisagreement":
+        counters["ocrDisagreements"] += 1
+
+
+def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int], enable_court: bool = True, land_layout=None, possession_evidence: list[dict] | None = None) -> tuple[list[dict], dict[str, int]]:
+    from benchmark.worker_semantics import CASE_IDENTIFIER, award_table_groups, case_type_from_label, classification_candidate, court_candidate, infer_court_table_kind, table_kind
+    from primary_land_schedule import PRIMARY, POSSESSION, section_for_table
 
     candidates: list[dict] = []
     counts = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0,
@@ -129,14 +223,17 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
         # table or promotes an Award/Khasra grid to a new interpretation path.
         grid_header = {column: cell["text"] for column, cell in rows[min(rows)].items() if cell.get("text")}
         merged_headers = {**grid_header, **header_cells}
+        _, grid_roles = table_kind(grid_header)
+        first_row_is_header = len(grid_roles) >= 2 and not any(CASE_IDENTIFIER.search(value) for value in grid_header.values())
+        header_index = min(rows) if first_row_is_header else min(rows) - 1
         header_text = " ".join(merged_headers.values()).lower()
         if re.search(r"cwp|case\s*no", header_text):
             counters["courtHeaderSignals"] += 1
         if re.search(r"khasra|killa", header_text):
             counters["khasraHeaderSignals"] += 1
-        kind, roles = infer_court_table_kind(merged_headers, rows, min(rows))
+        kind, roles = infer_court_table_kind(merged_headers, rows, header_index)
         if kind is None:
-            fallback_kind, fallback_roles = infer_court_table_kind(grid_header, rows, min(rows))
+            fallback_kind, fallback_roles = infer_court_table_kind(grid_header, rows, header_index)
             if fallback_kind != "CourtCwpTable":
                 counters["tablesUnclassified"] += 1
                 continue
@@ -144,39 +241,42 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
             counters["headerFallbackInvocations"] += 1
         else:
             header_cells = merged_headers
-        header_index = min(rows)
         roles["headerLabels"] = list(header_cells.values())
+        if kind == "CourtCwpTable":
+            roles["caseType"] = case_type_from_label(header_cells.get(roles["caseNumber"]))
+        source_section = section_for_table(kind, land_layout)
         counts["tables"] += 1
         for row_id, cells in sorted(rows.items()):
             if row_id <= header_index:
                 continue
             candidate = None
             if kind == "AwardLandTable":
-                from benchmark.worker_semantics import strict_khasra
-                from benchmark.cell_safety_v12 import normalize_area_evidence
-                for group in award_table_groups(header_cells, column_count):
-                    # A candidate is built from one physical row and one repeated
-                    # schema only. Missing area cells stay missing; they never
-                    # borrow an aligned value from another subtable.
-                    if strict_khasra(cells.get(group["khasra"], {}).get("text", ""))[0] is None:
-                        continue
-                    khasra_column = group["khasra"]
-                    if khasra_column in cells:
-                        cells[khasra_column]["cellCropOcr"] = crop_ocr(image, cells[khasra_column], ocr, crop_cache, counters)
-                    for role in ("recordedArea", "awardedArea"):
-                        column = group[role]
-                        if column in cells and normalize_area_evidence(cells[column]["text"])["status"] != "Valid":
-                            cells[column]["cellCropOcr"] = crop_ocr(image, cells[column], ocr, crop_cache, counters)
-                    candidate = award_candidate(page, table_id, row_id, cells, group)
-                    if candidate:
-                        candidates.append(candidate)
-                        counts["awardRows"] += 1
+                # Identical Khasra/area columns in Annexure B describe land
+                # taken over, not the authoritative main Award-land grid.
+                # The primary unruled grid is handled from its own proven
+                # heading/column geometry; do not stage it twice here.
+                if source_section == POSSESSION and possession_evidence is not None:
+                    for group in award_table_groups(header_cells, column_count):
+                        khasra = cells.get(group["khasra"], {})
+                        if not khasra.get("text"):
+                            continue
+                        possession_evidence.append({
+                            "sourceSection": POSSESSION, "page": page,
+                            "tableId": table_id, "rowId": row_id,
+                            "logicalGroupId": group["logicalGroupId"],
+                            "sourceCells": {role: {"rawOcr": cells.get(column, {}).get("text"),
+                                                   "sourceRegion": cells.get(column, {}).get("region")}
+                                            for role, column in (("khasra", group["khasra"]),
+                                                                 ("recordedArea", group["recordedArea"]),
+                                                                 ("awardedArea", group["awardedArea"]))},
+                        })
                 continue
             elif kind == "CourtCwpTable":
                 counters["courtTableRowsInspected"] += 1
                 if not enable_court:
                     continue
                 started = time.perf_counter()
+                recover_court_case_cell(geometry, item["box"], words, row_id, roles["caseNumber"], cells, image, ocr, crop_cache, counters)
                 candidate = court_candidate(page, table_id, row_id, cells, roles)
                 counts["courtTableSeconds"] += time.perf_counter() - started
                 if candidate:
@@ -371,18 +471,19 @@ def possession_candidates(page: int, words) -> list[dict]:
     return result
 
 
-_NARRATIVE_CASE = re.compile(r"\b(?P<label>CWP|W\.?P\.?\s*\(?C\)?|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?P<number>\d{1,6}\s*/\s*\d{4})\b", re.I)
+_NARRATIVE_CASE = re.compile(r"\b(?P<label>CONT\.?\s*CAS\.?\s*\(\s*(?:C|CRL)\s*\)|CONT\.?\s*CAS\.?|W\.?\s*P\.?\s*\(\s*(?:C|CRL)\s*\)|LA\.?\s*APP\.?|CRWP|CWP|WCP|LPA|RFA|FAO|RSA|CRP|Writ\s+Petition|Case\s+No\.?)\s*(?:No\.?\s*)?(?P<number>\d{1,6}\s*/\s*\d{4})\b", re.I)
 
 
 def court_case_candidates(page: int, words) -> list[dict]:
     """Extract only identifiable local source case occurrences, never legal effect."""
+    from benchmark.worker_semantics import case_type_from_label
     result = []
     for text, box in _lines(words):
         match = _NARRATIVE_CASE.search(text)
         if not match:
             continue
         label = re.sub(r"\s+", " ", match.group("label")).strip()
-        case_type = "CWP" if label.lower() == "cwp" else "W.P.(C)" if re.match(r"w\.?p", label, re.I) else "Writ Petition" if "writ" in label.lower() else "Case"
+        case_type = case_type_from_label(label) or ("Writ Petition" if "writ" in label.lower() else None)
         raw_identifier = match.group(0)
         status = None
         status_match = re.search(r"\b(stay\s+granted|stay\s+vacated|pending|dismissed|disposed|status\s+quo)\b|\b(?:status|order)\s*[:.-]\s*(.{1,160}?)(?=\s*,?\s*(?:khasra|killa|(?:total\s+)?area)\b|$)", text, re.I)
@@ -670,10 +771,12 @@ def main() -> int:
         from benchmark.normalized import BoundingBox
         from benchmark.table_transformer_geometry import TableTransformerGeometry
         from benchmark.worker_semantics import page_likely_has_table
+        from claimant_schedule import extract_claimant_tables
+        from primary_land_schedule import PRIMARY, POSSESSION, classify_land_section, primary_land_candidates, primary_land_source_rows
 
         started = time.perf_counter()
         stages = {key: 0.0 for key in ("pageRendering", "rapidOcr", "tableLayout", "awardKhasraInterpretation", "valuationCompensationInterpretation", "possessionInterpretation", "courtNarrativeInterpretation", "courtTableInterpretation", "selectiveCellOcr", "serialization")}
-        counters = {key: 0 for key in ("pageOcrCalls", "tableTransformerCalls", "cellOcrCalls", "cellOcrCacheHits", "courtTableRowsInspected", "headerFallbackInvocations", "geometryTables", "tablesWithoutGridRows", "tablesWithGridRows", "tablesUnclassified", "courtHeaderSignals", "khasraHeaderSignals")}
+        counters = {key: 0 for key in ("pageOcrCalls", "tableTransformerCalls", "cellOcrCalls", "cellOcrCacheHits", "multiviewOcrCalls", "multiviewCells", "ocrDisagreements", "contaminationRecovered", "courtTableRowsInspected", "headerFallbackInvocations", "geometryTables", "tablesWithoutGridRows", "tablesWithGridRows", "tablesUnclassified", "courtHeaderSignals", "khasraHeaderSignals")}
         counters["selectiveCellOcrSeconds"] = 0.0
         ocr = RapidOCR(params={"Det.engine_type": EngineType.TORCH, "Cls.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH})
         document = fitz.open(pdf)
@@ -689,6 +792,15 @@ def main() -> int:
         candidates: list[dict] = []
         table_pages = 0
         totals = {"tables": 0, "awardRows": 0, "courtRows": 0, "classificationRows": 0}
+        claimant_layout = None
+        land_layout = None
+        prior_page_number = None
+        possession_evidence_count = 0
+        primary_source_row_count = 0
+        primary_unstaged_count = 0
+        claimant_counts = {"rowsDetected": 0, "claimsStaged": 0, "withClaimant": 0,
+                           "withKhasra": 0, "withArea": 0, "withLandRate": 0,
+                           "incompleteRows": 0, "valuationDuplicatesPrevented": 0}
 
         for page_number in selected_pages:
             pdf_page = document[page_number - 1]
@@ -721,31 +833,62 @@ def main() -> int:
                 # rejected registration strategy. It emits review staging only.
                 candidates.extend(nm_pilot_candidates(page_number, words, image.width, image.height))
                 continue
+            land_layout = classify_land_section(
+                words, image.width, image.height,
+                land_layout if prior_page_number == page_number - 1 else None,
+            )
+            prior_page_number = page_number
+            claim_rows, consumed, claimant_layout, row_counts = extract_claimant_tables(
+                page_number, words, image.width, claimant_layout)
+            page_candidates.extend(claim_rows)
+            claimant_counts["rowsDetected"] += row_counts["rowsDetected"]
+            claimant_counts["incompleteRows"] += row_counts["incompleteRows"]
+            claimant_counts["claimsStaged"] += len(claim_rows)
+            for row in claim_rows:
+                payload = row["structuredPayload"]
+                claimant_counts["withClaimant"] += bool(payload["claimantText"])
+                claimant_counts["withKhasra"] += bool(payload["khasraReferences"])
+                claimant_counts["withArea"] += bool(payload["claimedAreaText"])
+                claimant_counts["withLandRate"] += payload["claimedRateAmount"] is not None
+            if consumed:
+                claimant_counts["valuationDuplicatesPrevented"] += sum(
+                    bool(re.search(r"market\s+value|market\s+rate|rate\s+per|assessed\s+value|value\s+assessed", word.text, re.I))
+                    for word in words if id(word) in consumed)
+            narrative_words = [word for word in words if id(word) not in consumed]
+            primary_unstaged: list[dict] = []
+            if land_layout is not None and land_layout.section == PRIMARY:
+                primary_rows = primary_land_candidates(page_number, narrative_words, image.height, land_layout)
+                primary_unstaged = primary_land_source_rows(page_number, narrative_words, image.height, land_layout, primary_rows)
+                page_candidates.extend(primary_rows)
+                totals["awardRows"] += len(primary_rows)
+                primary_source_row_count += len(primary_rows) + len(primary_unstaged)
+                primary_unstaged_count += len(primary_unstaged)
             # Core/header and statutory suggestions are label-led narrative
             # extraction.  They deliberately do not depend on Award table
             # geometry and cannot influence Khasra interpretation.
             stage_started = time.perf_counter()
-            page_candidates.extend(narrative_core_and_statutory_candidates(page_number, words))
+            page_candidates.extend(narrative_core_and_statutory_candidates(page_number, narrative_words))
             stages["awardKhasraInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
-            page_candidates.extend(valuation_and_compensation_candidates(page_number, words))
+            page_candidates.extend(valuation_and_compensation_candidates(page_number, narrative_words))
             stages["valuationCompensationInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
-            page_candidates.extend(possession_candidates(page_number, words))
+            page_candidates.extend(possession_candidates(page_number, narrative_words))
             stages["possessionInterpretation"] += time.perf_counter() - stage_started
             stage_started = time.perf_counter()
             if not args.disable_court:
-                page_candidates.extend(court_case_candidates(page_number, words))
+                page_candidates.extend(court_case_candidates(page_number, narrative_words))
             stages["courtNarrativeInterpretation"] += time.perf_counter() - stage_started
-            if page_likely_has_table([word.text for word in words]):
+            possession_evidence: list[dict] = []
+            if page_likely_has_table([word.text for word in narrative_words]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
                 stage_started = time.perf_counter()
                 geometry = geometry_engine.detect(image)
                 counters["tableTransformerCalls"] += 1
                 stages["tableLayout"] += time.perf_counter() - stage_started
-                crop_cache: dict[tuple[float, float, float, float], str | None] = {}
-                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, words, image, ocr, crop_cache, counters, not args.disable_court)
+                crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]] = {}
+                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, narrative_words, image, ocr, crop_cache, counters, not args.disable_court, land_layout, possession_evidence)
                 # Court parsing is pure same-row interpretation. Crop OCR is
                 # timed at the call site, so geometry parsing is not falsely
                 # attributed to either stage.
@@ -756,13 +899,20 @@ def main() -> int:
                     for key in totals:
                         totals[key] += page_counts[key]
             candidates.extend(page_candidates)
-            if words:
+            possession_evidence_count += len(possession_evidence)
+            if narrative_words:
+                is_possession_schedule = land_layout is not None and land_layout.section == POSSESSION
+                is_primary_schedule = land_layout is not None and land_layout.section == PRIMARY
                 candidates.append({
                     "candidateType": "UnmappedAwardFinding",
-                    "structuredPayload": {"category": "Local OCR narrative", "summary": "Page OCR retained outside geometry-backed structured rows"},
+                    "structuredPayload": ({"category": "Possession-related source schedule", "summary": "Source rows retained as evidence, not AwardKhasra suggestions", "sourceSection": POSSESSION, "sourceSectionHeading": land_layout.section_heading, "sourceTableHeading": land_layout.heading, "sourceRows": possession_evidence, "nonActionable": True}
+                                          if is_possession_schedule else
+                                          {"category": "Primary awarded-land rows needing source review", "summary": "Unstaged physical row regions retained without inventing a Khasra identifier", "sourceSection": PRIMARY, "sourceSectionHeading": land_layout.section_heading, "sourceTableHeading": land_layout.heading, "sourceRows": primary_unstaged}
+                                          if is_primary_schedule else
+                                          {"category": "Local OCR narrative", "summary": "Page OCR retained outside geometry-backed structured rows"}),
                     "page": page_number,
                     "sourceRegion": {"x": 0, "y": 0, "width": image.width, "height": image.height},
-                    "rawSourceText": "",
+                    "rawSourceText": " ".join(part for part in (land_layout.section_heading, land_layout.heading) if part) if is_possession_schedule or is_primary_schedule else "",
                     "rawOcr": None,
                     "normalizedSuggestion": None,
                     "normalizationReason": None,
@@ -779,7 +929,7 @@ def main() -> int:
             "pagesProcessed": len(selected_pages),
             "candidates": candidates,
             "warnings": ["Structured candidates require detected table geometry, header roles, and human review."],
-            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, **totals, "stageSeconds": {}, **counters},
+            "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, "possessionSourceRowsRetained": possession_evidence_count, "primarySourceRowsDetected": primary_source_row_count, "primaryRowsNeedingReview": primary_unstaged_count, **totals, **claimant_counts, "stageSeconds": {}, **counters},
         }
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)

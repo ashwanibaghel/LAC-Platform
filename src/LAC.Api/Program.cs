@@ -2,6 +2,7 @@ using LAC.Api;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -11,6 +12,9 @@ using System.Text.Json;
 using System.IO.Compression;
 
 var builder = WebApplication.CreateBuilder(args);
+var maintenanceMode = args.Length > 0 && args[0] is "auth-doctor" or "reset-admin-password";
+if (maintenanceMode)
+    builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 var pdfMaxFileSizeMb = Math.Clamp(builder.Configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024);
 var pdfMaxRequestBytes = pdfMaxFileSizeMb * 1024L * 1024L;
 var matterDocumentExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".png", ".jpg", ".jpeg", ".tif", ".tiff" };
@@ -23,8 +27,17 @@ builder.Services.AddMemoryCache();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 if (!builder.Environment.IsEnvironment("Testing"))
 {
-    var configuredConnection = builder.Configuration.GetConnectionString("DefaultConnection")
-        ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured.");
+    var configuredConnection = builder.Configuration.GetConnectionString("DefaultConnection");
+    if (string.IsNullOrWhiteSpace(configuredConnection))
+    {
+        if (maintenanceMode)
+        {
+            OfficeAuthMaintenance.ReportMissingConnection(builder.Configuration, builder.Environment);
+            Environment.ExitCode = 1;
+            return;
+        }
+        throw new InvalidOperationException("ConnectionStrings:DefaultConnection must be configured.");
+    }
     var connection = new NpgsqlConnectionStringBuilder(configuredConnection)
     {
         Pooling = true,
@@ -33,10 +46,18 @@ if (!builder.Environment.IsEnvironment("Testing"))
         KeepAlive = 30
     };
     if (connection.Host?.Contains("supabase", StringComparison.OrdinalIgnoreCase) == true) throw new InvalidOperationException("Supabase is not a local-first runtime database. Configure ConnectionStrings__DefaultConnection for local PostgreSQL at 127.0.0.1.");
-    builder.Services.AddDbContextPool<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
+    builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddSingleton<LocalStoragePaths>();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
+builder.Services.AddOptions<OnlyOfficeOptions>().BindConfiguration("OnlyOffice")
+    .Validate(x => x.IsValid(), "Enabled ONLYOFFICE requires valid BrowserUrl, AppExternalUrl, optional AppBrowserUrl and DocumentServerUrl origins, and a JwtSecret of at least 32 UTF-8 bytes.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<OnlyOfficeTokens>();
+builder.Services.AddScoped<OnlyOfficeDraftService>();
+builder.Services.AddHttpClient("OnlyOffice", client => client.Timeout = TimeSpan.FromMinutes(2))
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+    .RemoveAllLoggers();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
@@ -105,6 +126,11 @@ builder.Services.AddAuthorization();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy => policy.WithOrigins("http://localhost:5173", "http://127.0.0.1:5173").AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
 
 var app = builder.Build();
+if (maintenanceMode)
+{
+    Environment.ExitCode = await OfficeAuthMaintenance.RunAsync(app.Services, app.Configuration, app.Environment, args);
+    return;
+}
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 if (app.Environment.IsDevelopment()) app.UseDeveloperExceptionPage(); else app.UseExceptionHandler();
 app.UseSwagger();
@@ -130,6 +156,7 @@ api.MapDakEndpoints();
 api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
+api.MapOnlyOfficeEndpoints();
 api.MapWorkItemEndpoints();
 api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
@@ -137,6 +164,11 @@ api.MapAttentionEndpoints();
 api.MapCourtEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
+    if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+    {
+        return await next(context);
+    }
+
     var path = context.HttpContext.Request.Path.Value ?? "";
     if (path.StartsWith("/api/health", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(path, "/api/auth/login", StringComparison.OrdinalIgnoreCase))
@@ -868,11 +900,12 @@ api.MapGet("/khasras/{id:guid}/evidence", async (Guid id,int? page,LacDbContext 
 api.MapGet("/notifications/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.NotificationId==id,page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/awards/{id:guid}/evidence", async (Guid id,int? page,LacDbContext db,CancellationToken ct) => Results.Ok(await DocumentEvidenceQueries.ReadAsync(db,x=>x.AwardId==id || (x.AwardKhasra!=null && x.AwardKhasra.AwardId==id) || (x.PossessionEvent!=null && x.PossessionEvent.AwardId==id) || (x.NotificationId!=null && db.AwardNotifications.Any(n=>n.AwardId==id && n.NotificationId==x.NotificationId)),page??0,ct))).RequirePermission(PermissionCodes.AwardView);
 api.MapGet("/award-ingestion-sessions/{id:guid}/overview", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetReviewOverviewAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request,ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request,ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
-api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.VerifyAwardKhasraFieldAsync(id, request, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapGet("/award-ingestion-sessions/{id:guid}/quality-dataset", async (Guid id,AwardIngestionService ingestion,CancellationToken ct) => {try{return Results.Ok(await ingestion.GetQualityDatasetAsync(id,ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/context", async (Guid id,ReviewContextRequest request,AwardIngestionService ingestion,ICurrentUserContext user,CancellationToken ct) => {try{await ingestion.SetReviewContextAsync(id,request with { VerifiedBy = AwardReviewOfficer(user) },ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/confirm-exact", async (Guid id,ConfirmExactRequest request,AwardIngestionService ingestion,ICurrentUserContext user,CancellationToken ct) => {try{return Results.Ok(new {confirmed=await ingestion.ConfirmExactAsync(id,request with { VerifiedBy = AwardReviewOfficer(user) },ct)});}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-sessions/{id:guid}/commit-verified", async (Guid id,CommitVerifiedRequest request,AwardIngestionService ingestion,ICurrentUserContext user,CancellationToken ct) => {try{return Results.Ok(await ingestion.CommitVerifiedAsync(id,request with { VerifiedBy = AwardReviewOfficer(user) },ct));}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify", async (Guid id,VerifyExtractedFactRequest request,AwardIngestionService ingestion,ICurrentUserContext user,CancellationToken ct) => {try{await ingestion.VerifyFactAsync(id,request with { VerifiedBy = AwardReviewOfficer(user) },ct);return Results.NoContent();}catch(AwardIngestionException ex){return IngestionProblem(ex);}}).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
+api.MapPost("/award-ingestion-candidates/{id:guid}/verify-award-khasra-field", async (Guid id, VerifyAwardKhasraFieldRequest request, AwardIngestionService ingestion, ICurrentUserContext user, CancellationToken ct) => { try { await ingestion.VerifyAwardKhasraFieldAsync(id, request with { VerifiedBy = AwardReviewOfficer(user) }, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapGet("/award-ingestion-candidates/{id:guid}/source-crop", async (Guid id, string? fieldRole, DocumentSourceCropService crops, CancellationToken ct) => { try { return Results.File(await crops.CreateAsync(id, fieldRole, ct), "image/png"); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/award-pdf-extractions", async (IFormFile file, Guid? targetAwardId, Guid? selectedVillageId, AwardPdfExtractionService extraction, CancellationToken ct) =>
 {
@@ -899,7 +932,7 @@ api.MapPost("/award-pdf-extractions/{id:guid}/reanalyze", async (Guid id, AwardP
 api.MapGet("/awards/{id:guid}/pdf-extractions", async (Guid id, AwardPdfExtractionService extraction, CancellationToken ct) => Results.Ok(await extraction.GetForAwardAsync(id, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/award-ingestion-sessions/{id:guid}", async (Guid id, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetSummaryAsync(id, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapGet("/awards/{id:guid}/ingestion-sessions", async (Guid id, int page, int pageSize, AwardIngestionService ingestion, CancellationToken ct) => Results.Ok(await ingestion.GetHistoryAsync(id, page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
-api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, string? bucket, int? sourcePage, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct, bucket, sourcePage)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/award-ingestion-sessions/{id:guid}/candidates", async (Guid id, AwardIngestionCandidateType? type, AwardIngestionCandidateStatus? status, int page, int pageSize, string? bucket, int? sourcePage, string? typeGroup, string? search, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.GetCandidatesAsync(id, type, status, page, pageSize, ct, bucket, sourcePage, typeGroup, search)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/award-ingestion-candidates/{id:guid}/resolve", async (Guid id, ResolveAwardIngestionCandidateRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { await ingestion.ResolveAsync(id, request.Action, ct); return Results.NoContent(); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 api.MapPost("/award-ingestion-sessions/{id:guid}/commit", async (Guid id, CommitAwardIngestionSessionRequest request, AwardIngestionService ingestion, CancellationToken ct) => { try { return Results.Ok(await ingestion.CommitAsync(id, request.CandidateIds, request.CommittedBy, ct)); } catch (AwardIngestionException ex) { return IngestionProblem(ex); } }).RequirePermission(PermissionCodes.AwardEdit, WorkstreamCodes.Award);
 
@@ -1131,6 +1164,7 @@ static IResult OwnershipProblem(OwnershipWorkflowException exception) => Results
 static IResult KhasraProblem(KhasraWorkspaceException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Khasra workspace validation", detail: exception.Message);
 static IResult AwardWorkflowProblem(AwardWorkflowException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award workflow validation", detail: exception.Message);
 static IResult IngestionProblem(AwardIngestionException exception) => Results.Problem(statusCode: exception.StatusCode, title: "Award ingestion validation", detail: exception.Message);
+static string AwardReviewOfficer(ICurrentUserContext user) => user.Username ?? user.DisplayName ?? throw new AwardIngestionException("An authenticated reviewer is required.", 401);
 static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 static async Task<PageResponse<T>> ToPageAsync<T>(IQueryable<T> query, int page, int pageSize, CancellationToken ct)
 {
