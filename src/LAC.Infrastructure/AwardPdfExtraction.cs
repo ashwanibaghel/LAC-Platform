@@ -443,6 +443,9 @@ public static class LocalIntelligenceCandidateMapper
                 case "CourtCase":
                     mapped.Add(MapCourtCase(candidate, locator));
                     break;
+                case "Claim":
+                    mapped.Add(MapClaim(candidate, locator));
+                    break;
                 case "ValuationRule":
                     mapped.Add(MapValuationRule(candidate, locator));
                     break;
@@ -516,6 +519,17 @@ public static class LocalIntelligenceCandidateMapper
             JsonSerializer.Serialize(new CourtCaseCandidate(caseNumber, Value(payload, "courtName"), Value(payload, "caseType"),
                 Value(payload, "status"), Value(payload, "khasraReferences"), Value(payload, "relatedAreaText"), Value(payload, "parties")), Json),
             locator, candidate.RawSourceText, candidate.Confidence);
+    }
+
+    private static IngestionCandidateInput MapClaim(LocalDocumentIntelligenceCandidate candidate, string locator)
+    {
+        var payload = candidate.StructuredPayload;
+        var typed = new ClaimCandidate(Value(payload, "claimReference"), null, Value(payload, "claimText"),
+            Value(payload, "sourceSerialNumber"), Value(payload, "claimantText"), Value(payload, "khasraReferences"),
+            Value(payload, "claimedAreaText"), DecimalValue(payload, "claimedRateAmount"),
+            Value(payload, "claimedRateUnit"), DecimalValue(payload, "claimedAmount"));
+        return new(AwardIngestionCandidateType.Claim, JsonSerializer.Serialize(typed, Json), locator,
+            candidate.RawSourceText, candidate.Confidence);
     }
 
     private static IngestionCandidateInput MapValuationRule(LocalDocumentIntelligenceCandidate candidate, string locator)

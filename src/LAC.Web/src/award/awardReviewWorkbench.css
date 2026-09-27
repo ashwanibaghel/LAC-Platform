@@ -29,6 +29,7 @@
 .award-wb-queue-head strong{font-size:13px}
 .award-wb-queue-head input,.award-wb-queue-controls select,.award-wb-context select{min-width:0;width:100%;height:29px;padding:4px 7px;border:1px solid #bdceda;border-radius:3px;background:#fff;color:#25445a}
 .award-wb-queue-controls{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:0 9px 7px}
+.award-wb-queue-controls .award-wb-type-filter{grid-column:1 / -1}
 .award-wb-queue-count{flex:none;min-height:26px;display:flex;align-items:center;justify-content:space-between;padding:4px 9px;border-block:1px solid #e2e9ee;font-size:11px;color:#587084}
 .award-wb-queue-count button{border:0;background:none;color:#23648f;font-size:16px;padding:0 4px}
 .award-wb-queue-list{flex:1;min-height:0;overflow:auto}
@@ -69,6 +70,7 @@
 .award-wb-readings{font-size:10px;color:#557086}
 .award-wb-readings div{padding:3px 0;border-top:1px solid #e4ebf0;overflow-wrap:anywhere}
 .award-wb-other{display:grid;align-content:start;gap:9px}
+.award-wb-claim-rate{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .award-wb-other p{margin:0;color:#607688}
 .award-wb-other textarea{min-height:65px;resize:vertical}
 .award-wb-other small{color:#607688}
@@ -87,6 +89,7 @@
 .award-wb-evidence header button,.award-wb-crop button{border:0;background:none}
 .award-wb-evidence iframe{flex:1;min-height:0;width:100%;border:0;background:#eef2f4}
 .award-wb-crop{height:115px;flex:none;display:flex;flex-direction:column;overflow:auto;background:#fff;border-bottom:1px solid #d2dde5}
+.award-wb-crop.claim-row{height:190px}
 .award-wb-crop>div{height:25px;flex:none;display:flex;justify-content:space-between;align-items:center;padding:3px 9px;font-size:10px}
 .award-wb-crop img{display:block;max-width:100%;max-height:calc(100% - 25px);margin:auto;object-fit:contain}
 .award-wb-crop img.zoom{max-width:none;max-height:none}
