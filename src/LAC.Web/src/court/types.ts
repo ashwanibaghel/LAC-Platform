@@ -30,6 +30,7 @@ export interface CourtCaseListItemDto {
   advocates: string[];
   sourceVillage: string | null;
   sourceAwardNumber: string | null;
+  operationalNdohSource: string | null;
 }
 
 export interface CourtCaseListResponse {
@@ -161,6 +162,51 @@ export interface CourtCaseDetailDto {
   proceedingsCount: number;
   eventsCount: number;
   capabilities: CourtCaseCapabilitiesDto;
+  operationalNdoh: string | null;
+  operationalNdohSource: string | null;
+}
+
+export interface DhcObservationDto {
+  id: string;
+  courtCaseId: string | null;
+  identity: string;
+  listingDate: string;
+  observedAt: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  documentId: string | null;
+  pageNumber: number;
+  rawMatchedText: string;
+  status: string;
+  conflictReason: string | null;
+  sourceKind: string;
+}
+
+export interface DhcSyncRunDto {
+  startedAt: string;
+  completedAt: string | null;
+  status: string;
+  sourceDocumentsDiscovered: number;
+  sourceDocumentsProcessed: number;
+  observationsCreated: number;
+  observationsAccepted: number;
+  reviewCount: number;
+  failureMessage: string | null;
+}
+
+export interface DhcSyncStatusDto {
+  lastAttempt: DhcSyncRunDto | null;
+  lastSuccess: DhcSyncRunDto | null;
+  canSyncNow: boolean;
+}
+
+export interface DhcSourceReviewDto {
+  id: string;
+  sourceTitle: string;
+  sourceUrl: string;
+  listingDate: string | null;
+  kind: string;
+  failureMessage: string | null;
 }
 
 export interface CourtProceedingDto {

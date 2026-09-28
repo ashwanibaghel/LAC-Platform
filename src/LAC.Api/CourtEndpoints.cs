@@ -90,6 +90,66 @@ public static class CourtEndpoints
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
 
+        group.MapGet("/dhc-sync/status", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.StatusAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/dhc-sync/run", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.RunAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/dhc-sync/review", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.ObservationsAsync(null, true, user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/dhc-sync/sources/review", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.SourceReviewsAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/{id:guid}/dhc-listings", async (Guid id, DelhiHighCourtSyncService sync,
+            ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.ObservationsAsync(id, false, user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/dhc-sync/review/{id:guid}/decision", async (Guid id, DhcReviewDecisionRequest request,
+            DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.ReviewAsync(id, request, user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/dhc-sync/documents/{id:guid}/content", async (Guid id, LacDbContext db,
+            IDocumentStorage storage, ICourtAuthorizationService auth, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            var source = await db.CourtExternalSourceDocuments.AsNoTracking().Include(x => x.Document)
+                .SingleOrDefaultAsync(x => x.DocumentId == id, ct);
+            if (source?.Document == null) return Results.NotFound();
+            if (!await auth.CanViewCourtReferencesAsync(user.UserId.Value, ct))
+            {
+                var caseIds = await db.CourtExternalListingObservations.AsNoTracking()
+                    .Where(x => x.SourceDocumentId == source.Id && x.CourtCaseId != null)
+                    .Select(x => x.CourtCaseId!.Value).Distinct().ToListAsync(ct);
+                if (caseIds.Count == 0) return Results.Forbid();
+                var canView = false;
+                foreach (var caseId in caseIds)
+                    if (await auth.CanViewCourtCaseAsync(caseId, user.UserId.Value, ct)) { canView = true; break; }
+                if (!canView) return Results.Forbid();
+            }
+            var stream = await storage.OpenReadAsync(source.Document.StoragePath, ct);
+            return stream == null ? Results.NotFound() : Results.File(stream, "application/pdf", enableRangeProcessing: true);
+        });
+
         // 1. Directory Listing
         group.MapGet("", async (
             string? search,

@@ -367,5 +367,20 @@ public sealed class CourtOperationalDirectoryTests
         Assert.Contains("Delhi High Court", options.CourtNames);
         Assert.Contains("WP(C)", options.CaseTypes!);
         Assert.Empty(options.DirectoryOfficers!);
+        var dhcDocument = new Document { OriginalFileName = "pg-dhc.pdf", StoragePath = "temporary-smoke", Sha256Hash = new string('a', 64) };
+        var dhcSource = new CourtExternalSourceDocument { SourceUrl = "https://delhihighcourt.nic.in/files/" + suffix + ".pdf",
+            SourceTitle = "ADVANCE CAUSE LIST OF CASES FOR 29.09.2026", ListingDate = new DateOnly(2026, 9, 29),
+            Kind = CourtExternalSourceKind.OrdinaryListing, Status = CourtExternalSourceStatus.Processed,
+            DiscoveredAt = DateTimeOffset.UtcNow, Document = dhcDocument, Sha256Hash = dhcDocument.Sha256Hash };
+        db.CourtExternalSourceDocuments.Add(dhcSource);
+        db.CourtExternalListingObservations.Add(new CourtExternalListingObservation { SourceDocument = dhcSource,
+            CourtCaseId = todayCase.Id, ListingDate = new DateOnly(2026, 9, 29),
+            ObservedAt = DateTimeOffset.UtcNow.AddMinutes(1), SourcePageNumber = 1,
+            RawMatchedText = todayCase.CaseNumber, NormalizedCaseIdentity = "pg-smoke-" + suffix,
+            Status = CourtExternalListingStatus.Accepted });
+        await db.SaveChangesAsync();
+        var official = Assert.Single((await projection.GetCourtCasesAsync(new CourtCaseFilterQuery(CaseNumber: suffix, PageSize: 1), user.Id)).Items);
+        Assert.Equal(new DateOnly(2026, 9, 29), official.OperationalNdoh);
+        Assert.Equal("DHC Cause List", official.OperationalNdohSource);
     }
 }

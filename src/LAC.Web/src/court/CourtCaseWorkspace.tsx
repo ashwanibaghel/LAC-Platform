@@ -8,6 +8,7 @@ import { CourtLinkedRecordsTab } from "./CourtLinkedRecordsTab";
 import { CourtWorkTab } from "./CourtWorkTab";
 import { CourtTimelineTab } from "./CourtTimelineTab";
 import { CourtImportProvenance } from "./CourtImportProvenance";
+import { DhcCaseListings } from "./DhcCaseListings";
 import { useAuth } from "../auth/AuthProvider";
 import "./court.css";
 
@@ -306,7 +307,16 @@ export const CourtCaseWorkspace: React.FC = () => {
 
       {/* Tab Contents */}
       <div className="court-tab-content">
-        {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} /><CourtImportProvenance caseId={courtCase.id} /></>}
+        {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} />
+          {courtCase.courtName === "Delhi High Court" && <>
+            <section className="court-card" style={{ padding: 16, marginTop: 16 }}>
+              <h3>Operational listing date</h3>
+              <p>{courtCase.operationalNdoh ?? "No operational NDOH"} · {courtCase.operationalNdohSource ?? "No source"}</p>
+              {courtCase.operationalNdohSource === "DHC Cause List" && <p>Previous proceeding or office-register date: {courtCase.authoritativeNextDate ?? "None"}</p>}
+            </section>
+            <DhcCaseListings caseId={courtCase.id} />
+          </>}
+          <CourtImportProvenance caseId={courtCase.id} /></>}
         {activeTab === "proceedings" && <CourtProceedingsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "documents" && <CourtDocumentsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "records" && <CourtLinkedRecordsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}

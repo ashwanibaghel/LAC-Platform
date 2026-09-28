@@ -58,6 +58,13 @@ builder.Services.AddScoped<OnlyOfficeDraftService>();
 builder.Services.AddHttpClient("OnlyOffice", client => client.Timeout = TimeSpan.FromMinutes(2))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
     .RemoveAllLoggers();
+builder.Services.AddHttpClient("DelhiHighCourtCauseList", client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(90);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("LAC-Platform-CourtCauseListSync/1.0 (official public PDF monitor)");
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+    .RemoveAllLoggers();
 builder.Services.AddScoped<LrWorkflowService>();
 builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
@@ -96,9 +103,13 @@ builder.Services.AddScoped<ICourtWorkflowService, CourtWorkflowService>();
 builder.Services.AddScoped<ICourtProjectionService, CourtProjectionService>();
 builder.Services.AddScoped<ICourtImportService, CourtImportService>();
 builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
+builder.Services.AddSingleton<DelhiHighCourtSyncGate>();
+builder.Services.AddScoped<DelhiHighCourtSyncService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
+if (!builder.Environment.IsEnvironment("Testing"))
+    builder.Services.AddHostedService<DelhiHighCourtSyncWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();

@@ -6,6 +6,7 @@ import type {
   CourtFilterOptionsDto,
 } from "./types";
 import { useAuth } from "../auth/AuthProvider";
+import { DhcSyncPanel } from "./DhcSyncPanel";
 import "./court.css";
 
 export const CourtDirectory: React.FC = () => {
@@ -147,12 +148,14 @@ export const CourtDirectory: React.FC = () => {
             Court operational queue
           </h1>
           <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "14px" }}>
-            Pending hearings first, then overdue and undated matters. Court proceeding NDOH drives this order—not Calendar dates.
+            Pending listings first, then overdue and undated matters. Court proceedings and accepted official DHC listings drive NDOH—not Calendar dates.
           </p>
         </div>
 
         {canCreate && (<div style={{ display: "flex", gap: "8px" }}><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>)}
       </div>
+
+      <DhcSyncPanel />
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "18px 0 12px" }} aria-label="Court queue quick filters">
         {[["", "All queue"], ["Today", "Today"], ["Upcoming", "Upcoming"], ["Overdue", "Overdue"], ["NoNdoh", "No NDOH"], ["Disposed", "Disposed"]].map(([key, label]) =>
@@ -267,6 +270,7 @@ export const CourtDirectory: React.FC = () => {
                         <span className="court-badge court-badge-ndoh">
                           {c.operationalNdoh}
                         </span>
+                        {c.operationalNdohSource && <small style={{ color: "#64748b" }}>{c.operationalNdohSource === "DHC Cause List" ? "Official DHC cause list" : c.operationalNdohSource}</small>}
                         {c.daysFromToday !== null && c.queueState === "Overdue" && <small style={{ color: "#b45309" }}>{Math.abs(c.daysFromToday)} day(s) overdue</small>}
                       </div>
                     ) : (

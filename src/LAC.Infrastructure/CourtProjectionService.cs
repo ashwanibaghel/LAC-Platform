@@ -66,7 +66,8 @@ public sealed record CourtCaseSummaryDto(
     int? DaysFromToday = null,
     IReadOnlyList<string>? Advocates = null,
     string? SourceVillage = null,
-    string? SourceAwardNumber = null
+    string? SourceAwardNumber = null,
+    string? OperationalNdohSource = null
 );
 
 public sealed record PagedResult<T>(
@@ -150,7 +151,9 @@ public sealed record CourtCaseDetailDto(
     int DocumentsCount,
     int ProceedingsCount,
     int EventsCount,
-    CourtCaseCapabilitiesDto Capabilities
+    CourtCaseCapabilitiesDto Capabilities,
+    DateOnly? OperationalNdoh = null,
+    string? OperationalNdohSource = null
 );
 
 public sealed record CourtCaseTimelineEventDto(
@@ -369,16 +372,7 @@ public sealed class CourtProjectionService(
             );
         }
 
-        var queue = authorizedQuery.Select(c => new
-        {
-            Case = c,
-            OperationalNdoh = c.Proceedings.Where(p => p.RecordStatus == RecordStatus.Active)
-                .OrderByDescending(p => p.ProceedingDate.HasValue)
-                .ThenByDescending(p => p.ProceedingDate)
-                .ThenByDescending(p => p.CreatedAt)
-                .ThenByDescending(p => p.Id)
-                .Select(p => p.NextDate).FirstOrDefault()
-        });
+        var queue = CourtOperationalNdohQuery.Resolve(authorizedQuery, db, today);
 
         var ndohFilter = query.NdohFilter?.Trim().ToLowerInvariant() ?? "all";
         if (ndohFilter != "all")
@@ -434,6 +428,7 @@ public sealed class CourtProjectionService(
             .Select(x => new
             {
                 x.OperationalNdoh,
+                x.UsesExternalListing,
                 x.Case.Id,
                 x.Case.CaseNumber,
                 x.Case.CourtName,
@@ -532,7 +527,9 @@ public sealed class CourtProjectionService(
                 x.OperationalNdoh.HasValue ? x.OperationalNdoh.Value.DayNumber - today.DayNumber : null,
                 x.Advocates,
                 x.Source?.RawVillage,
-                x.Source?.RawAwardNumber
+                x.Source?.RawAwardNumber,
+                x.UsesExternalListing ? "DHC Cause List" : x.OperationalNdoh.HasValue ?
+                    x.LatestProceeding?.ProceedingDate.HasValue == true ? "Court proceeding" : "Office register" : null
             ));
         }
 
@@ -584,6 +581,10 @@ public sealed class CourtProjectionService(
             .ThenByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.Id)
             .FirstOrDefaultAsync(ct);
+
+        var operational = await CourtOperationalNdohQuery.Resolve(
+                db.CourtCases.AsNoTracking().Where(c => c.Id == courtCaseId), db, _officeClock.GetCurrentDate())
+            .Select(x => new { x.OperationalNdoh, x.UsesExternalListing }).SingleAsync(ct);
 
         var docCount = await db.CourtCaseDocuments.AsNoTracking()
             .CountAsync(d => d.CourtCaseId == courtCaseId && d.RecordStatus == RecordStatus.Active, ct);
@@ -739,7 +740,10 @@ public sealed class CourtProjectionService(
             docCount,
             procCount,
             eventCount,
-            capabilities
+            capabilities,
+            operational.OperationalNdoh,
+            operational.UsesExternalListing ? "DHC Cause List" : operational.OperationalNdoh.HasValue ?
+                latestProceeding?.ProceedingDate.HasValue == true ? "Court proceeding" : "Office register" : null
         );
     }
 
