@@ -323,7 +323,10 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         job.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        var result = await intelligence!.RunAsync(new(1, job.DocumentId, filePath, job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId), ct);
+        var contractVersion = intelligenceOptions?.Value.ContractVersion ?? 1;
+        var result = await intelligence!.RunAsync(new(contractVersion, job.DocumentId, filePath,
+            job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId,
+            PhysicalSha256: job.Document.Sha256Hash, DocumentVersion: job.Document.Version, PageCount: job.TotalPages), ct);
         var inputs = LocalIntelligenceCandidateMapper.Map(result);
 
         // Mapping validates the complete worker response before any staging
@@ -333,8 +336,10 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         await strategy.ExecuteAsync(async () =>
         {
             await using var transaction = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;
-            job.TotalPages = result.PagesProcessed;
+            job.TotalPages = result.PageCount ?? result.PagesProcessed;
             job.ProcessedPages = result.PagesProcessed;
+            if (result.ContractVersion == 2)
+                job.ExtractorVersion = $"contract-2:{result.ExtractorVersion}";
             job.Status = AwardDocumentExtractionJobStatus.BuildingCandidates;
             job.CurrentStage = "Preparing review";
             job.UpdatedAt = DateTimeOffset.UtcNow;
@@ -342,7 +347,7 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
             job.IngestionSessionId = session.Id;
             job.Status = AwardDocumentExtractionJobStatus.NeedsReview;
             job.CurrentStage = "Review ready";
-            job.CompletedAt = DateTimeOffset.UtcNow;
+            job.CompletedAt = result.ProcessedAt ?? DateTimeOffset.UtcNow;
             job.UpdatedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             if (transaction is not null) await transaction.CommitAsync(ct);
@@ -406,13 +411,22 @@ public static class LocalIntelligenceCandidateMapper
 
     public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result)
     {
-        if (result.ContractVersion != 1 || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) || result.PagesProcessed < 1)
+        if (result.ContractVersion is not (1 or 2) || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
+            result.PagesProcessed < 1 || result.Candidates is null || result.Warnings is null || result.Metrics.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException("Local document intelligence returned an unsupported or incomplete result.");
+        if (result.ContractVersion == 2 && (string.IsNullOrWhiteSpace(result.PhysicalSha256) ||
+            result.DocumentVersion is null or < 1 || result.PageCount is null or < 1 ||
+            result.PagesProcessed > result.PageCount || result.ProcessedAt is null ||
+            string.IsNullOrWhiteSpace(result.ExtractorVersion) || result.Errors is null || result.Errors.Count != 0 ||
+            result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array ||
+            result.Observations.Value.GetArrayLength() != 0))
+            throw new InvalidOperationException("Version 2 document intelligence metadata is incomplete or contains unsupported observations.");
 
         var mapped = new List<IngestionCandidateInput>(result.Candidates.Count);
         foreach (var candidate in result.Candidates)
         {
-            if (candidate.Page < 1) throw new InvalidOperationException("Local document intelligence returned an invalid source page.");
+            if (candidate.Page < 1 || result.ContractVersion == 2 && candidate.Page > result.PageCount)
+                throw new InvalidOperationException("Local document intelligence returned an invalid source page.");
             var locator = JsonSerializer.Serialize(new
             {
                 candidate.Page,
@@ -422,6 +436,15 @@ public static class LocalIntelligenceCandidateMapper
                 candidate.NormalizedSuggestion,
                 candidate.NormalizationReason,
                 candidate.RequiresIndividualReview,
+                Processing = result.ContractVersion == 2 ? new
+                {
+                    result.ContractVersion,
+                    result.PhysicalSha256,
+                    result.DocumentVersion,
+                    result.PageCount,
+                    result.ProcessedAt,
+                    result.ExtractorVersion
+                } : null,
                 OcrSource = "RapidOCR + Table Transformer",
                 Warnings = (candidate.InterpretationWarnings ?? []).Append("Local document-intelligence suggestion requires human verification.").ToArray()
             }, Json);

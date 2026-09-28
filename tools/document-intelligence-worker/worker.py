@@ -1,4 +1,4 @@
-"""Local-only v1 document worker: RapidOCR words bound to Table Transformer cells."""
+"""Local document worker: unchanged Award extraction with versioned intake envelopes."""
 from __future__ import annotations
 
 import argparse
@@ -6,10 +6,14 @@ import json
 import sys
 import time
 import re
-from datetime import date
+import hashlib
+import uuid
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 CONTRACT_VERSION = 1
+SUPPORTED_CONTRACT_VERSIONS = (1, 2)
+EXTRACTOR_VERSION = "local-award-worker/1.0"
 BENCHMARK_ROOT = Path(__file__).resolve().parents[1] / "document-intelligence-benchmark"
 sys.path.insert(0, str(BENCHMARK_ROOT))
 
@@ -17,6 +21,51 @@ sys.path.insert(0, str(BENCHMARK_ROOT))
 def fail(message: str) -> int:
     print(message, file=sys.stderr)
     return 2
+
+
+def validate_intake(data: dict, pdf: Path) -> str | None:
+    """Validate the V2 physical identity before any OCR or semantic processing."""
+    if data.get("contractVersion") == 1:
+        return None
+    if data.get("contractVersion") != 2:
+        raise ValueError("unsupported contract version")
+    try:
+        if uuid.UUID(str(data.get("documentId"))).int == 0:
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("version 2 document identifier is missing or invalid") from None
+    version = data.get("documentVersion")
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ValueError("version 2 document version is missing or invalid")
+    sha = data.get("physicalSha256")
+    if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
+        raise ValueError("version 2 physical SHA-256 is missing or invalid")
+    count = data.get("pageCount")
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ValueError("version 2 page count is missing or invalid")
+    digest = hashlib.sha256()
+    with pdf.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != sha.lower():
+        raise ValueError("physical document SHA-256 mismatch")
+    return actual
+
+
+def add_versioned_envelope(result: dict, data: dict, physical_sha256: str | None, page_count: int) -> dict:
+    """Wrap existing candidates without changing their extraction semantics."""
+    if data["contractVersion"] == 2:
+        result.update({
+            "physicalSha256": physical_sha256,
+            "documentVersion": data["documentVersion"],
+            "pageCount": page_count,
+            "processedAt": datetime.now(timezone.utc).isoformat(),
+            "extractorVersion": EXTRACTOR_VERSION,
+            "errors": [],
+            "observations": [],
+        })
+    return result
 
 
 def region(box) -> dict:
@@ -758,11 +807,15 @@ def main() -> int:
         data = json.loads(args.input.read_text(encoding="utf-8"))
     except Exception:
         return fail("invalid worker input JSON")
-    if data.get("contractVersion") != CONTRACT_VERSION:
+    if data.get("contractVersion") not in SUPPORTED_CONTRACT_VERSIONS:
         return fail("unsupported contract version")
     pdf = Path(data.get("filePath", ""))
     if not pdf.is_file() or pdf.suffix.lower() != ".pdf":
         return fail("local PDF not found")
+    try:
+        physical_sha256 = validate_intake(data, pdf)
+    except (ValueError, OSError) as error:
+        return fail(str(error))
 
     try:
         import fitz
@@ -780,10 +833,14 @@ def main() -> int:
         counters["selectiveCellOcrSeconds"] = 0.0
         ocr = RapidOCR(params={"Det.engine_type": EngineType.TORCH, "Cls.engine_type": EngineType.TORCH, "Rec.engine_type": EngineType.TORCH})
         document = fitz.open(pdf)
+        if data["contractVersion"] == 2 and len(document) != data["pageCount"]:
+            return fail("physical document page count mismatch")
         selected_pages = list(range(1, len(document) + 1))
         configured_pages = data.get("selectedPages")
         if configured_pages:
             selected_pages = sorted({int(value) for value in configured_pages})
+            if min(selected_pages) < 1 or max(selected_pages) > len(document):
+                return fail("selected pages are outside the local PDF")
         if args.pages:
             selected_pages = sorted({int(value.strip()) for value in args.pages.split(",") if value.strip()})
             if not selected_pages or min(selected_pages) < 1 or max(selected_pages) > len(document):
@@ -923,7 +980,7 @@ def main() -> int:
         stages["selectiveCellOcr"] = counters["selectiveCellOcrSeconds"]
         stage_started = time.perf_counter()
         result = {
-            "contractVersion": CONTRACT_VERSION,
+            "contractVersion": data["contractVersion"],
             "documentId": data["documentId"],
             "status": "Completed",
             "pagesProcessed": len(selected_pages),
@@ -931,6 +988,7 @@ def main() -> int:
             "warnings": ["Structured candidates require detected table geometry, header roles, and human review."],
             "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, "possessionSourceRowsRetained": possession_evidence_count, "primarySourceRowsDetected": primary_source_row_count, "primaryRowsNeedingReview": primary_unstaged_count, **totals, **claimant_counts, "stageSeconds": {}, **counters},
         }
+        add_versioned_envelope(result, data, physical_sha256, len(document))
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)
         stage_started = time.perf_counter()

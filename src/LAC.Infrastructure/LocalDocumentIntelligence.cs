@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Security.Cryptography;
 using Microsoft.Extensions.Options;
+using UglyToad.PdfPig;
 
 namespace LAC.Infrastructure;
 
@@ -16,9 +18,11 @@ public sealed class DocumentIntelligenceOptions
     // deployment to tighten this through configuration.
     public int TimeoutMinutes { get; set; } = 30;
     public int MaxConcurrentJobs { get; set; } = 1;
+    // Version 1 remains the default until the version 2 intake envelope is enabled.
+    public int ContractVersion { get; set; } = 1;
 }
 
-public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false);
+public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false, string? PhysicalSha256 = null, int? DocumentVersion = null, int? PageCount = null);
 
 public sealed record LocalDocumentIntelligenceCandidate(
     string CandidateType,
@@ -40,7 +44,88 @@ public sealed record LocalDocumentIntelligenceResult(
     int PagesProcessed,
     IReadOnlyList<LocalDocumentIntelligenceCandidate> Candidates,
     IReadOnlyList<string> Warnings,
-    JsonElement Metrics);
+    JsonElement Metrics,
+    string? PhysicalSha256 = null,
+    int? DocumentVersion = null,
+    int? PageCount = null,
+    DateTimeOffset? ProcessedAt = null,
+    string? ExtractorVersion = null,
+    IReadOnlyList<string>? Errors = null,
+    JsonElement? Observations = null);
+
+public static class LocalDocumentIntelligenceContract
+{
+    public static string SerializeRequest(LocalDocumentIntelligenceInput input, string? physicalSha256 = null, int? pageCount = null)
+    {
+        if (input.ContractVersion == 1)
+            return JsonSerializer.Serialize(new
+            {
+                contractVersion = 1,
+                documentId = input.DocumentId,
+                filePath = input.FilePath,
+                targetAwardId = input.TargetAwardId,
+                selectedVillageId = input.SelectedVillageId,
+                options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic },
+                selectedPages = input.SelectedPages
+            });
+        if (input.ContractVersion != 2)
+            throw new InvalidOperationException("Unsupported local worker contract version.");
+        if (input.DocumentId == Guid.Empty || input.DocumentVersion is null or < 1 ||
+            string.IsNullOrWhiteSpace(physicalSha256) || pageCount is null or < 1)
+            throw new InvalidOperationException("Version 2 document identity metadata is missing.");
+        return JsonSerializer.Serialize(new
+        {
+            contractVersion = 2,
+            documentId = input.DocumentId,
+            filePath = input.FilePath,
+            targetAwardId = input.TargetAwardId,
+            selectedVillageId = input.SelectedVillageId,
+            options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic },
+            selectedPages = input.SelectedPages,
+            physicalSha256,
+            documentVersion = input.DocumentVersion,
+            pageCount
+        });
+    }
+
+    public static LocalDocumentIntelligenceResult ParseAndValidate(string json, LocalDocumentIntelligenceInput input, string? physicalSha256 = null, int? pageCount = null)
+    {
+        LocalDocumentIntelligenceResult result;
+        try
+        {
+            result = JsonSerializer.Deserialize<LocalDocumentIntelligenceResult>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                ?? throw new InvalidOperationException("Local worker result is malformed.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("Local worker returned malformed JSON.", ex);
+        }
+
+        if (input.ContractVersion is not (1 or 2) || result.ContractVersion != input.ContractVersion || result.DocumentId != input.DocumentId)
+            throw new InvalidOperationException("Local worker contract version or document identity mismatch.");
+        if (!string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Local worker reported {SafeStatus(result.Status)} processing.");
+        if (result.PagesProcessed < 1 || result.Candidates is null || result.Warnings is null || result.Metrics.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Local worker result is incomplete.");
+
+        if (input.ContractVersion == 2)
+        {
+            if (input.DocumentVersion is null or < 1 || string.IsNullOrWhiteSpace(physicalSha256) || pageCount is null or < 1)
+                throw new InvalidOperationException("Version 2 document identity metadata is missing.");
+            if (!string.Equals(result.PhysicalSha256, physicalSha256, StringComparison.OrdinalIgnoreCase) ||
+                result.DocumentVersion != input.DocumentVersion || result.PageCount != pageCount ||
+                result.PagesProcessed > result.PageCount || result.ProcessedAt is null ||
+                string.IsNullOrWhiteSpace(result.ExtractorVersion) || result.Errors is null || result.Errors.Count != 0 ||
+                result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array ||
+                result.Observations.Value.GetArrayLength() != 0)
+                throw new InvalidOperationException("Version 2 worker metadata is incomplete or inconsistent.");
+        }
+        return result;
+    }
+
+    private static string SafeStatus(string? status) => status is "Failed" or "Partial" or "Cancelled" ? status : "incomplete";
+}
 
 public sealed record DocumentIntelligencePreflight(
     string Status,
@@ -97,10 +182,28 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
 
     public async Task<LocalDocumentIntelligenceResult> RunAsync(LocalDocumentIntelligenceInput input, CancellationToken ct)
     {
+        if (input.ContractVersion is not (1 or 2))
+            throw new InvalidOperationException("Unsupported local worker contract version.");
         var options = configured.Value;
         var preflight = GetPreflight(input.FilePath);
         if (!preflight.Ready)
             throw new InvalidOperationException(preflight.Message ?? "OCR worker is not configured.");
+
+        string? physicalSha256 = null;
+        int? pageCount = null;
+        if (input.ContractVersion == 2)
+        {
+            if (input.DocumentId == Guid.Empty || input.DocumentVersion is null or < 1)
+                throw new InvalidOperationException("Version 2 document identity metadata is missing.");
+            physicalSha256 = await ComputeSha256Async(input.FilePath, ct);
+            if (!string.IsNullOrWhiteSpace(input.PhysicalSha256) &&
+                !string.Equals(input.PhysicalSha256, physicalSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Stored document SHA-256 does not match the physical PDF.");
+            using var pdf = PdfDocument.Open(input.FilePath);
+            pageCount = pdf.NumberOfPages;
+            if (pageCount < 1 || input.PageCount is not null && input.PageCount != pageCount)
+                throw new InvalidOperationException("Document page count is invalid or has changed.");
+        }
 
         var tempDirectory = Path.Combine(Path.GetTempPath(), "lac-document-intelligence", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -109,16 +212,8 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
 
         try
         {
-            await File.WriteAllTextAsync(inputPath, JsonSerializer.Serialize(new
-            {
-                contractVersion = 1,
-                documentId = input.DocumentId,
-                filePath = input.FilePath,
-                targetAwardId = input.TargetAwardId,
-                selectedVillageId = input.SelectedVillageId,
-                options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic },
-                selectedPages = input.SelectedPages
-            }), ct);
+            await File.WriteAllTextAsync(inputPath,
+                LocalDocumentIntelligenceContract.SerializeRequest(input, physicalSha256, pageCount), ct);
 
             var processStart = new ProcessStartInfo(options.PythonExecutable!)
             {
@@ -167,12 +262,10 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
             if (!File.Exists(outputPath))
                 throw new InvalidOperationException("Local worker returned no result.");
 
-            var result = JsonSerializer.Deserialize<LocalDocumentIntelligenceResult>(
-                await File.ReadAllTextAsync(outputPath, timeout.Token),
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                ?? throw new InvalidOperationException("Local worker result is malformed.");
-            if (result.ContractVersion != 1 || result.DocumentId != input.DocumentId)
-                throw new InvalidOperationException("Local worker contract validation failed.");
+            var result = LocalDocumentIntelligenceContract.ParseAndValidate(
+                await File.ReadAllTextAsync(outputPath, timeout.Token), input, physicalSha256, pageCount);
+            if (input.ContractVersion == 2 && !string.Equals(await ComputeSha256Async(input.FilePath, ct), physicalSha256, StringComparison.Ordinal))
+                throw new InvalidOperationException("Physical document changed while the worker was processing it.");
 
             return result;
         }
@@ -180,6 +273,12 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
         {
             try { Directory.Delete(tempDirectory, recursive: true); } catch { }
         }
+    }
+
+    private static async Task<string> ComputeSha256Async(string path, CancellationToken ct)
+    {
+        await using var source = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(source, ct)).ToLowerInvariant();
     }
 
     private static string SanitizeDiagnostic(string value)
