@@ -13,16 +13,21 @@ def _clean(value: str | None) -> str:
 
 
 def _section(page: int, top: float, sections: list[dict]) -> tuple[int | None, dict | None]:
-    eligible = [(index + 1, item) for index, item in enumerate(sections)
-                if item["pageStart"] <= page <= item["pageEnd"]]
-    preceding = [(index, item) for index, item in eligible
-                 if any(e["page"] == page and e.get("sourceRegion") and
-                        e["sourceRegion"]["y"] <= top for e in item["evidence"])]
-    if preceding:
-        return max(preceding, key=lambda pair: max(e["sourceRegion"]["y"] for e in pair[1]["evidence"]
-                                                if e["page"] == page and e.get("sourceRegion") and
-                                                e["sourceRegion"]["y"] <= top))
-    return eligible[0] if len(eligible) == 1 else (None, None)
+    def anchor_bottom(item: dict) -> float | None:
+        cues = (e for e in item["evidence"] if e["page"] == page and e.get("sourceRegion") and
+                ((item["pageStart"] == page and e["rawText"] == item.get("rawHeading")) or
+                 (item["pageStart"] < page and re.search(r"\bcont(?:inued|d\.?)\b", e["rawText"], re.I))))
+        bottoms = [e["sourceRegion"]["y"] + e["sourceRegion"]["height"] for e in cues
+                   if e["sourceRegion"]["y"] + e["sourceRegion"]["height"] <= top]
+        return max(bottoms) if bottoms else None
+
+    anchored = [(index + 1, item, bottom) for index, item in enumerate(sections)
+                if item["pageStart"] <= page <= item["pageEnd"]
+                for bottom in [anchor_bottom(item)] if bottom is not None]
+    if not anchored:
+        return None, None
+    index, item, _ = max(anchored, key=lambda entry: entry[2])
+    return index, item
 
 
 def _meaning(section: dict | None, heading: str, columns: dict[int, str], rows: dict[int, dict], header_row: int | None) -> str:

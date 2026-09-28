@@ -12,21 +12,23 @@ public sealed class DocumentTableContractTests
     private static readonly string Sha = new('c', 64);
     private static readonly object Box = new { x = 10, y = 100, width = 300, height = 120 };
     private static readonly object HeadingBox = new { x = 10, y = 50, width = 200, height = 18 };
+    private static readonly object LaterHeadingBox = new { x = 10, y = 240, width = 200, height = 18 };
     private static object Genre(string genre = "AWARD") => new
     {
         observationType = "DocumentGenre", genre, confidence = .9m, requiresHumanReview = true,
         page = 1, evidence = new[] { new { page = 1, rawText = "AWARD NO. 30/2002-03", sourceRegion = HeadingBox } },
         warnings = new[] { "Review genre." }, classifierVersion = "document-genre-rules/1.0"
     };
-    private static object Section() => new
+    private static object Section(object? headingRegion = null) => new
     {
         observationType = "DocumentSection", semantic = "LAND_SCHEDULE", presentation = "SCHEDULE",
         pageStart = 1, pageEnd = 1, rawHeading = "Land Awarded", confidence = .85m,
         requiresHumanReview = true,
-        evidence = new[] { new { page = 1, rawText = "Land Awarded", sourceRegion = HeadingBox } },
+        evidence = new[] { new { page = 1, rawText = "Land Awarded", sourceRegion = headingRegion ?? HeadingBox } },
         warnings = new[] { "Review section." }, classifierVersion = "document-section-rules/1.0"
     };
-    private static object Table(string semantic = "AWARDED_LAND", int sectionIndex = 1) => new
+    private static object Table(string semantic = "AWARDED_LAND", int sectionIndex = 1,
+        object? headingRegion = null) => new
     {
         observationType = "DocumentTableSemantic", tableId = "p1-t1", pageStart = 1, pageEnd = 1,
         sectionObservationIndex = sectionIndex, rawHeading = "Land Awarded",
@@ -34,7 +36,7 @@ public sealed class DocumentTableContractTests
                                   new { column = 1, rawText = "Area", sourceRegion = Box } },
         layout = "SIMPLE_TWO_COLUMN", semantic, confidence = .86m, requiresHumanReview = true,
         sourceRegion = Box,
-        evidence = new[] { new { page = 1, rawText = "Land Awarded", sourceRegion = HeadingBox },
+        evidence = new[] { new { page = 1, rawText = "Land Awarded", sourceRegion = headingRegion ?? HeadingBox },
                            new { page = 1, rawText = "Khasra", sourceRegion = Box } },
         warnings = new[] { "Review table meaning." }, classifierVersion = "table-source-rules/1.0"
     };
@@ -113,6 +115,17 @@ public sealed class DocumentTableContractTests
     }
 
     [Fact]
+    public void Non_unknown_table_requires_matching_heading_above_its_source_region()
+    {
+        Assert.NotNull(Parse(Genre(), Section(), Table()));
+        Assert.Throws<InvalidOperationException>(() => Parse(Genre(), Section(LaterHeadingBox),
+            Table(headingRegion: LaterHeadingBox)));
+        Assert.Throws<InvalidOperationException>(() => Parse(Genre(), Section(LaterHeadingBox), Table()));
+        Assert.Throws<InvalidOperationException>(() => Parse(Genre(), Section(),
+            Table(headingRegion: LaterHeadingBox)));
+    }
+
+    [Fact]
     public void Genre_and_feature_flags_cannot_be_bypassed()
     {
         Assert.Throws<InvalidOperationException>(() => Parse(Genre("UNKNOWN"), Section(), Table(), Occurrence()));
@@ -155,6 +168,10 @@ public sealed class DocumentTableContractTests
         Assert.Equal(3, LocalIntelligenceCandidateMapper.Map(result, true, true, true).Count);
         Assert.Throws<InvalidOperationException>(() => LocalDocumentIntelligenceContract.ParseAndValidate(
             valid.Replace("Land Awarded (continued)", "No continuation cue"), input, Sha, 2));
+        Assert.Throws<InvalidOperationException>(() => LocalDocumentIntelligenceContract.ParseAndValidate(
+            valid.Replace("\"rawText\":\"Land Awarded (continued)\",\"sourceRegion\":{\"x\":10,\"y\":50",
+                          "\"rawText\":\"Land Awarded (continued)\",\"sourceRegion\":{\"x\":10,\"y\":240"),
+            input, Sha, 2));
     }
 
     [Fact]

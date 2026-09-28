@@ -107,6 +107,27 @@ class TableSemanticsTests(unittest.TestCase):
         table, _ = classify("UNKNOWN", "Land Awarded")
         self.assertEqual(UNKNOWN, table["semantic"])
 
+    def test_only_page_heading_must_precede_the_table(self):
+        cases = [
+            ("LAND_SCHEDULE", "Land Awarded", "AWARDED_LAND", {0: "Khasra", 1: "Area"}),
+            ("CLAIMS", "The following claims were filed in response to notices u/s 9 & 10",
+             "CLAIM_LINKED_LAND", {0: "Name of claimant", 1: "Khasra No", 2: "Area"}),
+            ("POSSESSION_REFERENCE_OR_SECTION", "Land Awarded And Taken Over",
+             "POSSESSION_LAND", {0: "Khasra", 1: "Area"}),
+        ]
+        for section_type, heading, expected, headers in cases:
+            with self.subTest(heading=heading):
+                rows = {0: {col: cell(label) for col, label in headers.items()},
+                        1: {col: cell("7//1" if "khasra" in label.casefold() else "4-16")
+                            for col, label in headers.items()}}
+                source = section(section_type, heading)
+                before, _ = classify_table_region(1, 1, BOX, headers, rows, [source], 0)
+                self.assertEqual(expected, before["semantic"])
+                source["evidence"][0]["sourceRegion"]["y"] = BOX["y"] + BOX["height"] + 10
+                after, _ = classify_table_region(1, 1, BOX, headers, rows, [source], 0)
+                self.assertEqual(UNKNOWN, after["semantic"])
+                self.assertIsNone(after["sectionObservationIndex"])
+
     def test_continuation_needs_explicit_source_cue(self):
         previous = section("LAND_SCHEDULE", "Land Awarded")
         previous["pageEnd"] = 2
@@ -121,6 +142,10 @@ class TableSemanticsTests(unittest.TestCase):
         previous["evidence"].pop()
         unknown, _ = classify_table_region(2, 1, BOX, {0: "Khasra", 1: "Area"}, rows, [previous], 0)
         self.assertEqual(UNKNOWN, unknown["semantic"])
+        previous["evidence"].append({"page": 2, "rawText": "Land Awarded (continued)",
+                                     "sourceRegion": {"x": 10, "y": 240, "width": 250, "height": 18}})
+        later_cue, _ = classify_table_region(2, 1, BOX, {0: "Khasra", 1: "Area"}, rows, [previous], 0)
+        self.assertEqual(UNKNOWN, later_cue["semantic"])
 
     def test_existing_geometry_join_can_stage_observation_without_legacy_award_candidate(self):
         geometry = [{"label": "table", "box": {"x": 0, "y": 40, "width": 200, "height": 100}},

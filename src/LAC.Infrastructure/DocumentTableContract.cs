@@ -126,6 +126,8 @@ public static class DocumentTableContract
              !(section is not null && section.PageStart < page &&
                evidence.Any(x => x.Page == page && Regex.IsMatch(x.RawText, @"\bcont(?:inued|d\.?)\b", RegexOptions.IgnoreCase)) &&
                section.Evidence.Any(x => x.Page == page && Regex.IsMatch(x.RawText, @"\bcont(?:inued|d\.?)\b", RegexOptions.IgnoreCase))))) throw Invalid();
+        if (semantic != "UNKNOWN_TABLE_SEMANTIC" &&
+            (section is null || !HasSourceOrderAnchor(section, evidence, page, region))) throw Invalid();
         return new(id!, page, end, sectionIndex, heading, columns, layout, semantic, confidence, region,
             evidence, Warnings(node), Version(node));
     }
@@ -183,6 +185,24 @@ public static class DocumentTableContract
         (_, "OTHER") => true,
         _ => false
     };
+    private static bool HasSourceOrderAnchor(DocumentSectionObservation section,
+        IReadOnlyList<DocumentGenreEvidence> tableEvidence, int page, JsonElement tableRegion)
+    {
+        bool IsCue(DocumentGenreEvidence item) => item.Page == page &&
+            (section.PageStart == page ? item.RawText == section.RawHeading :
+                Regex.IsMatch(item.RawText, @"\bcont(?:inued|d\.?)\b", RegexOptions.IgnoreCase));
+
+        return section.Evidence.Where(IsCue).Any(source =>
+            source.SourceRegion is JsonElement sourceRegion && RegionPrecedes(sourceRegion, tableRegion) &&
+            tableEvidence.Where(IsCue).Any(copy =>
+                copy.RawText == source.RawText && copy.SourceRegion is JsonElement copyRegion &&
+                SameRegion(sourceRegion, copyRegion)));
+    }
+    private static bool RegionPrecedes(JsonElement cue, JsonElement table) =>
+        cue.GetProperty("y").GetDouble() + cue.GetProperty("height").GetDouble() <= table.GetProperty("y").GetDouble();
+    private static bool SameRegion(JsonElement left, JsonElement right) =>
+        new[] { "x", "y", "width", "height" }.All(key =>
+            left.GetProperty(key).GetDouble() == right.GetProperty(key).GetDouble());
     private static bool HeadingSupports(string heading, string semantic, IReadOnlyList<TableColumnLabel> columns,
         IReadOnlyList<DocumentGenreEvidence> evidence)
     {
