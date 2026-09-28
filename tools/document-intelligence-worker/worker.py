@@ -845,6 +845,30 @@ def main() -> int:
             selected_pages = sorted({int(value.strip()) for value in args.pages.split(",") if value.strip()})
             if not selected_pages or min(selected_pages) < 1 or max(selected_pages) > len(document):
                 return fail("selected pages are outside the local PDF")
+        genre_routing = data["contractVersion"] == 2 and data.get("options", {}).get("genreRouting", False) is True
+        if genre_routing and selected_pages != list(range(1, len(document) + 1)):
+            return fail("document-level genre routing requires every PDF page")
+        if genre_routing and (data.get("options", {}).get("nmPilot") or data.get("options", {}).get("nmSemantic")):
+            return fail("document genre routing is only supported for Award document processing")
+        genre_result = None
+        genre_words = {}
+        if genre_routing:
+            from document_genre import classify_document, should_extract_award
+            source_pages = []
+            for page_number in selected_pages:
+                stage_started = time.perf_counter()
+                pixmap = document[page_number - 1].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+                stages["pageRendering"] += time.perf_counter() - stage_started
+                stage_started = time.perf_counter()
+                words = ocr_words(ocr(image))
+                counters["pageOcrCalls"] += 1
+                stages["rapidOcr"] += time.perf_counter() - stage_started
+                genre_words[page_number] = words
+                source_pages.append({"page": page_number, "lines": [
+                    {"text": text, "sourceRegion": box} for text, box in _lines(words)
+                ]})
+            genre_result = classify_document(source_pages)
         geometry_engine = None
         candidates: list[dict] = []
         table_pages = 0
@@ -859,7 +883,8 @@ def main() -> int:
                            "withKhasra": 0, "withArea": 0, "withLandRate": 0,
                            "incompleteRows": 0, "valuationDuplicatesPrevented": 0}
 
-        for page_number in selected_pages:
+        award_route = genre_result is None or should_extract_award(genre_result["genre"])
+        for page_number in selected_pages if award_route else []:
             pdf_page = document[page_number - 1]
             stage_started = time.perf_counter()
             # Pilot staging needs broad source bands, not production table cells.
@@ -872,11 +897,14 @@ def main() -> int:
                 # normalization in this pilot; no page-to-page registration.
                 image = image.rotate(90, expand=True)
             stages["pageRendering"] += time.perf_counter() - stage_started
-            stage_started = time.perf_counter()
-            output = ocr(image)
-            counters["pageOcrCalls"] += 1
-            stages["rapidOcr"] += time.perf_counter() - stage_started
-            words = ocr_words(output)
+            if genre_routing:
+                words = genre_words[page_number]
+            else:
+                stage_started = time.perf_counter()
+                output = ocr(image)
+                counters["pageOcrCalls"] += 1
+                stages["rapidOcr"] += time.perf_counter() - stage_started
+                words = ocr_words(output)
 
             if data.get("options", {}).get("nmSemantic"):
                 # Semantic NM is a separate staging protocol. It receives the
@@ -989,6 +1017,14 @@ def main() -> int:
             "metrics": {"runtimeSeconds": round(time.perf_counter() - started, 2), "engine": "RapidOCR local source-band grouping" if data.get("options", {}).get("nmPilot") else "RapidOCR local + Table Transformer geometry", "pagesSelected": len(selected_pages), "courtInterpretationEnabled": not args.disable_court, "tablePagesDetected": table_pages, "possessionSourceRowsRetained": possession_evidence_count, "primarySourceRowsDetected": primary_source_row_count, "primaryRowsNeedingReview": primary_unstaged_count, **totals, **claimant_counts, "stageSeconds": {}, **counters},
         }
         add_versioned_envelope(result, data, physical_sha256, len(document))
+        if genre_result is not None:
+            result["observations"] = [genre_result]
+            result["metrics"].update({
+                "genreClassified": int(genre_result["genre"] != "UNKNOWN"),
+                "genreUnknown": int(genre_result["genre"] == "UNKNOWN"),
+                "genreRequiringReview": int(genre_result["requiresHumanReview"]),
+                "genreEvidencePages": sorted({item["page"] for item in genre_result["evidence"]}),
+            })
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)
         stage_started = time.perf_counter()

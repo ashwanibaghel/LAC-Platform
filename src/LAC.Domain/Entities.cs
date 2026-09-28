@@ -7,7 +7,7 @@ public enum PartyType { Individual, GovernmentAgency, Institution, Other }
 public enum AwardIngestionSourceType { Manual, Excel, Document, OCR, AI, Other }
 public enum AwardIngestionSessionStatus { Draft, Parsed, NeedsReview, ReadyToCommit, PartiallyCommitted, Committed, Rejected, Failed }
 public enum AwardIngestionCandidateStatus { New, ExistingExact, AlreadyLinked, LinkRequired, NeedsReview, Conflict, Ambiguous, Invalid, DuplicateInBatch, Ready, Committed, Skipped, Rejected }
-public enum AwardIngestionCandidateType { AwardCore, AwardVillage, Notification, AwardNotification, Khasra, AwardKhasra, AwardAreaSummary, AwardAreaIssue, PossessionEvent, PossessionKhasra, CourtCase, CourtCaseAward, CourtCaseKhasra, CourtProceeding, AwardLandClass, AwardKhasraClassification, AwardValuationRule, AwardCompensationRule, Party, Claim, ClaimKhasra, AwardApportionmentEntry, AwardSupplementaryMatter, DocumentLink, UnmappedAwardFinding }
+public enum AwardIngestionCandidateType { AwardCore, AwardVillage, Notification, AwardNotification, Khasra, AwardKhasra, AwardAreaSummary, AwardAreaIssue, PossessionEvent, PossessionKhasra, CourtCase, CourtCaseAward, CourtCaseKhasra, CourtProceeding, AwardLandClass, AwardKhasraClassification, AwardValuationRule, AwardCompensationRule, Party, Claim, ClaimKhasra, AwardApportionmentEntry, AwardSupplementaryMatter, DocumentLink, UnmappedAwardFinding, DocumentGenre }
 public enum AwardDocumentExtractionJobStatus { Queued, Extracting, Analyzing, BuildingCandidates, NeedsReview, Completed, Failed, Cancelled }
 public enum AwardDocumentExtractionMethod { EmbeddedText, LocalOcr, Unavailable }
 public enum MatterDraftType { Letter, Noting }

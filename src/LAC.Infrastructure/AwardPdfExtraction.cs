@@ -326,8 +326,9 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         var contractVersion = intelligenceOptions?.Value.ContractVersion ?? 1;
         var result = await intelligence!.RunAsync(new(contractVersion, job.DocumentId, filePath,
             job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId,
-            PhysicalSha256: job.Document.Sha256Hash, DocumentVersion: job.Document.Version, PageCount: job.TotalPages), ct);
-        var inputs = LocalIntelligenceCandidateMapper.Map(result);
+            PhysicalSha256: job.Document.Sha256Hash, DocumentVersion: job.Document.Version, PageCount: job.TotalPages,
+            GenreRouting: intelligenceOptions?.Value.GenreRoutingEnabled == true), ct);
+        var inputs = LocalIntelligenceCandidateMapper.Map(result, intelligenceOptions?.Value.GenreRoutingEnabled == true);
 
         // Mapping validates the complete worker response before any staging
         // write.  The existing ingestion service remains the authority for
@@ -409,7 +410,7 @@ public static class LocalIntelligenceCandidateMapper
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result)
+    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result, bool genreRouting = false)
     {
         if (result.ContractVersion is not (1 or 2) || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
             result.PagesProcessed < 1 || result.Candidates is null || result.Warnings is null || result.Metrics.ValueKind != JsonValueKind.Object)
@@ -418,11 +419,28 @@ public static class LocalIntelligenceCandidateMapper
             result.DocumentVersion is null or < 1 || result.PageCount is null or < 1 ||
             result.PagesProcessed > result.PageCount || result.ProcessedAt is null ||
             string.IsNullOrWhiteSpace(result.ExtractorVersion) || result.Errors is null || result.Errors.Count != 0 ||
-            result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array ||
-            result.Observations.Value.GetArrayLength() != 0))
+            result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array))
             throw new InvalidOperationException("Version 2 document intelligence metadata is incomplete or contains unsupported observations.");
 
-        var mapped = new List<IngestionCandidateInput>(result.Candidates.Count);
+        var genre = DocumentGenreContract.Read(result, genreRouting);
+        var mapped = new List<IngestionCandidateInput>(result.Candidates.Count + (genre is null ? 0 : 1));
+        if (genre is not null)
+        {
+            var locator = JsonSerializer.Serialize(new
+            {
+                genre.Page,
+                SourceRegion = genre.Evidence.FirstOrDefault()?.SourceRegion,
+                GenreEvidence = genre.Evidence,
+                genre.Warnings,
+                genre.ClassifierVersion,
+                Processing = new { result.ContractVersion, result.PhysicalSha256, result.DocumentVersion,
+                    result.PageCount, result.ProcessedAt, result.ExtractorVersion }
+            }, Json);
+            mapped.Add(new(AwardIngestionCandidateType.DocumentGenre,
+                JsonSerializer.Serialize(new DocumentGenreCandidate($"Document genre: {genre.Genre}", genre.Genre,
+                    genre.RequiresHumanReview, genre.ClassifierVersion, genre.Evidence, genre.Warnings), Json),
+                locator, string.Join(" | ", genre.Evidence.Select(x => x.RawText)), genre.Confidence));
+        }
         foreach (var candidate in result.Candidates)
         {
             if (candidate.Page < 1 || result.ContractVersion == 2 && candidate.Page > result.PageCount)

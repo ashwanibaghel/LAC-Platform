@@ -20,9 +20,10 @@ public sealed class DocumentIntelligenceOptions
     public int MaxConcurrentJobs { get; set; } = 1;
     // Version 1 remains the default until the version 2 intake envelope is enabled.
     public int ContractVersion { get; set; } = 1;
+    public bool GenreRoutingEnabled { get; set; }
 }
 
-public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false, string? PhysicalSha256 = null, int? DocumentVersion = null, int? PageCount = null);
+public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false, string? PhysicalSha256 = null, int? DocumentVersion = null, int? PageCount = null, bool GenreRouting = false);
 
 public sealed record LocalDocumentIntelligenceCandidate(
     string CandidateType,
@@ -57,6 +58,8 @@ public static class LocalDocumentIntelligenceContract
 {
     public static string SerializeRequest(LocalDocumentIntelligenceInput input, string? physicalSha256 = null, int? pageCount = null)
     {
+        if (input.GenreRouting && input.ContractVersion != 2)
+            throw new InvalidOperationException("Document genre routing requires worker contract version 2.");
         if (input.ContractVersion == 1)
             return JsonSerializer.Serialize(new
             {
@@ -80,7 +83,7 @@ public static class LocalDocumentIntelligenceContract
             filePath = input.FilePath,
             targetAwardId = input.TargetAwardId,
             selectedVillageId = input.SelectedVillageId,
-            options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic },
+            options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic, genreRouting = input.GenreRouting },
             selectedPages = input.SelectedPages,
             physicalSha256,
             documentVersion = input.DocumentVersion,
@@ -117,9 +120,9 @@ public static class LocalDocumentIntelligenceContract
                 result.DocumentVersion != input.DocumentVersion || result.PageCount != pageCount ||
                 result.PagesProcessed > result.PageCount || result.ProcessedAt is null ||
                 string.IsNullOrWhiteSpace(result.ExtractorVersion) || result.Errors is null || result.Errors.Count != 0 ||
-                result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array ||
-                result.Observations.Value.GetArrayLength() != 0)
+                result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array)
                 throw new InvalidOperationException("Version 2 worker metadata is incomplete or inconsistent.");
+            DocumentGenreContract.Read(result, input.GenreRouting);
         }
         return result;
     }
@@ -184,6 +187,8 @@ public sealed class LocalDocumentIntelligenceClient(IOptions<DocumentIntelligenc
     {
         if (input.ContractVersion is not (1 or 2))
             throw new InvalidOperationException("Unsupported local worker contract version.");
+        if (input.GenreRouting && input.ContractVersion != 2)
+            throw new InvalidOperationException("Document genre routing requires worker contract version 2.");
         var options = configured.Value;
         var preflight = GetPreflight(input.FilePath);
         if (!preflight.Ready)
