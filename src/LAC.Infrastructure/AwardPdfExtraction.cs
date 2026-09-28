@@ -327,8 +327,10 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
         var result = await intelligence!.RunAsync(new(contractVersion, job.DocumentId, filePath,
             job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId,
             PhysicalSha256: job.Document.Sha256Hash, DocumentVersion: job.Document.Version, PageCount: job.TotalPages,
-            GenreRouting: intelligenceOptions?.Value.GenreRoutingEnabled == true), ct);
-        var inputs = LocalIntelligenceCandidateMapper.Map(result, intelligenceOptions?.Value.GenreRoutingEnabled == true);
+            GenreRouting: intelligenceOptions?.Value.GenreRoutingEnabled == true,
+            SectionObservations: intelligenceOptions?.Value.SectionObservationsEnabled == true), ct);
+        var inputs = LocalIntelligenceCandidateMapper.Map(result, intelligenceOptions?.Value.GenreRoutingEnabled == true,
+            intelligenceOptions?.Value.SectionObservationsEnabled == true);
 
         // Mapping validates the complete worker response before any staging
         // write.  The existing ingestion service remains the authority for
@@ -410,7 +412,7 @@ public static class LocalIntelligenceCandidateMapper
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result, bool genreRouting = false)
+    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result, bool genreRouting = false, bool sectionObservations = false)
     {
         if (result.ContractVersion is not (1 or 2) || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
             result.PagesProcessed < 1 || result.Candidates is null || result.Warnings is null || result.Metrics.ValueKind != JsonValueKind.Object)
@@ -422,7 +424,8 @@ public static class LocalIntelligenceCandidateMapper
             result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array))
             throw new InvalidOperationException("Version 2 document intelligence metadata is incomplete or contains unsupported observations.");
 
-        var genre = DocumentGenreContract.Read(result, genreRouting);
+        var genre = DocumentGenreContract.Read(result, genreRouting, sectionObservations);
+        var sections = DocumentSectionContract.ReadAll(result, genre, sectionObservations);
         var mapped = new List<IngestionCandidateInput>(result.Candidates.Count + (genre is null ? 0 : 1));
         if (genre is not null)
         {
@@ -440,6 +443,26 @@ public static class LocalIntelligenceCandidateMapper
                 JsonSerializer.Serialize(new DocumentGenreCandidate($"Document genre: {genre.Genre}", genre.Genre,
                     genre.RequiresHumanReview, genre.ClassifierVersion, genre.Evidence, genre.Warnings), Json),
                 locator, string.Join(" | ", genre.Evidence.Select(x => x.RawText)), genre.Confidence));
+        }
+        foreach (var section in sections)
+        {
+            var locator = JsonSerializer.Serialize(new
+            {
+                Page = section.PageStart,
+                section.PageStart,
+                section.PageEnd,
+                SourceRegion = section.Evidence.FirstOrDefault()?.SourceRegion,
+                section.Evidence,
+                section.Warnings,
+                section.ClassifierVersion,
+                Processing = new { result.ContractVersion, result.PhysicalSha256, result.DocumentVersion,
+                    result.PageCount, result.ProcessedAt, result.ExtractorVersion }
+            }, Json);
+            mapped.Add(new(AwardIngestionCandidateType.DocumentSection,
+                JsonSerializer.Serialize(new DocumentSectionCandidate($"Source section: {section.Semantic}",
+                    section.Semantic, section.Presentation, section.PageStart, section.PageEnd, section.RawHeading,
+                    section.RequiresHumanReview, section.ClassifierVersion, section.Evidence, section.Warnings), Json),
+                locator, string.Join(" | ", section.Evidence.Select(x => x.RawText)), section.Confidence));
         }
         foreach (var candidate in result.Candidates)
         {

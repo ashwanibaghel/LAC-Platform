@@ -846,11 +846,15 @@ def main() -> int:
             if not selected_pages or min(selected_pages) < 1 or max(selected_pages) > len(document):
                 return fail("selected pages are outside the local PDF")
         genre_routing = data["contractVersion"] == 2 and data.get("options", {}).get("genreRouting", False) is True
+        section_observations = data.get("options", {}).get("sectionObservations", False) is True
+        if section_observations and not genre_routing:
+            return fail("section observations require version 2 genre routing")
         if genre_routing and selected_pages != list(range(1, len(document) + 1)):
             return fail("document-level genre routing requires every PDF page")
         if genre_routing and (data.get("options", {}).get("nmPilot") or data.get("options", {}).get("nmSemantic")):
             return fail("document genre routing is only supported for Award document processing")
         genre_result = None
+        section_results = []
         genre_words = {}
         if genre_routing:
             from document_genre import classify_document, should_extract_award
@@ -869,6 +873,9 @@ def main() -> int:
                     {"text": text, "sourceRegion": box} for text, box in _lines(words)
                 ]})
             genre_result = classify_document(source_pages)
+            if section_observations and should_extract_award(genre_result["genre"]):
+                from section_semantics import classify_sections
+                section_results = classify_sections(source_pages)
         geometry_engine = None
         candidates: list[dict] = []
         table_pages = 0
@@ -1018,13 +1025,21 @@ def main() -> int:
         }
         add_versioned_envelope(result, data, physical_sha256, len(document))
         if genre_result is not None:
-            result["observations"] = [genre_result]
+            result["observations"] = [genre_result, *section_results]
             result["metrics"].update({
                 "genreClassified": int(genre_result["genre"] != "UNKNOWN"),
                 "genreUnknown": int(genre_result["genre"] == "UNKNOWN"),
                 "genreRequiringReview": int(genre_result["requiresHumanReview"]),
                 "genreEvidencePages": sorted({item["page"] for item in genre_result["evidence"]}),
             })
+            if section_observations:
+                result["metrics"].update({
+                    "sectionObservations": len(section_results),
+                    "unknownSections": sum(item["semantic"] == "UNKNOWN" for item in section_results),
+                    "sectionsRequiringReview": sum(item["requiresHumanReview"] for item in section_results),
+                    "sectionEvidencePages": sorted({e["page"] for item in section_results for e in item["evidence"]}),
+                    "continuationDecisions": sum(item["pageEnd"] > item["pageStart"] for item in section_results),
+                })
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)
         stage_started = time.perf_counter()

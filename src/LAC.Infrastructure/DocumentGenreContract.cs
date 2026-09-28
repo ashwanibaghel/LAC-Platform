@@ -11,8 +11,9 @@ public static class DocumentGenreContract
     private static readonly HashSet<string> Genres = ["AWARD", "SUPPLEMENTARY_AWARD", "POSSESSION_PROCEEDINGS",
         "CLAIMANT_REGISTER_OR_CONTINUATION", "RENTAL_OR_REQUISITION_OFFER", "OTHER", "UNKNOWN"];
 
-    public static DocumentGenreObservation? Read(LocalDocumentIntelligenceResult result, bool genreRouting)
+    public static DocumentGenreObservation? Read(LocalDocumentIntelligenceResult result, bool genreRouting, bool sectionObservations = false)
     {
+        if (sectionObservations && !genreRouting) throw Invalid();
         if (result.ContractVersion != 2)
         {
             if (genreRouting) throw Invalid();
@@ -25,7 +26,7 @@ public static class DocumentGenreContract
             if (observations.GetArrayLength() != 0) throw Invalid();
             return null;
         }
-        if (observations.GetArrayLength() != 1 || result.PageCount is null or < 1) throw Invalid();
+        if ((sectionObservations ? observations.GetArrayLength() < 1 : observations.GetArrayLength() != 1) || result.PageCount is null or < 1) throw Invalid();
         var node = observations[0];
         if (node.ValueKind != JsonValueKind.Object || Text(node, "observationType") != "DocumentGenre") throw Invalid();
         var genre = Text(node, "genre");
