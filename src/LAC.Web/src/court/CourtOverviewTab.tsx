@@ -6,31 +6,36 @@ interface CourtOverviewTabProps {
 }
 
 export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase }) => {
-  const nextDate = courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate;
+  const nextDate = courtCase.operationalNdoh;
+  const source = courtCase.operationalNdohSource === "DHC Cause List"
+    ? "Official DHC cause list" : courtCase.operationalNdohSource;
   const summary = courtCase.lastSummary;
 
   return (
     <div className="court-overview-tab">
-      {nextDate && (
-        <div className="court-ndoh-alert-card">
+      <div className="court-ndoh-alert-card">
           <div>
             <div style={{ fontSize: "12px", color: "#6d28d9", fontWeight: 600, textTransform: "uppercase" }}>
-              Next Date of Hearing (NDOH)
+              Current operational NDOH
             </div>
             <div style={{ fontSize: "20px", fontWeight: 700, color: "#4c1d95" }}>
-              {nextDate}
+              {nextDate ?? "No operational NDOH"}
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <span className="court-badge court-badge-ndoh">Authoritative Proceeding</span>
+            {source && <span className="court-badge court-badge-ndoh">{source}</span>}
             {courtCase.isProjectedToCalendar ? (
-              <span className="court-badge" style={{ background: "#dcfce7", color: "#166534" }}>● On Calendar</span>
+              <span className="court-badge" style={{ background: "#dcfce7", color: "#166534" }}>On Calendar: {courtCase.activeScheduleNextDate ?? "scheduled"}</span>
             ) : (
-              <span className="court-badge" style={{ background: "#f1f5f9", color: "#64748b" }}>○ Not on Calendar</span>
+              <span className="court-badge" style={{ background: "#f1f5f9", color: "#64748b" }}>Not on Calendar</span>
             )}
           </div>
+          {courtCase.operationalNdohSource === "DHC Cause List" && courtCase.authoritativeNextDate &&
+            courtCase.authoritativeNextDate !== nextDate &&
+            <div style={{ fontSize: "12px", color: "#64748b" }}>
+              Prior proceeding or office-register date: {courtCase.authoritativeNextDate}
+            </div>}
         </div>
-      )}
 
       {summary && (
         <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "6px", padding: "16px", marginTop: "16px" }}>

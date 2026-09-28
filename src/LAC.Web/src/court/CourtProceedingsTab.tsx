@@ -172,7 +172,9 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                   )}
                   {p.isAuthoritative && (
                     <span className="court-badge court-badge-authoritative">
-                      {p.sourceKind === "LegacyRegisterNDOH" ? "Current register NDOH source" : "Authoritative NDOH Source"}
+                      {courtCase.operationalNdohSource === "DHC Cause List"
+                        ? "Selected proceeding or register record (prior context)"
+                        : p.sourceKind === "LegacyRegisterNDOH" ? "Current register NDOH source" : "Authoritative NDOH Source"}
                     </span>
                   )}
                 </div>
@@ -180,7 +182,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                 {p.nextDate && (
                   <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
                     <div>
-                      <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase" }}>NDOH: </span>
+                      <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase" }}>Recorded next date: </span>
                       <strong style={{ color: "#4338ca", fontSize: "14px" }}>{p.nextDate}</strong>
                     </div>
                     {courtCase.isProjectedToCalendar ? (

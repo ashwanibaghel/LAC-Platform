@@ -143,6 +143,35 @@ public sealed class DelhiHighCourtSyncService(
                         // require human review instead of silently rewriting an accepted source.
                         if (source.Sha256Hash != null && source.Sha256Hash != sha)
                             throw new InvalidDataException("A previously observed publication URL changed content.");
+                        var sameHashSources = await db.CourtExternalSourceDocuments
+                            .Where(x => x.ProviderCode == Provider && x.Sha256Hash == sha &&
+                                x.DocumentId != null && x.Id != source.Id)
+                            .ToListAsync(ct);
+                        var storedPeer = sameHashSources.FirstOrDefault();
+                        if (source.DocumentId == null && storedPeer != null)
+                        {
+                            source.DocumentId = storedPeer.DocumentId;
+                            source.DownloadedAt = clock.GetUtcNow();
+                            source.Sha256Hash = sha;
+                            await db.SaveChangesAsync(ct);
+                        }
+                        if (sameHashSources.Any(x => x.Kind != publication.Kind || x.ListingDate != publication.ListingDate))
+                        {
+                            // The bytes cannot establish which conflicting publication metadata is correct.
+                            // Withdraw any previously accepted date from this PDF until an officer resolves it.
+                            var accepted = await db.CourtExternalListingObservations
+                                .Where(x => x.SourceDocument.DocumentId == source.DocumentId &&
+                                    x.Status == CourtExternalListingStatus.Accepted)
+                                .ToListAsync(ct);
+                            foreach (var item in accepted)
+                                ChangeStatus(item, CourtExternalListingStatus.NeedsReview,
+                                    "Identical official PDF has conflicting publication date or source class.", null);
+                            source.Status = CourtExternalSourceStatus.NeedsReview;
+                            source.FailureMessage = "Identical official PDF has conflicting publication date or source class.";
+                            run.ReviewCount++;
+                            await db.SaveChangesAsync(ct);
+                            continue;
+                        }
                         IReadOnlyList<DhcCaseLine> caseLines;
                         using (var pdf = new MemoryStream(bytes, writable: false))
                             caseLines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
@@ -207,7 +236,8 @@ public sealed class DelhiHighCourtSyncService(
         var identities = local.GroupBy(x => CourtImportService.Identity(x.CourtName, x.CaseNumber))
             .Where(x => x.Key != null).ToDictionary(x => x.Key!, x => x.ToList());
         var alreadySeen = (await db.CourtExternalListingObservations.AsNoTracking()
-            .Where(x => x.SourceDocumentId == source.Id)
+            .Where(x => x.SourceDocument.DocumentId == source.DocumentId &&
+                x.ListingDate == source.ListingDate && x.SourceDocument.Kind == source.Kind)
             .Select(x => x.NormalizedCaseIdentity).ToListAsync(ct)).ToHashSet();
         foreach (var line in lines)
         {
@@ -232,13 +262,17 @@ public sealed class DelhiHighCourtSyncService(
             if (reason == null && match != null)
             {
                 var competing = await db.CourtExternalListingObservations
-                    .Where(x => x.CourtCaseId == match.Id && x.Status == CourtExternalListingStatus.Accepted &&
+                    .Where(x => x.ProviderCode == Provider && x.NormalizedCaseIdentity == line.Identity &&
+                        x.SourceDocument.Kind == CourtExternalSourceKind.OrdinaryListing &&
+                        (x.Status == CourtExternalListingStatus.Accepted ||
+                         x.Status == CourtExternalListingStatus.NeedsReview ||
+                         x.Status == CourtExternalListingStatus.Observed) &&
                         x.ListingDate >= today && x.ListingDate != source.ListingDate)
                     .ToListAsync(ct);
                 if (competing.Count > 0)
                 {
                     reason = "Conflicting future official DHC listing dates.";
-                    foreach (var old in competing)
+                    foreach (var old in competing.Where(x => x.Status == CourtExternalListingStatus.Accepted))
                         ChangeStatus(old, CourtExternalListingStatus.NeedsReview, reason, null);
                 }
             }
@@ -256,7 +290,8 @@ public sealed class DelhiHighCourtSyncService(
     {
         foreach (var line in lines)
         {
-            if (await db.CourtExternalListingObservations.AnyAsync(x => x.SourceDocumentId == source.Id &&
+            if (await db.CourtExternalListingObservations.AnyAsync(x =>
+                x.SourceDocument.DocumentId == source.DocumentId && x.SourceDocument.Kind == source.Kind &&
                 x.NormalizedCaseIdentity == line.Identity && x.ListingDate == source.ListingDate, ct)) continue;
             // Only an exact identity AND list date can invalidate an observation.
             // If a correction proposes an unclear new date, no date is guessed.
@@ -303,9 +338,14 @@ public sealed class DelhiHighCourtSyncService(
                 CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber) != observation.NormalizedCaseIdentity ||
                 observation.ListingDate < clock.GetCurrentDate() || observation.SourceDocument.Kind != CourtExternalSourceKind.OrdinaryListing)
                 throw new CourtWorkflowException("Evidence, identity, future date and active DHC status must match.", 409);
-            var other = await db.CourtExternalListingObservations.AnyAsync(x => x.CourtCaseId == courtCase.Id &&
-                x.Status == CourtExternalListingStatus.Accepted && x.ListingDate != observation.ListingDate, ct);
-            if (other) throw new CourtWorkflowException("Conflicting accepted listing requires resolution first.", 409);
+            var other = await db.CourtExternalListingObservations.AnyAsync(x =>
+                x.ProviderCode == Provider && x.NormalizedCaseIdentity == observation.NormalizedCaseIdentity &&
+                x.SourceDocument.Kind == CourtExternalSourceKind.OrdinaryListing &&
+                (x.Status == CourtExternalListingStatus.Accepted ||
+                 x.Status == CourtExternalListingStatus.NeedsReview ||
+                 x.Status == CourtExternalListingStatus.Observed) &&
+                x.ListingDate >= clock.GetCurrentDate() && x.ListingDate != observation.ListingDate, ct);
+            if (other) throw new CourtWorkflowException("Resolve different-date official listing evidence first.", 409);
             var deletionSignal = await db.CourtExternalListingObservations.AnyAsync(x =>
                 x.NormalizedCaseIdentity == observation.NormalizedCaseIdentity &&
                 x.ListingDate == observation.ListingDate &&

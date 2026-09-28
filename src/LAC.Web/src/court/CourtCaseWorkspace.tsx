@@ -253,9 +253,12 @@ export const CourtCaseWorkspace: React.FC = () => {
             <span className="court-meta-value">{courtCase.assignedUserDisplayName || "Unassigned"}</span>
           </div>
           <div className="court-meta-item">
-            <span className="court-meta-label">Next Date (NDOH)</span>
-            <span className="court-meta-value" style={{ color: (courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate) ? "#4338ca" : "#64748b", fontWeight: 700 }}>
-              {courtCase.authoritativeNextDate || courtCase.activeScheduleNextDate || courtCase.nextHearingDate || "None Scheduled"}
+            <span className="court-meta-label">Current operational NDOH</span>
+            <span className="court-meta-value" style={{ color: courtCase.operationalNdoh ? "#4338ca" : "#64748b", fontWeight: 700 }}>
+              {courtCase.operationalNdoh || "No operational NDOH"}
+              {courtCase.operationalNdohSource && <small style={{ display: "block", color: "#64748b", fontWeight: 500 }}>
+                {courtCase.operationalNdohSource === "DHC Cause List" ? "Official DHC cause list" : courtCase.operationalNdohSource}
+              </small>}
             </span>
           </div>
           <div className="court-meta-item">
@@ -309,11 +312,6 @@ export const CourtCaseWorkspace: React.FC = () => {
       <div className="court-tab-content">
         {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} />
           {courtCase.courtName === "Delhi High Court" && <>
-            <section className="court-card" style={{ padding: 16, marginTop: 16 }}>
-              <h3>Operational listing date</h3>
-              <p>{courtCase.operationalNdoh ?? "No operational NDOH"} · {courtCase.operationalNdohSource ?? "No source"}</p>
-              {courtCase.operationalNdohSource === "DHC Cause List" && <p>Previous proceeding or office-register date: {courtCase.authoritativeNextDate ?? "None"}</p>}
-            </section>
             <DhcCaseListings caseId={courtCase.id} />
           </>}
           <CourtImportProvenance caseId={courtCase.id} /></>}

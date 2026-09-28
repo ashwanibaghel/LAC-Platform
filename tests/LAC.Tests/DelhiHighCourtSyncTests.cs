@@ -126,7 +126,11 @@ public sealed class DelhiHighCourtSyncTests
             var bytes = QuestPDF.Fluent.Document.Create(document => document.Page(page =>
             {
                 page.Margin(36);
-                page.Content().Column(column => { foreach (var line in lines) column.Item().Text(line); });
+                page.Content().Column(column => {
+                    column.Item().Text(title);
+                    column.Item().Text(date);
+                    foreach (var line in lines) column.Item().Text(line);
+                });
             })).GeneratePdf();
             var url = "https://delhihighcourt.nic.in/files/2026-09/cause-list/" + file;
             Source.Pdfs[url] = bytes;
@@ -291,6 +295,157 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task ThirdPublicationCannotBypassUnresolvedDifferentDate_ManualResolutionIsAudited()
+    {
+        using var f = new Fixture();
+        var item = f.Case();
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "first-date.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        var first = Assert.Single(f.Db.CourtExternalListingObservations);
+        Assert.Equal(CourtExternalListingStatus.Accepted, first.Status);
+
+        f.Publish("SUPPLEMENTARY CAUSE LIST FOR 01.10.2026", "01-10-2026", "conflicting-date.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        var conflicting = f.Db.CourtExternalListingObservations.Single(x => x.ListingDate == new DateOnly(2026, 10, 1));
+        Assert.Equal(CourtExternalListingStatus.NeedsReview, first.Status);
+        Assert.Equal(CourtExternalListingStatus.NeedsReview, conflicting.Status);
+
+        f.Publish("SUPPLEMENTARY CAUSE LIST FOR 30.09.2026", "30-09-2026", "third-date.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        var third = f.Db.CourtExternalListingObservations.Single(x => x.SourceDocument.SourceUrl.EndsWith("third-date.pdf"));
+        Assert.Equal(CourtExternalListingStatus.NeedsReview, third.Status);
+        Assert.Null((await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items.Single().OperationalNdoh);
+        await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.ReviewAsync(third.Id,
+            new(true, item.Id, new DateOnly(2026, 9, 30), "Checked source."), f.User.Id, default));
+
+        await f.Sync.ReviewAsync(conflicting.Id, new(false, null, null, "Officer rejected conflicting source."), f.User.Id, default);
+        await f.Sync.ReviewAsync(third.Id,
+            new(true, item.Id, new DateOnly(2026, 9, 30), "Officer accepted verified date."), f.User.Id, default);
+        Assert.Equal(CourtExternalListingStatus.Accepted, third.Status);
+        Assert.Equal(new DateOnly(2026, 9, 30),
+            Assert.Single((await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items).OperationalNdoh);
+        Assert.Equal(6, f.Db.CourtExternalListingDecisions.Count());
+        Assert.Equal(2, f.Db.CourtExternalListingDecisions.Count(x => x.ActorUserId == f.User.Id));
+    }
+
+    [Fact]
+    public async Task CaseDetailOperationalDateSwitchesFromProceedingToDhcAndBack()
+    {
+        using var f = new Fixture();
+        var item = f.Case();
+        f.Db.CourtProceedings.Add(new CourtProceeding { CourtCaseId = item.Id,
+            ProceedingDate = new DateOnly(2026, 9, 28), NextDate = new DateOnly(2026, 10, 2), CreatedAt = f.Clock.Now });
+        await f.Db.SaveChangesAsync();
+        // OfficialRecord creation uses the real save time; set historical test evidence
+        // before observing the list so a later newly saved proceeding can win again.
+        f.Db.CourtProceedings.Single().CreatedAt = DateTimeOffset.UtcNow.AddMinutes(-2);
+        await f.Db.SaveChangesAsync();
+        f.Clock.Now = DateTimeOffset.UtcNow.AddMinutes(-1);
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "detail-list.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        var withDhc = await f.Projection.GetCourtCaseDetailAsync(item.Id, f.User.Id);
+        Assert.NotNull(withDhc);
+        Assert.Equal(new DateOnly(2026, 9, 30), withDhc.OperationalNdoh);
+        Assert.Equal("DHC Cause List", withDhc.OperationalNdohSource);
+        Assert.Equal(new DateOnly(2026, 10, 2), withDhc.AuthoritativeNextDate);
+
+        f.Clock.Now = DateTimeOffset.UtcNow;
+        f.Db.CourtProceedings.Add(new CourtProceeding { CourtCaseId = item.Id,
+            ProceedingDate = new DateOnly(2026, 9, 29), NextDate = new DateOnly(2026, 10, 3), CreatedAt = f.Clock.Now });
+        await f.Db.SaveChangesAsync();
+        var withProceeding = await f.Projection.GetCourtCaseDetailAsync(item.Id, f.User.Id);
+        Assert.NotNull(withProceeding);
+        Assert.Equal(new DateOnly(2026, 10, 3), withProceeding.OperationalNdoh);
+        Assert.Equal("Court proceeding", withProceeding.OperationalNdohSource);
+    }
+
+    [Fact]
+    public async Task SamePdfUnderSecondUrl_ReusesPhysicalDocumentAndEquivalentObservation()
+    {
+        using var f = new Fixture();
+        f.Case();
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "sha-a.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "sha-b.pdf", "1 W.P.(C)-7003/2026");
+        f.Source.Pdfs["https://delhihighcourt.nic.in/files/2026-09/cause-list/sha-b.pdf"] =
+            f.Source.Pdfs["https://delhihighcourt.nic.in/files/2026-09/cause-list/sha-a.pdf"];
+        var second = await f.Sync.RunAsync(null, default);
+        Assert.Equal(0, second.ObservationsCreated);
+        Assert.Single(f.Db.Documents);
+        Assert.Single(f.Storage.Files);
+        Assert.Single(f.Db.CourtExternalListingObservations);
+        Assert.Equal(2, f.Db.CourtExternalSourceDocuments.Count());
+        Assert.Single(f.Db.CourtExternalSourceDocuments.Select(x => x.DocumentId).Distinct());
+        var repeated = await f.Sync.RunAsync(null, default);
+        Assert.Equal(0, repeated.ObservationsCreated);
+        Assert.Single(f.Storage.Files);
+    }
+
+    [Theory]
+    [InlineData("ADVANCE CAUSE LIST OF CASES FOR 01.10.2026", "01-10-2026")]
+    [InlineData("Deletion Note for 30.09.2026", "30-09-2026")]
+    public async Task SamePdfWithConflictingMetadata_IsReviewOnly(string title, string date)
+    {
+        using var f = new Fixture();
+        var item = f.Case();
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "metadata-a.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        f.Publish(title, date, "metadata-b.pdf", "1 W.P.(C)-7003/2026");
+        f.Source.Pdfs["https://delhihighcourt.nic.in/files/2026-09/cause-list/metadata-b.pdf"] =
+            f.Source.Pdfs["https://delhihighcourt.nic.in/files/2026-09/cause-list/metadata-a.pdf"];
+        var second = await f.Sync.RunAsync(null, default);
+        Assert.Equal(0, second.ObservationsCreated);
+        Assert.Equal(CourtExternalSourceStatus.NeedsReview,
+            f.Db.CourtExternalSourceDocuments.Single(x => x.SourceUrl.EndsWith("metadata-b.pdf")).Status);
+        Assert.Equal(CourtExternalListingStatus.NeedsReview, Assert.Single(f.Db.CourtExternalListingObservations).Status);
+        Assert.Null((await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items.Single(x => x.Id == item.Id).OperationalNdoh);
+        Assert.Single(f.Db.Documents);
+        Assert.Single(f.Storage.Files);
+    }
+
+    [Fact]
+    public async Task ListingDecisionHistoryCannotBeModifiedOrDeleted()
+    {
+        using var f = new Fixture();
+        f.Case();
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "immutable.pdf", "1 W.P.(C)-7003/2026");
+        await f.Sync.RunAsync(null, default);
+        var decision = Assert.Single(f.Db.CourtExternalListingDecisions);
+        decision.Reason = "overwrite";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Db.SaveChangesAsync());
+        Assert.Throws<InvalidOperationException>(() => f.Db.SaveChanges());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Db.SaveChangesAsync(true, default));
+        f.Db.Entry(decision).State = EntityState.Unchanged;
+        f.Db.CourtExternalListingDecisions.Remove(decision);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => f.Db.SaveChangesAsync());
+        Assert.Throws<InvalidOperationException>(() => f.Db.SaveChanges(true));
+    }
+
+    [Fact]
+    public async Task IsolatedPostgres_SharedDhcDocumentIndex_WhenConfigured()
+    {
+        var connection = Environment.GetEnvironmentVariable("DHC_DEDUPE_POSTGRES_CONNECTION");
+        if (string.IsNullOrWhiteSpace(connection)) return;
+        using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(connection).Options);
+        await db.Database.MigrateAsync();
+        var document = new LAC.Domain.Document { DocumentType = "CourtCauseList", OriginalFileName = "shared.pdf",
+            StoragePath = "isolated-smoke/shared.pdf", Sha256Hash = new string('a', 64), MimeType = "application/pdf" };
+        db.Documents.Add(document);
+        await db.SaveChangesAsync();
+        var date = new DateOnly(2026, 9, 30);
+        db.CourtExternalSourceDocuments.AddRange(
+            new CourtExternalSourceDocument { SourceUrl = "https://delhihighcourt.nic.in/files/isolated-a.pdf",
+                SourceTitle = "ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", Kind = CourtExternalSourceKind.OrdinaryListing,
+                ListingDate = date, DocumentId = document.Id, Sha256Hash = document.Sha256Hash },
+            new CourtExternalSourceDocument { SourceUrl = "https://delhihighcourt.nic.in/files/isolated-b.pdf",
+                SourceTitle = "ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", Kind = CourtExternalSourceKind.OrdinaryListing,
+                ListingDate = date, DocumentId = document.Id, Sha256Hash = document.Sha256Hash });
+        await db.SaveChangesAsync();
+        Assert.Equal(2, await db.CourtExternalSourceDocuments.CountAsync(x => x.DocumentId == document.Id));
+        Assert.Equal(1, await db.Documents.CountAsync(x => x.Id == document.Id));
+    }
+
+    [Fact]
     public async Task DeletionSupersedesWithoutErasingHistory_AndOutagePreservesTruth()
     {
         using var f = new Fixture();
@@ -376,7 +531,7 @@ public sealed class DelhiHighCourtSyncTests
         if (string.IsNullOrWhiteSpace(connection) || string.IsNullOrWhiteSpace(workbook)) return;
         using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(connection).Options);
         await db.Database.MigrateAsync();
-        var clock = new Clock();
+        var clock = new OfficeClock();
         var storage = new Storage();
         var suffix = Guid.NewGuid().ToString("N")[..8];
         var user = new AppUser { Username = "dhc_smoke_" + suffix, NormalizedUsername = "DHC_SMOKE_" + suffix.ToUpperInvariant(), DisplayName = "DHC Smoke Officer" };

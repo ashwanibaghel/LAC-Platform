@@ -60,6 +60,18 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   b.Entity<AwardIngestionCandidate>().HasIndex(x => new {x.SessionId, x.SafeToConfirm, x.SourcePage});
   foreach(var foreignKey in b.Model.GetEntityTypes().SelectMany(entity=>entity.GetForeignKeys())) foreignKey.DeleteBehavior=DeleteBehavior.Restrict;
  }
+ private void EnsureExternalListingDecisionsImmutable() {
+  if (ChangeTracker.Entries<CourtExternalListingDecision>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+   throw new InvalidOperationException("External listing decisions are strictly immutable.");
+ }
+ public override int SaveChanges(bool acceptAllChangesOnSuccess) {
+  EnsureExternalListingDecisionsImmutable();
+  return base.SaveChanges(acceptAllChangesOnSuccess);
+ }
+ public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct=default) {
+  EnsureExternalListingDecisionsImmutable();
+  return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
+ }
  public override async Task<int> SaveChangesAsync(CancellationToken ct=default) {
   if (ChangeTracker.Entries<DakMovement>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("Dak movements are strictly immutable. Official movement history cannot be modified or deleted.");
@@ -77,8 +89,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
    throw new InvalidOperationException("Scheduled event events are strictly immutable. Official schedule history cannot be modified or deleted.");
   if (ChangeTracker.Entries<CourtCaseEvent>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("Court case events are strictly immutable. Official litigation history cannot be modified or deleted.");
-  if (ChangeTracker.Entries<CourtExternalListingDecision>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
-   throw new InvalidOperationException("External listing decisions are strictly immutable.");
+  EnsureExternalListingDecisionsImmutable();
   var additions=ChangeTracker.Entries<Khasra>().Where(e=>e.State==EntityState.Added).Select(e=>e.Entity).ToList(); foreach(var khasra in additions) { var duplicateInRequest=additions.Any(x=>x!=khasra&&x.VillageId==khasra.VillageId&&x.NormalizedNumber==khasra.NormalizedNumber&&x.Qualifier==khasra.Qualifier); var duplicateInStore=await Khasras.AnyAsync(x=>x.VillageId==khasra.VillageId&&x.NormalizedNumber==khasra.NormalizedNumber&&x.Qualifier==khasra.Qualifier,ct); if(duplicateInRequest||duplicateInStore) throw new DbUpdateException("A Khasra with this normalized number and qualifier already exists in the village."); }
   var now=DateTimeOffset.UtcNow; var changes=ChangeTracker.Entries().Where(e=>e.Entity is OfficialRecord&&e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList(); foreach(var entry in changes.Where(e=>e.State==EntityState.Deleted&&e.Entity is OfficialRecord)) { ((OfficialRecord)entry.Entity).RecordStatus=RecordStatus.Archived; entry.State=EntityState.Modified; }
   var actor = currentUser?.UserId?.ToString();
