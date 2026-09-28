@@ -55,6 +55,14 @@ test("overview returns to newer proceeding date and source", () => {
   assert.doesNotMatch(html, /Prior proceeding or office-register date/);
 });
 
+test("historical catch-up remains a listing, retains original register context", () => {
+  const html = render("2026-09-05", "DHC historical cause list");
+  assert.match(html, /DHC historical cause list/);
+  assert.match(html, /Prior proceeding or office-register date: 2026-10-02/);
+  const proceedings = readFileSync(proceedingsPath, "utf8");
+  assert.match(proceedings, /operationalNdohSource === "DHC historical cause list"/);
+});
+
 test("workspace primary NDOH reads operational fields, not legacy fallback fields", () => {
   const workspace = readFileSync(workspacePath, "utf8");
   const primary = workspace.match(/<span className="court-meta-label">Current operational NDOH<\/span>([\s\S]*?)<\/div>/)?.[1];

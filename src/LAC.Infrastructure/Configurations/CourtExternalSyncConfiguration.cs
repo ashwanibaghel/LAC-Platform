@@ -8,6 +8,7 @@ public static class CourtExternalSyncConfiguration
     public static void Configure(ModelBuilder b)
     {
         b.Entity<CourtExternalSyncRun>().Property(x => x.Status).HasConversion<string>();
+        b.Entity<CourtExternalSyncRun>().Property(x => x.Mode).HasConversion<string>();
         b.Entity<CourtExternalSyncRun>().Property(x => x.ProviderCode).HasMaxLength(80);
         b.Entity<CourtExternalSyncRun>().HasIndex(x => new { x.ProviderCode, x.StartedAt });
 
@@ -22,9 +23,10 @@ public static class CourtExternalSyncConfiguration
             .HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Restrict);
 
         b.Entity<CourtExternalListingObservation>().Property(x => x.Status).HasConversion<string>();
+        b.Entity<CourtExternalListingObservation>().Property(x => x.Mode).HasConversion<string>();
         b.Entity<CourtExternalListingObservation>().Property(x => x.ProviderCode).HasMaxLength(80);
         b.Entity<CourtExternalListingObservation>().Property(x => x.NormalizedCaseIdentity).HasMaxLength(512);
-        b.Entity<CourtExternalListingObservation>().HasIndex(x => new { x.SourceDocumentId, x.NormalizedCaseIdentity, x.ListingDate }).IsUnique();
+        b.Entity<CourtExternalListingObservation>().HasIndex(x => new { x.SourceDocumentId, x.NormalizedCaseIdentity, x.ListingDate, x.Mode }).IsUnique();
         b.Entity<CourtExternalListingObservation>().HasIndex(x => new { x.CourtCaseId, x.Status, x.ObservedAt });
         b.Entity<CourtExternalListingObservation>().HasOne(x => x.SourceDocument).WithMany()
             .HasForeignKey(x => x.SourceDocumentId).OnDelete(DeleteBehavior.Restrict);

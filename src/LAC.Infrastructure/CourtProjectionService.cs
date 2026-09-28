@@ -429,6 +429,7 @@ public sealed class CourtProjectionService(
             {
                 x.OperationalNdoh,
                 x.UsesExternalListing,
+                x.UsesHistoricalListing,
                 x.Case.Id,
                 x.Case.CaseNumber,
                 x.Case.CourtName,
@@ -528,7 +529,7 @@ public sealed class CourtProjectionService(
                 x.Advocates,
                 x.Source?.RawVillage,
                 x.Source?.RawAwardNumber,
-                x.UsesExternalListing ? "DHC Cause List" : x.OperationalNdoh.HasValue ?
+                x.UsesHistoricalListing ? "DHC historical cause list" : x.UsesExternalListing ? "DHC Cause List" : x.OperationalNdoh.HasValue ?
                     x.LatestProceeding?.ProceedingDate.HasValue == true ? "Court proceeding" : "Office register" : null
             ));
         }
@@ -584,7 +585,7 @@ public sealed class CourtProjectionService(
 
         var operational = await CourtOperationalNdohQuery.Resolve(
                 db.CourtCases.AsNoTracking().Where(c => c.Id == courtCaseId), db, _officeClock.GetCurrentDate())
-            .Select(x => new { x.OperationalNdoh, x.UsesExternalListing }).SingleAsync(ct);
+            .Select(x => new { x.OperationalNdoh, x.UsesExternalListing, x.UsesHistoricalListing }).SingleAsync(ct);
 
         var docCount = await db.CourtCaseDocuments.AsNoTracking()
             .CountAsync(d => d.CourtCaseId == courtCaseId && d.RecordStatus == RecordStatus.Active, ct);
@@ -742,7 +743,7 @@ public sealed class CourtProjectionService(
             eventCount,
             capabilities,
             operational.OperationalNdoh,
-            operational.UsesExternalListing ? "DHC Cause List" : operational.OperationalNdoh.HasValue ?
+            operational.UsesHistoricalListing ? "DHC historical cause list" : operational.UsesExternalListing ? "DHC Cause List" : operational.OperationalNdoh.HasValue ?
                 latestProceeding?.ProceedingDate.HasValue == true ? "Court proceeding" : "Office register" : null
         );
     }

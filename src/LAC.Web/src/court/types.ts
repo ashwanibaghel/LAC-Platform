@@ -180,6 +180,7 @@ export interface DhcObservationDto {
   status: string;
   conflictReason: string | null;
   sourceKind: string;
+  mode: string;
 }
 
 export interface DhcSyncRunDto {
@@ -192,6 +193,24 @@ export interface DhcSyncRunDto {
   observationsAccepted: number;
   reviewCount: number;
   failureMessage: string | null;
+  mode: string;
+  windowStart: string | null;
+  windowEnd: string | null;
+  eligibleCaseCount: number;
+  archivePagesDiscovered: number;
+  targetCaseMatches: number;
+  casesAdvanced: number;
+}
+
+export interface DhcHistoricalStatusDto {
+  eligibleCaseCount: number;
+  noBaselineCount: number;
+  realProceedingExclusionCount: number;
+  earliestBaseline: string | null;
+  windowEnd: string;
+  lastAttempt: DhcSyncRunDto | null;
+  completedRun: DhcSyncRunDto | null;
+  canStart: boolean;
 }
 
 export interface DhcSyncStatusDto {

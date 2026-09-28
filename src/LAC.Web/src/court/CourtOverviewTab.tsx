@@ -30,7 +30,8 @@ export const CourtOverviewTab: React.FC<CourtOverviewTabProps> = ({ courtCase })
               <span className="court-badge" style={{ background: "#f1f5f9", color: "#64748b" }}>Not on Calendar</span>
             )}
           </div>
-          {courtCase.operationalNdohSource === "DHC Cause List" && courtCase.authoritativeNextDate &&
+          {(courtCase.operationalNdohSource === "DHC Cause List" ||
+            courtCase.operationalNdohSource === "DHC historical cause list") && courtCase.authoritativeNextDate &&
             courtCase.authoritativeNextDate !== nextDate &&
             <div style={{ fontSize: "12px", color: "#64748b" }}>
               Prior proceeding or office-register date: {courtCase.authoritativeNextDate}

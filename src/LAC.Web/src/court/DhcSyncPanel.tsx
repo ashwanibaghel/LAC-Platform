@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
-import type { CourtCaseListResponse, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
+import type { CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
 
 export const DhcSyncPanel: React.FC = () => {
   const [status, setStatus] = useState<DhcSyncStatusDto | null>(null);
+  const [historical, setHistorical] = useState<DhcHistoricalStatusDto | null>(null);
   const [reviews, setReviews] = useState<DhcObservationDto[]>([]);
   const [sourceReviews, setSourceReviews] = useState<DhcSourceReviewDto[]>([]);
   const [busy, setBusy] = useState(false);
@@ -12,17 +13,24 @@ export const DhcSyncPanel: React.FC = () => {
   const [candidates, setCandidates] = useState<Record<string, { id: string; caseNumber: string }[]>>({});
 
   const refresh = useCallback(async () => {
-    const [statusResult, reviewResult, sourceResult] = await Promise.all([
+    const [statusResult, historicalResult, reviewResult, sourceResult] = await Promise.all([
       fetch("/api/court-cases/dhc-sync/status", { credentials: "include" }),
+      fetch("/api/court-cases/dhc-sync/historical/status", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/review", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/sources/review", { credentials: "include" }),
     ]);
     if (statusResult.ok) setStatus(await statusResult.json() as DhcSyncStatusDto);
+    if (historicalResult.ok) setHistorical(await historicalResult.json() as DhcHistoricalStatusDto);
     if (reviewResult.ok) setReviews(await reviewResult.json() as DhcObservationDto[]);
     if (sourceResult.ok) setSourceReviews(await sourceResult.json() as DhcSourceReviewDto[]);
   }, []);
 
   useEffect(() => { void refresh().catch(() => setMessage("DHC sync status unavailable.")); }, [refresh]);
+  useEffect(() => {
+    if (!busy && historical?.lastAttempt?.status !== "Running") return;
+    const timer = window.setInterval(() => { void refresh().catch(() => {}); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [busy, historical?.lastAttempt?.status, refresh]);
 
   const syncNow = async () => {
     setBusy(true); setMessage(null);
@@ -31,6 +39,17 @@ export const DhcSyncPanel: React.FC = () => {
       if (!response.ok) throw new Error("Sync request failed or another cycle is running.");
       await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Sync failed."); }
+    finally { setBusy(false); }
+  };
+
+  const runHistorical = async () => {
+    if (!historical || !window.confirm(`Run the one-time public DHC historical backfill for ${historical.eligibleCaseCount} eligible stale cases? This may take hours and cannot normally be started again after completion.`)) return;
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch("/api/court-cases/dhc-sync/historical/run", { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("Historical backfill request failed or is already complete.");
+      await refresh();
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Historical backfill failed."); }
     finally { setBusy(false); }
   };
 
@@ -80,6 +99,29 @@ export const DhcSyncPanel: React.FC = () => {
       </p>
       {attempt?.failureMessage && <p role="alert">{attempt.failureMessage}</p>}
       {message && <p role="alert">{message}</p>}
+      {historical && <section aria-label="One-time historical catch-up" style={{ borderTop: "1px solid #e2e8f0", marginTop: 16, paddingTop: 12 }}>
+        <h3>One-time historical catch-up</h3>
+        <p>Eligible stale DHC cases: {historical.eligibleCaseCount} · Earliest register date: {historical.earliestBaseline ?? "None"}
+          {" · "}Window: {historical.earliestBaseline ?? "None"} through {historical.windowEnd}
+          {" · "}Skipped — no historical baseline: {historical.noBaselineCount}
+          {" · "}Real proceeding exclusions: {historical.realProceedingExclusionCount}</p>
+        {historical.completedRun?.completedAt ? <p>Historical backfill completed on {new Date(historical.completedRun.completedAt).toLocaleString()}.</p> :
+          historical.canStart && <button className="secondary-button" disabled={busy} onClick={() => void runHistorical()}>
+            {historical.lastAttempt?.status === "Failed" || historical.lastAttempt?.status === "Running"
+              ? "Resume historical backfill" : "Run one-time historical backfill"}
+          </button>}
+        {historical.lastAttempt && <p>Status: {historical.lastAttempt.status}
+          {" · "}Started: {new Date(historical.lastAttempt.startedAt).toLocaleString()}
+          {" · "}Completed: {historical.lastAttempt.completedAt ? new Date(historical.lastAttempt.completedAt).toLocaleString() : "—"}
+          {" · "}Eligible: {historical.lastAttempt.eligibleCaseCount}
+          {" · "}Archive pages: {historical.lastAttempt.archivePagesDiscovered}
+          {" · "}Supported sources: {historical.lastAttempt.sourceDocumentsDiscovered}
+          {" · "}Documents processed: {historical.lastAttempt.sourceDocumentsProcessed}
+          {" · "}Target matches: {historical.lastAttempt.targetCaseMatches}
+          {" · "}Cases advanced: {historical.lastAttempt.casesAdvanced}
+          {" · "}Needs review: {historical.lastAttempt.reviewCount}</p>}
+        {historical.lastAttempt?.failureMessage && <p role="alert">{historical.lastAttempt.failureMessage}</p>}
+      </section>}
       {reviews.length > 0 && <details>
         <summary>Listing observations needing review ({reviews.length})</summary>
         {reviews.map(item => <div key={item.id} style={{ borderTop: "1px solid #e2e8f0", padding: "12px 0" }}>
@@ -97,7 +139,7 @@ export const DhcSyncPanel: React.FC = () => {
               {item.courtCaseId && <option value={item.courtCaseId}>Previously matched case</option>}
               {(candidates[item.id] ?? []).map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.caseNumber}</option>)}
             </select>
-            {item.sourceKind === "OrdinaryListing" && <button className="secondary-button" disabled={busy} onClick={() => void decide(item, true)}>Accept evidenced date</button>}
+            {item.sourceKind === "OrdinaryListing" && item.mode !== "HistoricalBackfill" && <button className="secondary-button" disabled={busy} onClick={() => void decide(item, true)}>Accept evidenced date</button>}
             <button className="secondary-button" disabled={busy} onClick={() => void decide(item, false)}>Reject</button>
           </div>}
         </div>)}

@@ -1,6 +1,7 @@
 namespace LAC.Domain;
 
 public enum CourtExternalSyncRunStatus { Running, Completed, Failed }
+public enum CourtExternalSyncMode { LiveWindow, HistoricalBackfill }
 public enum CourtExternalSourceKind { OrdinaryListing, DeletionOrCorrigendum, Unsupported }
 public enum CourtExternalSourceStatus { Discovered, Processed, NeedsReview }
 public enum CourtExternalListingStatus { Observed, Accepted, NeedsReview, Rejected, Superseded }
@@ -12,6 +13,13 @@ public sealed class CourtExternalSyncRun
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public CourtExternalSyncRunStatus Status { get; set; } = CourtExternalSyncRunStatus.Running;
+    public CourtExternalSyncMode Mode { get; set; } = CourtExternalSyncMode.LiveWindow;
+    public DateOnly? WindowStart { get; set; }
+    public DateOnly? WindowEnd { get; set; }
+    public int EligibleCaseCount { get; set; }
+    public int ArchivePagesDiscovered { get; set; }
+    public int TargetCaseMatches { get; set; }
+    public int CasesAdvanced { get; set; }
     public int SourceDocumentsDiscovered { get; set; }
     public int SourceDocumentsProcessed { get; set; }
     public int ObservationsCreated { get; set; }
@@ -54,6 +62,7 @@ public sealed class CourtExternalListingObservation
     public string RawMatchedText { get; set; } = "";
     public string NormalizedCaseIdentity { get; set; } = "";
     public CourtExternalListingStatus Status { get; set; } = CourtExternalListingStatus.Observed;
+    public CourtExternalSyncMode Mode { get; set; } = CourtExternalSyncMode.LiveWindow;
     public string? ConflictReason { get; set; }
     public DateTimeOffset? AppliedAt { get; set; }
     public DateTimeOffset? SupersededAt { get; set; }

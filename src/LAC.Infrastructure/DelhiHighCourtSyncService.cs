@@ -18,12 +18,13 @@ public sealed record DhcSyncStatusDto(CourtExternalSyncRun? LastAttempt, CourtEx
     bool CanSyncNow);
 public sealed record DhcObservationDto(Guid Id, Guid? CourtCaseId, string Identity, DateOnly ListingDate,
     DateTimeOffset ObservedAt, string SourceTitle, string SourceUrl, Guid? DocumentId,
-    int PageNumber, string RawMatchedText, string Status, string? ConflictReason, string SourceKind);
+    int PageNumber, string RawMatchedText, string Status, string? ConflictReason, string SourceKind,
+    string Mode);
 public sealed record DhcSourceReviewDto(Guid Id, string SourceTitle, string SourceUrl,
     DateOnly? ListingDate, string Kind, string? FailureMessage);
 public sealed record DhcReviewDecisionRequest(bool Accept, Guid? CourtCaseId, DateOnly? ListingDate, string Reason);
 
-public sealed class DelhiHighCourtSyncService(
+public sealed partial class DelhiHighCourtSyncService(
     LacDbContext db, IDocumentStorage storage, IOfficeClock clock,
     IHttpClientFactory clients, IConfiguration configuration,
     ICourtAuthorizationService authorization, DelhiHighCourtSyncGate gate)
@@ -36,7 +37,8 @@ public sealed class DelhiHighCourtSyncService(
     {
         if (!await authorization.CanViewCourtReferencesAsync(userId, ct))
             throw new CourtWorkflowException("Global Court view permission is required.", 403);
-        var runs = await db.CourtExternalSyncRuns.AsNoTracking().Where(x => x.ProviderCode == Provider)
+        var runs = await db.CourtExternalSyncRuns.AsNoTracking().Where(x => x.ProviderCode == Provider &&
+            x.Mode == CourtExternalSyncMode.LiveWindow)
             .OrderByDescending(x => x.StartedAt).Take(50).ToListAsync(ct);
         return new(runs.FirstOrDefault(), runs.FirstOrDefault(x => x.Status == CourtExternalSyncRunStatus.Completed),
             await authorization.CanEditCourtReferencesAsync(userId, ct));
@@ -60,7 +62,7 @@ public sealed class DelhiHighCourtSyncService(
         return rows.Select(x => new DhcObservationDto(x.Id, x.CourtCaseId, x.NormalizedCaseIdentity,
             x.ListingDate, x.ObservedAt, x.SourceDocument.SourceTitle, x.SourceDocument.SourceUrl,
             x.SourceDocument.DocumentId, x.SourcePageNumber, x.RawMatchedText,
-            x.Status.ToString(), x.ConflictReason, x.SourceDocument.Kind.ToString())).ToList();
+            x.Status.ToString(), x.ConflictReason, x.SourceDocument.Kind.ToString(), x.Mode.ToString())).ToList();
     }
 
     public async Task<IReadOnlyList<DhcSourceReviewDto>> SourceReviewsAsync(Guid userId, CancellationToken ct)
@@ -85,7 +87,7 @@ public sealed class DelhiHighCourtSyncService(
         try
         {
             var now = clock.GetUtcNow();
-            var run = new CourtExternalSyncRun { StartedAt = now };
+            var run = new CourtExternalSyncRun { StartedAt = now, Mode = CourtExternalSyncMode.LiveWindow };
             db.CourtExternalSyncRuns.Add(run);
             await db.SaveChangesAsync(ct);
             try
@@ -360,7 +362,7 @@ public sealed class DelhiHighCourtSyncService(
             observation.ListingDate, observation.ObservedAt, observation.SourceDocument.SourceTitle,
             observation.SourceDocument.SourceUrl, observation.SourceDocument.DocumentId,
             observation.SourcePageNumber, observation.RawMatchedText, observation.Status.ToString(),
-            observation.ConflictReason, observation.SourceDocument.Kind.ToString());
+            observation.ConflictReason, observation.SourceDocument.Kind.ToString(), observation.Mode.ToString());
     }
 
     private void ChangeStatus(CourtExternalListingObservation item, CourtExternalListingStatus status, string reason, Guid? actor)

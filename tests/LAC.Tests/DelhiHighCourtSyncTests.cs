@@ -19,7 +19,8 @@ public sealed class DelhiHighCourtSyncTests
     private sealed class Clock : IOfficeClock
     {
         public DateTimeOffset Now = DateTimeOffset.UtcNow;
-        public DateOnly GetCurrentDate() => new(2026, 9, 28);
+        public DateOnly Today = new(2026, 9, 28);
+        public DateOnly GetCurrentDate() => Today;
         public DateTimeOffset GetUtcNow() => Now;
     }
 
@@ -47,6 +48,8 @@ public sealed class DelhiHighCourtSyncTests
     {
         public string Html = "";
         public Dictionary<string, byte[]> Pdfs { get; } = [];
+        public Dictionary<string, string> Pages { get; } = [];
+        public int PdfRequests;
         public bool Fail;
         public bool Redirect;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -54,8 +57,11 @@ public sealed class DelhiHighCourtSyncTests
             if (Fail) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
             if (Redirect) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Redirect)
             { Headers = { Location = new Uri("https://evil.example/redirect") } });
-            if (request.RequestUri!.AbsolutePath == "/web/cause-lists/cause-list")
+            if (Pages.TryGetValue(request.RequestUri!.AbsoluteUri, out var page))
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(page) });
+            if (request.RequestUri.AbsolutePath == "/web/cause-lists/cause-list")
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Html) });
+            PdfRequests++;
             return Task.FromResult(Pdfs.TryGetValue(request.RequestUri.AbsoluteUri, out var bytes)
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
                 : new HttpResponseMessage(HttpStatusCode.NotFound));
@@ -518,6 +524,7 @@ public sealed class DelhiHighCourtSyncTests
         }
         await f.Db.SaveChangesAsync();
         await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.RunAsync(assigned.Id, default));
+        await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.RunHistoricalAsync(assigned.Id, default));
         await f.Gate.Semaphore.WaitAsync();
         try { await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.RunAsync(f.User.Id, default)); }
         finally { f.Gate.Semaphore.Release(); }
@@ -574,5 +581,305 @@ public sealed class DelhiHighCourtSyncTests
         output.WriteLine($"Repeated sync: created {second.ObservationsCreated}; processed {second.SourceDocumentsProcessed}");
         Assert.Equal(0, second.ObservationsCreated);
         Assert.Equal(CourtExternalSyncRunStatus.Completed, first.Status);
+    }
+
+    private static CourtProceeding Legacy(Fixture f, CourtCase item, DateOnly? date)
+    {
+        var proceeding = new CourtProceeding { CourtCaseId = item.Id,
+            SourceKind = "LegacyRegisterNDOH", NextDate = date, ProceedingDate = null };
+        f.Db.CourtProceedings.Add(proceeding);
+        f.Db.SaveChanges();
+        return proceeding;
+    }
+
+    private static void HistoricalPages(Fixture f, params (string Date, string File, string[] Lines)[] entries)
+    {
+        var rows = new List<string>();
+        foreach (var (date, file, lines) in entries)
+        {
+            f.Source.Html = "";
+            f.Publish($"CAUSE LIST OF SITTING OF BENCHES FOR {date}", date, file, lines);
+            rows.Add(f.Source.Html);
+        }
+        f.Source.Html = rows[0];
+        var root = DelhiHighCourtSyncService.OfficialArchive + "?title=2026";
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var next = i + 1 < rows.Count ? $"<a href='?title=2026&amp;page={i + 1}' rel='next'>Next</a>" : "";
+            f.Source.Pages[i == 0 ? root : root + "&page=" + i] = rows[i] + next;
+        }
+    }
+
+    [Fact]
+    public async Task HistoricalBackfill_TargetedChronologicalAndOneTime()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        var legacy = Legacy(f, item, new DateOnly(2026, 3, 15));
+        var july = f.Case("W.P.(C) 8004/2026");
+        Legacy(f, july, new DateOnly(2026, 7, 1));
+        var noBaseline = f.Case("W.P.(C) 9005/2026");
+        var disposed = f.Case("W.P.(C) 9006/2026", status: "Disposed");
+        Legacy(f, disposed, new DateOnly(2026, 3, 15));
+        var otherCourt = f.Case("W.P.(C) 9007/2026", court: "Dwarka Court");
+        Legacy(f, otherCourt, new DateOnly(2026, 3, 15));
+        var real = f.Case("W.P.(C) 9008/2026");
+        Legacy(f, real, new DateOnly(2026, 3, 15));
+        f.Db.CourtProceedings.Add(new CourtProceeding { CourtCaseId = real.Id,
+            ProceedingDate = new DateOnly(2026, 9, 20), NextDate = new DateOnly(2026, 10, 10) });
+        await f.Db.SaveChangesAsync();
+        HistoricalPages(f,
+            ("05-09-2026", "sep.pdf", ["1 W.P.(C)-7003/2026", "2 W.P.(C)-8004/2026", "3 W.P.(C)-9999/2026"]),
+            ("22-07-2026", "jul.pdf", ["1 W.P.(C)-7003/2026", "2 W.P.(C)-8004/2026"]),
+            ("15-03-2026", "mar.pdf", ["1 W.P.(C)-7003/2026", "2 W.P.(C)-8004/2026"]),
+            ("15-02-2026", "feb.pdf", ["1 W.P.(C)-7003/2026"]));
+        var before = await f.Sync.HistoricalStatusAsync(f.User.Id, default);
+        Assert.Equal(2, before.EligibleCaseCount);
+        Assert.Equal(1, before.NoBaselineCount);
+        Assert.Equal(1, before.RealProceedingExclusionCount);
+        Assert.Equal(new DateOnly(2026, 3, 15), before.EarliestBaseline);
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(CourtExternalSyncMode.HistoricalBackfill, run.Mode);
+        Assert.Equal(5, run.ArchivePagesDiscovered);
+        Assert.Equal(3, run.SourceDocumentsProcessed);
+        Assert.Equal(5, run.ObservationsAccepted);
+        Assert.Equal(2, run.CasesAdvanced);
+        Assert.Equal(3, f.Source.PdfRequests);
+        Assert.Equal(5, f.Db.CourtExternalListingObservations.Count());
+        Assert.DoesNotContain(f.Db.CourtExternalListingObservations, x => x.NormalizedCaseIdentity.Contains("9999"));
+        Assert.Equal(new DateOnly(2026, 3, 15), legacy.NextDate);
+        Assert.Equal(2, f.Db.CourtProceedings.Count(x => x.CourtCaseId == item.Id || x.CourtCaseId == july.Id));
+        Assert.Empty(f.Db.CourtCaseEvents);
+        var page = await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id);
+        var row = page.Items.Single(x => x.Id == item.Id);
+        Assert.Equal(new DateOnly(2026, 9, 5), row.OperationalNdoh);
+        Assert.Equal("DHC historical cause list", row.OperationalNdohSource);
+        Assert.Equal("Overdue", row.QueueState);
+        Assert.Equal(new DateOnly(2026, 9, 5), page.Items.Single(x => x.Id == july.Id).OperationalNdoh);
+        Assert.Equal(new DateOnly(2026, 10, 10), page.Items.Single(x => x.Id == real.Id).OperationalNdoh);
+        Assert.False((await f.Sync.HistoricalStatusAsync(f.User.Id, default)).CanStart);
+        await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.RunHistoricalAsync(f.User.Id, default));
+        f.Clock.Now = legacy.CreatedAt.AddTicks(1);
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 03.10.2026", "03-10-2026", "future.pdf", "1 W.P.(C)-7003/2026");
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, (await f.Sync.RunAsync(null, default)).Status);
+        row = (await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items.Single(x => x.Id == item.Id);
+        Assert.Equal(new DateOnly(2026, 10, 3), row.OperationalNdoh);
+        Assert.Equal("DHC Cause List", row.OperationalNdohSource);
+        f.Clock.Now = f.Clock.Now.AddHours(1);
+        f.Db.CourtProceedings.Add(new CourtProceeding { CourtCaseId = item.Id,
+            ProceedingDate = new DateOnly(2026, 9, 29), NextDate = new DateOnly(2026, 10, 10),
+            CreatedAt = f.Clock.Now });
+        await f.Db.SaveChangesAsync();
+        row = (await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items.Single(x => x.Id == item.Id);
+        Assert.Equal(new DateOnly(2026, 10, 10), row.OperationalNdoh);
+        Assert.Equal("Court proceeding", row.OperationalNdohSource);
+    }
+
+    [Fact]
+    public async Task HistoricalDeletionFallsBackAndFailedRunRetriesWithoutDuplicateEvidence()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "sep.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("22-07-2026", "jul.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-03-2026", "mar.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-02-2026", "feb.pdf", ["1 W.P.(C)-7003/2026"]));
+        var current = f.Source.Html;
+        f.Source.Html = "";
+        f.Publish("Deletion Note for 05.09.2026", "05-09-2026", "deletion.pdf", "1 W.P.(C)-7003/2026");
+        var deletionRow = f.Source.Html;
+        f.Source.Html = current + deletionRow;
+        var root = DelhiHighCourtSyncService.OfficialArchive + "?title=2026";
+        f.Source.Pages[root] = current + deletionRow + "<a href='?title=2026&amp;page=1' rel='next'>Next</a>";
+        f.Source.Fail = true;
+        Assert.Equal(CourtExternalSyncRunStatus.Failed, (await f.Sync.RunHistoricalAsync(f.User.Id, default)).Status);
+        f.Source.Fail = false;
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count(x => x.Status == CourtExternalListingStatus.Accepted));
+        var september = f.Db.CourtExternalListingObservations.Single(x => x.ListingDate == new DateOnly(2026, 9, 5) &&
+            x.SourceDocument.Kind == CourtExternalSourceKind.OrdinaryListing);
+        Assert.Equal(CourtExternalListingStatus.Superseded, september.Status);
+        var row = (await f.Projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), f.User.Id)).Items.Single(x => x.Id == item.Id);
+        Assert.Equal(new DateOnly(2026, 7, 22), row.OperationalNdoh);
+    }
+
+    [Fact]
+    public async Task InterruptedHistoricalRunCanResumeAndMarksOldAttemptFailed()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        f.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        {
+            Mode = CourtExternalSyncMode.HistoricalBackfill, StartedAt = f.Clock.Now.AddHours(-1),
+            Status = CourtExternalSyncRunStatus.Running
+        });
+        await f.Db.SaveChangesAsync();
+        Assert.True((await f.Sync.HistoricalStatusAsync(f.User.Id, default)).CanStart);
+        var resumed = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, resumed.Status);
+        var old = f.Db.CourtExternalSyncRuns.Single(x => x.Id != resumed.Id);
+        Assert.Equal(CourtExternalSyncRunStatus.Failed, old.Status);
+        Assert.Contains("Interrupted", old.FailureMessage);
+    }
+
+    [Fact]
+    public async Task HistoricalModeReusesLiveDocumentAndSameShaAcrossOfficialUrls()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 28);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 9, 25));
+        f.Publish("CAUSE LIST OF SITTING OF BENCHES FOR 28.09.2026", "28-09-2026",
+            "first.pdf", "1 W.P.(C)-7003/2026");
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, (await f.Sync.RunAsync(null, default)).Status);
+        var firstUrl = f.Source.Pdfs.Keys.Single();
+        var bytes = f.Source.Pdfs[firstUrl];
+        var secondUrl = firstUrl.Replace("first.pdf", "second.pdf");
+        f.Source.Pdfs[secondUrl] = bytes;
+        var firstRow = f.Source.Html;
+        var secondRow = firstRow.Replace("first.pdf", "second.pdf");
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        f.Source.Html = firstRow + secondRow;
+        f.Source.Pages[DelhiHighCourtSyncService.OfficialArchive + "?title=2026"] =
+            firstRow + secondRow;
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(1, f.Db.Documents.Count(x => x.DocumentType == "CourtCauseList"));
+        Assert.Single(f.Storage.Files);
+        Assert.Equal(2, f.Source.PdfRequests); // live first URL, historical second URL only
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count(x =>
+            x.Mode == CourtExternalSyncMode.HistoricalBackfill));
+        Assert.All(f.Db.CourtExternalSourceDocuments, x => Assert.Equal(
+            f.Db.CourtExternalSourceDocuments.First().DocumentId, x.DocumentId));
+    }
+
+    [Fact]
+    public void HistoricalArchiveChangedLayoutAndUnsafePaginationFailClosed()
+    {
+        var root = new Uri(DelhiHighCourtSyncService.OfficialArchive + "?title=2026");
+        Assert.Throws<InvalidDataException>(() =>
+            DelhiHighCourtCauseListParser.DiscoverArchivePage("<html>layout changed</html>", root));
+        var row = "<tr><td headers='view-title-table-column'>CAUSE LIST OF SITTING OF BENCHES FOR 05.09.2026</td>" +
+            "<td headers='view-field-date-table-column'>05-09-2026</td>" +
+            "<td><a href='/files/2026-09/cause-list/sep.pdf'>Download</a></td></tr>";
+        Assert.Throws<InvalidDataException>(() => DelhiHighCourtCauseListParser.DiscoverArchivePage(
+            row + "<a href='https://evil.example/?page=1' rel='next'>Next</a>", root));
+    }
+
+    [Fact]
+    public async Task IsolatedHistoricalWorkbookAudit_WhenExplicitlyConfigured()
+    {
+        var connection = Environment.GetEnvironmentVariable("DHC_HISTORICAL_SMOKE_POSTGRES_CONNECTION");
+        var workbook = Environment.GetEnvironmentVariable("DHC_HISTORICAL_SMOKE_WORKBOOK");
+        if (string.IsNullOrWhiteSpace(connection) || string.IsNullOrWhiteSpace(workbook)) return;
+        using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(connection).Options);
+        await db.Database.MigrateAsync();
+        var storage = new Storage();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var user = new AppUser { Username = "dhc_historical_" + suffix,
+            NormalizedUsername = "DHC_HISTORICAL_" + suffix.ToUpperInvariant(), DisplayName = "Historical Smoke Officer" };
+        var role = new Role { Code = "DHC_HIST_" + suffix, Name = "DHC historical smoke" };
+        db.AddRange(user, role);
+        db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = role.Id });
+        foreach (var code in new[] { PermissionCodes.CourtView, PermissionCodes.CourtCreate, PermissionCodes.CourtEdit })
+        {
+            var permission = await db.Permissions.SingleAsync(x => x.Code == code);
+            db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permission.Id, ScopeMode = ScopeMode.All });
+        }
+        await db.SaveChangesAsync();
+        var auth = new CourtAuthorizationService(db, null!, null!, null!);
+        var imports = new CourtImportService(db, storage);
+        await using var source = File.Open(workbook, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var batch = await imports.StageAsync(source, Path.GetFileName(workbook),
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", user.Id);
+        var review = new CourtImportReviewService(db, auth, new CourtWorkflowService(db, auth, storage));
+        var approved = await review.ApproveSafeAsync(batch.Id, user.Id);
+        var committed = await review.CommitAsync(batch.Id, user.Id);
+        var sync = new DelhiHighCourtSyncService(db, storage, new OfficeClock(), new Factory(new SourceHandler()),
+            new ConfigurationBuilder().Build(), auth, new DelhiHighCourtSyncGate());
+        var audit = await sync.HistoricalStatusAsync(user.Id, default);
+        output.WriteLine($"Workbook rows={batch.TotalRows}, safe approved={approved.Ready}, committed={committed.CommittedThisRun}, failures={committed.Failures.Count}");
+        output.WriteLine($"Canonical={await db.CourtCases.CountAsync(x => x.RecordStatus == RecordStatus.Active)}, Pending DHC={await db.CourtCases.CountAsync(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court" && x.CurrentStatus != null && x.CurrentStatus.Trim().ToLower() == "pending")}");
+        output.WriteLine($"Eligible stale legacy={audit.EligibleCaseCount}, no baseline={audit.NoBaselineCount}, real proceeding exclusions={audit.RealProceedingExclusionCount}, earliest baseline={audit.EarliestBaseline}");
+        var resolved = await CourtOperationalNdohQuery.Resolve(db.CourtCases.AsNoTracking(), db,
+            new OfficeClock().GetCurrentDate())
+            .Select(x => new { x.OperationalNdoh, x.UsesHistoricalListing }).ToListAsync();
+        Assert.Equal(await db.CourtCases.CountAsync(), resolved.Count);
+        Assert.Contains("20260928193923_AddDhcHistoricalBackfillMode", await db.Database.GetAppliedMigrationsAsync());
+    }
+
+    [Fact]
+    public async Task BoundedPublicHistoricalSourceSmoke_WhenExplicitlyConfigured()
+    {
+        var connection = Environment.GetEnvironmentVariable("DHC_HISTORICAL_SMOKE_POSTGRES_CONNECTION");
+        var enabled = Environment.GetEnvironmentVariable("DHC_HISTORICAL_LIVE_SMOKE");
+        if (string.IsNullOrWhiteSpace(connection) || enabled != "1") return;
+        using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(connection).Options);
+        var today = new OfficeClock().GetCurrentDate();
+        using var http = new LiveFactory().CreateClient("DelhiHighCourtCauseList");
+        var pageUrls = Enumerable.Range(0, 8).Select(i => DelhiHighCourtSyncService.OfficialPage +
+            (i == 0 ? "" : "?page=" + i));
+        DhcPublication? chosen = null;
+        foreach (var url in pageUrls)
+        {
+            var uri = new Uri(url);
+            using var response = await http.GetAsync(uri);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var page = DelhiHighCourtCauseListParser.DiscoverArchivePage(await response.Content.ReadAsStringAsync(), uri);
+            var candidate = page.Publications.Where(x => x.Kind == CourtExternalSourceKind.OrdinaryListing &&
+                x.DateConflict == null && x.ListingDate >= today.AddDays(-7) && x.ListingDate < today)
+                .OrderBy(x => x.Title.StartsWith("ADVANCE CAUSE LIST OF CASES FOR", StringComparison.OrdinalIgnoreCase) ? 0 :
+                    x.Title.StartsWith("Cause List of Sitting of Benches", StringComparison.OrdinalIgnoreCase) ? 1 : 2)
+                .FirstOrDefault();
+            chosen ??= candidate;
+            if (candidate?.Title.StartsWith("ADVANCE CAUSE LIST OF CASES FOR", StringComparison.OrdinalIgnoreCase) == true)
+            { chosen = candidate; break; }
+            await Task.Delay(750);
+        }
+        Assert.NotNull(chosen);
+        Assert.True(DelhiHighCourtCauseListParser.IsApprovedUri(chosen.PdfUrl));
+        await Task.Delay(750);
+        using var pdfResponse = await http.GetAsync(chosen.PdfUrl, HttpCompletionOption.ResponseHeadersRead);
+        Assert.Equal(HttpStatusCode.OK, pdfResponse.StatusCode);
+        Assert.True(pdfResponse.Content.Headers.ContentLength is null or <= 30 * 1024 * 1024,
+            $"{chosen.Title}: {pdfResponse.Content.Headers.ContentLength} bytes");
+        var bytes = await pdfResponse.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length <= 30 * 1024 * 1024);
+        Assert.True(bytes.AsSpan().StartsWith("%PDF"u8));
+        IReadOnlyList<DhcCaseLine> lines;
+        using (var pdf = new MemoryStream(bytes, writable: false))
+            lines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
+        var storage = new Storage();
+        using var upload = new MemoryStream(bytes, writable: false);
+        var stored = await storage.SaveAndHashAsync(upload, Path.GetFileName(chosen.PdfUrl.LocalPath), default);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), stored.Sha256Hash);
+        var doc = new LAC.Domain.Document
+        {
+            DocumentType = "CourtCauseList", OriginalFileName = Path.GetFileName(chosen.PdfUrl.LocalPath),
+            StoragePath = stored.StoragePath, Sha256Hash = stored.Sha256Hash, FileSize = stored.FileSize,
+            MimeType = "application/pdf", UploadedAt = DateTimeOffset.UtcNow,
+            UploadedBy = DelhiHighCourtSyncService.Provider
+        };
+        db.Documents.Add(doc);
+        await db.SaveChangesAsync();
+        var candidates = await db.CourtCases.AsNoTracking().Include(x => x.Proceedings)
+            .Where(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court")
+            .ToListAsync();
+        var targets = candidates.Where(x => string.Equals(x.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.Proceedings.Where(p => p.RecordStatus == RecordStatus.Active)
+                .OrderByDescending(p => p.ProceedingDate.HasValue).ThenByDescending(p => p.ProceedingDate)
+                .ThenByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id).FirstOrDefault() is
+                { ProceedingDate: null, SourceKind: "LegacyRegisterNDOH", NextDate: not null } selected &&
+                selected.NextDate < today)
+            .Select(x => DelhiHighCourtCauseListParser.NormalizeIdentity(x.CaseNumber)).ToHashSet();
+        var matches = lines.Count(x => targets.Contains(x.Identity));
+        output.WriteLine($"Bounded public smoke: date={chosen.ListingDate}, source={chosen.Title}, PDF bytes={bytes.Length}, SHA={stored.Sha256Hash}, parsed identities={lines.Count}, exact stale-register target matches={matches}, stored Document={doc.Id}");
+        Assert.True(lines.Count > 0);
     }
 }

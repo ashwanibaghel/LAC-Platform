@@ -172,7 +172,8 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                   )}
                   {p.isAuthoritative && (
                     <span className="court-badge court-badge-authoritative">
-                      {courtCase.operationalNdohSource === "DHC Cause List"
+                      {courtCase.operationalNdohSource === "DHC Cause List" ||
+                       courtCase.operationalNdohSource === "DHC historical cause list"
                         ? "Selected proceeding or register record (prior context)"
                         : p.sourceKind === "LegacyRegisterNDOH" ? "Current register NDOH source" : "Authoritative NDOH Source"}
                     </span>

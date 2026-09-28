@@ -102,6 +102,18 @@ public static class CourtEndpoints
             try { return Results.Ok(await sync.RunAsync(user.UserId.Value, ct)); }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
+        group.MapGet("/dhc-sync/historical/status", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.HistoricalStatusAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/dhc-sync/historical/run", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await sync.RunHistoricalAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
         group.MapGet("/dhc-sync/review", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
         {
             if (!user.UserId.HasValue) return Results.Unauthorized();
@@ -133,12 +145,12 @@ public static class CourtEndpoints
         {
             if (!user.UserId.HasValue) return Results.Unauthorized();
             var source = await db.CourtExternalSourceDocuments.AsNoTracking().Include(x => x.Document)
-                .SingleOrDefaultAsync(x => x.DocumentId == id, ct);
+                .FirstOrDefaultAsync(x => x.DocumentId == id, ct);
             if (source?.Document == null) return Results.NotFound();
             if (!await auth.CanViewCourtReferencesAsync(user.UserId.Value, ct))
             {
                 var caseIds = await db.CourtExternalListingObservations.AsNoTracking()
-                    .Where(x => x.SourceDocumentId == source.Id && x.CourtCaseId != null)
+                    .Where(x => x.SourceDocument.DocumentId == id && x.CourtCaseId != null)
                     .Select(x => x.CourtCaseId!.Value).Distinct().ToListAsync(ct);
                 if (caseIds.Count == 0) return Results.Forbid();
                 var canView = false;

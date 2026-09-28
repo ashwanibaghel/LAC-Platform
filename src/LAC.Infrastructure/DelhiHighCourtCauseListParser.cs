@@ -11,6 +11,7 @@ namespace LAC.Infrastructure;
 public sealed record DhcPublication(string Title, DateOnly? ListingDate, Uri PdfUrl,
     CourtExternalSourceKind Kind, string? DateConflict);
 public sealed record DhcCaseLine(string Identity, int PageNumber, string Text);
+public sealed record DhcArchivePage(IReadOnlyList<DhcPublication> Publications, Uri? NextPage);
 
 // Public cause-list PDFs only. The CAPTCHA-protected Order Information/case-status
 // workflow is deliberately not queried, replayed or automated.
@@ -25,11 +26,15 @@ public static class DelhiHighCourtCauseListParser
     // An item number at the start of a PDF line is required. References buried
     // in notes, party text and application numbers are not auto-matched.
     private static readonly Regex NumberedCase = new(@"^\s*\d+\s*(?<case>[A-Za-z][A-Za-z.() ]*?\s*[-/]?\s*\d+\s*/\s*(?:19|20)\d{2})(?=\s|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex NextPage = new(@"<a\b(?=[^>]*\brel\s*=\s*['""]next['""])[^>]*\bhref\s*=\s*['""](?<url>[^'""]+)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     public static bool IsApprovedUri(Uri uri) => uri.Scheme == Uri.UriSchemeHttps &&
         (uri.Host.Equals("delhihighcourt.nic.in", StringComparison.OrdinalIgnoreCase) ||
          uri.Host.Equals("www.delhihighcourt.nic.in", StringComparison.OrdinalIgnoreCase)) &&
         uri.UserInfo.Length == 0 && uri.Port == 443;
+
+    public static string? NormalizeIdentity(string caseNumber) =>
+        CourtImportService.Identity("Delhi High Court", caseNumber);
 
     public static CourtExternalSourceKind Classify(string title)
     {
@@ -60,6 +65,23 @@ public static class DelhiHighCourtCauseListParser
             result.Add(new DhcPublication(title, metadataDate, uri, Classify(title), conflict));
         }
         return result;
+    }
+
+    public static DhcArchivePage DiscoverArchivePage(string html, Uri pageUrl)
+    {
+        if (!IsApprovedUri(pageUrl) || (pageUrl.AbsolutePath != "/web/cause-lists/archive-cause-list" &&
+            pageUrl.AbsolutePath != "/web/cause-lists/cause-list"))
+            throw new InvalidDataException("Unapproved public cause-list archive page.");
+        var publications = Discover(html, pageUrl);
+        if (publications.Count == 0 || publications.Any(x => x.ListingDate == null))
+            throw new InvalidDataException("Public cause-list archive layout changed or contains undated rows.");
+        var nextMatch = NextPage.Match(html);
+        if (!nextMatch.Success) return new(publications, null);
+        var href = WebUtility.HtmlDecode(nextMatch.Groups["url"].Value);
+        if (!Uri.TryCreate(pageUrl, href, out var next) || !IsApprovedUri(next) ||
+            next.AbsolutePath != pageUrl.AbsolutePath || next == pageUrl)
+            throw new InvalidDataException("Unsafe public archive pagination link.");
+        return new(publications, next);
     }
 
     public static IReadOnlyList<DhcCaseLine> ExtractCases(Stream pdfStream)

@@ -16,7 +16,7 @@ export const DhcCaseListings: React.FC<{ caseId: string }> = ({ caseId }) => {
       <p>Official cause-list appearances are listing observations, not proceedings, orders or completed hearings.</p>
       {items.length === 0 ? <p>No official Delhi High Court listing observations recorded.</p> :
         <ul>{items.map(item => <li key={item.id} style={{ marginBottom: 12 }}>
-          <strong>{item.listingDate}</strong> · {item.status} · observed {new Date(item.observedAt).toLocaleString()}
+          <strong>{item.listingDate}</strong> · {item.mode === "HistoricalBackfill" ? "Historical cause-list appearance" : "Cause-list appearance"} · {item.status} · observed {new Date(item.observedAt).toLocaleString()}
           <div>{item.sourceTitle} · page {item.pageNumber}</div>
           <div>{item.rawMatchedText}</div>
           {item.conflictReason && <div>{item.conflictReason}</div>}
