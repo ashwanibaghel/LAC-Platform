@@ -420,8 +420,10 @@ public sealed class CourtProjectionService(
             .OrderBy(x => x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "pending"
                 ? (x.OperationalNdoh >= today ? 0 : x.OperationalNdoh != null ? 1 : 2)
                 : x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "disposed" ? 4 : 3)
-            .ThenBy(x => x.OperationalNdoh >= today ? x.OperationalNdoh : null)
-            .ThenByDescending(x => x.OperationalNdoh < today ? x.OperationalNdoh : null)
+            .ThenBy(x => x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "pending" && x.OperationalNdoh >= today
+                ? x.OperationalNdoh : null)
+            .ThenByDescending(x => x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "pending" && x.OperationalNdoh < today
+                ? x.OperationalNdoh : null)
             .ThenByDescending(x => x.Case.CurrentStatus == null || x.Case.CurrentStatus.Trim().ToLower() != "pending" || x.OperationalNdoh == null
                 ? (DateTimeOffset?)x.Case.UpdatedAt : null)
             .ThenBy(x => x.Case.CourtName)

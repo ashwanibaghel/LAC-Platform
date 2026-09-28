@@ -63,6 +63,64 @@ public sealed class CourtOperationalDirectoryTests
     }
 
     [Fact]
+    public async Task DefaultQueue_ScopesDateSortKeysToPendingBuckets_BeforePagination()
+    {
+        var (db, user, projection) = await SetupAsync();
+        using (db)
+        {
+            var older = new DateTimeOffset(2026, 9, 10, 0, 0, 0, TimeSpan.Zero);
+            var newer = new DateTimeOffset(2026, 9, 20, 0, 0, 0, TimeSpan.Zero);
+
+            AddCase(db, "UP-LATER", nextDate: new DateOnly(2026, 10, 2));
+            AddCase(db, "UP-EARLIER", nextDate: new DateOnly(2026, 9, 29));
+            AddCase(db, "OVER-OLDER", nextDate: new DateOnly(2026, 9, 26));
+            AddCase(db, "OVER-NEWER", nextDate: new DateOnly(2026, 9, 27));
+            AddCase(db, "NO-OLDER").UpdatedAt = older;
+            AddCase(db, "NO-NEWER").UpdatedAt = newer;
+            AddCase(db, "ATT-OLDER", "Stay Granted", new DateOnly(2026, 10, 1)).UpdatedAt = older;
+            AddCase(db, "ATT-NEWER", "Stay Granted", new DateOnly(2026, 10, 10)).UpdatedAt = newer;
+            AddCase(db, "DIS-OLDER", "Disposed", new DateOnly(2026, 9, 27)).UpdatedAt = older;
+            AddCase(db, "DIS-NEWER", "Disposed", new DateOnly(2026, 9, 26)).UpdatedAt = newer;
+            await db.SaveChangesAsync();
+
+            var expected = new[] { "UP-EARLIER", "UP-LATER", "OVER-NEWER", "OVER-OLDER",
+                "NO-NEWER", "NO-OLDER", "ATT-NEWER", "ATT-OLDER", "DIS-NEWER", "DIS-OLDER" };
+            var all = await projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), user.Id);
+            Assert.Equal(expected, all.Items.Select(x => x.CaseNumber));
+            var pages = new List<string>();
+            for (var page = 1; page <= 5; page++)
+                pages.AddRange((await projection.GetCourtCasesAsync(new CourtCaseFilterQuery(Page: page, PageSize: 2), user.Id))
+                    .Items.Select(x => x.CaseNumber));
+            Assert.Equal(expected, pages);
+        }
+    }
+
+    [Fact]
+    public async Task DefaultQueue_UsesCourtNameCaseNumberAndIdToBreakActivityTies()
+    {
+        var (db, user, projection) = await SetupAsync();
+        using (db)
+        {
+            var firstId = AddCase(db, "A", court: "A Court");
+            var secondId = AddCase(db, "A", court: "A Court");
+            AddCase(db, "B", court: "A Court");
+            AddCase(db, "A", court: "B Court");
+            await db.SaveChangesAsync();
+
+            var expectedIds = new[] { firstId.Id, secondId.Id }.Order().ToArray();
+            var all = await projection.GetCourtCasesAsync(new CourtCaseFilterQuery(), user.Id);
+            Assert.Equal(new[] { "A Court", "A Court", "A Court", "B Court" }, all.Items.Select(x => x.CourtName));
+            Assert.Equal(new[] { "A", "A", "B", "A" }, all.Items.Select(x => x.CaseNumber));
+            Assert.Equal(expectedIds, all.Items.Take(2).Select(x => x.Id));
+            var pages = new List<Guid>();
+            for (var page = 1; page <= 4; page++)
+                pages.AddRange((await projection.GetCourtCasesAsync(new CourtCaseFilterQuery(Page: page, PageSize: 1), user.Id))
+                    .Items.Select(x => x.Id));
+            Assert.Equal(all.Items.Select(x => x.Id), pages);
+        }
+    }
+
+    [Fact]
     public async Task DefaultQueue_UsesAuthoritativeNdohBeforeStablePagination_NotCalendar()
     {
         var (db, user, projection) = await SetupAsync();
