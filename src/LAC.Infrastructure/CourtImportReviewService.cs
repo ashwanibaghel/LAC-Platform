@@ -76,7 +76,7 @@ public sealed class CourtImportReviewService(
     {
         var rows = await db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == batchId)
             .Select(x => new { x.ResolutionAction, x.CommitStatus, x.RowStatus, x.IdentityKey,
-                x.SuggestedStatusClass, x.ValidationIssuesJson, x.CandidateCourtCaseId }).ToListAsync(ct);
+                x.SuggestedStatusClass, x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId }).ToListAsync(ct);
         return new CourtImportReviewSummary(
             rows.Count(x => x.ResolutionAction == null),
             rows.Count(x => x.ResolutionAction is CourtImportResolutionAction.ImportAsNewCase or CourtImportResolutionAction.LinkToExistingCase
@@ -85,14 +85,15 @@ public sealed class CourtImportReviewService(
             rows.Count(x => x.ResolutionAction == CourtImportResolutionAction.Skip),
             rows.Count(x => x.CommitStatus == CourtImportCommitStatus.Failed),
             rows.Count(x => x.ResolutionAction == null && IsSafe(x.RowStatus, x.IdentityKey, x.SuggestedStatusClass,
-                x.ValidationIssuesJson, x.CandidateCourtCaseId)));
+                x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId)));
     }
 
     private static bool IsSafe(CourtImportRowStatus status, string? identity,
-        CourtImportStatusClass? statusClass, string issues, Guid? candidateId) =>
+        CourtImportStatusClass? statusClass, string? suggestedCourtName, string issues, Guid? candidateId) =>
         status == CourtImportRowStatus.NewCandidate &&
         identity != null &&
         statusClass is CourtImportStatusClass.Pending or CourtImportStatusClass.Disposed &&
+        CourtImportService.IsApprovedCanonicalCourtName(suggestedCourtName) &&
         issues == "[]" &&
         candidateId == null;
 
@@ -138,8 +139,9 @@ public sealed class CourtImportReviewService(
             row.ApprovedCaseNumber = Trim(request.ApprovedCaseNumber) ?? Trim(row.RawCaseNumber)
                 ?? throw new CourtWorkflowException("Approved case number is required.", 400);
             row.ApprovedCaseTitle = Trim(request.ApprovedCaseTitle) ?? Trim(row.RawCaseTitle);
-            row.ApprovedCourtName = Trim(request.ApprovedCourtName) ?? Trim(row.SuggestedCourtName)
+            var approvedCourt = Trim(request.ApprovedCourtName) ?? Trim(row.SuggestedCourtName)
                 ?? throw new CourtWorkflowException("Approved court name is required.", 400);
+            row.ApprovedCourtName = CourtImportService.CanonicalCourtName(approvedCourt) ?? approvedCourt;
             row.ApprovedStatus = CanonicalStatus(row, request.ApprovedStatus);
             row.NdohAction = row.ParsedNdoh.HasValue ? CourtImportNdohAction.UseImported : null;
         }
@@ -217,6 +219,9 @@ public sealed class CourtImportReviewService(
             x.ValidationIssuesJson == "[]" &&
             (x.SuggestedStatusClass == CourtImportStatusClass.Pending ||
              x.SuggestedStatusClass == CourtImportStatusClass.Disposed)).ToListAsync(ct);
+        // Re-check in memory so rows staged before this alias fix cannot bulk-promote
+        // an arbitrary nonblank SuggestedCourtName into a canonical CourtCase.
+        rows = rows.Where(x => CourtImportService.IsApprovedCanonicalCourtName(x.SuggestedCourtName)).ToList();
         foreach (var row in rows)
         {
             row.ResolutionAction = CourtImportResolutionAction.ImportAsNewCase;

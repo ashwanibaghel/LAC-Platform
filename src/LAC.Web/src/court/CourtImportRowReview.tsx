@@ -19,7 +19,7 @@ export function CourtImportRowReview({ row, save, close }: {
   const [action, setAction] = useState<Action>("ImportAsNewCase");
   const [caseNumber, setCaseNumber] = useState(row.approvedCaseNumber || row.rawCaseNumber || "");
   const [caseTitle, setCaseTitle] = useState(row.approvedCaseTitle || row.rawCaseTitle || "");
-  const [courtName, setCourtName] = useState(row.approvedCourtName || row.rawCourt || "");
+  const [courtName, setCourtName] = useState(row.approvedCourtName || row.suggestedCourtName || "");
   const [approvedStatus, setApprovedStatus] = useState(row.approvedStatus ||
     (["Pending", "Disposed"].includes(row.suggestedStatusClass || "") ? row.suggestedStatusClass || "" : ""));
   const [notes, setNotes] = useState(row.reviewerNotes || "");
@@ -62,6 +62,7 @@ export function CourtImportRowReview({ row, save, close }: {
     {["PotentialDuplicate", "IdentityConflict", "NeedsReview", "Invalid"].includes(row.rowStatus) &&
       <p role="alert">Risk: {row.rowStatus}. This row is never bulk-approved. Check the source and explain your decision.</p>}
     <p>Excel: {row.rawCaseNumber} · {row.rawCaseTitle} · {row.rawCourt} · {row.rawStatus} · NDOH {row.rawNdoh || "blank"}</p>
+    <p>Canonical court suggestion: {row.suggestedCourtName || "Unresolved — officer review required"}</p>
     <p>Directions (source only): {row.rawDirections || "—"}</p>
     <p>Brief facts (source only): {row.rawBriefFacts || "—"}</p>
     <p>Last-order URL (source only): {row.rawLastOrderLink || "—"} · {row.lastOrderLinkState}</p>

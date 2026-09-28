@@ -123,18 +123,21 @@ public sealed class CourtImportReviewTests
             var sineDie = Row(batch, 206, CourtImportRowStatus.NeedsReview);
             sineDie.RawStatus = "SINE-DIE"; sineDie.SuggestedStatusClass = CourtImportStatusClass.Attention;
             var skipped = Row(batch, 207);
-            db.CourtImportRows.AddRange(safe, duplicate, conflict, needsReview, invalid, sineDie, skipped);
+            var legacyUnknown = Row(batch, 208);
+            legacyUnknown.RawCourt = "District Court Rohini";
+            legacyUnknown.SuggestedCourtName = "District Court Rohini";
+            db.CourtImportRows.AddRange(safe, duplicate, conflict, needsReview, invalid, sineDie, skipped, legacyUnknown);
             await db.SaveChangesAsync();
             await review.DecideAsync(batch.Id, skipped.Id, new CourtImportDecisionRequest(CourtImportResolutionAction.Skip), actor.Id);
             var summary = await review.ApproveSafeAsync(batch.Id, actor.Id);
-            Assert.Equal(1, summary.Ready); Assert.Equal(5, summary.Unresolved); Assert.Equal(1, summary.Skipped);
+            Assert.Equal(1, summary.Ready); Assert.Equal(6, summary.Unresolved); Assert.Equal(1, summary.Skipped);
             Assert.Equal(CourtImportResolutionAction.ImportAsNewCase,
                 (await db.CourtImportRows.SingleAsync(x => x.Id == safe.Id)).ResolutionAction);
             Assert.All(await db.CourtImportRows.Where(x => x.Id != safe.Id && x.Id != skipped.Id).ToListAsync(),
                 x => Assert.Null(x.ResolutionAction));
             await review.CommitAsync(batch.Id, actor.Id);
             Assert.Single(db.CourtCases);
-            Assert.Equal(5, (await review.SummaryAsync(batch.Id, actor.Id)).Unresolved);
+            Assert.Equal(6, (await review.SummaryAsync(batch.Id, actor.Id)).Unresolved);
             await Assert.ThrowsAsync<CourtWorkflowException>(() => review.DecideAsync(batch.Id, invalid.Id,
                 new CourtImportDecisionRequest(CourtImportResolutionAction.ImportAsNewCase, ReviewerNotes: "Reviewed"), actor.Id));
         }

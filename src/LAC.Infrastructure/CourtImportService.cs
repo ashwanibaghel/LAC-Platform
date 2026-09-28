@@ -9,13 +9,29 @@ using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
 
 public sealed record CourtImportBatchDto(Guid Id, string Status, string SourceSheetName, int TotalRows, int ValidRows, int NeedsReviewRows, int ConflictRows, int InvalidRows, string? FailureMessage, DateTimeOffset CreatedAt);
-public sealed record CourtImportRowDto(Guid Id, int SourceRowNumber, string? SourceSerialNumberRaw, string? RawCaseNumber, string? RawCaseTitle, string? RawCourt, string? RawStatus, string? SuggestedStatusClass, string? RawNdoh, DateOnly? ParsedNdoh, string? RawAdvocate, string? RawVillage, string? RawAwardNumber, string? LastOrderLinkState, string RowStatus, string ValidationIssuesJson, string? RawDirections, string? RawBriefFacts, string? RawLastOrderLink, string? ResolutionAction, Guid? ResolvedCourtCaseId, string? ApprovedCaseNumber, string? ApprovedCaseTitle, string? ApprovedCourtName, string? ApprovedStatus, bool ApplyStatusToExisting, string? NdohAction, string? ReviewerNotes, string CommitStatus, Guid? CommittedCourtCaseId, Guid? CommittedProceedingId, string? CommitError);
+public sealed record CourtImportRowDto(Guid Id, int SourceRowNumber, string? SourceSerialNumberRaw, string? RawCaseNumber, string? RawCaseTitle, string? RawCourt, string? SuggestedCourtName, string? RawStatus, string? SuggestedStatusClass, string? RawNdoh, DateOnly? ParsedNdoh, string? RawAdvocate, string? RawVillage, string? RawAwardNumber, string? LastOrderLinkState, string RowStatus, string ValidationIssuesJson, string? RawDirections, string? RawBriefFacts, string? RawLastOrderLink, string? ResolutionAction, Guid? ResolvedCourtCaseId, string? ApprovedCaseNumber, string? ApprovedCaseTitle, string? ApprovedCourtName, string? ApprovedStatus, bool ApplyStatusToExisting, string? NdohAction, string? ReviewerNotes, string CommitStatus, Guid? CommittedCourtCaseId, Guid? CommittedProceedingId, string? CommitError);
 public interface ICourtImportService { Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default); Task<CourtImportBatchDto?> GetAsync(Guid id, CancellationToken ct = default); Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct = default); Task<(IReadOnlyList<CourtImportRowDto> Items,int Total)> RowsAsync(Guid id,string? status,string? search,int? sourceRow,int page,int pageSize,CancellationToken ct=default); }
 
 public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage) : ICourtImportService
 {
     public const string PrimarySheet = "Court case status pertains to L";
     private const long MaxBytes = 20 * 1024 * 1024;
+    private static readonly IReadOnlyDictionary<string, string> CourtAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Delhi High Court"] = "Delhi High Court",
+        ["High Court"] = "Delhi High Court",
+        ["Dwarka Court"] = "Dwarka Court",
+        ["District Court Dwarka"] = "Dwarka Court",
+        ["Supreme Court"] = "Supreme Court",
+        ["Suprem Court"] = "Supreme Court",
+        ["Tis Hazari Court"] = "Tis Hazari Court"
+    };
+
+    internal static string? CanonicalCourtName(string? rawCourt) =>
+        rawCourt != null && CourtAliases.TryGetValue(rawCourt.Trim(), out var canonical) ? canonical : null;
+
+    internal static bool IsApprovedCanonicalCourtName(string? court) =>
+        court != null && string.Equals(CanonicalCourtName(court), court, StringComparison.Ordinal);
     public async Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default)
     {
         if (!string.Equals(Path.GetExtension(fileName), ".xlsx", StringComparison.OrdinalIgnoreCase)) throw new CourtWorkflowException("Only .xlsx workbooks are supported.", 400);
@@ -48,7 +64,7 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
         Classify(batch); batch.TotalRows=batch.Rows.Count; batch.ValidRows=batch.Rows.Count(x=>x.RowStatus is CourtImportRowStatus.NewCandidate or CourtImportRowStatus.ExistingExact); batch.NeedsReviewRows=batch.Rows.Count(x=>x.RowStatus is CourtImportRowStatus.NeedsReview or CourtImportRowStatus.PotentialDuplicate); batch.ConflictRows=batch.Rows.Count(x=>x.RowStatus==CourtImportRowStatus.IdentityConflict); batch.InvalidRows=batch.Rows.Count(x=>x.RowStatus==CourtImportRowStatus.Invalid); batch.Status=CourtImportBatchStatus.Parsed; batch.ParsedAt=DateTimeOffset.UtcNow;
     }
     private static Dictionary<string,int> HeaderMap(IXLRow header) { var result=new Dictionary<string,int>(); foreach(var c in header.CellsUsed()){var h=NormalizeHeader(CellText(c)); var k=h switch {"srno"=>"srno", "ndoh"=>"ndoh", "casesatus"=>"status", "casestatus"=>"status", "recivedfromwhichadvocate"=>"advocate", "receivedfromwhichadvocate"=>"advocate", "casetitle"=>"title", "caseno"=>"caseno", "village"=>"village", "awardno"=>"award", "directions"=>"directions", "whichcourtpertainsto"=>"court", "lastorderlink"=>"link", "brieffactsofthecase"=>"facts", _=>""}; if(k!="")result[k]=c.Address.ColumnNumber;} return result; }
-    private static CourtImportRow MakeRow(Guid batchId,int rn,Dictionary<string,string?> cells,Dictionary<string,int> m,DateOnly? typedNdoh) { string? V(string k)=>m.TryGetValue(k,out var col)?cells[XLHelper.GetColumnLetterFromNumber(col)]:null; var rawNo=V("caseno"); var (type,num,year)=ParseCase(rawNo); var rawStatus=V("status"); var statusClass=Status(rawStatus); var issues=new List<string>(); DateOnly? ndoh=typedNdoh??ParseDate(V("ndoh")); if(!string.IsNullOrWhiteSpace(V("ndoh"))&&!ndoh.HasValue)issues.Add("NDOH is not a deterministic date."); if(string.IsNullOrWhiteSpace(rawStatus))issues.Add("Case status is blank."); if(statusClass==CourtImportStatusClass.Attention)issues.Add("Case status needs classification review."); var link=V("link"); var linkState=string.IsNullOrWhiteSpace(link)?"Missing":Uri.TryCreate(link,UriKind.Absolute,out var u)&&(u.Scheme==Uri.UriSchemeHttp||u.Scheme==Uri.UriSchemeHttps)?"ValidHttpUrl":"NeedsReview"; if(linkState=="NeedsReview")issues.Add("Last-order link is not an http/https URL."); var extras=cells.Where(x=>m.Values.All(v=>XLHelper.GetColumnLetterFromNumber(v)!=x.Key)&&!string.IsNullOrWhiteSpace(x.Value)).ToDictionary(x=>x.Key,x=>x.Value); var identity=type is null||num is null||year is null||string.IsNullOrWhiteSpace(V("court"))?null:$"{Key(V("court"))}|{type}|{num}|{year}"; return new CourtImportRow {BatchId=batchId,SourceRowNumber=rn,SourceSerialNumberRaw=V("srno"),RawRowJson=JsonSerializer.Serialize(cells),RawNdoh=V("ndoh"),ParsedNdoh=ndoh,RawStatus=rawStatus,SuggestedStatusClass=statusClass,RawAdvocate=V("advocate"),RawCaseTitle=V("title"),RawCaseNumber=rawNo,SuggestedCaseType=type,SuggestedCaseNumber=num,SuggestedCaseYear=year,RawVillage=V("village"),RawAwardNumber=V("award"),RawDirections=V("directions"),RawCourt=V("court"),SuggestedCourtName=Clean(V("court")),RawLastOrderLink=link,LastOrderLinkState=linkState,RawBriefFacts=V("facts"),ExtraCellsJson=JsonSerializer.Serialize(extras),IdentityKey=identity,RowStatus=identity is null||issues.Count>0?CourtImportRowStatus.NeedsReview:CourtImportRowStatus.NewCandidate,ValidationIssuesJson=JsonSerializer.Serialize(issues),SourceRowHash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cells)))).ToLowerInvariant()}; }
+    private static CourtImportRow MakeRow(Guid batchId,int rn,Dictionary<string,string?> cells,Dictionary<string,int> m,DateOnly? typedNdoh) { string? V(string k)=>m.TryGetValue(k,out var col)?cells[XLHelper.GetColumnLetterFromNumber(col)]:null; var rawNo=V("caseno"); var (type,num,year)=ParseCase(rawNo); var rawStatus=V("status"); var statusClass=Status(rawStatus); var issues=new List<string>(); DateOnly? ndoh=typedNdoh??ParseDate(V("ndoh")); if(!string.IsNullOrWhiteSpace(V("ndoh"))&&!ndoh.HasValue)issues.Add("NDOH is not a deterministic date."); if(string.IsNullOrWhiteSpace(rawStatus))issues.Add("Case status is blank."); if(statusClass==CourtImportStatusClass.Attention)issues.Add("Case status needs classification review."); var rawCourt=V("court"); var canonicalCourt=CanonicalCourtName(rawCourt); if(!string.IsNullOrWhiteSpace(rawCourt)&&canonicalCourt is null)issues.Add("Court name is not in the approved alias list."); var link=V("link"); var linkState=string.IsNullOrWhiteSpace(link)?"Missing":Uri.TryCreate(link,UriKind.Absolute,out var u)&&(u.Scheme==Uri.UriSchemeHttp||u.Scheme==Uri.UriSchemeHttps)?"ValidHttpUrl":"NeedsReview"; if(linkState=="NeedsReview")issues.Add("Last-order link is not an http/https URL."); var extras=cells.Where(x=>m.Values.All(v=>XLHelper.GetColumnLetterFromNumber(v)!=x.Key)&&!string.IsNullOrWhiteSpace(x.Value)).ToDictionary(x=>x.Key,x=>x.Value); var identity=type is null||num is null||year is null||canonicalCourt is null?null:$"{Key(canonicalCourt)}|{type}|{num}|{year}"; return new CourtImportRow {BatchId=batchId,SourceRowNumber=rn,SourceSerialNumberRaw=V("srno"),RawRowJson=JsonSerializer.Serialize(cells),RawNdoh=V("ndoh"),ParsedNdoh=ndoh,RawStatus=rawStatus,SuggestedStatusClass=statusClass,RawAdvocate=V("advocate"),RawCaseTitle=V("title"),RawCaseNumber=rawNo,SuggestedCaseType=type,SuggestedCaseNumber=num,SuggestedCaseYear=year,RawVillage=V("village"),RawAwardNumber=V("award"),RawDirections=V("directions"),RawCourt=rawCourt,SuggestedCourtName=canonicalCourt,RawLastOrderLink=link,LastOrderLinkState=linkState,RawBriefFacts=V("facts"),ExtraCellsJson=JsonSerializer.Serialize(extras),IdentityKey=identity,RowStatus=identity is null||issues.Count>0?CourtImportRowStatus.NeedsReview:CourtImportRowStatus.NewCandidate,ValidationIssuesJson=JsonSerializer.Serialize(issues),SourceRowHash=Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(cells)))).ToLowerInvariant()}; }
     private void Classify(CourtImportBatch batch)
     {
         // Exact raw reference is a review signal only; it never becomes a canonical identity key.
@@ -84,8 +100,9 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
     internal static string? Identity(string? court, string? caseNumber)
     {
         var (type, number, year) = ParseCase(caseNumber);
-        return type is null || number is null || year is null || string.IsNullOrWhiteSpace(court)
-            ? null : $"{Key(court)}|{type}|{number}|{year}";
+        var canonicalCourt = CanonicalCourtName(court);
+        return type is null || number is null || year is null || canonicalCourt is null
+            ? null : $"{Key(canonicalCourt)}|{type}|{number}|{year}";
     }
     private static (string?,string?,int?) ParseCase(string? s)
     {
@@ -116,7 +133,7 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
             .Take(Math.Clamp(pageSize, 1, 100))
             .Select(x => new CourtImportRowDto(
                 x.Id, x.SourceRowNumber, x.SourceSerialNumberRaw, x.RawCaseNumber, x.RawCaseTitle,
-                x.RawCourt, x.RawStatus, x.SuggestedStatusClass == null ? null : x.SuggestedStatusClass.ToString(),
+                x.RawCourt, x.SuggestedCourtName, x.RawStatus, x.SuggestedStatusClass == null ? null : x.SuggestedStatusClass.ToString(),
                 x.RawNdoh, x.ParsedNdoh, x.RawAdvocate, x.RawVillage, x.RawAwardNumber,
                 x.LastOrderLinkState, x.RowStatus.ToString(), x.ValidationIssuesJson,
                 x.RawDirections, x.RawBriefFacts, x.RawLastOrderLink,

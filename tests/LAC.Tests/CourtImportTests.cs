@@ -43,7 +43,7 @@ public sealed class CourtImportTests
         fill(sheet); using var output = new MemoryStream(); book.SaveAs(output); return output.ToArray();
     }
 
-    private static void Row(IXLWorksheet sheet, int number, string caseNo, string title, string status = "Pending", string? ndoh = "28.09.2026", string? link = "https://delhihighcourt.nic.in/order.pdf")
+    private static void Row(IXLWorksheet sheet, int number, string caseNo, string title, string status = "Pending", string? ndoh = "28.09.2026", string? link = "https://delhihighcourt.nic.in/order.pdf", string court = "Delhi High Court")
     {
         sheet.Cell(number, 1).Value = number - 2;
         if (ndoh != null) sheet.Cell(number, 2).Value = ndoh;
@@ -54,7 +54,7 @@ public sealed class CourtImportTests
         sheet.Cell(number, 7).Value = "Village A";
         sheet.Cell(number, 8).Value = "01/2024/SW";
         sheet.Cell(number, 9).Value = "Direction A";
-        sheet.Cell(number, 10).Value = "Delhi High Court";
+        sheet.Cell(number, 10).Value = court;
         if (link != null) sheet.Cell(number, 11).Value = link;
         sheet.Cell(number, 12).Value = "Fact A";
     }
@@ -135,6 +135,95 @@ public sealed class CourtImportTests
     }
 
     [Fact]
+    public async Task AuditedCourtAliases_KeepRawTextAndShareDeterministicIdentity()
+    {
+        using var db = Db(); var storage = new MemoryStorage(); var actor = new AppUser { DisplayName = "Importer" };
+        db.AppUsers.Add(actor); await db.SaveChangesAsync();
+        var bytes = Workbook(sheet =>
+        {
+            Row(sheet, 3, "WP(C) 100/2026", "Same title", court: "High Court");
+            Row(sheet, 4, "WP(C) 100/2026", "Same title", court: "Delhi High Court");
+            Row(sheet, 5, "WP(C) 101/2026", "Dwarka", court: "District Court Dwarka");
+            Row(sheet, 6, "WP(C) 102/2026", "Supreme", court: "Suprem Court");
+            Row(sheet, 7, "WP(C) 103/2026", "Tis Hazari", court: "Tis Hazari Court");
+            Row(sheet, 8, "WP(C) 104/2026", "Unknown", court: "High  Court");
+            Row(sheet, 9, "WP(C) 105/2026", "Unknown 2", court: "District Court Rohini");
+            Row(sheet, 10, "WP(C) 106/2026", "Casing", court: " high court ");
+        });
+        var batch = await new CourtImportService(db, storage).StageAsync(new MemoryStream(bytes), "aliases.xlsx", null, actor.Id);
+        Assert.Equal("Parsed", batch.Status);
+        var rows = await db.CourtImportRows.OrderBy(x => x.SourceRowNumber).ToListAsync();
+        Assert.Equal("High Court", rows[0].RawCourt);
+        Assert.Equal("Delhi High Court", rows[0].SuggestedCourtName);
+        Assert.Equal(rows[0].IdentityKey, rows[1].IdentityKey);
+        Assert.Equal(CourtImportRowStatus.PotentialDuplicate, rows[0].RowStatus);
+        Assert.Equal("Dwarka Court", rows[2].SuggestedCourtName);
+        Assert.Equal("Supreme Court", rows[3].SuggestedCourtName);
+        Assert.Equal("Tis Hazari Court", rows[4].SuggestedCourtName);
+        Assert.All(rows.Skip(5).Take(2), row =>
+        {
+            Assert.Null(row.SuggestedCourtName);
+            Assert.Null(row.IdentityKey);
+            Assert.Equal(CourtImportRowStatus.NeedsReview, row.RowStatus);
+            Assert.Contains("approved alias list", row.ValidationIssuesJson);
+        });
+        Assert.Equal(" high court ", rows[7].RawCourt);
+        Assert.Equal("Delhi High Court", rows[7].SuggestedCourtName);
+        Assert.Equal("delhihighcourt|wpc|106|2026", rows[7].IdentityKey);
+    }
+
+    [Fact]
+    public async Task HighCourtAlias_MatchesExistingCaseWithoutChangingItsName()
+    {
+        using var db = Db(); var storage = new MemoryStorage(); var actor = new AppUser { DisplayName = "Importer" };
+        var existing = new CourtCase { CourtName = "Delhi High Court", CaseNumber = "WP(C) 940/2015", CaseTitle = "Same title" };
+        db.AddRange(actor, existing); await db.SaveChangesAsync();
+        var bytes = Workbook(sheet => Row(sheet, 3, "WP(C) 940/2015", "Same title", court: "High Court"));
+        var batch = await new CourtImportService(db, storage).StageAsync(new MemoryStream(bytes), "alias.xlsx", null, actor.Id);
+        Assert.Equal("Parsed", batch.Status);
+        var row = await db.CourtImportRows.SingleAsync();
+        Assert.Equal(CourtImportRowStatus.ExistingExact, row.RowStatus);
+        Assert.Equal(existing.Id, row.CandidateCourtCaseId);
+        Assert.Equal("High Court", row.RawCourt);
+        Assert.Equal("Delhi High Court", (await db.CourtCases.SingleAsync()).CourtName);
+    }
+
+    [Fact]
+    public async Task SafeAliasImport_WritesCanonicalCourtAndPreservesRawProvenance()
+    {
+        using var db = Db(); var storage = new MemoryStorage(); var actor = new AppUser { DisplayName = "Importer" };
+        db.AppUsers.Add(actor); await db.SaveChangesAsync();
+        var bytes = Workbook(sheet =>
+        {
+            Row(sheet, 3, "WP(C) 201/2026", "Canonical import", court: "High Court");
+            Row(sheet, 4, "WP(C) 202/2026", "Needs officer", court: "District Court Rohini");
+        });
+        var batch = await new CourtImportService(db, storage).StageAsync(new MemoryStream(bytes), "alias.xlsx", null, actor.Id);
+        var role = new Role { Code = "ALIAS_IMPORTER", Name = "Alias importer" };
+        db.Roles.Add(role); db.UserRoles.Add(new UserRole { UserId = actor.Id, RoleId = role.Id });
+        foreach (var code in new[] { PermissionCodes.CourtView, PermissionCodes.CourtCreate, PermissionCodes.CourtEdit })
+        {
+            var permission = new Permission { Code = code, Name = code, Category = "Court" };
+            db.Permissions.Add(permission);
+            db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permission.Id, ScopeMode = ScopeMode.All });
+        }
+        await db.SaveChangesAsync();
+        var auth = new CourtAuthorizationService(db, null!, null!, null!);
+        var review = new CourtImportReviewService(db, auth, new CourtWorkflowService(db, auth, storage));
+        var summary = await review.ApproveSafeAsync(batch.Id, actor.Id);
+        Assert.Equal(1, summary.Ready);
+        Assert.Equal(1, summary.Unresolved);
+        Assert.Equal(1, (await review.CommitAsync(batch.Id, actor.Id)).CommittedThisRun);
+        Assert.Equal("Delhi High Court", (await db.CourtCases.SingleAsync()).CourtName);
+        var rows = await db.CourtImportRows.OrderBy(x => x.SourceRowNumber).ToListAsync();
+        Assert.Equal("High Court", rows[0].RawCourt);
+        Assert.Equal("Delhi High Court", rows[0].ApprovedCourtName);
+        Assert.Equal(CourtImportCommitStatus.Committed, rows[0].CommitStatus);
+        Assert.Equal("District Court Rohini", rows[1].RawCourt);
+        Assert.Null(rows[1].ResolutionAction);
+    }
+
+    [Fact]
     public async Task RealWorkbook_ReadOnlySmoke_WhenPathProvided()
     {
         var path = Environment.GetEnvironmentVariable("COURT_IMPORT_SMOKE_FILE");
@@ -146,6 +235,10 @@ public sealed class CourtImportTests
         Assert.True(result.Status == "Parsed", result.FailureMessage);
         var rows = await db.CourtImportRows.ToListAsync();
         _output.WriteLine($"Total staged: {rows.Count}");
+        foreach (var group in rows.GroupBy(x => x.RawCourt ?? "<blank>").OrderBy(x => x.Key))
+            _output.WriteLine($"RawCourt {group.Key}: {group.Count()}");
+        foreach (var group in rows.GroupBy(x => x.SuggestedCourtName ?? "<unresolved>").OrderBy(x => x.Key))
+            _output.WriteLine($"SuggestedCourtName {group.Key}: {group.Count()}");
         foreach (var group in rows.GroupBy(x => x.RowStatus).OrderBy(x => x.Key)) _output.WriteLine($"Classification {group.Key}: {group.Count()}");
         _output.WriteLine($"NDOH parsed: {rows.Count(x => x.ParsedNdoh.HasValue)}");
         _output.WriteLine($"NDOH nonblank unparsed: {rows.Count(x => !string.IsNullOrWhiteSpace(x.RawNdoh) && !x.ParsedNdoh.HasValue)}");
@@ -173,8 +266,12 @@ public sealed class CourtImportTests
         var safe = rows.Where(x => x.RowStatus == CourtImportRowStatus.NewCandidate &&
             x.IdentityKey != null && x.CandidateCourtCaseId == null &&
             x.SuggestedStatusClass is CourtImportStatusClass.Pending or CourtImportStatusClass.Disposed &&
-            x.ValidationIssuesJson == "[]").ToList();
+            x.ValidationIssuesJson == "[]" &&
+            x.SuggestedCourtName is "Delhi High Court" or "Dwarka Court" or "Supreme Court" or "Tis Hazari Court").ToList();
         _output.WriteLine($"Safe bulk candidates: {safe.Count}");
+        _output.WriteLine($"Blocked unknown court: {rows.Count(x => !string.IsNullOrWhiteSpace(x.RawCourt) && x.SuggestedCourtName is null)}");
+        foreach (var group in safe.GroupBy(x => x.SuggestedCourtName!).OrderBy(x => x.Key))
+            _output.WriteLine($"Safe canonical CourtName {group.Key}: {group.Count()}");
         _output.WriteLine($"Blocked PotentialDuplicate: {rows.Count(x => x.RowStatus == CourtImportRowStatus.PotentialDuplicate)}");
         _output.WriteLine($"Blocked IdentityConflict: {rows.Count(x => x.RowStatus == CourtImportRowStatus.IdentityConflict)}");
         _output.WriteLine($"Blocked NeedsReview: {rows.Count(x => x.RowStatus == CourtImportRowStatus.NeedsReview)}");

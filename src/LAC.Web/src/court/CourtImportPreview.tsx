@@ -9,7 +9,7 @@ type Batch = {
 };
 export type Row = {
   id: string; sourceRowNumber: number; sourceSerialNumberRaw?: string;
-  rawCaseNumber?: string; rawCaseTitle?: string; rawCourt?: string;
+  rawCaseNumber?: string; rawCaseTitle?: string; rawCourt?: string; suggestedCourtName?: string;
   rawStatus?: string; suggestedStatusClass?: string; rawNdoh?: string;
   parsedNdoh?: string; rawAdvocate?: string; rawVillage?: string;
   rawAwardNumber?: string; lastOrderLinkState?: string; rowStatus: string;
@@ -152,7 +152,7 @@ export function CourtImportPreview() {
       try { issues = JSON.parse(row.validationIssuesJson) as string[]; } catch { issues = ["Issues could not be displayed."]; }
       return <tr key={row.id}>
         <td>{row.sourceRowNumber}<br />{row.sourceSerialNumberRaw}</td>
-        <td>{row.rawCaseNumber}<br />{row.rawCaseTitle}</td><td>{row.rawCourt}</td>
+        <td>{row.rawCaseNumber}<br />{row.rawCaseTitle}</td><td>{row.rawCourt}{row.suggestedCourtName && row.suggestedCourtName !== row.rawCourt && <><br />→ {row.suggestedCourtName}</>}</td>
         <td>{row.rawStatus}<br />{row.suggestedStatusClass}</td><td>{row.rawNdoh}<br />{row.parsedNdoh}</td>
         <td>{row.rawAdvocate}</td><td>{row.rawVillage}<br />{row.rawAwardNumber}</td>
         <td>{row.lastOrderLinkState}</td><td>{row.rowStatus}{issues.map((issue, index) => <div key={index}>{issue}</div>)}</td>
