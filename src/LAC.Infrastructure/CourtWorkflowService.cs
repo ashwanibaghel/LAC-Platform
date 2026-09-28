@@ -102,7 +102,8 @@ public sealed record RecordCourtProceedingCommand(
     string? RestraintNature,
     string? Summary,
     DateOnly? NextDate,
-    int? ExpectedRevision = null
+    int? ExpectedRevision = null,
+    string? SourceKind = null
 );
 
 public sealed record CourtProceedingDto(
@@ -115,7 +116,8 @@ public sealed record CourtProceedingDto(
     DateOnly? NextDate,
     DateTimeOffset CreatedAt,
     bool IsAuthoritative = false,
-    string? CreatedByDisplayName = null
+    string? CreatedByDisplayName = null,
+    string? SourceKind = null
 );
 
 public sealed record CourtCasePartyDto(
@@ -189,6 +191,11 @@ public sealed class CourtWorkflowService(
         Func<CancellationToken, Task<bool>> verifySucceeded,
         CancellationToken ct)
     {
+        // Reviewed import owns the per-row transaction so case, provenance and optional
+        // legacy NDOH are committed atomically. Existing workflows still provide validation
+        // and official events without opening a nested transaction.
+        if (db.Database.CurrentTransaction != null)
+            return await operation(ct);
         var strategy = strategyFactory?.Invoke() ?? db.Database.CreateExecutionStrategy();
         if (db.Database.IsRelational() || strategyFactory != null)
         {
@@ -748,6 +755,7 @@ public sealed class CourtWorkflowService(
                 RestraintNature = command.RestraintNature,
                 Summary = command.Summary,
                 NextDate = command.NextDate,
+                SourceKind = command.SourceKind,
                 CreatedBy = actorDisplayName,
                 RecordStatus = RecordStatus.Active,
                 CreatedAt = now,
@@ -776,7 +784,9 @@ public sealed class CourtWorkflowService(
                 WorkstreamIdSnapshot = courtWs?.Id,
                 WorkstreamNameSnapshot = courtWs?.Name ?? "Court References",
                 CourtProceedingId = proceedingId,
-                Notes = $"Proceeding on {command.ProceedingDate:yyyy-MM-dd}: {command.OrderType ?? "Hearing"}"
+                Notes = command.SourceKind == "LegacyRegisterNDOH"
+                    ? "Legacy office-register NDOH imported; no hearing date asserted"
+                    : $"Proceeding on {command.ProceedingDate:yyyy-MM-dd}: {command.OrderType ?? "Hearing"}"
             });
 
             await db.SaveChangesAsync(c);
@@ -881,7 +891,8 @@ public sealed class CourtWorkflowService(
                 proceeding.NextDate,
                 proceeding.CreatedAt,
                 isAuth,
-                actorDisplayName
+                actorDisplayName,
+                proceeding.SourceKind
             );
         }, verifySucceeded, ct);
     }

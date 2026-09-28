@@ -169,5 +169,41 @@ public sealed class CourtImportTests
             Assert.Equal(310, total); browsed += items.Count;
         }
         Assert.Equal(310, browsed);
+
+        var safe = rows.Where(x => x.RowStatus == CourtImportRowStatus.NewCandidate &&
+            x.IdentityKey != null && x.CandidateCourtCaseId == null &&
+            x.SuggestedStatusClass is CourtImportStatusClass.Pending or CourtImportStatusClass.Disposed &&
+            x.ValidationIssuesJson == "[]").ToList();
+        _output.WriteLine($"Safe bulk candidates: {safe.Count}");
+        _output.WriteLine($"Blocked PotentialDuplicate: {rows.Count(x => x.RowStatus == CourtImportRowStatus.PotentialDuplicate)}");
+        _output.WriteLine($"Blocked IdentityConflict: {rows.Count(x => x.RowStatus == CourtImportRowStatus.IdentityConflict)}");
+        _output.WriteLine($"Blocked NeedsReview: {rows.Count(x => x.RowStatus == CourtImportRowStatus.NeedsReview)}");
+        _output.WriteLine($"Blocked Invalid: {rows.Count(x => x.RowStatus == CourtImportRowStatus.Invalid)}");
+        _output.WriteLine($"Safe with parsed NDOH: {safe.Count(x => x.ParsedNdoh.HasValue)}");
+        _output.WriteLine($"Safe with advocate: {safe.Count(x => !string.IsNullOrWhiteSpace(x.RawAdvocate))}");
+        _output.WriteLine($"Safe with valid last-order URL: {safe.Count(x => x.LastOrderLinkState == "ValidHttpUrl")}");
+        var role = new Role { Code = "SMOKE_IMPORTER", Name = "Smoke importer" };
+        db.Roles.Add(role); db.UserRoles.Add(new UserRole { UserId = actor.Id, RoleId = role.Id });
+        foreach (var code in new[] { PermissionCodes.CourtView, PermissionCodes.CourtCreate, PermissionCodes.CourtEdit })
+        {
+            var permission = new Permission { Code = code, Name = code, Category = "Court" };
+            db.Permissions.Add(permission);
+            db.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permission.Id, ScopeMode = ScopeMode.All });
+        }
+        await db.SaveChangesAsync();
+        var auth = new CourtAuthorizationService(db, null!, null!, null!);
+        var review = new CourtImportReviewService(db, auth, new CourtWorkflowService(db, auth, storage));
+        var approved = await review.ApproveSafeAsync(result.Id, actor.Id);
+        Assert.Equal(safe.Count, approved.Ready);
+        Assert.Equal(310 - safe.Count, approved.Unresolved);
+        // In-memory database is unique to this test; no production or application DB is touched.
+        var committed = await review.CommitAsync(result.Id, actor.Id);
+        _output.WriteLine($"Isolated canonical commit: {committed.CommittedThisRun}; failures: {committed.Failures.Count}");
+        foreach (var failure in committed.Failures.Take(5)) _output.WriteLine(failure);
+        Assert.Equal(safe.Count, committed.CommittedThisRun);
+        Assert.Empty(committed.Failures);
+        Assert.Equal(safe.Count, await db.CourtCases.CountAsync());
+        Assert.Equal(0, (await review.CommitAsync(result.Id, actor.Id)).CommittedThisRun);
+        Assert.Equal(safe.Count, await db.CourtCases.CountAsync());
     }
 }

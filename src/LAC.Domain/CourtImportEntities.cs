@@ -3,6 +3,9 @@ namespace LAC.Domain;
 public enum CourtImportBatchStatus { Parsing, Parsed, Failed }
 public enum CourtImportRowStatus { NewCandidate, ExistingExact, PotentialDuplicate, IdentityConflict, NeedsReview, Invalid }
 public enum CourtImportStatusClass { Pending, Disposed, Attention }
+public enum CourtImportResolutionAction { ImportAsNewCase, LinkToExistingCase, Skip }
+public enum CourtImportCommitStatus { NotCommitted, Committed, Failed }
+public enum CourtImportNdohAction { UseImported, KeepExisting }
 
 public sealed class CourtImportBatch : OfficialRecord
 {
@@ -56,4 +59,21 @@ public sealed class CourtImportRow
     public Guid? CandidateCourtCaseId { get; set; }
     public string? IdentityKey { get; set; }
     public string SourceRowHash { get; set; } = "";
+    public CourtImportResolutionAction? ResolutionAction { get; set; }
+    public Guid? ResolvedCourtCaseId { get; set; }
+    public string? ApprovedCaseNumber { get; set; }
+    public string? ApprovedCaseTitle { get; set; }
+    public string? ApprovedCourtName { get; set; }
+    public string? ApprovedStatus { get; set; }
+    public bool ApplyStatusToExisting { get; set; }
+    public CourtImportNdohAction? NdohAction { get; set; }
+    public string? ReviewerNotes { get; set; }
+    public Guid? ReviewedByUserId { get; set; }
+    public string? ReviewedByDisplayNameSnapshot { get; set; }
+    public DateTimeOffset? ReviewedAt { get; set; }
+    public CourtImportCommitStatus CommitStatus { get; set; } = CourtImportCommitStatus.NotCommitted;
+    public Guid? CommittedCourtCaseId { get; set; }
+    public Guid? CommittedProceedingId { get; set; }
+    public DateTimeOffset? CommittedAt { get; set; }
+    public string? CommitError { get; set; }
 }

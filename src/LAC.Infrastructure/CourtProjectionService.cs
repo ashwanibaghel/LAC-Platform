@@ -594,7 +594,8 @@ public sealed class CourtProjectionService(
             p.NextDate,
             p.CreatedAt,
             p.Id == firstId,
-            p.CreatedBy
+            p.CreatedBy,
+            p.SourceKind
         )).ToList();
     }
 

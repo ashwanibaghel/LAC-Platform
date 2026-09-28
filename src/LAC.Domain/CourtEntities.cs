@@ -70,7 +70,8 @@ public enum CourtCaseAction
     DocumentUploaded = 16,
     DocumentLinked = 17,
     DocumentUnlinked = 18,
-    ProceedingRecorded = 19
+    ProceedingRecorded = 19,
+    ImportApplied = 20
 }
 
 public sealed class CourtCaseEvent
@@ -113,6 +114,8 @@ public sealed class CourtCaseEvent
     public Guid? CourtCaseRepresentativeId { get; set; }
     public Guid? DocumentId { get; set; }
     public Guid? CourtProceedingId { get; set; }
+    public Guid? CourtImportBatchId { get; set; }
+    public Guid? CourtImportRowId { get; set; }
 
     public string? Reason { get; set; }
     public string? Notes { get; set; }

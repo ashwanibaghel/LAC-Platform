@@ -162,6 +162,9 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                     {p.proceedingDate || "Undated"}
                   </span>
                   <span className="court-badge court-badge-ndoh">{p.orderType || "Hearing"}</span>
+                  {p.sourceKind === "LegacyRegisterNDOH" && <span className="court-badge">
+                    Office-register date — no hearing date asserted
+                  </span>}
                   {p.restraintNature && p.restraintNature !== "None" && (
                     <span className="court-badge court-badge-status-stay">
                       ⚠ {p.restraintNature}
@@ -169,7 +172,7 @@ export const CourtProceedingsTab: React.FC<CourtProceedingsTabProps> = ({ courtC
                   )}
                   {p.isAuthoritative && (
                     <span className="court-badge court-badge-authoritative">
-                      Authoritative NDOH Source
+                      {p.sourceKind === "LegacyRegisterNDOH" ? "Current register NDOH source" : "Authoritative NDOH Source"}
                     </span>
                   )}
                 </div>

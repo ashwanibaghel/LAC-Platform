@@ -58,6 +58,36 @@ public static class CourtEndpoints
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); var batch=await imports.GetAsync(batchId,ct); return batch is null?Results.NotFound():Results.Ok(batch); });
         group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); if (await imports.GetAsync(batchId,ct) is null) return Results.NotFound(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
+        group.MapGet("/imports/{batchId:guid}/review-summary", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.SummaryAsync(batchId, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPut("/imports/{batchId:guid}/rows/{rowId:guid}/decision", async (Guid batchId, Guid rowId, CourtImportDecisionRequest decision, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.DecideAsync(batchId, rowId, decision, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapDelete("/imports/{batchId:guid}/rows/{rowId:guid}/decision", async (Guid batchId, Guid rowId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.ClearDecisionAsync(batchId, rowId, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/imports/{batchId:guid}/approve-safe", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.ApproveSafeAsync(batchId, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/imports/{batchId:guid}/commit", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.CommitAsync(batchId, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
 
         // 1. Directory Listing
         group.MapGet("", async (
@@ -144,6 +174,24 @@ public static class CourtEndpoints
             var detail = await projection.GetCourtCaseDetailAsync(id, currentUser.UserId.Value, ct);
             if (detail is null) return Results.NotFound(new { error = "Court case not found." });
             return Results.Ok(detail);
+        });
+        group.MapGet("/{id:guid}/import-provenance", async (
+            Guid id, LacDbContext db, ICourtAuthorizationService courtAuth,
+            ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            var rows = await db.CourtImportRows.AsNoTracking()
+                .Where(x => x.CommittedCourtCaseId == id && x.CommitStatus == CourtImportCommitStatus.Committed)
+                .OrderBy(x => x.CommittedAt)
+                .Select(x => new
+                {
+                    x.BatchId, ImportRowId = x.Id, x.SourceRowNumber, x.RawDirections,
+                    x.RawBriefFacts, x.RawLastOrderLink, x.LastOrderLinkState,
+                    x.RawStatus, x.RawNdoh, x.ParsedNdoh, x.CommittedProceedingId,
+                    x.CommittedAt
+                }).ToListAsync(ct);
+            return Results.Ok(rows);
         });
 
         // 5. Update Case Metadata

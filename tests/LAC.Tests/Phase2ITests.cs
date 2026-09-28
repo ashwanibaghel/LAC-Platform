@@ -69,6 +69,9 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/court-cases/imports/{batchId}")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/court-cases/imports/{batchId}/rows")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/court-cases/imports", new MultipartFormDataContent())).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/court-cases/imports/{batchId}/review-summary")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync($"/api/court-cases/imports/{batchId}/approve-safe", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync($"/api/court-cases/imports/{batchId}/commit", null)).StatusCode);
     }
 
     private async Task<HttpClient> CreateAdminClientAsync()

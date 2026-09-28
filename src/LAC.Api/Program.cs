@@ -95,6 +95,7 @@ builder.Services.AddScoped<ICourtAuthorizationService, CourtAuthorizationService
 builder.Services.AddScoped<ICourtWorkflowService, CourtWorkflowService>();
 builder.Services.AddScoped<ICourtProjectionService, CourtProjectionService>();
 builder.Services.AddScoped<ICourtImportService, CourtImportService>();
+builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();

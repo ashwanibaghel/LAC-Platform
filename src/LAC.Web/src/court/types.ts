@@ -166,6 +166,7 @@ export interface CourtProceedingDto {
   createdAt: string;
   isAuthoritative?: boolean;
   createdByDisplayName?: string | null;
+  sourceKind?: string | null;
 }
 
 export interface CourtCaseDocumentDto {

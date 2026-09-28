@@ -7,6 +7,7 @@ import { CourtDocumentsTab } from "./CourtDocumentsTab";
 import { CourtLinkedRecordsTab } from "./CourtLinkedRecordsTab";
 import { CourtWorkTab } from "./CourtWorkTab";
 import { CourtTimelineTab } from "./CourtTimelineTab";
+import { CourtImportProvenance } from "./CourtImportProvenance";
 import { useAuth } from "../auth/AuthProvider";
 import "./court.css";
 
@@ -305,7 +306,7 @@ export const CourtCaseWorkspace: React.FC = () => {
 
       {/* Tab Contents */}
       <div className="court-tab-content">
-        {activeTab === "overview" && <CourtOverviewTab courtCase={courtCase} />}
+        {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} /><CourtImportProvenance caseId={courtCase.id} /></>}
         {activeTab === "proceedings" && <CourtProceedingsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "documents" && <CourtDocumentsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "records" && <CourtLinkedRecordsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}

@@ -3,6 +3,7 @@ using System;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LAC.Infrastructure.Migrations
 {
     [DbContext(typeof(LacDbContext))]
-    partial class LacDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260928142254_AddReviewedCourtImport")]
+    partial class AddReviewedCourtImport
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1685,7 +1688,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("SourceDocumentId")
                         .IsUnique();
 
-                    b.ToTable("CourtImportBatches", (string)null);
+                    b.ToTable("CourtImportBatches");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtImportRow", b =>
@@ -1856,7 +1859,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("BatchId", "SourceRowNumber")
                         .IsUnique();
 
-                    b.ToTable("CourtImportRows", (string)null);
+                    b.ToTable("CourtImportRows");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtProceeding", b =>
