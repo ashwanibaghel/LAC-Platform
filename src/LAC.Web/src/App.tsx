@@ -39,6 +39,7 @@ import { MyAttention } from "./attention/MyAttention";
 import { CalendarView } from "./attention/CalendarView";
 import { CourtDirectory } from "./court/CourtDirectory";
 import { CourtCaseWorkspace } from "./court/CourtCaseWorkspace";
+import { CourtImportPreview } from "./court/CourtImportPreview";
 import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
 import { CalculatorProvider } from "./calculator/CalculatorContext";
@@ -3786,6 +3787,8 @@ function AuthenticatedApp() {
         <Route path="/matters/:id" element={<Matter />} />
         <Route path="/matter-drafts/:id" element={<OnlyOfficeDraftEditorPage />} />
         <Route path="/court-cases" element={<CourtDirectory />} />
+        <Route path="/court-cases/imports" element={<CourtImportPreview />} />
+        <Route path="/court-cases/imports/:batchId" element={<CourtImportPreview />} />
         <Route path="/court-cases/:id" element={<CourtCaseWorkspace />} />
         <Route path="/court" element={<Navigate to="/court-cases" replace />} />
         <Route

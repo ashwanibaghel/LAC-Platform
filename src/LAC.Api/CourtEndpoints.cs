@@ -43,6 +43,22 @@ public static class CourtEndpoints
     {
         var group = api.MapGroup("/court-cases");
 
+        group.MapPost("/imports", async (HttpRequest request, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanCreateCourtCaseAsync(currentUser.UserId.Value, ct)) return Results.Forbid();
+            var form = await request.ReadFormAsync(ct); var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0) return Results.BadRequest(new { error = "An .xlsx workbook is required." });
+            try { await using var stream=file.OpenReadStream(); var batch=await imports.StageAsync(stream,file.FileName,file.ContentType,currentUser.UserId.Value,ct); return Results.Created($"/api/court-cases/imports/{batch.Id}",batch); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/imports", async (ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.HasCourtViewPermissionAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); return Results.Ok(await imports.ListAsync(ct)); });
+        group.MapGet("/imports/{batchId:guid}", async (Guid batchId, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.HasCourtViewPermissionAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); var batch=await imports.GetAsync(batchId,ct); return batch is null?Results.NotFound():Results.Ok(batch); });
+        group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.HasCourtViewPermissionAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
+
         // 1. Directory Listing
         group.MapGet("", async (
             string? search,

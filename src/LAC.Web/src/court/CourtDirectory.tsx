@@ -155,11 +155,7 @@ export const CourtDirectory: React.FC = () => {
           </p>
         </div>
 
-        {canCreate && (
-          <button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>
-            + New Court Case
-          </button>
-        )}
+        {canCreate && (<div style={{ display: "flex", gap: "8px" }}><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>)}
       </div>
 
       {/* Filter Bar */}
