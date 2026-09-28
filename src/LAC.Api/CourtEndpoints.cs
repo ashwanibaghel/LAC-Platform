@@ -108,10 +108,15 @@ public static class CourtEndpoints
             try { return Results.Ok(await sync.HistoricalStatusAsync(user.UserId.Value, ct)); }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
-        group.MapPost("/dhc-sync/historical/run", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>
+        group.MapPost("/dhc-sync/historical/run", async (DelhiHighCourtHistoricalLauncher launcher, ICurrentUserContext user, CancellationToken ct) =>
         {
             if (!user.UserId.HasValue) return Results.Unauthorized();
-            try { return Results.Ok(await sync.RunHistoricalAsync(user.UserId.Value, ct)); }
+            try
+            {
+                await launcher.StartAsync(user.UserId.Value, ct);
+                return Results.Accepted("/api/court-cases/dhc-sync/historical/status",
+                    new { status = "Starting" });
+            }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
         group.MapGet("/dhc-sync/review", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>

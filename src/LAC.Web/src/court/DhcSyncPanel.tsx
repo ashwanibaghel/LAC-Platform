@@ -4,6 +4,7 @@ import type { CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, 
 export const DhcSyncPanel: React.FC = () => {
   const [status, setStatus] = useState<DhcSyncStatusDto | null>(null);
   const [historical, setHistorical] = useState<DhcHistoricalStatusDto | null>(null);
+  const [pendingHistoricalAttempt, setPendingHistoricalAttempt] = useState<string | null>(null);
   const [reviews, setReviews] = useState<DhcObservationDto[]>([]);
   const [sourceReviews, setSourceReviews] = useState<DhcSourceReviewDto[]>([]);
   const [busy, setBusy] = useState(false);
@@ -20,17 +21,22 @@ export const DhcSyncPanel: React.FC = () => {
       fetch("/api/court-cases/dhc-sync/sources/review", { credentials: "include" }),
     ]);
     if (statusResult.ok) setStatus(await statusResult.json() as DhcSyncStatusDto);
-    if (historicalResult.ok) setHistorical(await historicalResult.json() as DhcHistoricalStatusDto);
+    if (historicalResult.ok) {
+      const next = await historicalResult.json() as DhcHistoricalStatusDto;
+      setHistorical(next);
+      setPendingHistoricalAttempt(previous => previous !== null && next.lastAttempt?.id !== previous &&
+        (next.lastAttempt?.status === "Completed" || next.lastAttempt?.status === "Failed") ? null : previous);
+    }
     if (reviewResult.ok) setReviews(await reviewResult.json() as DhcObservationDto[]);
     if (sourceResult.ok) setSourceReviews(await sourceResult.json() as DhcSourceReviewDto[]);
   }, []);
 
   useEffect(() => { void refresh().catch(() => setMessage("DHC sync status unavailable.")); }, [refresh]);
   useEffect(() => {
-    if (!busy && historical?.lastAttempt?.status !== "Running") return;
+    if (pendingHistoricalAttempt === null && historical?.lastAttempt?.status !== "Running") return;
     const timer = window.setInterval(() => { void refresh().catch(() => {}); }, 5000);
     return () => window.clearInterval(timer);
-  }, [busy, historical?.lastAttempt?.status, refresh]);
+  }, [pendingHistoricalAttempt, historical?.lastAttempt?.status, refresh]);
 
   const syncNow = async () => {
     setBusy(true); setMessage(null);
@@ -48,6 +54,7 @@ export const DhcSyncPanel: React.FC = () => {
     try {
       const response = await fetch("/api/court-cases/dhc-sync/historical/run", { method: "POST", credentials: "include" });
       if (!response.ok) throw new Error("Historical backfill request failed or is already complete.");
+      setPendingHistoricalAttempt(historical.lastAttempt?.id ?? "none");
       await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Historical backfill failed."); }
     finally { setBusy(false); }

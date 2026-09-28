@@ -184,6 +184,7 @@ export interface DhcObservationDto {
 }
 
 export interface DhcSyncRunDto {
+  id: string;
   startedAt: string;
   completedAt: string | null;
   status: string;

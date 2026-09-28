@@ -75,17 +75,30 @@ public sealed partial class DelhiHighCourtSyncService
 
     public async Task<CourtExternalSyncRun> RunHistoricalAsync(Guid userId, CancellationToken ct)
     {
+        await EnsureHistoricalStartAllowedAsync(userId, ct);
+        if (!await gate.Semaphore.WaitAsync(0, ct))
+            throw new CourtWorkflowException("Delhi High Court sync is already running.", 409);
+        return await RunHistoricalWithReservedGateAsync(userId, ct);
+    }
+
+    public async Task EnsureHistoricalStartAllowedAsync(Guid userId, CancellationToken ct)
+    {
         if (!await authorization.CanViewCourtReferencesAsync(userId, ct) ||
             !await authorization.CanEditCourtReferencesAsync(userId, ct))
             throw new CourtWorkflowException("Global or Court-workstream view and edit access is required.", 403);
-        if (!await gate.Semaphore.WaitAsync(0, ct))
-            throw new CourtWorkflowException("Delhi High Court sync is already running.", 409);
+        if (await db.CourtExternalSyncRuns.AnyAsync(x => x.ProviderCode == Provider &&
+            x.Mode == CourtExternalSyncMode.HistoricalBackfill &&
+            x.Status == CourtExternalSyncRunStatus.Completed, ct))
+            throw new CourtWorkflowException("One-time historical backfill already completed.", 409);
+    }
+
+    // The launcher reserves the shared live/historical gate before returning
+    // 202. This method owns and releases that reservation in every outcome.
+    internal async Task<CourtExternalSyncRun> RunHistoricalWithReservedGateAsync(Guid userId, CancellationToken ct)
+    {
         try
         {
-            if (await db.CourtExternalSyncRuns.AnyAsync(x => x.ProviderCode == Provider &&
-                x.Mode == CourtExternalSyncMode.HistoricalBackfill &&
-                x.Status == CourtExternalSyncRunStatus.Completed, ct))
-                throw new CourtWorkflowException("One-time historical backfill already completed.", 409);
+            await EnsureHistoricalStartAllowedAsync(userId, ct);
             var interrupted = await db.CourtExternalSyncRuns.Where(x => x.ProviderCode == Provider &&
                 x.Mode == CourtExternalSyncMode.HistoricalBackfill &&
                 x.Status == CourtExternalSyncRunStatus.Running).ToListAsync(ct);
@@ -239,12 +252,32 @@ public sealed partial class DelhiHighCourtSyncService
         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         if (source.Sha256Hash != null && source.Sha256Hash != sha)
             throw new InvalidDataException("Previously stored official PDF hash differs.");
+        IReadOnlyList<DhcCaseLine> lines;
+        using (var pdf = new MemoryStream(bytes, writable: false))
+            lines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
+        var relevant = lines.Where(x => targets.TryGetValue(x.Identity, out var target) &&
+            publication.ListingDate >= target.Baseline && publication.ListingDate < today).ToList();
+        if (publication.Kind == CourtExternalSourceKind.DeletionOrCorrigendum && relevant.Count > 0)
+        {
+            var targetIds = relevant.Select(x => targets[x.Identity].CaseId).ToList();
+            var evidenced = await db.CourtExternalListingObservations.AsNoTracking()
+                .Where(x => x.CourtCaseId != null && targetIds.Contains(x.CourtCaseId.Value) &&
+                    x.ListingDate == publication.ListingDate &&
+                    x.SourceDocument.Kind == CourtExternalSourceKind.OrdinaryListing &&
+                    x.Status != CourtExternalListingStatus.Rejected &&
+                    x.Status != CourtExternalListingStatus.Superseded)
+                .Select(x => x.NormalizedCaseIdentity).ToListAsync(ct);
+            var evidenceSet = evidenced.ToHashSet(StringComparer.Ordinal);
+            relevant = relevant.Where(x => evidenceSet.Contains(x.Identity)).ToList();
+        }
         var peer = await db.CourtExternalSourceDocuments.AsNoTracking()
             .Where(x => x.ProviderCode == Provider && x.Sha256Hash == sha && x.DocumentId != null && x.Id != source.Id)
             .FirstOrDefaultAsync(ct);
         if (peer != null && (peer.ListingDate != source.ListingDate || peer.Kind != source.Kind))
         {
-            source.DocumentId = peer.DocumentId;
+            // A conflicting URL with no eligible target is metadata only; it
+            // must not attach otherwise unrelated physical evidence.
+            if (relevant.Count > 0) source.DocumentId = peer.DocumentId;
             source.Sha256Hash = sha;
             source.DownloadedAt = clock.GetUtcNow();
             source.Status = CourtExternalSourceStatus.NeedsReview;
@@ -256,6 +289,17 @@ public sealed partial class DelhiHighCourtSyncService
                 ChangeStatus(item, CourtExternalListingStatus.NeedsReview,
                     "Identical official PDF has conflicting publication date or source class.", null);
             run.ReviewCount++;
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+        if (relevant.Count == 0)
+        {
+            // The PDF was only temporary parsing input. Keep inexpensive URL/SHA
+            // metadata for audit/retry, but never save an unrelated physical file.
+            source.Sha256Hash = sha;
+            source.DownloadedAt = clock.GetUtcNow();
+            source.Status = CourtExternalSourceStatus.Processed;
+            run.SourceDocumentsProcessed++;
             await db.SaveChangesAsync(ct);
             return;
         }
@@ -282,15 +326,11 @@ public sealed partial class DelhiHighCourtSyncService
             source.DownloadedAt = document.UploadedAt;
         }
         await db.SaveChangesAsync(ct);
-        IReadOnlyList<DhcCaseLine> lines;
-        using (var pdf = new MemoryStream(bytes, writable: false))
-            lines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
-        foreach (var line in lines.Where(x => targets.ContainsKey(x.Identity)))
+        foreach (var line in relevant)
         {
             var target = targets[line.Identity];
-            if (publication.ListingDate < target.Baseline || publication.ListingDate >= today) continue;
             if (await db.CourtExternalListingObservations.AnyAsync(x =>
-                x.SourceDocumentId == source.Id && x.NormalizedCaseIdentity == line.Identity &&
+                x.SourceDocument.DocumentId == source.DocumentId && x.NormalizedCaseIdentity == line.Identity &&
                 x.ListingDate == publication.ListingDate && x.Mode == CourtExternalSyncMode.HistoricalBackfill, ct))
                 continue;
             var observation = new CourtExternalListingObservation

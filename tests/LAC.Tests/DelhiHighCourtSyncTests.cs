@@ -4,7 +4,10 @@ using System.Text;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using QuestPDF.Fluent;
 using QuestPDF.Infrastructure;
 using Xunit;
@@ -50,26 +53,37 @@ public sealed class DelhiHighCourtSyncTests
         public Dictionary<string, byte[]> Pdfs { get; } = [];
         public Dictionary<string, string> Pages { get; } = [];
         public int PdfRequests;
+        public TaskCompletionSource<bool>? HoldPdf;
+        public TaskCompletionSource<bool> PdfStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Fail;
         public bool Redirect;
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            if (Fail) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
-            if (Redirect) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Redirect)
-            { Headers = { Location = new Uri("https://evil.example/redirect") } });
+            if (Fail) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+            if (Redirect) return new HttpResponseMessage(HttpStatusCode.Redirect)
+            { Headers = { Location = new Uri("https://evil.example/redirect") } };
             if (Pages.TryGetValue(request.RequestUri!.AbsoluteUri, out var page))
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(page) });
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(page) };
             if (request.RequestUri.AbsolutePath == "/web/cause-lists/cause-list")
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Html) });
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Html) };
             PdfRequests++;
-            return Task.FromResult(Pdfs.TryGetValue(request.RequestUri.AbsoluteUri, out var bytes)
+            PdfStarted.TrySetResult(true);
+            if (HoldPdf != null) await HoldPdf.Task.WaitAsync(ct);
+            return Pdfs.TryGetValue(request.RequestUri.AbsoluteUri, out var bytes)
                 ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) }
-                : new HttpResponseMessage(HttpStatusCode.NotFound));
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
         }
     }
     private sealed class Factory(SourceHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
+    }
+    private sealed class TestLifetime : IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() { }
     }
     private sealed class LiveFactory : IHttpClientFactory
     {
@@ -84,8 +98,9 @@ public sealed class DelhiHighCourtSyncTests
 
     private sealed class Fixture : IDisposable
     {
-        public LacDbContext Db { get; } = new(new DbContextOptionsBuilder<LacDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        public string DatabaseName { get; } = Guid.NewGuid().ToString();
+        public InMemoryDatabaseRoot DatabaseRoot { get; } = new();
+        public LacDbContext Db { get; }
         public Clock Clock { get; } = new();
         public Storage Storage { get; } = new();
         public SourceHandler Source { get; } = new();
@@ -97,6 +112,8 @@ public sealed class DelhiHighCourtSyncTests
 
         public Fixture()
         {
+            Db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>()
+                .UseInMemoryDatabase(DatabaseName, DatabaseRoot).Options);
             Db.AppUsers.Add(User);
             var role = new Role { Code = "DHC_OFFICER", Name = "DHC Officer" };
             Db.Roles.Add(role);
@@ -753,10 +770,92 @@ public sealed class DelhiHighCourtSyncTests
         Assert.Equal(1, f.Db.Documents.Count(x => x.DocumentType == "CourtCauseList"));
         Assert.Single(f.Storage.Files);
         Assert.Equal(2, f.Source.PdfRequests); // live first URL, historical second URL only
-        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count(x =>
+        Assert.Equal(1, f.Db.CourtExternalListingObservations.Count(x =>
             x.Mode == CourtExternalSyncMode.HistoricalBackfill));
+        Assert.Equal(1, f.Db.CourtExternalListingDecisions.Count(x =>
+            x.Observation.Mode == CourtExternalSyncMode.HistoricalBackfill));
         Assert.All(f.Db.CourtExternalSourceDocuments, x => Assert.Equal(
             f.Db.CourtExternalSourceDocuments.First().DocumentId, x.DocumentId));
+    }
+
+    [Fact]
+    public async Task UnmatchedHistoricalPdfsRemainEphemeral_OnlyTwoOfFivePersist()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 1));
+        HistoricalPages(f,
+            ("05-09-2026", "one.pdf", ["1 W.P.(C)-7003/2026", "2 W.P.(C)-9999/2026"]),
+            ("20-08-2026", "unmatched-a.pdf", ["1 W.P.(C)-9999/2026"]),
+            ("22-07-2026", "two.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("11-06-2026", "unmatched-b.pdf", ["1 W.P.(C)-8888/2026"]),
+            ("15-03-2026", "unmatched-c.pdf", ["1 W.P.(C)-7777/2026"]));
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(5, f.Source.PdfRequests);
+        Assert.Equal(5, run.SourceDocumentsProcessed);
+        Assert.Equal(5, f.Db.CourtExternalSourceDocuments.Count());
+        Assert.Equal(2, f.Db.CourtExternalSourceDocuments.Count(x => x.DocumentId != null));
+        Assert.Equal(2, f.Db.Documents.Count(x => x.DocumentType == "CourtCauseList"));
+        Assert.Equal(2, f.Storage.Files.Count);
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count());
+        Assert.Equal(2, f.Db.CourtExternalListingDecisions.Count());
+    }
+
+    [Fact]
+    public async Task ManualLauncherReturnsBeforeJobFinishes_AndIgnoresRequestCancellation()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 9, 25));
+        HistoricalPages(f, ("28-09-2026", "held.pdf", ["1 W.P.(C)-7003/2026"]));
+        f.Source.HoldPdf = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDbContext<LacDbContext>(o => o.UseInMemoryDatabase(f.DatabaseName, f.DatabaseRoot));
+        services.AddSingleton<IDocumentStorage>(f.Storage);
+        services.AddSingleton<IOfficeClock>(f.Clock);
+        services.AddSingleton<IHttpClientFactory>(new Factory(f.Source));
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton(f.Gate);
+        services.AddSingleton<IHostApplicationLifetime>(new TestLifetime());
+        services.AddScoped<ICourtAuthorizationService>(sp =>
+            new CourtAuthorizationService(sp.GetRequiredService<LacDbContext>(), null!, null!, null!));
+        services.AddScoped<DelhiHighCourtSyncService>();
+        services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
+        using var provider = services.BuildServiceProvider();
+        var launcher = provider.GetRequiredService<DelhiHighCourtHistoricalLauncher>();
+        using var request = new CancellationTokenSource();
+        try
+        {
+            await launcher.StartAsync(f.User.Id, request.Token).WaitAsync(TimeSpan.FromSeconds(2));
+            await f.Source.PdfStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            request.Cancel(); // The job must be using ApplicationStopping, not RequestAborted.
+            using (var scope = provider.CreateScope())
+            {
+                var status = await scope.ServiceProvider.GetRequiredService<DelhiHighCourtSyncService>()
+                    .HistoricalStatusAsync(f.User.Id, default);
+                Assert.Equal(CourtExternalSyncRunStatus.Running, status.LastAttempt?.Status);
+                Assert.False(status.CanStart);
+            }
+            await Assert.ThrowsAsync<CourtWorkflowException>(() => launcher.StartAsync(f.User.Id, default));
+            f.Source.HoldPdf.SetResult(true);
+            DhcHistoricalStatusDto? finished = null;
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                using var scope = provider.CreateScope();
+                finished = await scope.ServiceProvider.GetRequiredService<DelhiHighCourtSyncService>()
+                    .HistoricalStatusAsync(f.User.Id, default);
+                if (finished.LastAttempt?.Status != CourtExternalSyncRunStatus.Running) break;
+                await Task.Delay(100);
+            }
+            Assert.Equal(CourtExternalSyncRunStatus.Completed, finished?.LastAttempt?.Status);
+            Assert.False(finished!.CanStart);
+            await Assert.ThrowsAsync<CourtWorkflowException>(() => launcher.StartAsync(f.User.Id, default));
+        }
+        finally { f.Source.HoldPdf.TrySetResult(true); }
     }
 
     [Fact]

@@ -105,6 +105,7 @@ builder.Services.AddScoped<ICourtImportService, CourtImportService>();
 builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
 builder.Services.AddSingleton<DelhiHighCourtSyncGate>();
 builder.Services.AddScoped<DelhiHighCourtSyncService>();
+builder.Services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 builder.Services.AddHostedService<AwardPdfExtractionWorker>();
