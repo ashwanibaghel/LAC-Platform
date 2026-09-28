@@ -250,7 +250,7 @@ def difficult_cell_views(image, cell: dict, ocr, counters: dict[str, int]) -> No
         counters["ocrDisagreements"] += 1
 
 
-def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int], enable_court: bool = True, land_layout=None, possession_evidence: list[dict] | None = None) -> tuple[list[dict], dict[str, int]]:
+def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr, crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]], counters: dict[str, int], enable_court: bool = True, land_layout=None, possession_evidence: list[dict] | None = None, semantic_words=None, semantic_sections: list[dict] | None = None, table_observations: list[dict] | None = None, khasra_occurrences: list[dict] | None = None) -> tuple[list[dict], dict[str, int]]:
     from benchmark.worker_semantics import CASE_IDENTIFIER, award_table_groups, case_type_from_label, classification_candidate, court_candidate, infer_court_table_kind, table_kind
     from primary_land_schedule import PRIMARY, POSSESSION, section_for_table
 
@@ -275,6 +275,21 @@ def structured_from_geometry(page: int, geometry: list[dict], words, image, ocr,
         _, grid_roles = table_kind(grid_header)
         first_row_is_header = len(grid_roles) >= 2 and not any(CASE_IDENTIFIER.search(value) for value in grid_header.values())
         header_index = min(rows) if first_row_is_header else min(rows) - 1
+        if semantic_words is not None and semantic_sections is not None and table_observations is not None and khasra_occurrences is not None:
+            from table_semantics import classify_table_region
+            semantic_rows, _ = rows_for_table(geometry, item["box"], semantic_words, page, table_id)
+            if semantic_rows:
+                semantic_first = {col: cell["text"] for col, cell in semantic_rows[min(semantic_rows)].items() if cell.get("text")}
+                semantic_headers = {**semantic_first, **header_cells_for_table(geometry, item["box"], semantic_words)}
+                semantic_header_row = (min(semantic_rows) if any(re.search(r"\bkhasra\b|\bkilla\b|\bfield\s*(?:nos?|numbers?)\b", value, re.I)
+                                     for value in semantic_first.values()) else None)
+                observation, occurrences = classify_table_region(page, table_id, item["box"], semantic_headers,
+                    semantic_rows, semantic_sections, semantic_header_row,
+                    "REPEATED_SIDE_BY_SIDE_GRID" if land_layout is not None and land_layout.groups >= 2 and
+                    item["box"]["y"] <= land_layout.header_bottom + 100 else None)
+                if observation is not None:
+                    table_observations.append(observation)
+                    khasra_occurrences.extend(occurrences)
         header_text = " ".join(merged_headers.values()).lower()
         if re.search(r"cwp|case\s*no", header_text):
             counters["courtHeaderSignals"] += 1
@@ -847,6 +862,9 @@ def main() -> int:
                 return fail("selected pages are outside the local PDF")
         genre_routing = data["contractVersion"] == 2 and data.get("options", {}).get("genreRouting", False) is True
         section_observations = data.get("options", {}).get("sectionObservations", False) is True
+        table_semantics = data.get("options", {}).get("tableSemantics", False) is True
+        if table_semantics and not section_observations:
+            return fail("table semantics require version 2 genre and section observations")
         if section_observations and not genre_routing:
             return fail("section observations require version 2 genre routing")
         if genre_routing and selected_pages != list(range(1, len(document) + 1)):
@@ -855,6 +873,8 @@ def main() -> int:
             return fail("document genre routing is only supported for Award document processing")
         genre_result = None
         section_results = []
+        table_results = []
+        occurrence_results = []
         genre_words = {}
         if genre_routing:
             from document_genre import classify_document, should_extract_award
@@ -972,7 +992,8 @@ def main() -> int:
                 page_candidates.extend(court_case_candidates(page_number, narrative_words))
             stages["courtNarrativeInterpretation"] += time.perf_counter() - stage_started
             possession_evidence: list[dict] = []
-            if page_likely_has_table([word.text for word in narrative_words]):
+            geometry = []
+            if page_likely_has_table([word.text for word in (words if table_semantics else narrative_words)]):
                 if geometry_engine is None:
                     geometry_engine = TableTransformerGeometry()
                 stage_started = time.perf_counter()
@@ -980,7 +1001,9 @@ def main() -> int:
                 counters["tableTransformerCalls"] += 1
                 stages["tableLayout"] += time.perf_counter() - stage_started
                 crop_cache: dict[tuple[float, float, float, float], tuple[str | None, float | None]] = {}
-                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, narrative_words, image, ocr, crop_cache, counters, not args.disable_court, land_layout, possession_evidence)
+                geometry_candidates, page_counts = structured_from_geometry(page_number, geometry, narrative_words, image, ocr, crop_cache, counters, not args.disable_court, land_layout, possession_evidence,
+                    words if table_semantics else None, section_results if table_semantics else None,
+                    table_results if table_semantics else None, occurrence_results if table_semantics else None)
                 # Court parsing is pure same-row interpretation. Crop OCR is
                 # timed at the call site, so geometry parsing is not falsely
                 # attributed to either stage.
@@ -990,6 +1013,14 @@ def main() -> int:
                     table_pages += 1
                     for key in totals:
                         totals[key] += page_counts[key]
+            if table_semantics and not any(item["pageStart"] == page_number for item in table_results):
+                from table_semantics import classify_inline_page
+                source_lines = next(page["lines"] for page in source_pages if page["page"] == page_number)
+                inline, mentions = classify_inline_page(page_number, source_lines, section_results,
+                    1 + sum(item["label"] == "table" for item in geometry))
+                if inline is not None:
+                    table_results.append(inline)
+                    occurrence_results.extend(mentions)
             candidates.extend(page_candidates)
             possession_evidence_count += len(possession_evidence)
             if narrative_words:
@@ -1025,7 +1056,7 @@ def main() -> int:
         }
         add_versioned_envelope(result, data, physical_sha256, len(document))
         if genre_result is not None:
-            result["observations"] = [genre_result, *section_results]
+            result["observations"] = [genre_result, *section_results, *table_results, *occurrence_results]
             result["metrics"].update({
                 "genreClassified": int(genre_result["genre"] != "UNKNOWN"),
                 "genreUnknown": int(genre_result["genre"] == "UNKNOWN"),
@@ -1039,6 +1070,17 @@ def main() -> int:
                     "sectionsRequiringReview": sum(item["requiresHumanReview"] for item in section_results),
                     "sectionEvidencePages": sorted({e["page"] for item in section_results for e in item["evidence"]}),
                     "continuationDecisions": sum(item["pageEnd"] > item["pageStart"] for item in section_results),
+                })
+            if table_semantics:
+                result["metrics"].update({
+                    "khasraBearingRegions": len(table_results),
+                    "tableSemanticClassified": sum(t["semantic"] != "UNKNOWN_TABLE_SEMANTIC" for t in table_results),
+                    "tableSemanticUnknown": sum(t["semantic"] == "UNKNOWN_TABLE_SEMANTIC" for t in table_results),
+                    "khasraOccurrencesDetected": len(occurrence_results),
+                    "khasraOccurrencesNormalized": sum(o["normalizedKhasraNumber"] is not None for o in occurrence_results),
+                    "khasraOccurrencesUnresolved": sum(o["normalizedKhasraNumber"] is None for o in occurrence_results),
+                    "semanticConflicts": sum("conflict" in " ".join(t["warnings"]).lower() for t in table_results),
+                    "reviewRequired": len(table_results) + len(occurrence_results),
                 })
         stages["serialization"] += time.perf_counter() - stage_started
         args.output.parent.mkdir(parents=True, exist_ok=True)

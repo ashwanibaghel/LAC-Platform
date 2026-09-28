@@ -328,9 +328,11 @@ public sealed class AwardPdfJobRunner(LacDbContext db, IDocumentStorage storage,
             job.TargetAwardId ?? throw new InvalidOperationException("Target Award is required."), job.SelectedVillageId,
             PhysicalSha256: job.Document.Sha256Hash, DocumentVersion: job.Document.Version, PageCount: job.TotalPages,
             GenreRouting: intelligenceOptions?.Value.GenreRoutingEnabled == true,
-            SectionObservations: intelligenceOptions?.Value.SectionObservationsEnabled == true), ct);
+            SectionObservations: intelligenceOptions?.Value.SectionObservationsEnabled == true,
+            TableSemantics: intelligenceOptions?.Value.TableSemanticsEnabled == true), ct);
         var inputs = LocalIntelligenceCandidateMapper.Map(result, intelligenceOptions?.Value.GenreRoutingEnabled == true,
-            intelligenceOptions?.Value.SectionObservationsEnabled == true);
+            intelligenceOptions?.Value.SectionObservationsEnabled == true,
+            intelligenceOptions?.Value.TableSemanticsEnabled == true);
 
         // Mapping validates the complete worker response before any staging
         // write.  The existing ingestion service remains the authority for
@@ -412,7 +414,7 @@ public static class LocalIntelligenceCandidateMapper
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result, bool genreRouting = false, bool sectionObservations = false)
+    public static IReadOnlyList<IngestionCandidateInput> Map(LocalDocumentIntelligenceResult result, bool genreRouting = false, bool sectionObservations = false, bool tableSemantics = false)
     {
         if (result.ContractVersion is not (1 or 2) || !string.Equals(result.Status, "Completed", StringComparison.OrdinalIgnoreCase) ||
             result.PagesProcessed < 1 || result.Candidates is null || result.Warnings is null || result.Metrics.ValueKind != JsonValueKind.Object)
@@ -425,7 +427,8 @@ public static class LocalIntelligenceCandidateMapper
             throw new InvalidOperationException("Version 2 document intelligence metadata is incomplete or contains unsupported observations.");
 
         var genre = DocumentGenreContract.Read(result, genreRouting, sectionObservations);
-        var sections = DocumentSectionContract.ReadAll(result, genre, sectionObservations);
+        var sections = DocumentSectionContract.ReadAll(result, genre, sectionObservations, tableSemantics);
+        var tables = DocumentTableContract.ReadAll(result, genre, sections, tableSemantics);
         var mapped = new List<IngestionCandidateInput>(result.Candidates.Count + (genre is null ? 0 : 1));
         if (genre is not null)
         {
@@ -463,6 +466,33 @@ public static class LocalIntelligenceCandidateMapper
                     section.Semantic, section.Presentation, section.PageStart, section.PageEnd, section.RawHeading,
                     section.RequiresHumanReview, section.ClassifierVersion, section.Evidence, section.Warnings), Json),
                 locator, string.Join(" | ", section.Evidence.Select(x => x.RawText)), section.Confidence));
+        }
+        foreach (var table in tables.Tables)
+        {
+            var locator = JsonSerializer.Serialize(new
+            {
+                Page = table.PageStart, table.TableId, table.SectionObservationIndex,
+                table.SourceRegion, table.RawHeading, table.RawColumnLabels, table.Evidence,
+                Processing = new { result.ContractVersion, result.PhysicalSha256, result.DocumentVersion,
+                    result.PageCount, result.ProcessedAt, result.ExtractorVersion }
+            }, Json);
+            mapped.Add(new(AwardIngestionCandidateType.DocumentTableSemantic,
+                JsonSerializer.Serialize(new DocumentTableSemanticCandidate($"Source table: {table.Semantic}", table), Json),
+                locator, string.Join(" | ", table.Evidence.Select(x => x.RawText)), table.Confidence));
+        }
+        foreach (var occurrence in tables.Occurrences)
+        {
+            var locator = JsonSerializer.Serialize(new
+            {
+                Page = occurrence.Page, occurrence.TableId, occurrence.OccurrenceId,
+                occurrence.SourceRow, occurrence.SourceColumn, occurrence.MentionIndex,
+                occurrence.SourceRegion, occurrence.Evidence, occurrence.AreaFields,
+                Processing = new { result.ContractVersion, result.PhysicalSha256, result.DocumentVersion,
+                    result.PageCount, result.ProcessedAt, result.ExtractorVersion }
+            }, Json);
+            mapped.Add(new(AwardIngestionCandidateType.KhasraOccurrence,
+                JsonSerializer.Serialize(new KhasraOccurrenceCandidate($"Source Khasra: {occurrence.RawKhasraText}", occurrence), Json),
+                locator, occurrence.RawRowContext, occurrence.Confidence));
         }
         foreach (var candidate in result.Candidates)
         {

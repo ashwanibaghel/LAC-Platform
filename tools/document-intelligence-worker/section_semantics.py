@@ -19,6 +19,10 @@ def _heading_semantic(raw: str) -> str | None:
         return "AWARD_IDENTITY"
     if re.fullmatch(r"(?:statutory\s+)?notifications?|notification\s+(?:u/s|under section)\s+(?:4|6|17)", text):
         return "STATUTORY_NOTIFICATIONS"
+    if re.fullmatch(r"(?:delhi administration\s+)?notification\s*[-—:]\s*specification", text):
+        return "STATUTORY_NOTIFICATIONS"
+    if re.fullmatch(r"a statement showing the details of khasra nos\.?[,]? ownership[,]? area and classification of soil", text):
+        return "OTHER"
     if re.fullmatch(r"claims?|claimant claims|the following claims were filed(?: in response to notices u/s 9 & 10)?", text):
         return "CLAIMS"
     if re.fullmatch(r"market value(?: of (?:the )?land)?|valuation(?: of (?:the )?land)?", text):

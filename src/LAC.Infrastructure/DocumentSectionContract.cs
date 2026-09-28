@@ -14,7 +14,7 @@ public static class DocumentSectionContract
     private static readonly HashSet<string> Presentations = ["NARRATIVE", "TABLE", "SCHEDULE", "ANNEXURE", "MIXED", "UNKNOWN"];
 
     public static IReadOnlyList<DocumentSectionObservation> ReadAll(LocalDocumentIntelligenceResult result,
-        DocumentGenreObservation? genre, bool enabled)
+        DocumentGenreObservation? genre, bool enabled, bool tableSemantics = false)
     {
         if (!enabled) return [];
         if (result.ContractVersion != 2 || genre is null || result.PageCount is null or < 1 ||
@@ -28,6 +28,8 @@ public static class DocumentSectionContract
         var covered = new HashSet<int>();
         foreach (var node in observations.EnumerateArray().Skip(1))
         {
+            if (tableSemantics && node.ValueKind == JsonValueKind.Object &&
+                Text(node, "observationType") != "DocumentSection") break;
             if (node.ValueKind != JsonValueKind.Object || Text(node, "observationType") != "DocumentSection" ||
                 !Number(node, "pageStart", out var start) || !Number(node, "pageEnd", out var end) ||
                 start < 1 || end < start || end > result.PageCount ||

@@ -22,6 +22,8 @@ class SectionSemanticsTests(unittest.TestCase):
             ("The following CWPs were received in respect of Khasra No. mentioned against each", "COURT_OR_DISPUTE_REFERENCE"),
             ("Apportionment", "APPORTIONMENT_OR_ENTITLEMENT"),
             ("Supplementary Award", "SUPPLEMENTARY_MATTER"),
+            ("Delhi Administration NOTIFICATION — SPECIFICATION", "STATUTORY_NOTIFICATIONS"),
+            ("A statement showing the details of Khasra Nos., ownership, area and classification of soil", "OTHER"),
         ]
         for heading, expected in examples:
             with self.subTest(heading=heading):

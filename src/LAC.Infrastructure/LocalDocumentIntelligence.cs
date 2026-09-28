@@ -22,9 +22,10 @@ public sealed class DocumentIntelligenceOptions
     public int ContractVersion { get; set; } = 1;
     public bool GenreRoutingEnabled { get; set; }
     public bool SectionObservationsEnabled { get; set; }
+    public bool TableSemanticsEnabled { get; set; }
 }
 
-public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false, string? PhysicalSha256 = null, int? DocumentVersion = null, int? PageCount = null, bool GenreRouting = false, bool SectionObservations = false);
+public sealed record LocalDocumentIntelligenceInput(int ContractVersion, Guid DocumentId, string FilePath, Guid TargetAwardId, Guid? SelectedVillageId, IReadOnlyList<int>? SelectedPages = null, bool NmPilot = false, bool NmSemantic = false, string? PhysicalSha256 = null, int? DocumentVersion = null, int? PageCount = null, bool GenreRouting = false, bool SectionObservations = false, bool TableSemantics = false);
 
 public sealed record LocalDocumentIntelligenceCandidate(
     string CandidateType,
@@ -63,6 +64,8 @@ public static class LocalDocumentIntelligenceContract
             throw new InvalidOperationException("Document genre routing requires worker contract version 2.");
         if (input.SectionObservations && (input.ContractVersion != 2 || !input.GenreRouting))
             throw new InvalidOperationException("Section observations require version 2 genre routing.");
+        if (input.TableSemantics && !input.SectionObservations)
+            throw new InvalidOperationException("Table semantics require version 2 section observations.");
         if (input.ContractVersion == 1)
             return JsonSerializer.Serialize(new
             {
@@ -86,7 +89,7 @@ public static class LocalDocumentIntelligenceContract
             filePath = input.FilePath,
             targetAwardId = input.TargetAwardId,
             selectedVillageId = input.SelectedVillageId,
-            options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic, genreRouting = input.GenreRouting, sectionObservations = input.SectionObservations },
+            options = new { processTables = true, nmPilot = input.NmPilot, nmSemantic = input.NmSemantic, genreRouting = input.GenreRouting, sectionObservations = input.SectionObservations, tableSemantics = input.TableSemantics },
             selectedPages = input.SelectedPages,
             physicalSha256,
             documentVersion = input.DocumentVersion,
@@ -126,7 +129,8 @@ public static class LocalDocumentIntelligenceContract
                 result.Observations is null || result.Observations.Value.ValueKind != JsonValueKind.Array)
                 throw new InvalidOperationException("Version 2 worker metadata is incomplete or inconsistent.");
             var genre = DocumentGenreContract.Read(result, input.GenreRouting, input.SectionObservations);
-            DocumentSectionContract.ReadAll(result, genre, input.SectionObservations);
+            var sections = DocumentSectionContract.ReadAll(result, genre, input.SectionObservations, input.TableSemantics);
+            DocumentTableContract.ReadAll(result, genre, sections, input.TableSemantics);
         }
         return result;
     }
