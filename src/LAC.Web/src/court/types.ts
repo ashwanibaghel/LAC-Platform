@@ -24,6 +24,12 @@ export interface CourtCaseListItemDto {
   documentsCount: number;
   proceedingsCount: number;
   lastActivityAt: string | null;
+  operationalNdoh: string | null;
+  queueState: "Today" | "Upcoming" | "Overdue" | "NoNdoh" | "Attention" | "Disposed";
+  daysFromToday: number | null;
+  advocates: string[];
+  sourceVillage: string | null;
+  sourceAwardNumber: string | null;
 }
 
 export interface CourtCaseListResponse {
@@ -46,6 +52,8 @@ export type CourtFilterUserOption = CourtFilterOptionDto;
 export interface CourtFilterOptionsDto {
   courtNames: string[];
   statuses: string[];
+  caseTypes?: string[];
+  directoryOfficers?: CourtFilterOptionDto[];
   desks: CourtFilterOptionDto[];
   officers?: CourtFilterOptionDto[];
   assignedUsers?: CourtFilterOptionDto[];

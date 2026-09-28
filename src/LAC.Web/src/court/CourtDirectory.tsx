@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type {
   CourtCaseListItemDto,
   CourtCaseListResponse,
@@ -12,19 +12,39 @@ export const CourtDirectory: React.FC = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("Court.Create");
+  const [urlParams, setUrlParams] = useSearchParams();
+  const page = Math.max(1, Number(urlParams.get("page") || "1") || 1);
+  const pageSize = 20;
+  const value = (name: string) => urlParams.get(name) || "";
+  const selected = (name: string) => value(name).split(",").filter(Boolean);
+  const setFilter = (name: string, next: string) => {
+    const params = new URLSearchParams(urlParams);
+    if (next.trim()) params.set(name, next.trim()); else params.delete(name);
+    params.delete("page");
+    setUrlParams(params, { replace: ["search", "caseNumber", "advocate", "village", "award", "directions", "briefFacts"].includes(name) });
+  };
+  const setPage = (next: number) => {
+    const params = new URLSearchParams(urlParams);
+    if (next <= 1) params.delete("page"); else params.set("page", String(next));
+    setUrlParams(params);
+  };
+  const setQuick = (quick: string) => {
+    const params = new URLSearchParams(urlParams);
+    params.delete("page");
+    if (quick === "Disposed") {
+      params.delete("ndohFilter");
+      params.set("statuses", "Disposed");
+    } else {
+      params.delete("statuses");
+      if (quick) params.set("ndohFilter", quick); else params.delete("ndohFilter");
+    }
+    setUrlParams(params);
+  };
 
   const [items, setItems] = useState<CourtCaseListItemDto[]>([]);
   const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Filters
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCourt, setSelectedCourt] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState("");
-  const [selectedDeskId, setSelectedDeskId] = useState("");
   const [filterOptions, setFilterOptions] = useState<CourtFilterOptionsDto | null>(null);
 
   // New Case Modal
@@ -51,51 +71,27 @@ export const CourtDirectory: React.FC = () => {
       .catch(() => {});
   }, []);
 
-  // Fetch court cases
-  const fetchCases = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const params = new URLSearchParams();
-      params.set("page", page.toString());
-      params.set("pageSize", pageSize.toString());
-      if (searchTerm.trim()) params.set("search", searchTerm.trim());
-      if (selectedCourt) params.set("courtName", selectedCourt);
-      if (selectedStatus) params.set("currentStatus", selectedStatus);
-      if (selectedDeskId) params.set("deskId", selectedDeskId);
-
-      const res = await fetch(`/api/court-cases?${params.toString()}`, { credentials: "include" });
-      if (res.ok) {
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const params = new URLSearchParams(urlParams);
+        params.set("pageSize", String(pageSize));
+        const res = await fetch(`/api/court-cases?${params.toString()}`, { credentials: "include", signal: controller.signal });
+        if (!res.ok) throw new Error("Failed to load court cases");
         const data: CourtCaseListResponse = await res.json();
         setItems(data.items);
         setTotalCount(data.totalCount);
-      } else {
-        setError("Failed to load court cases");
+      } catch (reason) {
+        if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Network error loading court cases");
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    } catch {
-      setError("Network error loading court cases");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, searchTerm, selectedCourt, selectedStatus, selectedDeskId]);
-
-  useEffect(() => {
-    void fetchCases();
-  }, [fetchCases]);
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    void fetchCases();
-  };
-
-  const handleResetFilters = () => {
-    setSearchTerm("");
-    setSelectedCourt("");
-    setSelectedStatus("");
-    setSelectedDeskId("");
-    setPage(1);
-  };
+    }, 200);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [urlParams, pageSize]);
 
   const handleCreateCase = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,69 +144,66 @@ export const CourtDirectory: React.FC = () => {
       <div className="court-directory-header">
         <div>
           <h1 style={{ margin: 0, fontSize: "28px", fontWeight: 700, color: "#0f172a" }}>
-            🏛 Court & Litigation Workspace
+            Court operational queue
           </h1>
           <p style={{ margin: "4px 0 0 0", color: "#64748b", fontSize: "14px" }}>
-            Comprehensive directory of pending writ petitions, land acquisition references, appeals, and court proceedings.
+            Pending hearings first, then overdue and undated matters. Court proceeding NDOH drives this order—not Calendar dates.
           </p>
         </div>
 
         {canCreate && (<div style={{ display: "flex", gap: "8px" }}><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>)}
       </div>
 
-      {/* Filter Bar */}
-      <form onSubmit={handleSearchSubmit} className="court-filters-bar">
-        <input
-          type="text"
-          className="form-input court-search-input"
-          placeholder="Search by case number, title, or forum..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-
-        <select
-          className="form-input court-filter-select"
-          value={selectedCourt}
-          onChange={(e) => { setSelectedCourt(e.target.value); setPage(1); }}
-        >
-          <option value="">All Courts / Forums</option>
-          {filterOptions?.courtNames.map((cn) => (
-            <option key={cn} value={cn}>{cn}</option>
-          ))}
-        </select>
-
-        <select
-          className="form-input court-filter-select"
-          value={selectedStatus}
-          onChange={(e) => { setSelectedStatus(e.target.value); setPage(1); }}
-        >
-          <option value="">All Statuses</option>
-          {filterOptions?.statuses.map((st) => (
-            <option key={st} value={st}>{st}</option>
-          ))}
-        </select>
-
-        <select
-          className="form-input court-filter-select"
-          value={selectedDeskId}
-          onChange={(e) => { setSelectedDeskId(e.target.value); setPage(1); }}
-        >
-          <option value="">All Desks</option>
-          {(filterOptions?.viewDesks ?? filterOptions?.desks ?? []).map((d) => (
-            <option key={d.id} value={d.id}>{d.name} ({d.workstreamName})</option>
-          ))}
-        </select>
-
-        <button type="submit" className="secondary-button">
-          Filter
-        </button>
-
-        {(searchTerm || selectedCourt || selectedStatus || selectedDeskId) && (
-          <button type="button" className="quiet-button" onClick={handleResetFilters}>
-            Reset
-          </button>
-        )}
-      </form>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "18px 0 12px" }} aria-label="Court queue quick filters">
+        {[["", "All queue"], ["Today", "Today"], ["Upcoming", "Upcoming"], ["Overdue", "Overdue"], ["NoNdoh", "No NDOH"], ["Disposed", "Disposed"]].map(([key, label]) =>
+          <button key={key || "all"} type="button" className={(key === "Disposed" ? value("statuses") === "Disposed" && !value("ndohFilter") : value("ndohFilter") === key && (key !== "" || !value("statuses"))) ? "primary-button" : "secondary-button"}
+            onClick={() => setQuick(key)}>{label}</button>)}
+      </div>
+      <div className="court-filters-bar" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, alignItems: "end" }}>
+        <label>Search all
+          <input className="form-input" type="search" placeholder="Case, advocate, source text…" value={value("search")} onChange={e => setFilter("search", e.target.value)} />
+        </label>
+        <label>NDOH
+          <select className="form-input" value={value("ndohFilter")} onChange={e => setFilter("ndohFilter", e.target.value)}>
+            {[ ["", "All"], ["Today", "Today"], ["Tomorrow", "Tomorrow"], ["Next7Days", "Next 7 days"], ["ThisWeek", "This week"], ["ThisMonth", "This month"], ["Upcoming", "Upcoming"], ["Overdue", "Overdue"], ["NoNdoh", "No NDOH"], ["CustomRange", "Custom range"] ].map(([key,label]) => <option key={key} value={key}>{label}</option>)}
+          </select>
+        </label>
+        {value("ndohFilter") === "CustomRange" && <>
+          <label>NDOH from<input className="form-input" type="date" value={value("ndohFrom")} onChange={e => setFilter("ndohFrom", e.target.value)} /></label>
+          <label>NDOH to<input className="form-input" type="date" value={value("ndohTo")} onChange={e => setFilter("ndohTo", e.target.value)} /></label>
+        </>}
+        <label>Status (Ctrl-click for multiple)
+          <select multiple size={Math.min(4, Math.max(2, filterOptions?.statuses.length || 2))} className="form-input" value={selected("statuses")}
+            onChange={e => setFilter("statuses", Array.from(e.target.selectedOptions, option => option.value).join(","))}>
+            {filterOptions?.statuses.map(st => <option key={st} value={st}>{st}</option>)}
+          </select>
+        </label>
+        <label>Court (Ctrl-click for multiple)
+          <select multiple size={Math.min(4, Math.max(2, filterOptions?.courtNames.length || 2))} className="form-input" value={selected("courtNames")}
+            onChange={e => setFilter("courtNames", Array.from(e.target.selectedOptions, option => option.value).join(","))}>
+            {filterOptions?.courtNames.map(cn => <option key={cn} value={cn}>{cn}</option>)}
+          </select>
+        </label>
+        <label>Case type<select className="form-input" value={value("caseType")} onChange={e => setFilter("caseType", e.target.value)}>
+          <option value="">All types</option>{filterOptions?.caseTypes?.map(t => <option key={t} value={t}>{t}</option>)}
+        </select></label>
+        <label>Case number<input className="form-input" value={value("caseNumber")} onChange={e => setFilter("caseNumber", e.target.value)} placeholder="e.g. 3352/2024" /></label>
+        <label>Advocate<input className="form-input" value={value("advocate")} onChange={e => setFilter("advocate", e.target.value)} /></label>
+        <label>Village (linked or source)<input className="form-input" value={value("village")} onChange={e => setFilter("village", e.target.value)} /></label>
+        <label>Award (linked or source)<input className="form-input" value={value("award")} onChange={e => setFilter("award", e.target.value)} /></label>
+        <label>Source directions<input className="form-input" value={value("directions")} onChange={e => setFilter("directions", e.target.value)} /></label>
+        <label>Source brief facts<input className="form-input" value={value("briefFacts")} onChange={e => setFilter("briefFacts", e.target.value)} /></label>
+        <label>Last-order source link<select className="form-input" value={value("sourceOrderLinkState")} onChange={e => setFilter("sourceOrderLinkState", e.target.value)}>
+          <option value="">Any</option><option value="ValidHttpUrl">Valid source URL</option><option value="Missing">Missing</option><option value="NeedsReview">Needs review</option>
+        </select></label>
+        <label>Responsible desk<select className="form-input" value={value("deskId")} onChange={e => setFilter("deskId", e.target.value)}>
+          <option value="">All desks</option>{(filterOptions?.viewDesks ?? filterOptions?.desks ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select></label>
+        <label>Assigned officer<select className="form-input" value={value("assignedUserId")} onChange={e => setFilter("assignedUserId", e.target.value)}>
+          <option value="">All officers</option>{(filterOptions?.directoryOfficers ?? []).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select></label>
+        <button type="button" className="quiet-button" onClick={() => setUrlParams(new URLSearchParams())}>Clear filters</button>
+      </div>
 
       {error && <div style={{ color: "#dc2626", marginBottom: "16px" }}>{error}</div>}
 
@@ -221,29 +214,30 @@ export const CourtDirectory: React.FC = () => {
             <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left" }}>
               <th style={{ padding: "12px 16px" }}>Case Details</th>
               <th style={{ padding: "12px 16px" }}>Court / Forum</th>
-              <th style={{ padding: "12px 16px" }}>Next Hearing Date (NDOH)</th>
-              <th style={{ padding: "12px 16px" }}>Status</th>
+              <th style={{ padding: "12px 16px" }}>Operational NDOH</th>
+              <th style={{ padding: "12px 16px" }}>Queue / Status</th>
+              <th style={{ padding: "12px 16px" }}>Advocate</th>
+              <th style={{ padding: "12px 16px" }}>Village / Award</th>
               <th style={{ padding: "12px 16px" }}>Desk / Officer</th>
-              <th style={{ padding: "12px 16px" }}>Connections</th>
               <th style={{ padding: "12px 16px", textAlign: "right" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} style={{ padding: "32px", textAlign: "center", color: "#64748b" }}>
+                <td colSpan={8} style={{ padding: "32px", textAlign: "center", color: "#64748b" }}>
                   Loading cases...
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
+                <td colSpan={8} style={{ padding: "40px", textAlign: "center", color: "#64748b" }}>
                   No court cases found matching the criteria.
                 </td>
               </tr>
             ) : (
               items.map((c) => (
-                <tr key={c.id} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <tr key={c.id} style={{ borderBottom: "1px solid #f1f5f9", opacity: c.queueState === "Disposed" ? 0.7 : 1 }}>
                   <td style={{ padding: "12px 16px" }}>
                     <Link
                       to={`/court-cases/${c.id}`}
@@ -268,16 +262,12 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px" }}>
-                    {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate ? (
+                    {c.operationalNdoh ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                         <span className="court-badge court-badge-ndoh">
-                          📅 {c.authoritativeNextDate || c.activeScheduleNextDate || c.nextHearingDate}
+                          {c.operationalNdoh}
                         </span>
-                        {c.isProjectedToCalendar ? (
-                          <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 600 }}>● On Calendar</span>
-                        ) : (
-                          <span style={{ fontSize: "11px", color: "#94a3b8" }}>○ Not on Calendar</span>
-                        )}
+                        {c.daysFromToday !== null && c.queueState === "Overdue" && <small style={{ color: "#b45309" }}>{Math.abs(c.daysFromToday)} day(s) overdue</small>}
                       </div>
                     ) : (
                       <span style={{ color: "#94a3b8", fontSize: "13px" }}>—</span>
@@ -285,6 +275,9 @@ export const CourtDirectory: React.FC = () => {
                   </td>
 
                   <td style={{ padding: "12px 16px" }}>
+                    <strong style={{ display: "block", color: c.queueState === "Overdue" ? "#b45309" : "#334155" }}>
+                      {c.queueState === "NoNdoh" ? "No NDOH" : c.queueState}
+                    </strong>
                     {c.currentStatus ? (
                       <span
                         className={`court-badge ${
@@ -302,6 +295,13 @@ export const CourtDirectory: React.FC = () => {
                     )}
                   </td>
 
+                  <td style={{ padding: "12px 16px", fontSize: "12px" }}>{c.advocates?.join(", ") || "—"}</td>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#64748b" }}>
+                    {c.sourceVillage && <div>Source village: {c.sourceVillage}</div>}
+                    {c.sourceAwardNumber && <div>Source award: {c.sourceAwardNumber}</div>}
+                    {!c.sourceVillage && !c.sourceAwardNumber && <div>Linked awards: {c.awardsCount ?? "—"}</div>}
+                  </td>
+
                   <td style={{ padding: "12px 16px", fontSize: "13px" }}>
                     <div style={{ color: "#334155", fontWeight: 500 }}>
                       {c.responsibleOfficeDeskName || "Unassigned"}
@@ -311,11 +311,6 @@ export const CourtDirectory: React.FC = () => {
                         {c.assignedUserDisplayName}
                       </div>
                     )}
-                  </td>
-
-                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#64748b" }}>
-                    <div>Awards: {c.awardsCount !== null && c.awardsCount !== undefined ? c.awardsCount : "—"}</div>
-                    <div>Matters: {c.mattersCount !== null && c.mattersCount !== undefined ? c.mattersCount : "—"}</div>
                   </td>
 
                   <td style={{ padding: "12px 16px", textAlign: "right" }}>
@@ -344,7 +339,7 @@ export const CourtDirectory: React.FC = () => {
             <button
               className="secondary-button"
               disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => setPage(page - 1)}
             >
               Previous
             </button>
@@ -354,7 +349,7 @@ export const CourtDirectory: React.FC = () => {
             <button
               className="secondary-button"
               disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => setPage(page + 1)}
             >
               Next
             </button>

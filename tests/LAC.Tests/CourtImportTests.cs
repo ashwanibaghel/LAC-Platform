@@ -10,6 +10,11 @@ namespace LAC.Tests;
 
 public sealed class CourtImportTests
 {
+    private sealed class SmokeClock : IOfficeClock
+    {
+        public DateOnly GetCurrentDate() => new(2026, 9, 28);
+        public DateTimeOffset GetUtcNow() => new(2026, 9, 28, 4, 0, 0, TimeSpan.Zero);
+    }
     private readonly ITestOutputHelper _output;
     public CourtImportTests(ITestOutputHelper output) => _output = output;
 
@@ -302,5 +307,16 @@ public sealed class CourtImportTests
         Assert.Equal(safe.Count, await db.CourtCases.CountAsync());
         Assert.Equal(0, (await review.CommitAsync(result.Id, actor.Id)).CommittedThisRun);
         Assert.Equal(safe.Count, await db.CourtCases.CountAsync());
+        var directory = new CourtProjectionService(db, auth, null!, new SmokeClock());
+        var defaultPage = await directory.GetCourtCasesAsync(new CourtCaseFilterQuery(PageSize: 20), actor.Id);
+        var pendingCount = await db.CourtCases.CountAsync(c => c.CurrentStatus == "Pending");
+        var disposedCount = await db.CourtCases.CountAsync(c => c.CurrentStatus == "Disposed");
+        _output.WriteLine($"Operational smoke total canonical: {defaultPage.TotalCount}; Pending: {pendingCount}; Disposed: {disposedCount}");
+        foreach (var filter in new[] { "Today", "Upcoming", "Overdue", "NoNdoh" })
+            _output.WriteLine($"Operational smoke {filter}: {(await directory.GetCourtCasesAsync(new CourtCaseFilterQuery(NdohFilter: filter), actor.Id)).TotalCount}");
+        foreach (var item in defaultPage.Items)
+            _output.WriteLine($"Queue row: {item.CaseNumber} | {item.CurrentStatus} | {item.OperationalNdoh?.ToString("yyyy-MM-dd") ?? "—"} | {item.QueueState}");
+        Assert.Equal(214, defaultPage.TotalCount);
+        Assert.Equal(20, defaultPage.Items.Count);
     }
 }

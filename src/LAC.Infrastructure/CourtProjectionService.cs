@@ -19,7 +19,20 @@ public sealed record CourtCaseFilterQuery(
     Guid? AwardId = null,
     Guid? VillageId = null,
     int Page = 1,
-    int PageSize = 25
+    int PageSize = 25,
+    IReadOnlyList<string>? CourtNames = null,
+    IReadOnlyList<string>? Statuses = null,
+    string? NdohFilter = null,
+    DateOnly? NdohFrom = null,
+    DateOnly? NdohTo = null,
+    string? CaseNumber = null,
+    string? CaseType = null,
+    string? Advocate = null,
+    string? Village = null,
+    string? Award = null,
+    string? Directions = null,
+    string? BriefFacts = null,
+    string? SourceOrderLinkState = null
 );
 
 public sealed record CourtCaseSummaryDto(
@@ -47,7 +60,13 @@ public sealed record CourtCaseSummaryDto(
     int PartiesCount,
     int DocumentsCount,
     int ProceedingsCount,
-    DateTimeOffset? LastActivityAt
+    DateTimeOffset? LastActivityAt,
+    DateOnly? OperationalNdoh = null,
+    string QueueState = "NoNdoh",
+    int? DaysFromToday = null,
+    IReadOnlyList<string>? Advocates = null,
+    string? SourceVillage = null,
+    string? SourceAwardNumber = null
 );
 
 public sealed record PagedResult<T>(
@@ -168,7 +187,9 @@ public sealed record CourtFilterOptionsDto(
     IReadOnlyList<CourtFilterOptionDto> Officers,
     IReadOnlyList<CourtFilterOptionDto>? ViewDesks = null,
     IReadOnlyList<CourtFilterOptionDto>? CreateDesks = null,
-    IReadOnlyList<CourtFilterOptionDto>? AssignTargetDesks = null
+    IReadOnlyList<CourtFilterOptionDto>? AssignTargetDesks = null,
+    IReadOnlyList<string>? CaseTypes = null,
+    IReadOnlyList<CourtFilterOptionDto>? DirectoryOfficers = null
 )
 {
     public IReadOnlyList<CourtFilterOptionDto> AssignedUsers => Officers;
@@ -188,8 +209,10 @@ public interface ICourtProjectionService
 public sealed class CourtProjectionService(
     LacDbContext db,
     ICourtAuthorizationService courtAuth,
-    IScheduleAuthorizationService scheduleAuth) : ICourtProjectionService
+    IScheduleAuthorizationService scheduleAuth,
+    IOfficeClock? officeClock = null) : ICourtProjectionService
 {
+    private readonly IOfficeClock _officeClock = officeClock ?? new OfficeClock();
     private async Task<HashSet<string>> GetUserPermissionsAsync(Guid userId, CancellationToken ct)
     {
         var isUserActive = await db.AppUsers.AsNoTracking()
@@ -211,17 +234,30 @@ public sealed class CourtProjectionService(
 
     public async Task<PagedResult<CourtCaseSummaryDto>> GetCourtCasesAsync(CourtCaseFilterQuery query, Guid callerUserId, CancellationToken ct = default)
     {
+        var today = _officeClock.GetCurrentDate();
         var rawQuery = db.CourtCases.AsNoTracking()
             .Where(c => c.RecordStatus == RecordStatus.Active);
 
         var authorizedQuery = await courtAuth.AuthorizeListQueryAsync(rawQuery, callerUserId, ct);
 
-        // Apply filters
+        // The CourtCase ACL is the root of every correlated search below. Source-register
+        // fields are only searchable after commit to an authorized CourtCase.
         if (!string.IsNullOrWhiteSpace(query.CourtName))
             authorizedQuery = authorizedQuery.Where(c => c.CourtName == query.CourtName.Trim());
 
+        var courts = (query.CourtNames ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct().ToArray();
+        if (courts.Length > 0)
+            authorizedQuery = authorizedQuery.Where(c => courts.Contains(c.CourtName));
+
         if (!string.IsNullOrWhiteSpace(query.CurrentStatus))
-            authorizedQuery = authorizedQuery.Where(c => c.CurrentStatus == query.CurrentStatus.Trim());
+        {
+            var status = query.CurrentStatus.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => c.CurrentStatus != null && c.CurrentStatus.Trim().ToLower() == status);
+        }
+
+        var statuses = (query.Statuses ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim().ToLower()).Distinct().ToArray();
+        if (statuses.Length > 0)
+            authorizedQuery = authorizedQuery.Where(c => c.CurrentStatus != null && statuses.Contains(c.CurrentStatus.Trim().ToLower()));
 
         if (query.FiledFrom.HasValue)
             authorizedQuery = authorizedQuery.Where(c => c.FiledDate >= query.FiledFrom.Value);
@@ -251,6 +287,70 @@ public sealed class CourtProjectionService(
             authorizedQuery = authorizedQuery.Where(c => c.Khasras.Any(k => k.Khasra.VillageId == query.VillageId.Value));
         }
 
+        if (!string.IsNullOrWhiteSpace(query.CaseNumber))
+        {
+            var term = query.CaseNumber.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => c.CaseNumber.ToLower().Contains(term));
+        }
+        if (!string.IsNullOrWhiteSpace(query.CaseType))
+        {
+            var term = query.CaseType.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => c.CaseType != null && c.CaseType.Trim().ToLower() == term);
+        }
+        if (!string.IsNullOrWhiteSpace(query.Advocate))
+        {
+            var term = query.Advocate.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => c.Representatives.Any(r => r.RecordStatus == RecordStatus.Active && r.DisplayName.ToLower().Contains(term)));
+        }
+
+        var canReadAwards = !string.IsNullOrWhiteSpace(query.Award) &&
+            await CanReadLinkedLandAsync(callerUserId, PermissionCodes.AwardView, [WorkstreamCodes.Award], ct);
+        var canReadVillages = !string.IsNullOrWhiteSpace(query.Village) &&
+            await CanReadLinkedLandAsync(callerUserId, PermissionCodes.VillageView,
+            [WorkstreamCodes.LandRecords, WorkstreamCodes.Award, WorkstreamCodes.CourtReferences], ct)
+            && await CanReadLinkedLandAsync(callerUserId, PermissionCodes.KhasraView,
+                [WorkstreamCodes.LandRecords, WorkstreamCodes.Award], ct);
+        if (!string.IsNullOrWhiteSpace(query.Village))
+        {
+            var term = query.Village.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c =>
+                db.CourtImportRows.Any(r => r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                    r.RawVillage != null && r.RawVillage.ToLower().Contains(term)) ||
+                (canReadVillages && c.Khasras.Any(k => k.Khasra.RecordStatus == RecordStatus.Active &&
+                    k.Khasra.Village.RecordStatus == RecordStatus.Active && k.Khasra.Village.Name.ToLower().Contains(term))));
+        }
+        if (!string.IsNullOrWhiteSpace(query.Award))
+        {
+            var term = query.Award.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c =>
+                db.CourtImportRows.Any(r => r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                    r.RawAwardNumber != null && r.RawAwardNumber.ToLower().Contains(term)) ||
+                (canReadAwards && c.Awards.Any(a => a.Award.RecordStatus == RecordStatus.Active && a.Award.AwardNumber.ToLower().Contains(term))));
+        }
+        if (!string.IsNullOrWhiteSpace(query.Directions))
+        {
+            var term = query.Directions.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => db.CourtImportRows.Any(r =>
+                r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                r.RawDirections != null && r.RawDirections.ToLower().Contains(term)));
+        }
+        if (!string.IsNullOrWhiteSpace(query.BriefFacts))
+        {
+            var term = query.BriefFacts.Trim().ToLower();
+            authorizedQuery = authorizedQuery.Where(c => db.CourtImportRows.Any(r =>
+                r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                r.RawBriefFacts != null && r.RawBriefFacts.ToLower().Contains(term)));
+        }
+        if (!string.IsNullOrWhiteSpace(query.SourceOrderLinkState) && !query.SourceOrderLinkState.Equals("Any", StringComparison.OrdinalIgnoreCase))
+        {
+            var state = query.SourceOrderLinkState.Trim().ToLower();
+            if (state is not ("validhttpurl" or "missing" or "needsreview"))
+                throw new CourtWorkflowException("Unknown source order-link filter.", 400);
+            authorizedQuery = authorizedQuery.Where(c => db.CourtImportRows.Any(r =>
+                r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                r.LastOrderLinkState != null && r.LastOrderLinkState.ToLower() == state));
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var s = query.Search.Trim().ToLower();
@@ -258,48 +358,108 @@ public sealed class CourtProjectionService(
                 c.CaseNumber.ToLower().Contains(s)
                 || (c.CaseTitle != null && c.CaseTitle.ToLower().Contains(s))
                 || c.CourtName.ToLower().Contains(s)
+                || (c.CaseType != null && c.CaseType.ToLower().Contains(s))
+                || c.Representatives.Any(r => r.RecordStatus == RecordStatus.Active && r.DisplayName.ToLower().Contains(s))
                 || c.Parties.Any(p => p.DisplayName.ToLower().Contains(s) && p.RecordStatus == RecordStatus.Active)
+                || db.CourtImportRows.Any(r => r.CommittedCourtCaseId == c.Id && r.CommitStatus == CourtImportCommitStatus.Committed &&
+                    ((r.RawVillage != null && r.RawVillage.ToLower().Contains(s)) ||
+                     (r.RawAwardNumber != null && r.RawAwardNumber.ToLower().Contains(s)) ||
+                     (r.RawDirections != null && r.RawDirections.ToLower().Contains(s)) ||
+                     (r.RawBriefFacts != null && r.RawBriefFacts.ToLower().Contains(s))))
             );
         }
 
-        var totalCount = await authorizedQuery.CountAsync(ct);
+        var queue = authorizedQuery.Select(c => new
+        {
+            Case = c,
+            OperationalNdoh = c.Proceedings.Where(p => p.RecordStatus == RecordStatus.Active)
+                .OrderByDescending(p => p.ProceedingDate.HasValue)
+                .ThenByDescending(p => p.ProceedingDate)
+                .ThenByDescending(p => p.CreatedAt)
+                .ThenByDescending(p => p.Id)
+                .Select(p => p.NextDate).FirstOrDefault()
+        });
+
+        var ndohFilter = query.NdohFilter?.Trim().ToLowerInvariant() ?? "all";
+        if (ndohFilter != "all")
+        {
+            if (ndohFilter != "customrange")
+                queue = queue.Where(x => x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "pending");
+            switch (ndohFilter)
+            {
+                case "today": queue = queue.Where(x => x.OperationalNdoh == today); break;
+                case "tomorrow": var tomorrow = today.AddDays(1); queue = queue.Where(x => x.OperationalNdoh == tomorrow); break;
+                case "next7days": var seventh = today.AddDays(6); queue = queue.Where(x => x.OperationalNdoh >= today && x.OperationalNdoh <= seventh); break;
+                case "thisweek":
+                    var monday = today.AddDays(-((int)today.DayOfWeek + 6) % 7);
+                    var sunday = monday.AddDays(6);
+                    queue = queue.Where(x => x.OperationalNdoh >= monday && x.OperationalNdoh <= sunday); break;
+                case "thismonth":
+                    var first = new DateOnly(today.Year, today.Month, 1);
+                    var last = first.AddMonths(1).AddDays(-1);
+                    queue = queue.Where(x => x.OperationalNdoh >= first && x.OperationalNdoh <= last); break;
+                case "upcoming": queue = queue.Where(x => x.OperationalNdoh >= today); break;
+                case "overdue": queue = queue.Where(x => x.OperationalNdoh < today); break;
+                case "nondoh": queue = queue.Where(x => x.OperationalNdoh == null); break;
+                case "customrange":
+                    if (!query.NdohFrom.HasValue || !query.NdohTo.HasValue || query.NdohFrom > query.NdohTo)
+                        throw new CourtWorkflowException("Custom NDOH range requires From <= To.", 400);
+                    queue = queue.Where(x => x.OperationalNdoh >= query.NdohFrom.Value && x.OperationalNdoh <= query.NdohTo.Value); break;
+                default: throw new CourtWorkflowException("Unknown NDOH filter.", 400);
+            }
+        }
+
+        var totalCount = await queue.CountAsync(ct);
 
         var page = Math.Clamp(query.Page, 1, 1000);
         var pageSize = Math.Clamp(query.PageSize, 1, 100);
         var skip = (page - 1) * pageSize;
         var hasScheduleViewCap = (await GetScopesForPermissionAsync(callerUserId, PermissionCodes.ScheduleView, ct)).Count > 0;
 
-        var rawItems = await authorizedQuery
-            .OrderByDescending(c => c.UpdatedAt)
-            .ThenByDescending(c => c.Id)
+        var rawItems = await queue
+            .OrderBy(x => x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "pending"
+                ? (x.OperationalNdoh >= today ? 0 : x.OperationalNdoh != null ? 1 : 2)
+                : x.Case.CurrentStatus != null && x.Case.CurrentStatus.Trim().ToLower() == "disposed" ? 4 : 3)
+            .ThenBy(x => x.OperationalNdoh >= today ? x.OperationalNdoh : null)
+            .ThenByDescending(x => x.OperationalNdoh < today ? x.OperationalNdoh : null)
+            .ThenByDescending(x => x.Case.CurrentStatus == null || x.Case.CurrentStatus.Trim().ToLower() != "pending" || x.OperationalNdoh == null
+                ? (DateTimeOffset?)x.Case.UpdatedAt : null)
+            .ThenBy(x => x.Case.CourtName)
+            .ThenBy(x => x.Case.CaseNumber)
+            .ThenBy(x => x.Case.Id)
             .Skip(skip)
             .Take(pageSize)
-            .Select(c => new
+            .Select(x => new
             {
-                c.Id,
-                c.CaseNumber,
-                c.CourtName,
-                c.CaseTitle,
-                c.CaseType,
-                c.FiledDate,
-                c.CurrentStatus,
-                c.DisposedDate,
-                c.ResponsibleOfficeDeskId,
-                ResponsibleOfficeDeskName = c.ResponsibleOfficeDesk != null ? c.ResponsibleOfficeDesk.Name : null,
-                c.AssignedUserId,
-                AssignedUserDisplayName = c.AssignedUser != null ? c.AssignedUser.DisplayName : null,
-                AwardIds = c.Awards.Select(a => a.AwardId).ToList(),
-                KhasraIds = c.Khasras.Select(k => k.KhasraId).ToList(),
-                MatterIds = c.Matters.Where(m => m.RecordStatus == RecordStatus.Active).Select(m => m.MatterId).ToList(),
-                PartiesCount = c.Parties.Count(p => p.RecordStatus == RecordStatus.Active),
-                DocumentsCount = c.Documents.Count(d => d.RecordStatus == RecordStatus.Active),
-                ProceedingsCount = c.Proceedings.Count(p => p.RecordStatus == RecordStatus.Active),
-                LastActivityAt = (DateTimeOffset?)c.UpdatedAt,
+                x.OperationalNdoh,
+                x.Case.Id,
+                x.Case.CaseNumber,
+                x.Case.CourtName,
+                x.Case.CaseTitle,
+                x.Case.CaseType,
+                x.Case.FiledDate,
+                x.Case.CurrentStatus,
+                x.Case.DisposedDate,
+                x.Case.ResponsibleOfficeDeskId,
+                ResponsibleOfficeDeskName = x.Case.ResponsibleOfficeDesk != null ? x.Case.ResponsibleOfficeDesk.Name : null,
+                x.Case.AssignedUserId,
+                AssignedUserDisplayName = x.Case.AssignedUser != null ? x.Case.AssignedUser.DisplayName : null,
+                AwardIds = x.Case.Awards.Select(a => a.AwardId).ToList(),
+                KhasraIds = x.Case.Khasras.Select(k => k.KhasraId).ToList(),
+                MatterIds = x.Case.Matters.Where(m => m.RecordStatus == RecordStatus.Active).Select(m => m.MatterId).ToList(),
+                PartiesCount = x.Case.Parties.Count(p => p.RecordStatus == RecordStatus.Active),
+                DocumentsCount = x.Case.Documents.Count(d => d.RecordStatus == RecordStatus.Active),
+                ProceedingsCount = x.Case.Proceedings.Count(p => p.RecordStatus == RecordStatus.Active),
+                LastActivityAt = (DateTimeOffset?)x.Case.UpdatedAt,
+                Advocates = x.Case.Representatives.Where(r => r.RecordStatus == RecordStatus.Active).OrderBy(r => r.DisplayName).Select(r => r.DisplayName).ToList(),
+                Source = db.CourtImportRows.Where(r => r.CommittedCourtCaseId == x.Case.Id && r.CommitStatus == CourtImportCommitStatus.Committed)
+                    .OrderByDescending(r => r.CommittedAt).ThenByDescending(r => r.Id)
+                    .Select(r => new { r.RawVillage, r.RawAwardNumber }).FirstOrDefault(),
                 ActiveSchedule = db.ScheduledEvents
-                    .Where(se => se.CourtCaseId == c.Id && se.Origin == ScheduledEventOrigin.CourtProceeding && se.Status == ScheduledEventStatus.Scheduled && se.RecordStatus == RecordStatus.Active)
+                    .Where(se => se.CourtCaseId == x.Case.Id && se.Origin == ScheduledEventOrigin.CourtProceeding && se.Status == ScheduledEventStatus.Scheduled && se.RecordStatus == RecordStatus.Active)
                     .Select(se => new { se.Id, se.ScheduledDate })
                     .FirstOrDefault(),
-                LatestProceeding = c.Proceedings
+                LatestProceeding = x.Case.Proceedings
                     .Where(p => p.RecordStatus == RecordStatus.Active)
                     .OrderByDescending(p => p.ProceedingDate.HasValue)
                     .ThenByDescending(p => p.ProceedingDate)
@@ -314,6 +474,12 @@ public sealed class CourtProjectionService(
         foreach (var x in rawItems)
         {
             var authNextDate = x.LatestProceeding?.NextDate;
+            var status = x.CurrentStatus?.Trim();
+            var queueState = status?.Equals("Disposed", StringComparison.OrdinalIgnoreCase) == true ? "Disposed"
+                : status?.Equals("Pending", StringComparison.OrdinalIgnoreCase) != true ? "Attention"
+                : !x.OperationalNdoh.HasValue ? "NoNdoh"
+                : x.OperationalNdoh.Value == today ? "Today"
+                : x.OperationalNdoh.Value > today ? "Upcoming" : "Overdue";
 
             DateOnly? activeScheduleNextDate = null;
             Guid? activeScheduledEventId = null;
@@ -358,7 +524,13 @@ public sealed class CourtProjectionService(
                 x.PartiesCount,
                 x.DocumentsCount,
                 x.ProceedingsCount,
-                x.LastActivityAt
+                x.LastActivityAt,
+                x.OperationalNdoh,
+                queueState,
+                x.OperationalNdoh.HasValue ? x.OperationalNdoh.Value.DayNumber - today.DayNumber : null,
+                x.Advocates,
+                x.Source?.RawVillage,
+                x.Source?.RawAwardNumber
             ));
         }
 
@@ -893,6 +1065,17 @@ public sealed class CourtProjectionService(
         ).Distinct().ToListAsync(ct);
     }
 
+    private async Task<bool> CanReadLinkedLandAsync(Guid userId, string permissionCode,
+        string[] workstreamCodes, CancellationToken ct)
+    {
+        var scopes = await GetScopesForPermissionAsync(userId, permissionCode, ct);
+        if (scopes.Contains(ScopeMode.All)) return true;
+        if (!scopes.Contains(ScopeMode.Workstream)) return false;
+        return await db.UserWorkstreamMemberships.AsNoTracking().AnyAsync(m =>
+            m.UserId == userId && m.IsActive && m.Workstream.IsActive &&
+            m.Workstream.RecordStatus == RecordStatus.Active && workstreamCodes.Contains(m.Workstream.Code), ct);
+    }
+
     private async Task<List<CourtFilterOptionDto>> GetAuthorizedDesksForScopesAsync(List<ScopeMode> scopeModes, Guid callerUserId, CancellationToken ct)
     {
         if (scopeModes.Count == 0) return [];
@@ -951,6 +1134,22 @@ public sealed class CourtProjectionService(
             .OrderBy(s => s)
             .ToListAsync(ct);
 
+        var caseTypes = await authorized
+            .Where(c => c.CaseType != null)
+            .Select(c => c.CaseType!)
+            .Distinct()
+            .OrderBy(t => t)
+            .ToListAsync(ct);
+
+        var directoryOfficers = await authorized
+            .Where(c => c.AssignedUserId != null && c.AssignedUser != null &&
+                        c.AssignedUser.IsActive && c.AssignedUser.RecordStatus == RecordStatus.Active)
+            .Select(c => new { Id = c.AssignedUserId!.Value, Name = c.AssignedUser!.DisplayName })
+            .Distinct()
+            .OrderBy(x => x.Name)
+            .Select(x => new CourtFilterOptionDto(x.Id, x.Name))
+            .ToListAsync(ct);
+
         var viewScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.CourtView, ct);
         var createScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.CourtCreate, ct);
         var assignScopes = await GetScopesForPermissionAsync(callerUserId, PermissionCodes.CourtAssign, ct);
@@ -971,6 +1170,6 @@ public sealed class CourtProjectionService(
             .Select(u => new CourtFilterOptionDto(u.Id, u.DisplayName, null))
             .ToListAsync(ct);
 
-        return new CourtFilterOptionsDto(courtNames, statuses, viewDesks, officers, viewDesks, createDesks, assignTargetDesks);
+        return new CourtFilterOptionsDto(courtNames, statuses, viewDesks, officers, viewDesks, createDesks, assignTargetDesks, caseTypes, directoryOfficers);
     }
 }

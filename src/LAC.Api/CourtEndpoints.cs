@@ -2,6 +2,7 @@ namespace LAC.Api;
 
 using System;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,6 +103,7 @@ public static class CourtEndpoints
             Guid? villageId,
             int? page,
             int? pageSize,
+            HttpRequest request,
             ICourtAuthorizationService courtAuth,
             ICourtProjectionService projection,
             ICurrentUserContext currentUser,
@@ -113,6 +115,16 @@ public static class CourtEndpoints
 
             var p = page.GetValueOrDefault(1);
             var ps = pageSize.GetValueOrDefault(25);
+            string? Q(string name) => request.Query.TryGetValue(name, out var value) ? value.ToString() : null;
+            static IReadOnlyList<string> Multi(string? value) =>
+                (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            static DateOnly? Date(string? value) => DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var date) ? date : null;
+            var ndohFrom = Q("ndohFrom");
+            var ndohTo = Q("ndohTo");
+            if ((!string.IsNullOrWhiteSpace(ndohFrom) && !Date(ndohFrom).HasValue) ||
+                (!string.IsNullOrWhiteSpace(ndohTo) && !Date(ndohTo).HasValue))
+                return Results.BadRequest(new { error = "NDOH dates must use yyyy-MM-dd." });
 
             var query = new CourtCaseFilterQuery(
                 Search: search,
@@ -125,11 +137,24 @@ public static class CourtEndpoints
                 AwardId: awardId,
                 VillageId: villageId,
                 Page: p > 0 ? p : 1,
-                PageSize: ps > 0 ? ps : 25
+                PageSize: ps > 0 ? ps : 25,
+                CourtNames: Multi(Q("courtNames")),
+                Statuses: Multi(Q("statuses")),
+                NdohFilter: Q("ndohFilter"),
+                NdohFrom: Date(ndohFrom),
+                NdohTo: Date(ndohTo),
+                CaseNumber: Q("caseNumber"),
+                CaseType: Q("caseType"),
+                Advocate: Q("advocate"),
+                Village: Q("village"),
+                Award: Q("award"),
+                Directions: Q("directions"),
+                BriefFacts: Q("briefFacts"),
+                SourceOrderLinkState: Q("sourceOrderLinkState")
             );
 
-            var result = await projection.GetCourtCasesAsync(query, currentUser.UserId.Value, ct);
-            return Results.Ok(result);
+            try { return Results.Ok(await projection.GetCourtCasesAsync(query, currentUser.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
 
         // 2. Filter Options
