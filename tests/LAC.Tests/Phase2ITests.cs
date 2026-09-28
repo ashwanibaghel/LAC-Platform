@@ -58,6 +58,19 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         _factory = factory;
     }
 
+    [Fact]
+    public async Task CourtImport_AssignedOnlyView_CannotListReadRowsOrUpload()
+    {
+        var (client, _) = await CreateUserWithPermissionsAsync(
+            $"court_import_assigned_{Guid.NewGuid():N}", "Pass123!",
+            new[] { (PermissionCodes.CourtView, ScopeMode.Assigned), (PermissionCodes.CourtCreate, ScopeMode.Assigned) });
+        var batchId = Guid.NewGuid();
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/court-cases/imports")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/court-cases/imports/{batchId}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/court-cases/imports/{batchId}/rows")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsync("/api/court-cases/imports", new MultipartFormDataContent())).StatusCode);
+    }
+
     private async Task<HttpClient> CreateAdminClientAsync()
     {
         var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });

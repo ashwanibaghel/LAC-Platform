@@ -59,7 +59,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AcquisitionProjects", (string)null);
+                    b.ToTable("AcquisitionProjects");
                 });
 
             modelBuilder.Entity("LAC.Domain.AppUser", b =>
@@ -119,7 +119,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("NormalizedUsername")
                         .IsUnique();
 
-                    b.ToTable("AppUsers", (string)null);
+                    b.ToTable("AppUsers");
                 });
 
             modelBuilder.Entity("LAC.Domain.AuditLog", b =>
@@ -153,7 +153,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AuditLogs", (string)null);
+                    b.ToTable("AuditLogs");
                 });
 
             modelBuilder.Entity("LAC.Domain.Award", b =>
@@ -218,7 +218,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("ParentAwardId");
 
-                    b.ToTable("Awards", (string)null);
+                    b.ToTable("Awards");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardApportionmentEntry", b =>
@@ -278,7 +278,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("PartyId");
 
-                    b.ToTable("AwardApportionmentEntry", (string)null);
+                    b.ToTable("AwardApportionmentEntry");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardAreaIssue", b =>
@@ -361,7 +361,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("KhasraId");
 
-                    b.ToTable("AwardAreaIssue", (string)null);
+                    b.ToTable("AwardAreaIssue");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardAreaSummary", b =>
@@ -412,7 +412,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("AwardId");
 
-                    b.ToTable("AwardAreaSummary", (string)null);
+                    b.ToTable("AwardAreaSummary");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardCompensationRule", b =>
@@ -470,7 +470,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("AwardId");
 
-                    b.ToTable("AwardCompensationRule", (string)null);
+                    b.ToTable("AwardCompensationRule");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardDocumentExtractionJob", b =>
@@ -538,7 +538,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("Status", "CreatedAt");
 
-                    b.ToTable("AwardDocumentExtractionJobs", (string)null);
+                    b.ToTable("AwardDocumentExtractionJobs");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardDocumentPageExtraction", b =>
@@ -592,7 +592,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("JobId", "PageNumber")
                         .IsUnique();
 
-                    b.ToTable("AwardDocumentPageExtractions", (string)null);
+                    b.ToTable("AwardDocumentPageExtractions");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardIngestionCandidate", b =>
@@ -679,7 +679,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("SessionId", "SafeToConfirm", "SourcePage");
 
-                    b.ToTable("AwardIngestionCandidates", (string)null);
+                    b.ToTable("AwardIngestionCandidates");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardIngestionSession", b =>
@@ -730,7 +730,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("TargetAwardId");
 
-                    b.ToTable("AwardIngestionSessions", (string)null);
+                    b.ToTable("AwardIngestionSessions");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardKhasra", b =>
@@ -794,7 +794,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AwardId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("AwardKhasra", (string)null);
+                    b.ToTable("AwardKhasra");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardKhasraClassification", b =>
@@ -826,7 +826,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AwardLandClassId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("AwardKhasraClassification", (string)null);
+                    b.ToTable("AwardKhasraClassification");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardLandClass", b =>
@@ -865,7 +865,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AwardId", "Code")
                         .IsUnique();
 
-                    b.ToTable("AwardLandClass", (string)null);
+                    b.ToTable("AwardLandClass");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardNotification", b =>
@@ -887,7 +887,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AwardId", "NotificationId")
                         .IsUnique();
 
-                    b.ToTable("AwardNotifications", (string)null);
+                    b.ToTable("AwardNotifications");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardSupplementaryMatter", b =>
@@ -935,7 +935,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("SupplementaryAwardId");
 
-                    b.ToTable("AwardSupplementaryMatter", (string)null);
+                    b.ToTable("AwardSupplementaryMatter");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardValuationRule", b =>
@@ -991,7 +991,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("AwardLandClassId");
 
-                    b.ToTable("AwardValuationRule", (string)null);
+                    b.ToTable("AwardValuationRule");
                 });
 
             modelBuilder.Entity("LAC.Domain.AwardVillage", b =>
@@ -1013,7 +1013,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AwardId", "VillageId")
                         .IsUnique();
 
-                    b.ToTable("AwardVillages", (string)null);
+                    b.ToTable("AwardVillages");
                 });
 
             modelBuilder.Entity("LAC.Domain.Claim", b =>
@@ -1088,7 +1088,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("ClaimantPartyId");
 
-                    b.ToTable("Claims", (string)null);
+                    b.ToTable("Claims");
                 });
 
             modelBuilder.Entity("LAC.Domain.ClaimKhasra", b =>
@@ -1120,7 +1120,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("ClaimId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("ClaimKhasra", (string)null);
+                    b.ToTable("ClaimKhasra");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCase", b =>
@@ -1230,7 +1230,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("CourtCaseId", "AwardId")
                         .IsUnique();
 
-                    b.ToTable("CourtCaseAward", (string)null);
+                    b.ToTable("CourtCaseAward");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseDocument", b =>
@@ -1284,7 +1284,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("CourtCaseDocuments", (string)null);
+                    b.ToTable("CourtCaseDocuments");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseEvent", b =>
@@ -1411,7 +1411,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("CourtCaseId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("CourtCaseEvents", (string)null);
+                    b.ToTable("CourtCaseEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseKhasra", b =>
@@ -1433,7 +1433,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("CourtCaseId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("CourtCaseKhasra", (string)null);
+                    b.ToTable("CourtCaseKhasra");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseMatter", b =>
@@ -1474,7 +1474,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("CourtCaseMatters", (string)null);
+                    b.ToTable("CourtCaseMatters");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseParty", b =>
@@ -1536,7 +1536,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("PartyId");
 
-                    b.ToTable("CourtCaseParties", (string)null);
+                    b.ToTable("CourtCaseParties");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCaseRepresentative", b =>
@@ -1595,7 +1595,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("CourtCasePartyId");
 
-                    b.ToTable("CourtCaseRepresentatives", (string)null);
+                    b.ToTable("CourtCaseRepresentatives");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtImportBatch", b =>
@@ -1840,7 +1840,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("CourtCaseId", "ProceedingDate", "CreatedAt");
 
-                    b.ToTable("CourtProceedings", (string)null);
+                    b.ToTable("CourtProceedings");
                 });
 
             modelBuilder.Entity("LAC.Domain.Dak", b =>
@@ -1939,7 +1939,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("Status", "ReceivedDate");
 
-                    b.ToTable("Daks", (string)null);
+                    b.ToTable("Daks");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakAssignment", b =>
@@ -1999,7 +1999,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("OfficeDeskId");
 
-                    b.ToTable("DakAssignments", (string)null);
+                    b.ToTable("DakAssignments");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakAttachment", b =>
@@ -2049,7 +2049,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("DakAttachments", (string)null);
+                    b.ToTable("DakAttachments");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakAwardLink", b =>
@@ -2088,7 +2088,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("DakAwardLinks", (string)null);
+                    b.ToTable("DakAwardLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakCategory", b =>
@@ -2141,7 +2141,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("DefaultWorkstreamId");
 
-                    b.ToTable("DakCategories", (string)null);
+                    b.ToTable("DakCategories");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakKhasraLink", b =>
@@ -2180,7 +2180,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("DakKhasraLinks", (string)null);
+                    b.ToTable("DakKhasraLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakMatterLink", b =>
@@ -2219,7 +2219,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("DakMatterLinks", (string)null);
+                    b.ToTable("DakMatterLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakMovement", b =>
@@ -2312,7 +2312,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DakId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("DakMovements", (string)null);
+                    b.ToTable("DakMovements");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakVillageLink", b =>
@@ -2351,7 +2351,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("DakVillageLinks", (string)null);
+                    b.ToTable("DakVillageLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.Designation", b =>
@@ -2395,7 +2395,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Designations", (string)null);
+                    b.ToTable("Designations");
                 });
 
             modelBuilder.Entity("LAC.Domain.District", b =>
@@ -2429,7 +2429,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Districts", (string)null);
+                    b.ToTable("Districts");
                 });
 
             modelBuilder.Entity("LAC.Domain.Document", b =>
@@ -2493,7 +2493,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Documents", (string)null);
+                    b.ToTable("Documents");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentAward", b =>
@@ -2518,7 +2518,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "AwardId")
                         .IsUnique();
 
-                    b.ToTable("DocumentAwards", (string)null);
+                    b.ToTable("DocumentAwards");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentKhasra", b =>
@@ -2540,7 +2540,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("DocumentKhasras", (string)null);
+                    b.ToTable("DocumentKhasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentKhatauniRecord", b =>
@@ -2562,7 +2562,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "KhatauniRecordId")
                         .IsUnique();
 
-                    b.ToTable("DocumentKhatauniRecords", (string)null);
+                    b.ToTable("DocumentKhatauniRecords");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentNotification", b =>
@@ -2584,7 +2584,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "NotificationId")
                         .IsUnique();
 
-                    b.ToTable("DocumentNotifications", (string)null);
+                    b.ToTable("DocumentNotifications");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentTrainingExample", b =>
@@ -2674,7 +2674,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "VillageId")
                         .IsUnique();
 
-                    b.ToTable("DocumentVillages", (string)null);
+                    b.ToTable("DocumentVillages");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentVillageLR", b =>
@@ -2696,7 +2696,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DocumentId", "VillageLRId")
                         .IsUnique();
 
-                    b.ToTable("DocumentVillageLRs", (string)null);
+                    b.ToTable("DocumentVillageLRs");
                 });
 
             modelBuilder.Entity("LAC.Domain.Khasra", b =>
@@ -2768,7 +2768,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageId", "NormalizedNumber", "Qualifier");
 
-                    b.ToTable("Khasras", (string)null);
+                    b.ToTable("Khasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.KhasraReviewFlag", b =>
@@ -2822,7 +2822,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("RelatedAwardId");
 
-                    b.ToTable("KhasraReviewFlags", (string)null);
+                    b.ToTable("KhasraReviewFlags");
                 });
 
             modelBuilder.Entity("LAC.Domain.Khata", b =>
@@ -2865,7 +2865,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("KhatauniRecordId", "KhataNumber")
                         .IsUnique();
 
-                    b.ToTable("Khatas", (string)null);
+                    b.ToTable("Khatas");
                 });
 
             modelBuilder.Entity("LAC.Domain.KhataKhasra", b =>
@@ -2919,7 +2919,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("KhataId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("KhataKhasras", (string)null);
+                    b.ToTable("KhataKhasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.KhataPartyShare", b =>
@@ -2979,7 +2979,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("KhataId", "PartyId")
                         .IsUnique();
 
-                    b.ToTable("KhataPartyShares", (string)null);
+                    b.ToTable("KhataPartyShares");
                 });
 
             modelBuilder.Entity("LAC.Domain.KhatauniRecord", b =>
@@ -3044,7 +3044,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageId");
 
-                    b.ToTable("KhatauniRecords", (string)null);
+                    b.ToTable("KhatauniRecords");
                 });
 
             modelBuilder.Entity("LAC.Domain.LREntry", b =>
@@ -3126,7 +3126,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageLRId");
 
-                    b.ToTable("LREntries", (string)null);
+                    b.ToTable("LREntries");
                 });
 
             modelBuilder.Entity("LAC.Domain.Matter", b =>
@@ -3190,7 +3190,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageId", "Status");
 
-                    b.ToTable("Matters", (string)null);
+                    b.ToTable("Matters");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterAward", b =>
@@ -3215,7 +3215,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("MatterId", "AwardId")
                         .IsUnique();
 
-                    b.ToTable("MatterAwards", (string)null);
+                    b.ToTable("MatterAwards");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterDocument", b =>
@@ -3260,7 +3260,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("MatterId", "DocumentId")
                         .IsUnique();
 
-                    b.ToTable("MatterDocuments", (string)null);
+                    b.ToTable("MatterDocuments");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterDocumentExtract", b =>
@@ -3314,7 +3314,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("SourceDocumentId");
 
-                    b.ToTable("MatterDocumentExtracts", (string)null);
+                    b.ToTable("MatterDocumentExtracts");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterDraft", b =>
@@ -3406,7 +3406,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("MatterId", "UpdatedAt");
 
-                    b.ToTable("MatterDrafts", (string)null);
+                    b.ToTable("MatterDrafts");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterEvent", b =>
@@ -3468,7 +3468,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("MatterId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("MatterEvents", (string)null);
+                    b.ToTable("MatterEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmDocument", b =>
@@ -3521,7 +3521,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageId");
 
-                    b.ToTable("NmDocuments", (string)null);
+                    b.ToTable("NmDocuments");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmEntitlement", b =>
@@ -3580,7 +3580,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("NmRecordedPersonId");
 
-                    b.ToTable("NmEntitlements", (string)null);
+                    b.ToTable("NmEntitlements");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmEntitlementComponent", b =>
@@ -3627,7 +3627,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("NmEntitlementId", "SourceSequence")
                         .IsUnique();
 
-                    b.ToTable("NmEntitlementComponents", (string)null);
+                    b.ToTable("NmEntitlementComponents");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmEntitlementKhasra", b =>
@@ -3678,7 +3678,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("NmEntitlementId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("NmEntitlementKhasras", (string)null);
+                    b.ToTable("NmEntitlementKhasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmRecordedPerson", b =>
@@ -3729,7 +3729,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("PartyId");
 
-                    b.ToTable("NmRecordedPeople", (string)null);
+                    b.ToTable("NmRecordedPeople");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmReviewFragment", b =>
@@ -3760,7 +3760,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("NmDocumentId", "SourcePage");
 
-                    b.ToTable("NmReviewFragments", (string)null);
+                    b.ToTable("NmReviewFragments");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmReviewKhasra", b =>
@@ -3805,7 +3805,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("NmReviewRowId", "NormalizedNumber", "Qualifier");
 
-                    b.ToTable("NmReviewKhasras", (string)null);
+                    b.ToTable("NmReviewKhasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmReviewRow", b =>
@@ -3868,7 +3868,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("NmDocumentId", "SourcePage", "SourceRow")
                         .IsUnique();
 
-                    b.ToTable("NmReviewRows", (string)null);
+                    b.ToTable("NmReviewRows");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticAnalysisSession", b =>
@@ -3911,7 +3911,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("NmDocumentId", "StartedAt");
 
-                    b.ToTable("NmSemanticAnalysisSessions", (string)null);
+                    b.ToTable("NmSemanticAnalysisSessions");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticCompensationComponent", b =>
@@ -3957,7 +3957,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("OwnerBlockId", "ComponentType", "SourceSequence")
                         .IsUnique();
 
-                    b.ToTable("NmSemanticCompensationComponents", (string)null);
+                    b.ToTable("NmSemanticCompensationComponents");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticException", b =>
@@ -3990,7 +3990,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("OwnerBlockId", "Reason");
 
-                    b.ToTable("NmSemanticExceptions", (string)null);
+                    b.ToTable("NmSemanticExceptions");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticOwnerBlock", b =>
@@ -4071,7 +4071,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AnalysisSessionId", "SourceSequence")
                         .IsUnique();
 
-                    b.ToTable("NmSemanticOwnerBlocks", (string)null);
+                    b.ToTable("NmSemanticOwnerBlocks");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticParcelEntry", b =>
@@ -4169,7 +4169,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("ParcelGroupId", "SourceSequence")
                         .IsUnique();
 
-                    b.ToTable("NmSemanticParcelEntries", (string)null);
+                    b.ToTable("NmSemanticParcelEntries");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticParcelGroup", b =>
@@ -4195,7 +4195,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("OwnerBlockId", "SourceSequence")
                         .IsUnique();
 
-                    b.ToTable("NmSemanticParcelGroups", (string)null);
+                    b.ToTable("NmSemanticParcelGroups");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmSemanticSourceRelation", b =>
@@ -4240,7 +4240,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("OwnerBlockId", "RelationType", "SourcePage");
 
-                    b.ToTable("NmSemanticSourceRelations", (string)null);
+                    b.ToTable("NmSemanticSourceRelations");
                 });
 
             modelBuilder.Entity("LAC.Domain.Notification", b =>
@@ -4292,7 +4292,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("SectionType", "NotificationNumber", "NotificationDate")
                         .IsUnique();
 
-                    b.ToTable("Notifications", (string)null);
+                    b.ToTable("Notifications");
                 });
 
             modelBuilder.Entity("LAC.Domain.NotificationKhasra", b =>
@@ -4324,7 +4324,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("NotificationId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("NotificationKhasra", (string)null);
+                    b.ToTable("NotificationKhasra");
                 });
 
             modelBuilder.Entity("LAC.Domain.OfficeDesk", b =>
@@ -4373,7 +4373,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("WorkstreamId");
 
-                    b.ToTable("OfficeDesks", (string)null);
+                    b.ToTable("OfficeDesks");
                 });
 
             modelBuilder.Entity("LAC.Domain.Outward", b =>
@@ -4505,7 +4505,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("Status", "OutwardDate");
 
-                    b.ToTable("Outwards", (string)null);
+                    b.ToTable("Outwards");
                 });
 
             modelBuilder.Entity("LAC.Domain.OutwardAttachment", b =>
@@ -4555,7 +4555,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("OutwardAttachments", (string)null);
+                    b.ToTable("OutwardAttachments");
                 });
 
             modelBuilder.Entity("LAC.Domain.OutwardDakLink", b =>
@@ -4605,7 +4605,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("OutwardDakLinks", (string)null);
+                    b.ToTable("OutwardDakLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.OutwardEvent", b =>
@@ -4674,7 +4674,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("OutwardId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("OutwardEvents", (string)null);
+                    b.ToTable("OutwardEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.Party", b =>
@@ -4724,7 +4724,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Parties", (string)null);
+                    b.ToTable("Parties");
                 });
 
             modelBuilder.Entity("LAC.Domain.Permission", b =>
@@ -4753,7 +4753,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Permissions", (string)null);
+                    b.ToTable("Permissions");
                 });
 
             modelBuilder.Entity("LAC.Domain.PossessionEvent", b =>
@@ -4797,7 +4797,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("AwardId");
 
-                    b.ToTable("PossessionEvents", (string)null);
+                    b.ToTable("PossessionEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.PossessionKhasra", b =>
@@ -4835,7 +4835,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("PossessionEventId", "KhasraId")
                         .IsUnique();
 
-                    b.ToTable("PossessionKhasra", (string)null);
+                    b.ToTable("PossessionKhasra");
                 });
 
             modelBuilder.Entity("LAC.Domain.RecordAccessEvent", b =>
@@ -4908,7 +4908,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("WorkstreamId");
 
-                    b.ToTable("RecordAccessEvents", (string)null);
+                    b.ToTable("RecordAccessEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.Role", b =>
@@ -4955,7 +4955,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Roles", (string)null);
+                    b.ToTable("Roles");
                 });
 
             modelBuilder.Entity("LAC.Domain.RolePermission", b =>
@@ -4981,7 +4981,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("RoleId", "PermissionId")
                         .IsUnique();
 
-                    b.ToTable("RolePermissions", (string)null);
+                    b.ToTable("RolePermissions");
                 });
 
             modelBuilder.Entity("LAC.Domain.ScheduledEvent", b =>
@@ -5134,7 +5134,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"CourtCaseId\" IS NOT NULL AND \"Origin\" = 'CourtProceeding' AND \"Status\" = 'Scheduled' AND \"RecordStatus\" = 'Active'");
 
-                    b.ToTable("ScheduledEvents", (string)null);
+                    b.ToTable("ScheduledEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.ScheduledEventEvent", b =>
@@ -5250,7 +5250,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("ScheduledEventId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("ScheduledEventEvents", (string)null);
+                    b.ToTable("ScheduledEventEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.ScheduledReminder", b =>
@@ -5302,7 +5302,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("ScheduledEventId", "IsActive");
 
-                    b.ToTable("ScheduledReminders", (string)null);
+                    b.ToTable("ScheduledReminders");
                 });
 
             modelBuilder.Entity("LAC.Domain.SourceEvidence", b =>
@@ -5459,7 +5459,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DistrictId", "Name")
                         .IsUnique();
 
-                    b.ToTable("SubDivisions", (string)null);
+                    b.ToTable("SubDivisions");
                 });
 
             modelBuilder.Entity("LAC.Domain.UserDeskMembership", b =>
@@ -5514,7 +5514,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"IsActive\" = true");
 
-                    b.ToTable("UserDeskMemberships", (string)null);
+                    b.ToTable("UserDeskMemberships");
                 });
 
             modelBuilder.Entity("LAC.Domain.UserRole", b =>
@@ -5539,7 +5539,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("UserId", "RoleId")
                         .IsUnique();
 
-                    b.ToTable("UserRoles", (string)null);
+                    b.ToTable("UserRoles");
                 });
 
             modelBuilder.Entity("LAC.Domain.UserWorkstreamMembership", b =>
@@ -5570,7 +5570,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("UserId", "WorkstreamId")
                         .IsUnique();
 
-                    b.ToTable("UserWorkstreamMemberships", (string)null);
+                    b.ToTable("UserWorkstreamMemberships");
                 });
 
             modelBuilder.Entity("LAC.Domain.Village", b =>
@@ -5607,7 +5607,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("SubDivisionId", "Name")
                         .IsUnique();
 
-                    b.ToTable("Villages", (string)null);
+                    b.ToTable("Villages");
                 });
 
             modelBuilder.Entity("LAC.Domain.VillageLR", b =>
@@ -5645,7 +5645,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("VillageId");
 
-                    b.ToTable("VillageLRs", (string)null);
+                    b.ToTable("VillageLRs");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItem", b =>
@@ -5729,7 +5729,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("Status", "DueAt");
 
-                    b.ToTable("WorkItems", (string)null);
+                    b.ToTable("WorkItems");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemAssignment", b =>
@@ -5807,7 +5807,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("OfficeDeskId", "AssignedUserId", "IsActive");
 
-                    b.ToTable("WorkItemAssignments", (string)null);
+                    b.ToTable("WorkItemAssignments");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemAttachment", b =>
@@ -5857,7 +5857,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("WorkItemAttachments", (string)null);
+                    b.ToTable("WorkItemAttachments");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemContributor", b =>
@@ -5925,7 +5925,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"IsActive\" = true AND \"RecordStatus\" = 'Active'");
 
-                    b.ToTable("WorkItemContributors", (string)null);
+                    b.ToTable("WorkItemContributors");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemDakLink", b =>
@@ -5964,7 +5964,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("WorkItemDakLinks", (string)null);
+                    b.ToTable("WorkItemDakLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemEvent", b =>
@@ -6059,7 +6059,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("WorkItemId", "SequenceNumber")
                         .IsUnique();
 
-                    b.ToTable("WorkItemEvents", (string)null);
+                    b.ToTable("WorkItemEvents");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemMatterLink", b =>
@@ -6098,7 +6098,7 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique()
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
-                    b.ToTable("WorkItemMatterLinks", (string)null);
+                    b.ToTable("WorkItemMatterLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.WorkItemUpdate", b =>
@@ -6133,7 +6133,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("WorkItemId", "AddedAt");
 
-                    b.ToTable("WorkItemUpdates", (string)null);
+                    b.ToTable("WorkItemUpdates");
                 });
 
             modelBuilder.Entity("LAC.Domain.Workstream", b =>
@@ -6177,7 +6177,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.ToTable("Workstreams", (string)null);
+                    b.ToTable("Workstreams");
                 });
 
             modelBuilder.Entity("LAC.Domain.AppUser", b =>
