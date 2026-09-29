@@ -9,6 +9,7 @@ import { CourtWorkTab } from "./CourtWorkTab";
 import { CourtTimelineTab } from "./CourtTimelineTab";
 import { CourtImportProvenance } from "./CourtImportProvenance";
 import { DhcCaseListings } from "./DhcCaseListings";
+import { DhcOfficialVerification } from "./DhcOfficialVerification";
 import { useAuth } from "../auth/AuthProvider";
 import "./court.css";
 
@@ -313,6 +314,7 @@ export const CourtCaseWorkspace: React.FC = () => {
         {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} />
           {courtCase.courtName === "Delhi High Court" && <>
             <DhcCaseListings caseId={courtCase.id} />
+            <DhcOfficialVerification caseId={courtCase.id} canonicalStatus={courtCase.currentStatus} />
           </>}
           <CourtImportProvenance caseId={courtCase.id} /></>}
         {activeTab === "proceedings" && <CourtProceedingsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}

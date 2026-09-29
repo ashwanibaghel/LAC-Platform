@@ -43,6 +43,7 @@ public static class CourtEndpoints
     public static RouteGroupBuilder MapCourtEndpoints(this RouteGroupBuilder api)
     {
         var group = api.MapGroup("/court-cases");
+        group.MapDhcAssistedEndpoints();
 
         group.MapPost("/imports", async (HttpRequest request, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
         {

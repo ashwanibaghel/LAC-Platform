@@ -18,6 +18,11 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtExternalSourceDocument> CourtExternalSourceDocuments => Set<CourtExternalSourceDocument>();
  public DbSet<CourtExternalListingObservation> CourtExternalListingObservations => Set<CourtExternalListingObservation>();
  public DbSet<CourtExternalListingDecision> CourtExternalListingDecisions => Set<CourtExternalListingDecision>();
+ public DbSet<DhcAssistedSyncRun> DhcAssistedSyncRuns => Set<DhcAssistedSyncRun>();
+ public DbSet<DhcAssistedSyncItem> DhcAssistedSyncItems => Set<DhcAssistedSyncItem>();
+ public DbSet<CourtExternalCaseStatusObservation> CourtExternalCaseStatusObservations => Set<CourtExternalCaseStatusObservation>();
+ public DbSet<CourtExternalOrderObservation> CourtExternalOrderObservations => Set<CourtExternalOrderObservation>();
+ public DbSet<CourtExternalAssistedDecision> CourtExternalAssistedDecisions => Set<CourtExternalAssistedDecision>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
   Configurations.DakModelConfiguration.Configure(b);
   Configurations.OutwardModelConfiguration.Configure(b);
@@ -27,6 +32,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   Configurations.ScheduledEventModelConfiguration.Configure(b);
   Configurations.CourtCaseModelConfiguration.Configure(b);
   Configurations.CourtExternalSyncConfiguration.Configure(b);
+  Configurations.DhcAssistedConfiguration.Configure(b);
   b.Entity<CourtImportBatch>().Property(x=>x.Status).HasConversion<string>(); b.Entity<CourtImportBatch>().Property(x=>x.SourceSheetName).HasMaxLength(256); b.Entity<CourtImportBatch>().Property(x=>x.SourceSha256).HasMaxLength(64); b.Entity<CourtImportBatch>().Property(x=>x.ParserVersion).HasMaxLength(64); b.Entity<CourtImportBatch>().HasIndex(x=>x.CreatedAt); b.Entity<CourtImportBatch>().HasIndex(x=>x.SourceDocumentId).IsUnique(); b.Entity<CourtImportBatch>().HasOne(x=>x.SourceDocument).WithMany().HasForeignKey(x=>x.SourceDocumentId).OnDelete(DeleteBehavior.Restrict);
   b.Entity<CourtImportRow>().Property(x=>x.RowStatus).HasConversion<string>(); b.Entity<CourtImportRow>().Property(x=>x.SuggestedStatusClass).HasConversion<string>(); b.Entity<CourtImportRow>().Property(x=>x.SourceRowHash).HasMaxLength(64); b.Entity<CourtImportRow>().Property(x=>x.IdentityKey).HasMaxLength(512); b.Entity<CourtImportRow>().HasIndex(x=>new{x.BatchId,x.SourceRowNumber}).IsUnique(); b.Entity<CourtImportRow>().HasIndex(x=>new{x.BatchId,x.RowStatus}); b.Entity<CourtImportRow>().HasIndex(x=>x.CandidateCourtCaseId); b.Entity<CourtImportRow>().HasIndex(x=>new{x.BatchId,x.IdentityKey}); b.Entity<CourtImportRow>().HasOne(x=>x.Batch).WithMany(x=>x.Rows).HasForeignKey(x=>x.BatchId).OnDelete(DeleteBehavior.Restrict);
   b.Entity<CourtImportRow>().Property(x=>x.ResolutionAction).HasConversion<string>(); b.Entity<CourtImportRow>().Property(x=>x.NdohAction).HasConversion<string>(); b.Entity<CourtImportRow>().Property(x=>x.CommitStatus).HasConversion<string>().HasDefaultValue(CourtImportCommitStatus.NotCommitted); b.Entity<CourtImportRow>().HasIndex(x=>new{x.BatchId,x.CommitStatus}); b.Entity<CourtImportRow>().HasIndex(x=>x.CommittedCourtCaseId); b.Entity<CourtImportRow>().HasIndex(x=>x.CommittedProceedingId); b.Entity<CourtCaseEvent>().HasIndex(x=>x.CourtImportRowId);
@@ -63,6 +69,21 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  private void EnsureExternalListingDecisionsImmutable() {
   if (ChangeTracker.Entries<CourtExternalListingDecision>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("External listing decisions are strictly immutable.");
+  if (ChangeTracker.Entries<CourtExternalAssistedDecision>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+   throw new InvalidOperationException("External assisted decisions are strictly immutable.");
+  foreach (var entry in ChangeTracker.Entries<CourtExternalCaseStatusObservation>()) {
+   if (entry.State == EntityState.Deleted ||
+       entry.State == EntityState.Modified && entry.Properties.Any(p => p.IsModified &&
+           p.Metadata.Name is not (nameof(CourtExternalCaseStatusObservation.Status) or
+               nameof(CourtExternalCaseStatusObservation.ReviewReason))))
+    throw new InvalidOperationException("Assisted status evidence is immutable except its audited review state.");
+   if (entry.State == EntityState.Modified &&
+       !ChangeTracker.Entries<CourtExternalAssistedDecision>().Any(d => d.State == EntityState.Added &&
+           d.Entity.ObservationId == entry.Entity.Id))
+    throw new InvalidOperationException("Assisted status review changes require an append-only decision.");
+  }
+  if (ChangeTracker.Entries<CourtExternalOrderObservation>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
+   throw new InvalidOperationException("Assisted order evidence is strictly immutable.");
  }
  public override int SaveChanges(bool acceptAllChangesOnSuccess) {
   EnsureExternalListingDecisionsImmutable();

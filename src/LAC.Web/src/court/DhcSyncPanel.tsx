@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import type { CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
 
 export const DhcSyncPanel: React.FC = () => {
   const [status, setStatus] = useState<DhcSyncStatusDto | null>(null);
   const [historical, setHistorical] = useState<DhcHistoricalStatusDto | null>(null);
+  const [assisted, setAssisted] = useState<{ recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number } | null>(null);
+  const [activeAssistedRun, setActiveAssistedRun] = useState<string | null>(null);
   const [pendingHistoricalAttempt, setPendingHistoricalAttempt] = useState<string | null>(null);
   const [reviews, setReviews] = useState<DhcObservationDto[]>([]);
   const [sourceReviews, setSourceReviews] = useState<DhcSourceReviewDto[]>([]);
@@ -14,11 +17,13 @@ export const DhcSyncPanel: React.FC = () => {
   const [candidates, setCandidates] = useState<Record<string, { id: string; caseNumber: string }[]>>({});
 
   const refresh = useCallback(async () => {
-    const [statusResult, historicalResult, reviewResult, sourceResult] = await Promise.all([
+    const [statusResult, historicalResult, reviewResult, sourceResult, assistedResult, activeResult] = await Promise.all([
       fetch("/api/court-cases/dhc-sync/status", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/historical/status", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/review", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/sources/review", { credentials: "include" }),
+      fetch("/api/court-cases/dhc-assisted/preview", { credentials: "include" }),
+      fetch("/api/court-cases/dhc-assisted/active", { credentials: "include" }),
     ]);
     if (statusResult.ok) setStatus(await statusResult.json() as DhcSyncStatusDto);
     if (historicalResult.ok) {
@@ -29,6 +34,8 @@ export const DhcSyncPanel: React.FC = () => {
     }
     if (reviewResult.ok) setReviews(await reviewResult.json() as DhcObservationDto[]);
     if (sourceResult.ok) setSourceReviews(await sourceResult.json() as DhcSourceReviewDto[]);
+    if (assistedResult.ok) setAssisted(await assistedResult.json() as typeof assisted);
+    if (activeResult.ok) setActiveAssistedRun((await activeResult.json() as { runId: string | null }).runId);
   }, []);
 
   useEffect(() => { void refresh().catch(() => setMessage("DHC sync status unavailable.")); }, [refresh]);
@@ -92,11 +99,13 @@ export const DhcSyncPanel: React.FC = () => {
     <section className="court-card" aria-label="Delhi High Court public cause-list sync" style={{ marginTop: 16, padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 17 }}>Delhi High Court public cause-list sync</h2>
-          <small>Official listing observations only; not orders or completed hearings.</small>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Delhi High Court data</h2>
+          <small>Automatic cause list, one-time history, and officer-assisted verification.</small>
         </div>
         {status.canSyncNow && <button className="secondary-button" disabled={busy} onClick={() => void syncNow()}>Sync now</button>}
       </div>
+      <h3>Automatic cause list</h3>
+      <p>Checks official public cause lists for today and upcoming dates.</p>
       <p style={{ margin: "9px 0" }}>
         Last success: {status.lastSuccess?.completedAt ? new Date(status.lastSuccess.completedAt).toLocaleString() : "Never"}
         {" · "}Last attempt: {attempt ? `${new Date(attempt.startedAt).toLocaleString()} (${attempt.status})` : "Never"}
@@ -107,7 +116,7 @@ export const DhcSyncPanel: React.FC = () => {
       {attempt?.failureMessage && <p role="alert">{attempt.failureMessage}</p>}
       {message && <p role="alert">{message}</p>}
       {historical && <section aria-label="One-time historical catch-up" style={{ borderTop: "1px solid #e2e8f0", marginTop: 16, paddingTop: 12 }}>
-        <h3>One-time historical catch-up</h3>
+        <h3>Historical catch-up</h3>
         <p>Eligible stale DHC cases: {historical.eligibleCaseCount} · Earliest register date: {historical.earliestBaseline ?? "None"}
           {" · "}Window: {historical.earliestBaseline ?? "None"} through {historical.windowEnd}
           {" · "}Skipped — no historical baseline: {historical.noBaselineCount}
@@ -129,6 +138,14 @@ export const DhcSyncPanel: React.FC = () => {
           {" · "}Needs review: {historical.lastAttempt.reviewCount}</p>}
         {historical.lastAttempt?.failureMessage && <p role="alert">{historical.lastAttempt.failureMessage}</p>}
       </section>}
+      <section aria-label="Assisted case status" style={{ borderTop: "1px solid #e2e8f0", marginTop: 16, paddingTop: 12 }}>
+        <h3>Assisted case status</h3>
+        <p>Officer-entered official DHC verification code; no automatic CAPTCHA solving.</p>
+        {assisted && <p>Recommended: {assisted.recommendedCount} · No NDOH: {assisted.noNdohCount} · Overdue: {assisted.overdueCount} · Needs review: {assisted.reviewCount}</p>}
+        <Link to={activeAssistedRun ? `/court-cases/dhc-assisted?run=${activeAssistedRun}` : "/court-cases/dhc-assisted"}>
+          {activeAssistedRun ? "Continue assisted session" : "Start assisted verification"}
+        </Link>
+      </section>
       {reviews.length > 0 && <details>
         <summary>Listing observations needing review ({reviews.length})</summary>
         {reviews.map(item => <div key={item.id} style={{ borderTop: "1px solid #e2e8f0", padding: "12px 0" }}>

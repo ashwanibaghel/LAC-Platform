@@ -105,6 +105,8 @@ builder.Services.AddScoped<ICourtImportService, CourtImportService>();
 builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
 builder.Services.AddSingleton<DelhiHighCourtSyncGate>();
 builder.Services.AddScoped<DelhiHighCourtSyncService>();
+builder.Services.AddScoped<DelhiHighCourtAssistedService>();
+builder.Services.AddSingleton<DelhiHighCourtAssistedCoordinator>();
 builder.Services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
@@ -162,6 +164,18 @@ using (var scope = app.Services.CreateScope())
     if (db.Database.IsRelational()) await db.Database.MigrateAsync();
     else await db.Database.EnsureCreatedAsync();
     await SeedData.SeedAsync(db, app.Configuration, app.Logger, CancellationToken.None);
+    // An official CookieContainer/challenge exists only in the previous
+    // process. Durable unfinished runs must request a fresh human challenge.
+    var interruptedAssistedRuns = await db.DhcAssistedSyncRuns.Where(x =>
+        x.Status == DhcAssistedRunStatus.Running ||
+        x.Status == DhcAssistedRunStatus.WaitingForCaptcha ||
+        x.Status == DhcAssistedRunStatus.PausedForCaptcha).ToListAsync();
+    foreach (var run in interruptedAssistedRuns)
+    {
+        run.Status = DhcAssistedRunStatus.Interrupted;
+        run.FailureMessage = "Application session ended. Resume with a new official verification code.";
+    }
+    if (interruptedAssistedRuns.Count > 0) await db.SaveChangesAsync();
 }
 
 var api = app.MapGroup("/api");

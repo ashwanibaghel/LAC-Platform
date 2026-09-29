@@ -906,11 +906,15 @@ public sealed class DelhiHighCourtSyncTests
         output.WriteLine($"Workbook rows={batch.TotalRows}, safe approved={approved.Ready}, committed={committed.CommittedThisRun}, failures={committed.Failures.Count}");
         output.WriteLine($"Canonical={await db.CourtCases.CountAsync(x => x.RecordStatus == RecordStatus.Active)}, Pending DHC={await db.CourtCases.CountAsync(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court" && x.CurrentStatus != null && x.CurrentStatus.Trim().ToLower() == "pending")}");
         output.WriteLine($"Eligible stale legacy={audit.EligibleCaseCount}, no baseline={audit.NoBaselineCount}, real proceeding exclusions={audit.RealProceedingExclusionCount}, earliest baseline={audit.EarliestBaseline}");
+        var assisted = await new DelhiHighCourtAssistedService(db, auth, new OfficeClock())
+            .PreviewAsync(user.Id, default);
+        output.WriteLine($"Assisted queue: recommended={assisted.RecommendedCount}, no NDOH={assisted.NoNdohCount}, overdue={assisted.OverdueCount}, cause-list review={assisted.ReviewCount}, identity needs review={assisted.SkippedIdentityCount}");
         var resolved = await CourtOperationalNdohQuery.Resolve(db.CourtCases.AsNoTracking(), db,
             new OfficeClock().GetCurrentDate())
             .Select(x => new { x.OperationalNdoh, x.UsesHistoricalListing }).ToListAsync();
         Assert.Equal(await db.CourtCases.CountAsync(), resolved.Count);
         Assert.Contains("20260928193923_AddDhcHistoricalBackfillMode", await db.Database.GetAppliedMigrationsAsync());
+        Assert.Contains("20260929060336_AddDhcAssistedSync", await db.Database.GetAppliedMigrationsAsync());
     }
 
     [Fact]
