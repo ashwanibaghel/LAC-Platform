@@ -12,7 +12,10 @@ test("empty Court register leads to Excel import without daily DHC work", () => 
   assert.match(directory, /registerCount === 0 \? <section className="court-first-run"/);
   assert.match(directory, /Import your existing LAC court Excel file to begin/);
   assert.match(directory, /Delhi High Court automatic updates will start after DHC matters are imported/);
-  assert.match(directory, /: <DhcSyncPanel \/>/);
+  assert.match(directory, /<div className="court-directory-actions">[\s\S]*?registerCount === 0 \? <section className="court-first-run"[\s\S]*?<\/section> : <DhcSyncPanel \/>/);
+  assert.equal((directory.match(/<DhcSyncPanel \/>/g) ?? []).length, 1, "Court page must have one DHC hub entry point");
+  assert.match(directory, /court-header-eyebrow/);
+  assert.match(directory, /court-pill-btn court-glow-btn/);
 });
 
 test("safe import is one explicit action and risky rows remain separate", () => {

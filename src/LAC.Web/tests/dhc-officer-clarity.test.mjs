@@ -10,6 +10,7 @@ const panel = read("court/DhcSyncPanel.tsx");
 const assisted = read("court/DhcAssistedPage.tsx");
 const workspace = read("court/DhcOfficialVerification.tsx");
 const home = read("home/Home.tsx");
+const courtCss = read("court/court.css");
 
 test("daily DHC panel reports proven completed-cycle counts and offers watched cases", () => {
   for (const field of ["sourceDocumentsProcessed", "observationsCreated", "observationsAccepted", "reviewCount"])
@@ -22,6 +23,38 @@ test("daily DHC panel reports proven completed-cycle counts and offers watched c
   assert.match(panel, /dhc-assisted\/runs\/\$\{id\}/);
   assert.match(panel, /run\.phase === "OrderLookup"/);
   assert.match(panel, /Resume order check/);
+});
+
+test("DHC modal keeps the polished two-card hub without a plain inline panel", () => {
+  assert.match(panel, /dhc-circle-launcher/);
+  assert.match(panel, /\{isOpen && \(\s*<div\s+className="dhc-popup-overlay"/);
+  assert.match(panel, /role="dialog" aria-modal="true" aria-label="Delhi High Court Intelligence Hub"/);
+  assert.match(panel, /Delhi High Court Live Hub/);
+  assert.match(panel, /Daily Cause List/);
+  assert.match(panel, /Official Case Verification/);
+  assert.match(panel, /Orders & Disposal Check/);
+  assert.match(panel, /Historical check paused/);
+  assert.match(panel, /Technical details & history/);
+  assert.equal((panel.match(/className="dhc-hub-card(?: highlight)?"/g) ?? []).length, 2);
+  assert.doesNotMatch(panel, /Continue check/);
+  assert.match(courtCss, /\.dhc-popup-container \{\s*width: min\(840px, 94vw\)/);
+  assert.match(courtCss, /animation: balloonPop 0\.42s/);
+  assert.match(courtCss, /\.dhc-hub-cards-grid \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+});
+
+test("hub preserves contextual actions and only reports completed-cycle evidence", () => {
+  for (const label of ["Check now", "Enter verification code", "Resume DHC check", "Resume order check", "View verification results"])
+    assert.ok(panel.includes(label), `${label} action missing`);
+  assert.match(panel, /activeAssistedRun \? activeCheck \? checkButton\(activeCheck\) : "View check progress" : "Check now"/);
+  assert.match(panel, /\{completed && <details className="dhc-hub-detail"/);
+  assert.match(panel, /sourceDocumentsProcessed/);
+  assert.match(panel, /observationsCreated/);
+  assert.match(panel, /observationsAccepted/);
+  assert.match(panel, /reviewCount/);
+  assert.match(panel, /DHC cases being watched/);
+  assert.match(panel, /operationalNdohSource === "DHC Cause List"/);
+  assert.match(panel, /No current DHC cause-list date recorded/);
+  assert.match(panel, /status\.canSyncNow && \(/);
 });
 
 test("assisted results show each current-run official status and date only after an individual lookup", () => {

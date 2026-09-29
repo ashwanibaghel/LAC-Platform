@@ -180,21 +180,27 @@ export const CourtDirectory: React.FC = () => {
 
   return (
     <div className="court-directory-container">
-      <div className="court-directory-header">
-        <div>
+      <div className={`court-directory-header ${registerCount === 0 ? "is-first-run" : ""}`}>
+        <div className="court-header-title-block">
+          <div className="court-header-eyebrow"><span className="court-pulse-dot" aria-hidden="true" /><span>LAC LITIGATION & JUDICIAL REGISTRY</span></div>
           <h1>Court Matters</h1>
           <p>Operational queue · NDOH · official court updates</p>
         </div>
-        {canCreate && registerCount !== 0 && <div className="court-directory-actions"><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>}
+        <div className="court-directory-actions">
+          {registerCount === 0 ? <section className="court-first-run">
+            <h2>No court register has been added yet</h2>
+            <p>Import your existing LAC court Excel file to begin.</p>
+            <div><Link className="primary-button" to="/court-cases/imports">Import Court Excel</Link>
+              {canCreate && <button className="secondary-button" onClick={() => setShowNewModal(true)}>Add one case manually</button>}</div>
+            <small>Delhi High Court automatic updates will start after DHC matters are imported.</small>
+          </section> : <DhcSyncPanel />}
+          {canCreate && registerCount !== 0 && <>
+            <Link className="secondary-button court-pill-btn" to="/court-cases/imports"><span className="court-btn-icon" aria-hidden="true">📥</span> Import Excel</Link>
+            <button className="primary-button court-pill-btn court-glow-btn" onClick={() => { setCreateError(null); setShowNewModal(true); }}>
+              <span className="court-btn-icon" aria-hidden="true">+</span> New Court Case</button>
+          </>}
+        </div>
       </div>
-
-      {registerCount === 0 ? <section className="court-first-run">
-        <h2>No court register has been added yet</h2>
-        <p>Import your existing LAC court Excel file to begin.</p>
-        <div><Link className="primary-button" to="/court-cases/imports">Import Court Excel</Link>
-          {canCreate && <button className="secondary-button" onClick={() => setShowNewModal(true)}>Add one case manually</button>}</div>
-        <small>Delhi High Court automatic updates will start after DHC matters are imported.</small>
-      </section> : <DhcSyncPanel />}
 
       {registerCount !== 0 && <>
 
@@ -266,7 +272,7 @@ export const CourtDirectory: React.FC = () => {
         <table className="court-matters-table">
           <thead>
             <tr>
-              <th>Case</th><th>Court</th><th>NDOH</th><th>Queue / Status</th>
+              <th>Case No.</th><th>Case Title</th><th>Court</th><th>NDOH</th>
               <th>Advocate</th><th>Village / Award</th><th>Desk / Officer</th><th>Action</th>
             </tr>
           </thead>
@@ -287,9 +293,10 @@ export const CourtDirectory: React.FC = () => {
                 <tr key={c.id}>
                   <td className="court-case-cell">
                     <Link to={`/court-cases/${c.id}`} className="court-case-link">{c.caseNumber}</Link>
-                    {c.caseTitle && <span className="court-case-title">{c.caseTitle}</span>}
                     {c.caseType && <span className="court-case-type">{c.caseType}</span>}
                   </td>
+
+                  <td className="court-title-cell">{c.caseTitle ? <span className="court-case-title-main">{c.caseTitle}</span> : <span className="court-muted">—</span>}</td>
 
                   <td className="court-muted-cell">{c.courtName}</td>
 
@@ -303,20 +310,8 @@ export const CourtDirectory: React.FC = () => {
                     ) : <span className="court-muted">—</span>}
                   </td>
 
-                  <td><span className={`court-queue-badge court-queue-${c.queueState.toLowerCase()}`}>
-                    {c.queueState === "NoNdoh" ? "No NDOH" : c.queueState}</span>
-                    {c.currentStatus ? (
-                      <span className={`court-canonical-status ${
-                          c.currentStatus.toLowerCase() === "disposed"
-                            ? "court-canonical-disposed"
-                            : c.currentStatus.toLowerCase() === "stay"
-                            ? "court-canonical-stay" : ""
-                        }`}>{c.currentStatus}</span>
-                    ) : <span className="court-muted">—</span>}
-                  </td>
-
                   <td className="court-muted-cell">{c.advocates?.join(", ") || "—"}</td>
-                  <td className="court-muted-cell">
+                  <td className="court-muted-cell court-desk-cell">
                     {c.sourceVillage && <div>{c.sourceVillage}</div>}
                     {c.sourceAwardNumber && <div className="court-secondary-line">Award {c.sourceAwardNumber}</div>}
                     {!c.sourceVillage && !c.sourceAwardNumber && <div className="court-secondary-line">{c.awardsCount ?? 0} linked awards</div>}
