@@ -57,7 +57,13 @@ public sealed partial class DelhiHighCourtSyncService(
         var query = db.CourtExternalListingObservations.AsNoTracking().Include(x => x.SourceDocument)
             .Where(x => x.ProviderCode == Provider);
         if (caseId.HasValue) query = query.Where(x => x.CourtCaseId == caseId.Value);
-        if (reviewOnly) query = query.Where(x => x.Status == CourtExternalListingStatus.NeedsReview);
+        if (reviewOnly)
+        {
+            var targets = await ActiveTargetIdentitiesAsync(ct);
+            if (targets.Count == 0) return [];
+            query = query.Where(x => x.Status == CourtExternalListingStatus.NeedsReview &&
+                targets.Contains(x.NormalizedCaseIdentity));
+        }
         var rows = await query.OrderByDescending(x => x.ObservedAt).ThenBy(x => x.Id).Take(200).ToListAsync(ct);
         return rows.Select(x => new DhcObservationDto(x.Id, x.CourtCaseId, x.NormalizedCaseIdentity,
             x.ListingDate, x.ObservedAt, x.SourceDocument.SourceTitle, x.SourceDocument.SourceUrl,
@@ -69,8 +75,12 @@ public sealed partial class DelhiHighCourtSyncService(
     {
         if (!await authorization.CanViewCourtReferencesAsync(userId, ct))
             throw new CourtWorkflowException("Global Court view permission is required.", 403);
+        var targets = await ActiveTargetIdentitiesAsync(ct);
+        if (targets.Count == 0) return [];
         var sources = await db.CourtExternalSourceDocuments.AsNoTracking()
-            .Where(x => x.Status == CourtExternalSourceStatus.NeedsReview)
+            .Where(x => x.Status == CourtExternalSourceStatus.NeedsReview &&
+                db.CourtExternalListingObservations.Any(o => o.SourceDocumentId == x.Id &&
+                    targets.Contains(o.NormalizedCaseIdentity)))
             .OrderByDescending(x => x.DiscoveredAt).Take(100).ToListAsync(ct);
         return sources.Select(x => new DhcSourceReviewDto(x.Id, x.SourceTitle, x.SourceUrl,
             x.ListingDate, x.Kind.ToString(), x.FailureMessage)).ToList();
@@ -92,6 +102,14 @@ public sealed partial class DelhiHighCourtSyncService(
             await db.SaveChangesAsync(ct);
             try
             {
+                if ((await ActiveTargetIdentitiesAsync(ct)).Count == 0)
+                {
+                    run.Status = CourtExternalSyncRunStatus.Completed;
+                    run.CompletedAt = clock.GetUtcNow();
+                    run.FailureMessage = "No Delhi High Court matters are currently registered.";
+                    await db.SaveChangesAsync(ct);
+                    return run;
+                }
                 var configured = configuration["CourtSync:DelhiHighCourt:BaseUrl"] ?? OfficialPage;
                 if (!Uri.TryCreate(configured, UriKind.Absolute, out var pageUrl) ||
                     !DelhiHighCourtCauseListParser.IsApprovedUri(pageUrl) ||
@@ -243,6 +261,7 @@ public sealed partial class DelhiHighCourtSyncService(
             .Select(x => x.NormalizedCaseIdentity).ToListAsync(ct)).ToHashSet();
         foreach (var line in lines)
         {
+            if (!identities.ContainsKey(line.Identity)) continue;
             if (!alreadySeen.Add(line.Identity)) continue;
             identities.TryGetValue(line.Identity, out var matches);
             var match = matches?.Count == 1 ? matches[0] : null;
@@ -290,8 +309,10 @@ public sealed partial class DelhiHighCourtSyncService(
     private async Task ApplyDeletionSignalsAsync(CourtExternalSourceDocument source, IReadOnlyList<DhcCaseLine> lines,
         CourtExternalSyncRun run, CancellationToken ct)
     {
+        var targets = await ActiveTargetIdentitiesAsync(ct);
         foreach (var line in lines)
         {
+            if (!targets.Contains(line.Identity)) continue;
             if (await db.CourtExternalListingObservations.AnyAsync(x =>
                 x.SourceDocument.DocumentId == source.DocumentId && x.SourceDocument.Kind == source.Kind &&
                 x.NormalizedCaseIdentity == line.Identity && x.ListingDate == source.ListingDate, ct)) continue;
@@ -314,6 +335,15 @@ public sealed partial class DelhiHighCourtSyncService(
                 ChangeStatus(old, CourtExternalListingStatus.Superseded, "Official deletion/corrigendum names this case and listing date.", null);
         }
         await db.SaveChangesAsync(ct);
+    }
+
+    private async Task<List<string>> ActiveTargetIdentitiesAsync(CancellationToken ct)
+    {
+        var cases = await db.CourtCases.AsNoTracking()
+            .Where(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court")
+            .Select(x => new { x.CourtName, x.CaseNumber }).ToListAsync(ct);
+        return cases.Select(x => CourtImportService.Identity(x.CourtName, x.CaseNumber))
+            .Where(x => x != null).Select(x => x!).Distinct().ToList();
     }
 
     public async Task<DhcObservationDto> ReviewAsync(Guid id, DhcReviewDecisionRequest decision,
@@ -383,6 +413,19 @@ public sealed partial class DelhiHighCourtSyncService(
     private static async Task<byte[]> ReadBytesAsync(HttpClient http, Uri uri, int maxBytes, CancellationToken ct)
     {
         if (!DelhiHighCourtCauseListParser.IsApprovedUri(uri)) throw new InvalidOperationException("Unapproved DHC URL.");
+        for (var attempt = 0; ; attempt++)
+        {
+            try { return await ReadBytesOnceAsync(http, uri, maxBytes, ct); }
+            catch (Exception ex) when (attempt < 2 && !ct.IsCancellationRequested &&
+                ex is HttpRequestException or IOException or TaskCanceledException)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * (attempt + 1)), ct);
+            }
+        }
+    }
+
+    private static async Task<byte[]> ReadBytesOnceAsync(HttpClient http, Uri uri, int maxBytes, CancellationToken ct)
+    {
         using var response = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, ct);
         if (response.StatusCode is >= HttpStatusCode.MultipleChoices and < HttpStatusCode.BadRequest)
             throw new InvalidOperationException("DHC redirects are not followed.");
@@ -402,22 +445,58 @@ public sealed partial class DelhiHighCourtSyncService(
 }
 
 public sealed class DelhiHighCourtSyncWorker(IServiceScopeFactory scopes, IConfiguration configuration,
-    ILogger<DelhiHighCourtSyncWorker> logger) : BackgroundService
+    ILogger<DelhiHighCourtSyncWorker> logger, TimeProvider timeProvider) : BackgroundService
 {
+    public static int ConfiguredIntervalMinutes(IConfiguration configuration) =>
+        Math.Clamp(configuration.GetValue<int?>("CourtSync:DelhiHighCourt:IntervalMinutes") ?? 300, 60, 1440);
+
+    public static TimeSpan RemainingDelay(DateTimeOffset? latestAttempt, DateTimeOffset now, int configuredMinutes) =>
+        latestAttempt.HasValue ?
+            TimeSpan.FromMinutes(Math.Clamp(configuredMinutes, 60, 1440)) - (now - latestAttempt.Value) > TimeSpan.Zero
+                ? TimeSpan.FromMinutes(Math.Clamp(configuredMinutes, 60, 1440)) - (now - latestAttempt.Value)
+                : TimeSpan.Zero
+            : TimeSpan.Zero;
+
+    public static async Task<TimeSpan> RemainingDelayAsync(LacDbContext db, DateTimeOffset now,
+        int configuredMinutes, CancellationToken ct)
+    {
+        var latest = await db.CourtExternalSyncRuns.AsNoTracking()
+            .Where(x => x.ProviderCode == DelhiHighCourtSyncService.Provider &&
+                x.Mode == CourtExternalSyncMode.LiveWindow &&
+                x.FailureMessage != "No Delhi High Court matters are currently registered.")
+            .OrderByDescending(x => x.StartedAt).Select(x => (DateTimeOffset?)x.StartedAt)
+            .FirstOrDefaultAsync(ct);
+        return RemainingDelay(latest, now, configuredMinutes);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!configuration.GetValue("CourtSync:DelhiHighCourt:Enabled", true)) return;
-        var minutes = Math.Clamp(configuration.GetValue<int?>("CourtSync:DelhiHighCourt:IntervalMinutes") ?? 120, 60, 1440);
+        var minutes = ConfiguredIntervalMinutes(configuration);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 using var scope = scopes.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                if (!await db.CourtCases.AsNoTracking().AnyAsync(x => x.RecordStatus == RecordStatus.Active &&
+                    x.CourtName == "Delhi High Court", stoppingToken))
+                {
+                    // No public-site traffic before the office has registered a DHC matter.
+                    await Task.Delay(TimeSpan.FromMinutes(5), timeProvider, stoppingToken);
+                    continue;
+                }
+                var delay = await RemainingDelayAsync(db, timeProvider.GetUtcNow(), minutes, stoppingToken);
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, timeProvider, stoppingToken);
+                    continue;
+                }
                 await scope.ServiceProvider.GetRequiredService<DelhiHighCourtSyncService>().RunAsync(null, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogWarning(ex, "Public DHC cause-list sync failed; existing Court data is retained."); }
-            try { await Task.Delay(TimeSpan.FromMinutes(minutes), stoppingToken); }
+            try { await Task.Delay(TimeSpan.FromMinutes(1), timeProvider, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
     }

@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 public sealed record CourtImportBatchDto(Guid Id, string Status, string SourceSheetName, int TotalRows, int ValidRows, int NeedsReviewRows, int ConflictRows, int InvalidRows, string? FailureMessage, DateTimeOffset CreatedAt);
 public sealed record CourtImportRowDto(Guid Id, int SourceRowNumber, string? SourceSerialNumberRaw, string? RawCaseNumber, string? RawCaseTitle, string? RawCourt, string? SuggestedCourtName, string? RawStatus, string? SuggestedStatusClass, string? RawNdoh, DateOnly? ParsedNdoh, string? RawAdvocate, string? RawVillage, string? RawAwardNumber, string? LastOrderLinkState, string RowStatus, string ValidationIssuesJson, string? RawDirections, string? RawBriefFacts, string? RawLastOrderLink, string? ResolutionAction, Guid? ResolvedCourtCaseId, string? ApprovedCaseNumber, string? ApprovedCaseTitle, string? ApprovedCourtName, string? ApprovedStatus, bool ApplyStatusToExisting, string? NdohAction, string? ReviewerNotes, string CommitStatus, Guid? CommittedCourtCaseId, Guid? CommittedProceedingId, string? CommitError);
-public interface ICourtImportService { Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default); Task<CourtImportBatchDto?> GetAsync(Guid id, CancellationToken ct = default); Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct = default); Task<(IReadOnlyList<CourtImportRowDto> Items,int Total)> RowsAsync(Guid id,string? status,string? search,int? sourceRow,int page,int pageSize,CancellationToken ct=default); }
+public interface ICourtImportService { Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default); Task<CourtImportBatchDto?> GetAsync(Guid id, CancellationToken ct = default); Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct = default); Task<(IReadOnlyList<CourtImportRowDto> Items,int Total)> RowsAsync(Guid id,string? status,string? search,int? sourceRow,int page,int pageSize,CancellationToken ct=default,string? workState=null); }
 
 public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage) : ICourtImportService
 {
@@ -115,9 +115,11 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
     private static string? CellText(IXLCell c)=>c.IsEmpty()?null:c.HasFormula?"="+c.FormulaA1:c.GetFormattedString(); private static string NormalizeHeader(string? s)=>new string((s??"").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant(); private static string Key(string? s)=>new string((s??"").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant(); private static string RawReferenceKey(string? s)=>(Clean(s)??"").ToUpperInvariant(); private static string? Clean(string? s)=>string.IsNullOrWhiteSpace(s)?null:string.Join(' ',s.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
     public async Task<CourtImportBatchDto?> GetAsync(Guid id,CancellationToken ct=default)=>await db.CourtImportBatches.AsNoTracking().Where(x=>x.Id==id).Select(x=>ToDto(x)).FirstOrDefaultAsync(ct);
     public async Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct=default)=>await db.CourtImportBatches.AsNoTracking().OrderByDescending(x=>x.CreatedAt).Select(x=>ToDto(x)).ToListAsync(ct);
-    public async Task<(IReadOnlyList<CourtImportRowDto>, int)> RowsAsync(Guid id, string? status, string? search, int? sourceRow, int page, int pageSize, CancellationToken ct = default)
+    public async Task<(IReadOnlyList<CourtImportRowDto>, int)> RowsAsync(Guid id, string? status, string? search, int? sourceRow, int page, int pageSize, CancellationToken ct = default, string? workState = null)
     {
         var q = db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == id);
+        if (workState == "pending") q = q.Where(x => x.CommitStatus != CourtImportCommitStatus.Committed);
+        else if (workState == "committed") q = q.Where(x => x.CommitStatus == CourtImportCommitStatus.Committed);
         if (Enum.TryParse<CourtImportRowStatus>(status, true, out var rs)) q = q.Where(x => x.RowStatus == rs);
         if (sourceRow.HasValue) q = q.Where(x => x.SourceRowNumber == sourceRow);
         if (!string.IsNullOrWhiteSpace(search))

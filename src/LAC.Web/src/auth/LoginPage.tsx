@@ -21,7 +21,7 @@ export const LoginPage: React.FC = () => {
       setLoading(true);
       await login(username.trim(), password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed. Please check credentials.");
+      setError(err instanceof Error ? err.message : "LAC server is not available right now. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -72,7 +72,7 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <button type="submit" className="login-button" disabled={loading}>
-            {loading ? "Verifying Credentials..." : "Sign In to Office"}
+            {loading ? "Signing in…" : error?.startsWith("LAC server") ? "Try again" : "Sign In to Office"}
           </button>
         </form>
 

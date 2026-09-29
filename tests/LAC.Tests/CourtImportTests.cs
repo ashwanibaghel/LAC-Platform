@@ -219,6 +219,15 @@ public sealed class CourtImportTests
         Assert.Equal(1, summary.Ready);
         Assert.Equal(1, summary.Unresolved);
         Assert.Equal(1, (await review.CommitAsync(batch.Id, actor.Id)).CommittedThisRun);
+        var listing = new CourtImportService(db, storage);
+        var (pendingItems, pendingTotal) = await listing.RowsAsync(batch.Id, null, null, null, 1, 25, workState: "pending");
+        Assert.Equal(1, pendingTotal);
+        Assert.All(pendingItems, item => Assert.NotEqual("Committed", item.CommitStatus));
+        var (committedItems, committedTotal) = await listing.RowsAsync(batch.Id, null, null, null, 1, 25, workState: "committed");
+        Assert.Equal(1, committedTotal);
+        Assert.All(committedItems, item => Assert.Equal("Committed", item.CommitStatus));
+        var (_, allTotal) = await listing.RowsAsync(batch.Id, null, null, null, 1, 25);
+        Assert.Equal(2, allTotal);
         Assert.Equal("Delhi High Court", (await db.CourtCases.SingleAsync()).CourtName);
         var rows = await db.CourtImportRows.OrderBy(x => x.SourceRowNumber).ToListAsync();
         Assert.Equal("High Court", rows[0].RawCourt);

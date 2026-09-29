@@ -75,8 +75,21 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
     public async Task<DelhiHighCourtAssistedForms.FormState> LoadFormAsync(bool orders, CancellationToken ct)
     {
         var url = orders ? DelhiHighCourtAssistedForms.OrderUrl : DelhiHighCourtAssistedForms.StatusUrl;
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        var parsed = DelhiHighCourtAssistedForms.ParseForm(await TextAsync(request, ct), orders);
+        string html;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            html = await TextAsync(request, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && (ex is HttpRequestException or IOException or TaskCanceledException))
+        {
+            // Only the initial read-only official form GET is retried. Never replay
+            // a human answer or a case-search POST after a transport failure.
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            using var retry = new HttpRequestMessage(HttpMethod.Get, url);
+            html = await TextAsync(retry, ct);
+        }
+        var parsed = DelhiHighCourtAssistedForms.ParseForm(html, orders);
         if (orders) OrderForm = parsed; else StatusForm = parsed;
         Verified = false;
         pendingHumanOrderAnswer = null;
@@ -131,6 +144,10 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         var uri = new Uri(DelhiHighCourtAssistedForms.StatusUrl + "?" +
             string.Join('&', query.Select(x => Uri.EscapeDataString(x.Key) + "=" + Uri.EscapeDataString(x.Value))));
         using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+        // The official DataTables endpoint returns the CAPTCHA HTML page for a
+        // regular navigation GET. Its own AJAX call sends this header and gets
+        // the JSON case result after the officer's manual verification.
+        request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
         return await TextAsync(request, ct);
     }
 

@@ -10,10 +10,10 @@ const panel = readFileSync(path.join(here, "../src/court/DhcSyncPanel.tsx"), "ut
 const workspace = readFileSync(path.join(here, "../src/court/DhcOfficialVerification.tsx"), "utf8");
 const css = readFileSync(path.join(here, "../src/court/court.css"), "utf8");
 
-test("DHC panel separates automatic, historical, and human-assisted work", () => {
-  assert.match(panel, /AUTOMATIC CAUSE LIST/i);
-  assert.match(panel, /HISTORICAL CATCH-UP/i);
-  assert.match(panel, /ASSISTED CASE STATUS/i);
+test("DHC panel leads with daily status and hides technical work under More", () => {
+  assert.match(panel, /Automatic updates active/);
+  assert.match(panel, /one-time history check/i);
+  assert.match(panel, /Technical and history details/);
 });
 
 test("queue preview and progress expose meaningful counts", () => {
@@ -24,30 +24,34 @@ test("queue preview and progress expose meaningful counts", () => {
   assert.match(page, /run\.needsReviewCases/);
 });
 
+test("start verification shows the official-site failure instead of blaming another officer", () => {
+  assert.match(page, /problem\?\.detail \|\| problem\?\.title/);
+  assert.doesNotMatch(page, /Another officer may have an active session/);
+});
+
 test("official challenge remains human-entered, blank, and cleared after submission", () => {
   assert.match(page, /useState\(""\)/);
   assert.match(page, /setAnswer\(""\); \/\/ Never retain a submitted answer/);
   assert.match(page, /Official DHC verification code/);
-  assert.match(page, /LAC Platform does not solve or bypass it/);
-  assert.match(page, /Verify &amp; continue/);
+  assert.match(page, /code is entered manually by the officer/);
+  assert.match(page, />Continue</);
   assert.doesNotMatch(page, /setAnswer\(challenge\.officialText/);
 });
 
-test("case workspace separates official status and order evidence from canonical record", () => {
+test("case workspace shows plain-language official status and order evidence", () => {
   assert.match(workspace, /Last checked:/);
-  assert.match(workspace, /Official case status:/);
-  assert.match(workspace, /Listing date:/);
-  assert.match(workspace, /Court:/);
+  assert.match(workspace, /Delhi High Court status:/);
+  assert.match(workspace, /Next date:/);
   assert.match(workspace, /Latest official DHC order:/);
-  assert.match(workspace, /Official DHC status differs from LAC record/);
+  assert.match(workspace, /Office status and Delhi High Court status differ/);
 });
 
 test("status batch completes before the separately chosen order phase", () => {
-  assert.match(page, /Phase 1 of 2 · Case status verification/);
-  assert.match(page, /Phase 2 of 2 · Official order links/);
+  assert.match(page, /Checking case status/);
+  assert.match(page, /Checking order links/);
   assert.match(page, /run\.status === "ReadyForOrders"/);
-  assert.match(page, /Check official order links/);
-  assert.match(page, /Finish session/);
+  assert.match(page, /Check order links/);
+  assert.match(page, />Done</);
 });
 
 test("completed status interruption reopens at the order-or-finish choice", () => {

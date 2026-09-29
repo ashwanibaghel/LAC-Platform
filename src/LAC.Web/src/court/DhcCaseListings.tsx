@@ -12,16 +12,17 @@ export const DhcCaseListings: React.FC<{ caseId: string }> = ({ caseId }) => {
   }, [caseId]);
   return (
     <section className="court-card" style={{ padding: 16, marginTop: 16 }}>
-      <h3>External Court Updates</h3>
-      <p>Official cause-list appearances are listing observations, not proceedings, orders or completed hearings.</p>
-      {items.length === 0 ? <p>No official Delhi High Court listing observations recorded.</p> :
+      <h3>Delhi High Court date updates</h3>
+      <p>These are dates published in the official cause list. They do not mean a hearing took place.</p>
+      {items.length === 0 ? <p>No official Delhi High Court dates have been found for this case.</p> :
         <ul>{items.map(item => <li key={item.id} style={{ marginBottom: 12 }}>
-          <strong>{item.listingDate}</strong> · {item.mode === "HistoricalBackfill" ? "Historical cause-list appearance" : "Cause-list appearance"} · {item.status} · observed {new Date(item.observedAt).toLocaleString()}
-          <div>{item.sourceTitle} · page {item.pageNumber}</div>
-          <div>{item.rawMatchedText}</div>
-          {item.conflictReason && <div>{item.conflictReason}</div>}
-          <a href={item.sourceUrl} target="_blank" rel="noreferrer">Official source</a>
-          {item.documentId && <> · <a href={`/api/court-cases/dhc-sync/documents/${item.documentId}/content`} target="_blank" rel="noreferrer">Stored evidence PDF</a></>}
+          <strong>{item.listingDate}</strong> · {item.status === "NeedsReview" ? "Needs attention" : "Official date recorded"}
+          <details><summary>Source details</summary><div>{item.sourceTitle} · page {item.pageNumber}</div>
+            <div>{item.rawMatchedText}</div>
+            {item.conflictReason && <div>{item.conflictReason}</div>}
+            <a href={item.sourceUrl} target="_blank" rel="noreferrer">Official source</a>
+            {item.documentId && <> · <a href={`/api/court-cases/dhc-sync/documents/${item.documentId}/content`} target="_blank" rel="noreferrer">Saved PDF</a></>}
+          </details>
         </li>)}</ul>}
     </section>
   );

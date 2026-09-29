@@ -24,9 +24,10 @@ export const DhcOfficialVerification: React.FC<{ caseId: string; canonicalStatus
     <h3>DHC Official Verification</h3>
     {latest && <>
       <p>Last checked: {new Date(latest.observedAt).toLocaleString()}</p>
-      <p>Official case status: {latest.rawStatus ?? "Not stated"} · Listing date: {latest.listingDate ?? "Not stated"} · Court: {latest.rawCourtNumber ?? "Not stated"}</p>
-      {differs && <p role="alert">Official DHC status differs from LAC record — review required.</p>}
-      {latest.reviewReason && <p role="alert">Official evidence needs review: {latest.reviewReason}.</p>}
+      <p>Delhi High Court status: {latest.rawStatus ?? "Not stated"} · Next date: {latest.listingDate ?? "Not stated"}</p>
+      {latest.reviewReason === "AutoStatusApplied" && <p role="status">✓ Status updated: Pending → Disposed, based on the exact official case result.</p>}
+      {differs && <p role="alert">Office status and Delhi High Court status differ. Please review this case.</p>}
+      {latest.status === "NeedsReview" && <p role="alert">This result needs a closer look before the office record changes.</p>}
       <details><summary>View captured official result</summary><p>{latest.rawEvidenceText}</p></details>
     </>}
     {order && <p>Latest official DHC order: {order.orderDate} · <a href={order.officialUrl!} target="_blank" rel="noreferrer">Open official order</a></p>}

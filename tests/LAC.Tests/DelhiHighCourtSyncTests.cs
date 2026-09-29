@@ -17,6 +17,102 @@ namespace LAC.Tests;
 
 public sealed class DelhiHighCourtSyncTests
 {
+    [Fact]
+    public void FiveHourSchedule_UsesLatestLiveAttemptAcrossRestartOrManualRun()
+    {
+        var config = new ConfigurationBuilder().Build();
+        var interval = DelhiHighCourtSyncWorker.ConfiguredIntervalMinutes(config);
+        Assert.Equal(300, interval);
+        var now = new DateTimeOffset(2026, 9, 29, 9, 0, 0, TimeSpan.Zero);
+        Assert.Equal(TimeSpan.Zero, DelhiHighCourtSyncWorker.RemainingDelay(null, now, interval));
+        Assert.Equal(TimeSpan.FromHours(3), DelhiHighCourtSyncWorker.RemainingDelay(now.AddHours(-2), now, interval));
+        Assert.Equal(TimeSpan.Zero, DelhiHighCourtSyncWorker.RemainingDelay(now.AddHours(-5), now, interval));
+        // The worker reads the latest persisted LiveWindow attempt, whether manual or automatic.
+        Assert.Equal(TimeSpan.FromHours(5), DelhiHighCourtSyncWorker.RemainingDelay(now, now, interval));
+    }
+
+    [Fact]
+    public async Task RestartSchedule_UsesMostRecentPersistedLiveAttemptIncludingManualSync()
+    {
+        using var fixture = new Fixture();
+        var now = new DateTimeOffset(2026, 9, 29, 9, 0, 0, TimeSpan.Zero);
+        Assert.Equal(TimeSpan.Zero, await DelhiHighCourtSyncWorker.RemainingDelayAsync(fixture.Db, now, 300, default));
+        fixture.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        { Mode = CourtExternalSyncMode.HistoricalBackfill, StartedAt = now });
+        fixture.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        { Mode = CourtExternalSyncMode.LiveWindow, StartedAt = now.AddHours(-2) });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(TimeSpan.FromHours(3), await DelhiHighCourtSyncWorker.RemainingDelayAsync(fixture.Db, now, 300, default));
+        fixture.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        { Mode = CourtExternalSyncMode.LiveWindow, StartedAt = now.AddMinutes(-20) });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(TimeSpan.FromHours(4) + TimeSpan.FromMinutes(40),
+            await DelhiHighCourtSyncWorker.RemainingDelayAsync(fixture.Db, now, 300, default));
+        fixture.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        { Mode = CourtExternalSyncMode.LiveWindow, StartedAt = now,
+            Status = CourtExternalSyncRunStatus.Completed,
+            FailureMessage = "No Delhi High Court matters are currently registered." });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Equal(TimeSpan.FromHours(4) + TimeSpan.FromMinutes(40),
+            await DelhiHighCourtSyncWorker.RemainingDelayAsync(fixture.Db, now, 300, default));
+    }
+
+    [Fact]
+    public async Task NoRegisteredDhcCases_IsHealthyNoOpWithoutOfficerReview()
+    {
+        using var fixture = new Fixture();
+        fixture.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "unrelated.pdf",
+            "1 W.P.(C)-9999/2026");
+        var run = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(0, run.ObservationsCreated);
+        Assert.Empty(fixture.Db.CourtExternalListingObservations);
+        Assert.Empty(await fixture.Sync.ObservationsAsync(null, true, fixture.User.Id, default));
+    }
+
+    [Fact]
+    public async Task LargePublicList_PersistsOnlyExactRegisteredDhcTargets()
+    {
+        using var fixture = new Fixture();
+        fixture.Case("W.P.(C) 7003/2026");
+        fixture.Case("W.P.(C) 7004/2026");
+        fixture.Case("W.P.(C) 7005/2026");
+        var lines = Enumerable.Range(1, 2500)
+            .Select(n => $"{n} W.P.(C)-{n + 6000}/2026 TEST PARTY").ToArray();
+        fixture.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "large.pdf", lines);
+        var run = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(3, run.ObservationsCreated);
+        Assert.Equal(0, run.ReviewCount);
+        Assert.Equal(3, await fixture.Db.CourtExternalListingObservations.CountAsync());
+        var oldSource = new CourtExternalSourceDocument { SourceUrl = "https://delhihighcourt.nic.in/files/old.pdf",
+            SourceTitle = "Old unrelated publication", Status = CourtExternalSourceStatus.NeedsReview };
+        fixture.Db.CourtExternalSourceDocuments.Add(oldSource);
+        fixture.Db.CourtExternalListingObservations.Add(new CourtExternalListingObservation
+        {
+            SourceDocument = oldSource, NormalizedCaseIdentity = "delhihighcourt|wpc|9999|2026",
+            ListingDate = new DateOnly(2026, 9, 30), Status = CourtExternalListingStatus.NeedsReview
+        });
+        await fixture.Db.SaveChangesAsync();
+        Assert.Empty(await fixture.Sync.ObservationsAsync(null, true, fixture.User.Id, default));
+        Assert.Empty(await fixture.Sync.SourceReviewsAsync(fixture.User.Id, default));
+    }
+
+    [Fact]
+    public async Task OfficialGet_RetriesAtMostTwiceWithoutDuplicatingEvidence()
+    {
+        using var fixture = new Fixture();
+        fixture.Case();
+        fixture.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "retry.pdf",
+            "1 W.P.(C)-7003/2026");
+        fixture.Source.TransientFailuresRemaining = 2;
+        var run = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(2, fixture.Source.TransientAttempts);
+        Assert.Single(fixture.Db.CourtExternalListingObservations);
+        Assert.Single(fixture.Db.Documents);
+    }
+
     private readonly ITestOutputHelper output;
     public DelhiHighCourtSyncTests(ITestOutputHelper output) => this.output = output;
     private sealed class Clock : IOfficeClock
@@ -57,8 +153,16 @@ public sealed class DelhiHighCourtSyncTests
         public TaskCompletionSource<bool> PdfStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Fail;
         public bool Redirect;
+        public int TransientFailuresRemaining;
+        public int TransientAttempts;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (TransientFailuresRemaining > 0)
+            {
+                TransientFailuresRemaining--;
+                TransientAttempts++;
+                throw new IOException("Temporary official connection ended.");
+            }
             if (Fail) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
             if (Redirect) return new HttpResponseMessage(HttpStatusCode.Redirect)
             { Headers = { Location = new Uri("https://evil.example/redirect") } };
@@ -232,7 +336,8 @@ public sealed class DelhiHighCourtSyncTests
             "1 W.P.(C)-7003/2026", "2 W.P.(C)-7004/2026", "3 W.P.(C)-7005/2026", "4 W.P.(C)-7006/2026");
         var run = await f.Sync.RunAsync(null, default);
         Assert.Equal(0, run.ObservationsAccepted);
-        Assert.Equal(4, run.ReviewCount);
+        Assert.Equal(2, run.ReviewCount);
+        Assert.Equal(2, await f.Db.CourtExternalListingObservations.CountAsync());
         Assert.All(f.Db.CourtExternalListingObservations, x => Assert.Equal(CourtExternalListingStatus.NeedsReview, x.Status));
         Assert.Empty(f.Db.CourtProceedings);
     }
@@ -524,11 +629,13 @@ public sealed class DelhiHighCourtSyncTests
         await f.Sync.ReviewAsync(observation.Id, new(true, item.Id, new DateOnly(2026, 9, 30), "Officer checked exact source."), f.User.Id, default);
         Assert.Equal(2, f.Db.CourtExternalListingDecisions.Count());
         Assert.Equal(f.User.Id, f.Db.CourtExternalListingDecisions.Last().ActorUserId);
-        f.Publish("SUPPLEMENTARY CAUSE LIST FOR 30.09.2026", "30-09-2026", "reject.pdf", "1 W.P.(C)-9999/2026");
+        f.Publish("SUPPLEMENTARY CAUSE LIST FOR 30.09.2026", "30-09-2026", "reject.pdf", "1 W.P.(C)-7003/2026");
         await f.Sync.RunAsync(null, default);
-        var unmatched = f.Db.CourtExternalListingObservations.Single(x => x.NormalizedCaseIdentity!.Contains("9999"));
-        await f.Sync.ReviewAsync(unmatched.Id, new(false, null, null, "Not in office register."), f.User.Id, default);
-        Assert.Equal(CourtExternalListingStatus.Rejected, unmatched.Status);
+        var supplemental = f.Db.CourtExternalListingObservations.Single(x => x.SourceDocument.SourceUrl.EndsWith("reject.pdf"));
+        supplemental.Status = CourtExternalListingStatus.NeedsReview;
+        await f.Db.SaveChangesAsync();
+        await f.Sync.ReviewAsync(supplemental.Id, new(false, null, null, "Conflicting supplementary listing."), f.User.Id, default);
+        Assert.Equal(CourtExternalListingStatus.Rejected, supplemental.Status);
         Assert.Equal(f.User.Id, f.Db.CourtExternalListingDecisions.Last().ActorUserId);
         var assigned = new AppUser { Username = "assigned-dhc", NormalizedUsername = "ASSIGNED-DHC", DisplayName = "Assigned" };
         var role = new Role { Code = "ASSIGNED_DHC", Name = "Assigned DHC" };

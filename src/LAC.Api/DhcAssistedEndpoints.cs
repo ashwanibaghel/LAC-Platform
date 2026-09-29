@@ -38,6 +38,9 @@ public static class DhcAssistedEndpoints
                 return Results.Created($"/api/court-cases/dhc-assisted/runs/{runId}", new { runId });
             }
             catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+            catch (HttpRequestException) { return OfficialSiteUnavailable(); }
+            catch (IOException) { return OfficialSiteUnavailable(); }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return OfficialSiteUnavailable(); }
         });
         group.MapGet("/dhc-assisted/runs/{runId:guid}", async (Guid runId,
             DelhiHighCourtAssistedService service, ICurrentUserContext user, CancellationToken ct) =>
@@ -208,4 +211,9 @@ public static class DhcAssistedEndpoints
         http.Response.Headers.Pragma = "no-cache";
         http.Response.Headers["X-Content-Type-Options"] = "nosniff";
     }
+
+    private static IResult OfficialSiteUnavailable() => Results.Problem(
+        title: "Official DHC site unavailable",
+        detail: "Delhi High Court did not respond. No verification started. Please try again after a short while.",
+        statusCode: StatusCodes.Status503ServiceUnavailable);
 }

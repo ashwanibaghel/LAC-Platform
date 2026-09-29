@@ -28,17 +28,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [refreshUser]);
 
   const login = async (username: string, password: string) => {
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-      credentials: "include",
-    });
+    let response: Response;
+    try {
+      response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+        credentials: "include",
+      });
+    } catch { throw new Error("LAC server is not available right now. Please try again."); }
 
-    if (!response.ok) {
-      const err = (await response.json().catch(() => null)) as { message?: string } | null;
-      throw new Error(err?.message || "Invalid username or password");
-    }
+    if (response.status === 401) throw new Error("Username or password is incorrect.");
+    if (!response.ok) throw new Error("LAC server is not available right now. Please try again.");
 
     const data = (await response.json()) as CurrentUser;
     setUser(data);

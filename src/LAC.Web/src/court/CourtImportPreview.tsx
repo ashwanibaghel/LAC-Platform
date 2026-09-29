@@ -23,12 +23,12 @@ export type Row = {
   commitError?: string;
 };
 type Page = { items: Row[]; totalCount: number };
-type ReviewSummary = { unresolved: number; ready: number; committed: number; skipped: number; failed: number; safeBulkCandidates: number };
+type ReviewSummary = { unresolved: number; ready: number; committed: number; skipped: number; failed: number; safeBulkCandidates: number; retryableSafe: number };
 const pageSize = 25;
 const classifications = [
-  ["", "All rows"], ["NewCandidate", "New candidates"], ["NeedsReview", "Needs review"],
-  ["PotentialDuplicate", "Duplicates"], ["IdentityConflict", "Conflicts"],
-  ["ExistingExact", "Existing matches"], ["Invalid", "Invalid"],
+  ["", "All records"], ["NewCandidate", "Ready to add"], ["NeedsReview", "Needs attention"],
+  ["PotentialDuplicate", "Possible duplicates"], ["IdentityConflict", "Conflicting details"],
+  ["ExistingExact", "Already added"], ["Invalid", "Cannot add"],
 ] as const;
 const classificationLabel = (value: string) => classifications.find(([key]) => key === value)?.[1] ?? value;
 const decisionLabel = (value?: string) => value === "ImportAsNewCase" ? "Approved as new" :
@@ -41,6 +41,7 @@ export function CourtImportPreview() {
   const [totalRows, setTotalRows] = useState(0);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
+  const [workState, setWorkState] = useState<"pending" | "committed" | "all">("pending");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
@@ -48,7 +49,7 @@ export function CourtImportPreview() {
   const [refresh, setRefresh] = useState(0);
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [selected, setSelected] = useState<Row | null>(null);
-  const [confirmation, setConfirmation] = useState<"approveSafe" | "commitApproved" | null>(null);
+  const [confirmation, setConfirmation] = useState<"addReady" | "commitApproved" | null>(null);
   const [confirmationBusy, setConfirmationBusy] = useState(false);
   const [commitAcknowledged, setCommitAcknowledged] = useState(false);
 
@@ -66,12 +67,13 @@ export function CourtImportPreview() {
     const controller = new AbortController();
     const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (status) query.set("rowStatus", status);
+    query.set("workState", workState);
     fetch(`/api/court-cases/imports/${batchId}/rows?${query}`, { credentials: "include", signal: controller.signal })
       .then(async r => { if (!r.ok) throw new Error("Import rows could not be loaded."); return r.json() as Promise<Page>; })
       .then(data => { setRows(data.items); setTotalRows(data.totalCount); })
       .catch(e => { if (e.name !== "AbortError") setError(e.message); });
     return () => controller.abort();
-  }, [batchId, page, status, refresh]);
+  }, [batchId, page, status, workState, refresh]);
 
   useEffect(() => {
     if (!batchId) return;
@@ -94,14 +96,15 @@ export function CourtImportPreview() {
     return result;
   };
 
-  const approveSafe = async () => {
-    if (!batchId || !summary?.safeBulkCandidates) return;
+  const addReady = async () => {
+    if (!batchId || !(summary?.safeBulkCandidates || summary?.retryableSafe)) return;
     setConfirmationBusy(true);
     try {
-      await mutate("/api/court-cases/imports/" + batchId + "/approve-safe", "POST");
-      setNotice("Safe rows approved; no Court records created yet.");
+      const result = await mutate("/api/court-cases/imports/" + batchId + "/add-ready", "POST");
+      setNotice(`${result.committedThisRun} Court Matters added. ${result.summary.unresolved + result.summary.failed} records still need attention.`);
+      if (result.failures?.length) setError(`${result.failures.length} ready records could not be added. You can retry them here.`);
       setConfirmation(null);
-    } catch (e) { setError(e instanceof Error ? e.message : "Approval failed."); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not add ready Court Matters."); }
     finally { setConfirmationBusy(false); }
   };
 
@@ -143,8 +146,8 @@ export function CourtImportPreview() {
     <Link className="court-import-back" to="/court-cases">← Court Matters</Link>
     <header className="court-import-header">
       <span className="court-import-eyebrow">COURT REGISTER</span>
-      <h1>Import Court workbook</h1>
-      <p>Bring cases from an Excel register into a review queue. Nothing is added to Court Matters until you approve and commit the rows.</p>
+      <h1>Import Court Register</h1>
+      <p>Select the existing LAC court Excel workbook. We will check it before anything is added.</p>
     </header>
     <div className="court-import-layout">
       <section className="court-import-upload" aria-labelledby="court-import-upload-title">
@@ -159,57 +162,68 @@ export function CourtImportPreview() {
         {error && <div className="court-import-error" role="alert">{error}</div>}
         <div className="court-import-upload-footer">
           <span>Only .xlsx workbooks are accepted.</span>
-          <button className="primary-button" type="button" disabled={!file || uploading} onClick={() => void upload()}>{uploading ? "Uploading workbook…" : "Upload and stage workbook →"}</button>
+          <button className="primary-button" type="button" disabled={!file || uploading} onClick={() => void upload()}>{uploading ? "Checking Excel…" : "Check Excel →"}</button>
         </div>
       </section>
       <aside className="court-import-guide" aria-label="Import process">
-        <h2>What happens next</h2>
-        <ol><li><span>1</span><div><strong>Upload</strong><p>Read the workbook into a staging area.</p></div></li>
-          <li><span>2</span><div><strong>Review</strong><p>Check matches, conflicts and rows needing decisions.</p></div></li>
-          <li><span>3</span><div><strong>Commit</strong><p>Only approved rows update Court Matters.</p></div></li></ol>
-        <div className="court-import-safety"><strong>Your register stays unchanged</strong><p>The uploaded rows are preserved for review. Uploading alone does not create or change a Court case.</p></div>
+        <h2>Three simple steps</h2>
+        <ol><li><span>1</span><div><strong>Choose Excel</strong><p>Select your court register.</p></div></li>
+          <li><span>2</span><div><strong>We check it</strong><p>Ready cases are separated from records needing attention.</p></div></li>
+          <li><span>3</span><div><strong>Add ready cases</strong><p>You decide when to add them.</p></div></li></ol>
+        <div className="court-import-safety"><strong>Your Excel file stays unchanged</strong><p>Records needing attention can be reviewed later.</p></div>
       </aside>
     </div>
   </main>;
 
   const pages = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safeActionCount = (summary?.safeBulkCandidates ?? 0) + (summary?.retryableSafe ?? 0);
   return <main className="court-import-page court-import-review-page">
     <Link className="court-import-back" to="/court-cases">← Court Matters</Link>
-    <header className="court-import-header"><span className="court-import-eyebrow">COURT REGISTER</span><h1>Review imported rows</h1>
-      <p>Original Excel rows remain preserved. Only approved decisions can be committed to Court Matters.</p></header>
-    {batch && <div className="court-import-batch-stats" aria-label="Workbook classification summary">
-      <span><strong>{batch.totalRows}</strong>Total rows</span><span><strong>{batch.validRows}</strong>New / exact</span>
-      <span><strong>{batch.needsReviewRows}</strong>Needs review</span><span><strong>{batch.conflictRows}</strong>Conflicts</span>
-      <span><strong>{batch.invalidRows}</strong>Invalid</span></div>}
+    <header className="court-import-header"><span className="court-import-eyebrow">COURT REGISTER</span><h1>Excel check results</h1>
+      <p>Add the ready Court Matters now. Records needing attention can be reviewed later.</p></header>
+    {batch && summary && <div className="court-import-batch-stats" aria-label="Import progress summary">
+      <span><strong>{batch.totalRows - summary.committed}</strong>Still to check</span>
+      <span><strong>{summary.committed}</strong>Added to Court Matters</span>
+      <span><strong>{batch.totalRows}</strong>Records found</span></div>}
     {summary && <section className="court-import-next-step" aria-label="Recommended next action">
       <div className="court-import-next-step-copy"><span className="court-import-eyebrow">NEXT ACTION</span>
-        <h2>{summary.safeBulkCandidates > 0 ? `Approve ${summary.safeBulkCandidates} safe new-case candidates` :
-          summary.ready > 0 ? `Commit ${summary.ready} approved rows` : summary.unresolved > 0 ? "Review rows that need a decision" : "Import review complete"}</h2>
-        <p>{summary.safeBulkCandidates > 0 ? "These are deterministic new-case matches. Approval prepares them for commit; it does not change Court records yet." :
-          summary.ready > 0 ? "Only reviewed and approved rows will be written to Court Matters. Unresolved rows stay in staging." :
-          summary.unresolved > 0 ? "Open a row below, compare its source details, and choose how it should be handled." :
+        <h2>{safeActionCount > 0 ? `${safeActionCount} Court Matters are ready to add` :
+          summary.ready > 0 ? `${summary.ready} reviewed records are ready to add` : summary.unresolved > 0 ? "Review remaining records when convenient" : "Excel check complete"}</h2>
+        <p>{safeActionCount > 0 ? `${summary.unresolved - summary.safeBulkCandidates} records need attention later. They will not be added by this action.` :
+          summary.ready > 0 ? "Only your reviewed records will be added. Other records remain untouched." :
+          summary.unresolved > 0 ? "You can use Court Matters now and return to these records later." :
           "No unresolved rows remain in this batch."}</p>
-        <div className="court-import-progress-text">{summary.unresolved} unresolved <span>·</span> {summary.ready} ready to commit <span>·</span> {summary.committed} committed</div>
+        <div className="court-import-progress-text">{summary.unresolved} still to check <span>·</span> {summary.committed} already added</div>
       </div>
       <div className="court-import-next-step-actions">
-        {summary.safeBulkCandidates > 0 && <button className="primary-button" onClick={() => { setError(""); setConfirmation("approveSafe"); }}>Approve safe rows ({summary.safeBulkCandidates})</button>}
-        {summary.ready > 0 && <button className={summary.safeBulkCandidates > 0 ? "secondary-button" : "primary-button"} onClick={() => { setError(""); setCommitAcknowledged(false); setConfirmation("commitApproved"); }}>Commit approved ({summary.ready})</button>}
-        {summary.safeBulkCandidates === 0 && summary.ready === 0 && summary.unresolved > 0 &&
+        {safeActionCount > 0 && <button className="primary-button" onClick={() => { setError(""); setConfirmation("addReady"); }}>Add {safeActionCount} Court Matters</button>}
+        {safeActionCount > 0 && summary.unresolved > summary.safeBulkCandidates &&
+          <button className="secondary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review {summary.unresolved - summary.safeBulkCandidates} later</button>}
+        {summary.ready > 0 && <button className={safeActionCount > 0 ? "secondary-button" : "primary-button"} onClick={() => { setError(""); setCommitAcknowledged(false); setConfirmation("commitApproved"); }}>Add {summary.ready} reviewed records</button>}
+        {safeActionCount === 0 && summary.ready === 0 && summary.unresolved > 0 &&
           <button className="primary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review rows below ↓</button>}
       </div>
     </section>}
     {batch?.failureMessage && <p className="court-import-error" role="alert">{batch.failureMessage}</p>}
     {error && <p className="court-import-error" role="alert">{error}</p>}
-    {notice && <p className="court-import-notice" role="status">{notice}</p>}
-    <div className="court-import-review-toolbar" id="court-import-rows"><h2>Workbook rows <small>{totalRows.toLocaleString("en-IN")} in {classificationLabel(status).toLowerCase()}</small></h2>
-      <span>Choose a row to inspect its full source details and record a decision.</span></div>
+    {notice && <div className="court-import-notice" role="status"><p>{notice}</p>
+      <div><Link className="primary-button" to="/court-cases">Open Court Matters</Link>
+        {summary && summary.unresolved > 0 && <button className="secondary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review remaining later</button>}</div>
+    </div>}
+    <div className="court-import-review-toolbar" id="court-import-rows"><h2>{workState === "pending" ? "Pending work" : workState === "committed" ? "Imported history" : "All source rows"} <small>{totalRows.toLocaleString("en-IN")} in {classificationLabel(status).toLowerCase()}</small></h2>
+      <span>{workState === "pending" ? "Committed rows are hidden from this working queue." : "Original workbook rows are preserved for audit."}</span></div>
+    <nav className="court-import-work-tabs" aria-label="Import work status">
+      {([ ["pending", "Pending work"], ["committed", "Imported history"], ["all", "All source rows"] ] as const).map(([key, label]) =>
+        <button type="button" key={key} className={workState === key ? "active" : ""} aria-current={workState === key ? "page" : undefined}
+          onClick={() => { setWorkState(key); setPage(1); }}>{label}{key === "pending" && batch && summary ? ` (${batch.totalRows - summary.committed})` : key === "committed" && summary ? ` (${summary.committed})` : ""}</button>)}
+    </nav>
     <nav className="court-import-classification-tabs" aria-label="Import row classifications">
       {classifications.map(([key, label]) => <button type="button" key={key || "all"} className={status === key ? "active" : ""}
         aria-current={status === key ? "page" : undefined} onClick={() => { setStatus(key); setPage(1); }}>{label}</button>)}
     </nav>
     <div className="court-table-wrap court-import-table-wrap"><table className="court-import-review-table"><thead><tr>
       <th>No.</th><th>Case from workbook</th><th>Key details</th><th>Classification</th><th>Decision</th>
-    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">No rows in this classification.</td></tr> : rows.map((row, index) => {
+    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">{workState === "pending" && !status ? "No pending rows. This import batch is complete." : "No rows in this view."}</td></tr> : rows.map((row, index) => {
       const { reasons } = courtImportReviewGuidance(row);
       return <tr key={row.id}>
         <td className="court-import-row-number"><strong>#{(page - 1) * pageSize + index + 1}</strong>
@@ -247,20 +261,20 @@ export function CourtImportPreview() {
     {confirmation && summary && <div className="court-import-confirm-overlay" role="presentation">
       <section className="court-import-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="court-import-confirm-title"
         onKeyDown={event => { if (event.key === "Escape" && !confirmationBusy) setConfirmation(null); }}>
-        <span className="court-import-eyebrow">{confirmation === "approveSafe" ? "STAGING APPROVAL" : "WRITE TO COURT MATTERS"}</span>
-        <h2 id="court-import-confirm-title">{confirmation === "approveSafe"
-          ? `Approve ${summary.safeBulkCandidates} safe new-case rows?`
-          : `Commit ${summary.ready} approved rows?`}</h2>
-        <p>{confirmation === "approveSafe"
-          ? "Only rows confidently classified as new cases will be marked ready. This does not create Court cases yet; all other rows remain unresolved for individual review."
-          : "This writes only approved rows to Court Matters. Unresolved rows stay in staging and will not be imported."}</p>
+        <span className="court-import-eyebrow">ADD COURT MATTERS</span>
+        <h2 id="court-import-confirm-title">{confirmation === "addReady"
+          ? `Add ${safeActionCount} ready Court Matters?`
+          : `Add ${summary.ready} reviewed Court Matters?`}</h2>
+        <p>{confirmation === "addReady"
+          ? `Only these ready cases will be added. ${summary.unresolved - summary.safeBulkCandidates} records needing attention will stay here for later.`
+          : "Only records you have reviewed will be added. Other records stay here for later."}</p>
         {confirmation === "commitApproved" && <label className="court-import-confirm-check"><input type="checkbox" checked={commitAcknowledged}
-          onChange={event => setCommitAcknowledged(event.target.checked)} /> I have reviewed the approved rows and want to write them to Court Matters.</label>}
+          onChange={event => setCommitAcknowledged(event.target.checked)} /> I have reviewed these records and want to add them to Court Matters.</label>}
         {error && <div className="court-import-error" role="alert">{error}</div>}
         <div className="court-import-confirm-actions"><button type="button" className="secondary-button" autoFocus disabled={confirmationBusy} onClick={() => setConfirmation(null)}>Cancel</button>
           <button type="button" className="primary-button" disabled={confirmationBusy || confirmation === "commitApproved" && !commitAcknowledged}
-            onClick={() => void (confirmation === "approveSafe" ? approveSafe() : commitApproved())}>
-            {confirmationBusy ? "Working…" : confirmation === "approveSafe" ? `Approve ${summary.safeBulkCandidates} rows` : `Commit ${summary.ready} rows`}</button></div>
+            onClick={() => void (confirmation === "addReady" ? addReady() : commitApproved())}>
+            {confirmationBusy ? "Adding…" : confirmation === "addReady" ? `Add ${safeActionCount} Court Matters` : `Add ${summary.ready} records`}</button></div>
       </section></div>}
   </main>;
 }

@@ -63,7 +63,10 @@ public sealed class DelhiHighCourtAssistedTests
                 body = SubmittedHumanAnswer == "typed-by-officer" ? "{\"success\":true}" : "{\"success\":false}";
             }
             else if (request.Method == HttpMethod.Get && path.EndsWith("get-case-type-status"))
+            {
+                Assert.Equal("XMLHttpRequest", request.Headers.GetValues("X-Requested-With").Single());
                 body = ++StatusLookups <= 2 ? StatusResult : "{\"error\":\"captcha required\"}";
+            }
             else if (request.Method == HttpMethod.Post && path.EndsWith("case-number"))
             {
                 SubmittedOrderForm = await request.Content!.ReadAsStringAsync(ct);
@@ -72,6 +75,29 @@ public sealed class DelhiHighCourtAssistedTests
             else return new HttpResponseMessage(HttpStatusCode.NotFound);
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/html") };
         }
+    }
+
+    private sealed class TransientFormHandler : HttpMessageHandler
+    {
+        public int Attempts { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Attempts++;
+            if (Attempts == 1) throw new HttpRequestException("Temporary official connection failure.");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(StatusForm, Encoding.UTF8, "text/html") });
+        }
+    }
+
+    [Fact]
+    public async Task InitialOfficialFormGet_RetriesOnceWithoutSubmittingVerification()
+    {
+        var handler = new TransientFormHandler();
+        await using var session = new DelhiHighCourtAssistedSession(new ConfigurationBuilder().Build(), _ => handler);
+        var form = await session.LoadFormAsync(false, default);
+        Assert.Equal(2, handler.Attempts);
+        Assert.Equal("TEST7", form.VisibleChallenge);
+        Assert.False(session.Verified);
     }
 
     private sealed class Clock : IOfficeClock
@@ -116,6 +142,7 @@ public sealed class DelhiHighCourtAssistedTests
             }
             else if (request.Method == HttpMethod.Get && path.EndsWith("get-case-type-status"))
             {
+                Assert.Equal("XMLHttpRequest", request.Headers.GetValues("X-Requested-With").Single());
                 StatusLookups++;
                 if (StatusLookups == 4 && Validations == 1) body = "{\"error\":\"captcha required\"}";
                 else
@@ -280,16 +307,31 @@ public sealed class DelhiHighCourtAssistedTests
             NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026", QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
         run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync();
+        // LacDbContext stamps new official records with real UTC time. Make the
+        // legacy fixture older than the fixed fake official observation clock.
+        (await db.CourtProceedings.SingleAsync()).CreatedAt =
+            new DateTimeOffset(2026, 3, 15, 0, 0, 0, TimeSpan.Zero);
+        await db.SaveChangesAsync();
         var auth = new CourtAuthorizationService(db, null!, null!, null!);
         var service = new DelhiHighCourtAssistedService(db, auth, new Clock());
         var before = await CourtOperationalNdohQuery.Resolve(db.CourtCases, db, new Clock().GetCurrentDate())
             .SingleAsync();
         Assert.Equal(new DateOnly(2026, 3, 15), before.OperationalNdoh);
         await service.ProcessStatusAsync(run, item, StatusResult, default);
+        var statusEvidence = await db.CourtExternalCaseStatusObservations.SingleAsync();
+        Assert.Equal(DhcAssistedEvidenceStatus.Accepted, statusEvidence.Status);
+        Assert.Equal(new DateOnly(2026, 10, 7), statusEvidence.ListingDate);
+        var proceedingCreatedAt = (await db.CourtProceedings.SingleAsync()).CreatedAt;
+        Assert.True(statusEvidence.ObservedAt > proceedingCreatedAt,
+            $"Observed {statusEvidence.ObservedAt:O}; proceeding {proceedingCreatedAt:O}");
+        Assert.Equal(1, await db.CourtExternalCaseStatusObservations.CountAsync(x =>
+            x.CourtCaseId == courtCase.Id && x.Status == DhcAssistedEvidenceStatus.Accepted &&
+            x.ListingDate >= new Clock().GetCurrentDate()));
         var after = await CourtOperationalNdohQuery.Resolve(db.CourtCases, db, new Clock().GetCurrentDate())
             .SingleAsync();
-        Assert.Equal(new DateOnly(2026, 10, 7), after.OperationalNdoh);
+        Assert.False(after.HasOfficialConflict);
         Assert.True(after.UsesAssistedStatus);
+        Assert.Equal(new DateOnly(2026, 10, 7), after.OperationalNdoh);
         Assert.Equal("Pending", courtCase.CurrentStatus);
         Assert.Single(db.CourtProceedings);
         Assert.Empty(db.ScheduledEvents);
@@ -1038,7 +1080,7 @@ public sealed class DelhiHighCourtAssistedTests
     }
 
     [Fact]
-    public async Task OfficialDisposed_RequiresSeparateExplicitAuditedCanonicalConfirmation()
+    public async Task ExactOfficialDisposed_AutomaticallyUpdatesWithAudit()
     {
         var (provider, userId, caseIds) = await HarnessAsync(1);
         await using (provider)
@@ -1054,11 +1096,6 @@ public sealed class DelhiHighCourtAssistedTests
             await db.SaveChangesAsync();
             await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", "[Disposed]"), default);
             var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
-            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
-            await service.ReviewAsync(observation.Id, true, "Accept official evidence only", userId, default);
-            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
-            await service.ConfirmCanonicalStatusAsync(observation.Id,
-                "Verified official disposal with case file", userId, default);
             db.ChangeTracker.Clear();
             Assert.Equal("Disposed", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
             var history = await db.CourtCaseEvents.SingleAsync(x => x.CourtCaseId == caseIds[0]);
@@ -1067,15 +1104,69 @@ public sealed class DelhiHighCourtAssistedTests
             Assert.Equal("Disposed", history.NewStatus);
             Assert.Equal(userId, history.ActorUserId);
             Assert.Contains(observation.Id.ToString(), history.Notes);
-            Assert.Contains("Verified official disposal", history.Notes);
-            Assert.Equal(2, await db.CourtExternalAssistedDecisions.CountAsync(x => x.ObservationId == observation.Id));
+            Assert.Contains("Exact DHC case-status result", history.Notes);
+            Assert.Single(await db.CourtExternalAssistedDecisions.Where(x => x.ObservationId == observation.Id).ToListAsync());
+            Assert.Equal(DhcAssistedEvidenceStatus.Accepted, observation.Status);
+        }
+    }
+
+    [Fact]
+    public async Task MultipleOfficialRows_DoNotAutomaticallyDisposeEvenWithOneExactRow()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
+            var item = new DhcAssistedSyncItem { CourtCaseId = caseIds[0],
+                NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026", QueueOrder = 0,
+                Status = DhcAssistedItemStatus.CheckingStatus };
+            run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
+            await db.SaveChangesAsync();
+            var ambiguous = """
+                {"data":[{"ctype":"W.P.(C) 7003/2026 [Disposed]","pet":"A v B","orderdate":"07.10.2026"},
+                {"ctype":"W.P.(C) 8000/2026 [Pending]","pet":"C v D","orderdate":"07.10.2026"}]}
+                """;
+            await service.ProcessStatusAsync(run, item, ambiguous, default);
+            db.ChangeTracker.Clear();
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            Assert.Equal(DhcAssistedEvidenceStatus.NeedsReview,
+                (await db.CourtExternalCaseStatusObservations.SingleAsync()).Status);
+            Assert.Empty(db.CourtCaseEvents);
+        }
+    }
+
+    [Fact]
+    public async Task DuplicateLocalIdentity_DoesNotAutomaticallyDispose()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            db.CourtCases.Add(new CourtCase { CaseNumber = "W.P.(C) 7003/2026",
+                CourtName = "Delhi High Court", CurrentStatus = "Pending" });
+            var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
+            var item = new DhcAssistedSyncItem { CourtCaseId = caseIds[0],
+                NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026", QueueOrder = 0,
+                Status = DhcAssistedItemStatus.CheckingStatus };
+            run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
+            await db.SaveChangesAsync();
+            await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", "[Disposed]"), default);
+            db.ChangeTracker.Clear();
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            Assert.Equal(DhcAssistedEvidenceStatus.NeedsReview,
+                (await db.CourtExternalCaseStatusObservations.SingleAsync()).Status);
         }
     }
 
     [Theory]
-    [InlineData("Archived", false)]
-    [InlineData("Disposed", true)]
-    public async Task UnknownOrRejectedOfficialStatus_CannotMutateCanonical(string rawStatus, bool reject)
+    [InlineData("Archived")]
+    [InlineData("Stay")]
+    public async Task UnknownOfficialStatus_CannotMutateCanonical(string rawStatus)
     {
         var (provider, userId, caseIds) = await HarnessAsync(1);
         await using (provider)
@@ -1091,7 +1182,6 @@ public sealed class DelhiHighCourtAssistedTests
             await db.SaveChangesAsync();
             await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", $"[{rawStatus}]"), default);
             var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
-            if (reject) await service.ReviewAsync(observation.Id, false, "Keep LAC record", userId, default);
             await Assert.ThrowsAsync<CourtWorkflowException>(() =>
                 service.ConfirmCanonicalStatusAsync(observation.Id, "Attempt confirmation", userId, default));
             db.ChangeTracker.Clear();

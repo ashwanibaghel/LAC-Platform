@@ -116,7 +116,7 @@ export function CourtImportRowReview({ row, save, close }: {
         </div>}
       </section>}
       {(action === "ImportAsNewCase" || action === "LinkToExistingCase" && applyStatus) && <div className="court-import-decision-fields">
-        <label>Canonical status<select value={approvedStatus} onChange={e => setApprovedStatus(e.target.value)}>
+        <label>Case status<select value={approvedStatus} onChange={e => setApprovedStatus(e.target.value)}>
           <option value="">Choose status</option><option value="Pending">Pending</option><option value="Disposed">Disposed</option>
         </select></label></div>}
       {action && <div className="court-import-decision-fields"><label>Reason / reviewer notes<textarea rows={3} value={notes} onChange={e => setNotes(e.target.value)} /></label></div>}

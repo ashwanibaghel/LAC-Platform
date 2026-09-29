@@ -7,6 +7,52 @@ namespace LAC.Tests;
 
 public sealed class CourtImportReviewTests
 {
+    [Fact]
+    public async Task OneOfficerAction_AddsOnlyReadyRowsAndLeavesRiskyRowsForLater()
+    {
+        var (db, actor, batch, review, _) = await SetupAsync();
+        using (db)
+        {
+            for (var n = 3; n < 313; n++)
+                db.CourtImportRows.Add(Row(batch, n, n < 217 ? CourtImportRowStatus.NewCandidate : CourtImportRowStatus.NeedsReview));
+            await db.SaveChangesAsync();
+            var before = await review.SummaryAsync(batch.Id, actor.Id);
+            Assert.Equal(214, before.SafeBulkCandidates);
+            var result = await review.AddReadyAsync(batch.Id, actor.Id);
+            Assert.Equal(214, result.CommittedThisRun);
+            Assert.Empty(result.Failures);
+            Assert.Equal(214, result.Summary.Committed);
+            Assert.Equal(96, result.Summary.Unresolved);
+            Assert.Equal(214, await db.CourtCases.CountAsync());
+            Assert.Equal(96, await db.CourtImportRows.CountAsync(x => x.ResolutionAction == null));
+        }
+    }
+
+    [Fact]
+    public async Task FailedSafeRow_RemainsVisibleForOneActionRetry()
+    {
+        var (db, actor, batch, review, _) = await SetupAsync();
+        using (db)
+        {
+            var row = Row(batch, 101);
+            row.ResolutionAction = CourtImportResolutionAction.ImportAsNewCase;
+            row.ApprovedCaseNumber = row.RawCaseNumber;
+            row.ApprovedCaseTitle = row.RawCaseTitle;
+            row.ApprovedCourtName = row.SuggestedCourtName;
+            row.ApprovedStatus = "Pending";
+            row.ReviewerNotes = "Safe deterministic candidate bulk-approved";
+            row.ReviewedByUserId = actor.Id;
+            row.ReviewedAt = DateTimeOffset.UtcNow;
+            row.CommitStatus = CourtImportCommitStatus.Failed;
+            db.CourtImportRows.Add(row);
+            await db.SaveChangesAsync();
+            Assert.Equal(1, (await review.SummaryAsync(batch.Id, actor.Id)).RetryableSafe);
+            var result = await review.AddReadyAsync(batch.Id, actor.Id);
+            Assert.Equal(1, result.CommittedThisRun);
+            Assert.Equal(0, result.Summary.RetryableSafe);
+        }
+    }
+
     private sealed class NoStorage : IDocumentStorage
     {
         public Task<string> SaveAsync(Stream content, string name, CancellationToken ct) => throw new NotSupportedException();

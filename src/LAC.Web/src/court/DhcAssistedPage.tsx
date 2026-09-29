@@ -52,14 +52,14 @@ export const DhcAssistedPage: React.FC = () => {
   const confirmStatus = async (id: string) => {
     const reason = reviewReasons[id]?.trim();
     if (!reason) { setMessage("Enter a reason before confirming the LAC case status."); return; }
-    if (!window.confirm("Confirm LAC status as Disposed? This changes the canonical court case status and records an audit event.")) return;
+    if (!window.confirm("Update the office case status to Disposed? The previous status and official result will remain in history.")) return;
     setBusy(true); setMessage(null);
     try {
       const response = await fetch(`${base}/reviews/${id}/confirm-canonical-status`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      if (!response.ok) throw new Error("Canonical status could not be confirmed. Reload the case and review exact evidence.");
+      if (!response.ok) throw new Error("The office status could not be updated. Open the case and review the official result.");
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
       await loadReviews();
       if (runId) await load();
@@ -104,7 +104,10 @@ export const DhcAssistedPage: React.FC = () => {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scope, caseIds: scope === "Selected" ? selected : null }),
       });
-      if (!response.ok) throw new Error("Could not start verification. Another officer may have an active session.");
+      if (!response.ok) {
+        const problem = await response.json().catch(() => null) as { detail?: string; title?: string } | null;
+        throw new Error(problem?.detail || problem?.title || "Could not start verification. Please try again.");
+      }
       const result = await response.json() as { runId: string };
       setParams({ run: result.runId });
     } catch (error) { setMessage(String(error)); }
@@ -178,17 +181,26 @@ export const DhcAssistedPage: React.FC = () => {
   const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
   const orderCount = run?.items.filter(item => item.status === "Completed" ||
     item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length ?? 0;
+  const reviewMessage = (reason: string | null) => ({
+    DateConflict: "Two official dates differ. Compare the case record before deciding.",
+    StatusDifference: "The office status and Delhi High Court status differ.",
+    LocalIdentityConflict: "More than one office case has this number.",
+    AmbiguousOfficialRows: "The official search returned more than one row.",
+    MultipleExactRows: "The official search returned more than one matching case.",
+    IdentityMismatch: "The official case number does not match this office case.",
+    OfficialStatusUnclear: "The official status could not be understood safely.",
+  } as Record<string, string>)[reason ?? ""] ?? "This official result needs a closer look.";
 
   return <main className="court-assisted-page">
     <Link className="court-assisted-back" to="/court-cases">← Court Matters</Link>
     <div className="court-assisted-header"><div><h1>Delhi High Court verification</h1><p>Official case-status check</p></div>
-      {run && <span className="court-assisted-status">{run.status === "ReadyForOrders" ? "Status checked" : run.status}</span>}</div>
+      {run && <span className="court-assisted-status">{run.status === "ReadyForOrders" ? "Cases checked" : run.status === "Running" ? "Checking" : run.status === "PausedForCaptcha" ? "Code needed" : run.status === "WaitingForCaptcha" ? "Code needed" : run.status}</span>}</div>
     {message && <p className="court-assisted-alert" role="alert">{message}</p>}
     {!runId && preview && <div className="court-assisted-preview">
       <section className="court-assisted-main-card" aria-label="Recommended cases for verification">
-        <div className="court-assisted-card-heading"><div><h2>Recommended matters</h2><p>Choose the cases to check against the official Delhi High Court status form.</p></div></div>
+        <div className="court-assisted-card-heading"><div><h2>Priority cases</h2><p>Pending Delhi High Court matters whose next date is missing, overdue, or needs confirmation. To check others, choose “Selected cases”.</p></div></div>
         <fieldset className="court-assisted-scope"><legend>Verification scope</legend><div>
-          {[["Recommended", "All recommended"], ["NoNdoh", "No NDOH"], ["Overdue", "Overdue"], ["Selected", "Selected cases"]].map(([value, label]) =>
+          {[["Recommended", "Priority cases"], ["NoNdoh", "No NDOH"], ["Overdue", "Overdue"], ["Selected", "Selected cases"]].map(([value, label]) =>
             <label key={value} className={scope === value ? "active" : ""}><input type="radio" name="scope" checked={scope === value} onChange={() => setScope(value)} />{label}</label>)}
         </div></fieldset>
         {preview.skippedIdentityCount > 0 && <p className="court-assisted-note">{preview.skippedIdentityCount} case identities need review before official search.</p>}
@@ -202,7 +214,7 @@ export const DhcAssistedPage: React.FC = () => {
             <td>{item.identityNeedsReview ? "Skipped — case identity needs review" : item.reason || "Officer selected"}</td>
           </tr>)}
         </tbody></table></div>
-        <div className="court-assisted-footer"><button className="primary-button" disabled={busy || (scope === "Selected" && selected.length === 0)} onClick={() => void start()}>Start verification</button></div>
+        <div className="court-assisted-footer"><button className="primary-button" disabled={busy || (scope === "Selected" && selected.length === 0)} onClick={() => void start()}>Check now</button></div>
       </section>
       <aside className="court-assisted-summary"><h2>Verification summary</h2><strong>{preview.recommendedCount}</strong><span>Need verification</span>
         <dl><div><dt>No NDOH</dt><dd>{preview.noNdohCount}</dd></div><div><dt>Overdue</dt><dd>{preview.overdueCount}</dd></div>
@@ -212,33 +224,34 @@ export const DhcAssistedPage: React.FC = () => {
     </div>}
     {run && <div className="court-assisted-run-layout">
       <section className="court-assisted-main-card" aria-label="Assisted verification work">
-        <div className="court-assisted-card-heading"><div><h2>{run.status === "Completed" ? "Assisted verification complete" : "Assisted verification progress"}</h2>
-          <p>{run.phase === "StatusLookup" ? "Phase 1 of 2 · Case status verification" : "Phase 2 of 2 · Official order links"} · Run by {run.ownerName}</p></div></div>
-        {run.failureMessage && <p className="court-assisted-alert" role="alert">{run.failureMessage}</p>}
+        <div className="court-assisted-card-heading"><div><h2>{run.status === "Completed" ? "Delhi High Court check complete" : "Checking Delhi High Court"}</h2>
+          <p>{run.phase === "StatusLookup" ? "Checking case status" : "Checking order links"} · Run by {run.ownerName}</p></div></div>
+        {run.failureMessage && ["Interrupted", "Failed"].includes(run.status) && <p className="court-assisted-alert" role="alert">{run.failureMessage}</p>}
         {run.isOwner && run.status === "ReadyForOrders" && <section className="court-assisted-decision" aria-label="Order verification choice">
-          <span className="court-assisted-eyebrow">STATUS PHASE COMPLETE</span><h3>Case-status verification complete</h3>
-          <p>{run.completedCases} matters checked. Order links are a separate optional phase.</p>
-          <div><button className="primary-button" disabled={busy} onClick={() => void orderAction("orders")}>Check official order links</button>
-            <button className="secondary-button" disabled={busy} onClick={() => void orderAction("finish")}>Finish session</button></div>
+          <span className="court-assisted-eyebrow">CASES CHECKED</span><h3>✓ {run.completedCases} cases checked</h3>
+          <p>{run.noChangeCases} no change · {run.updatedCases} updated · {run.needsReviewCases} need attention</p>
+          <p>Check latest official order links too? Order search is separate and may ask for another Delhi High Court verification code.</p>
+          <div><button className="primary-button" disabled={busy} onClick={() => void orderAction("orders")}>Check order links</button>
+            <button className="secondary-button" disabled={busy} onClick={() => void orderAction("finish")}>Done</button></div>
         </section>}
         {run.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(run.status) && challenge &&
           <section className="court-assisted-challenge" aria-label="Official DHC verification code">
-            <span className="court-assisted-eyebrow">HUMAN VERIFICATION</span><h3>Delhi High Court verification required</h3>
-            {currentItem && <p>Current case <strong>{currentItem.caseNumber}</strong></p>}
-            <p>To continue {challenge.operation.toLowerCase()}, enter the code shown by the official court website.</p>
+            <span className="court-assisted-eyebrow">OFFICIAL CHECK</span><h3>{run.status === "PausedForCaptcha" ? "Delhi High Court needs another verification code" : "Delhi High Court verification"}</h3>
+            {currentItem && <p>Checking <strong>{currentItem.caseNumber}</strong></p>}
+            {run.status === "PausedForCaptcha" && <p>{run.completedCases} of {run.totalCases} cases are already complete.</p>}
             <span className="court-assisted-code-label">Official DHC verification code</span>
             {challenge.kind === "Text" ? <div className="court-assisted-code" aria-label="Official DHC security code">{challenge.officialText}</div> :
               <img className="court-assisted-code-image" alt="Official DHC verification code" src={`${base}/runs/${runId}/captcha/image?v=${imageVersion}`} />}
             <label className="court-assisted-answer">Enter code<input autoComplete="off" spellCheck={false} value={answer} onChange={event => setAnswer(event.target.value)} /></label>
-            <div className="court-assisted-challenge-actions"><button className="primary-button" disabled={busy || !answer.trim()} onClick={() => void verify()}>Verify &amp; continue</button>
+            <div className="court-assisted-challenge-actions"><button className="primary-button" disabled={busy || !answer.trim()} onClick={() => void verify()}>Continue</button>
               <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button></div>
-            <small>This verification code is entered manually by you. LAC Platform does not solve or bypass it.</small>
+            <small>The code is entered manually by the officer.</small>
           </section>}
         {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <div className="court-assisted-reopen"><button className="primary-button" disabled={busy} onClick={() => void resume()}>
           {run.phase === "StatusLookup" && run.items.length === run.totalCases &&
             run.items.every(item => ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status))
             ? "Return to order/finish choice" : "Resume with new code"}</button></div>}
-        {currentItem && run.status === "Running" && <div className="court-assisted-current"><span>Current case</span><strong>{currentItem.caseNumber}</strong><small>{currentItem.status}</small></div>}
+        {currentItem && run.status === "Running" && <div className="court-assisted-current"><span>Checking case {run.completedCases + 1} of {run.totalCases}</span><strong>{currentItem.caseNumber}</strong></div>}
         {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders", "Interrupted"].includes(run.status) &&
           <button className="court-assisted-cancel" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
       </section>
@@ -251,23 +264,23 @@ export const DhcAssistedPage: React.FC = () => {
           {run.phase === "OrderLookup" && <span>Order searches <b>{orderCount}</b></span>}</div>
         <h3>Queue</h3><ol>{run.items.map(item => <li key={item.id}>
           <span aria-hidden="true">{["Completed", "StatusCaptured"].includes(item.status) ? "✓" : ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status) ? "→" : "○"}</span>
-          <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link><small>{item.status === "StatusCaptured" ? "Case status checked" : item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</small>
+          <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link><small>{["StatusCaptured", "Completed"].includes(item.status) ? "Checked" : item.status === "NeedsReview" ? "Needs attention" : item.status === "CaptchaRequired" ? "Code needed" : item.status === "Queued" ? "Waiting" : item.status === "CheckingStatus" ? "Checking" : item.status === "NotFound" ? "Not found" : item.status}</small>
         </li>)}</ol>
       </aside>
     </div>}
     {reviews.length > 0 && <section className="court-assisted-reviews" aria-label="Official evidence needing officer review">
-      <div className="court-assisted-review-heading"><h2>Official evidence needing officer review</h2><p>These observations do not change the LAC case record until an officer confirms status separately.</p></div>
+      <div className="court-assisted-review-heading"><h2>Cases needing attention</h2><p>These official results were not applied automatically. Compare them with the office record.</p></div>
       <div className="court-assisted-review-grid">{reviews.map(row => <article key={row.id} className="court-assisted-review-card">
         <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link><span>NEEDS REVIEW</span></div>
         <dl><div><dt>Official</dt><dd>{row.rawStatus ?? "Not stated"}</dd></div><div><dt>LAC</dt><dd>{row.canonicalStatus ?? "Not stated"}</dd></div>
           <div><dt>Listing</dt><dd>{row.listingDate ?? "Not stated"}</dd></div><div><dt>Court</dt><dd>{row.rawCourtNumber ?? "Not stated"}</dd></div></dl>
-        <small>{new Date(row.observedAt).toLocaleString()} · {row.reviewReason ?? "Official evidence needs review"}</small>
+        <small>{new Date(row.observedAt).toLocaleString()} · {reviewMessage(row.reviewReason)}</small>
         <details><summary>Captured evidence</summary><p>{row.rawEvidenceText}</p></details>
         <label>Reason for decision<input value={reviewReasons[row.id] ?? ""}
           onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>
         <div className="court-assisted-review-actions"><button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Accept evidence</button>
           <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, false)}>Keep LAC record</button></div>
-        {row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() !== "disposed" &&
+        {row.reviewReason === "StatusDifference" && row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() !== "disposed" &&
           <button className="court-assisted-danger" disabled={busy || !reviewReasons[row.id]?.trim()}
             onClick={() => void confirmStatus(row.id)}>Confirm LAC status as Disposed</button>}
       </article>)}</div>

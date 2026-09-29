@@ -58,8 +58,8 @@ public static class CourtEndpoints
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); return Results.Ok(await imports.ListAsync(ct)); });
         group.MapGet("/imports/{batchId:guid}", async (Guid batchId, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); var batch=await imports.GetAsync(batchId,ct); return batch is null?Results.NotFound():Results.Ok(batch); });
-        group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
-        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); if (await imports.GetAsync(batchId,ct) is null) return Results.NotFound(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
+        group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? workState,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); if (await imports.GetAsync(batchId,ct) is null) return Results.NotFound(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct,workState); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
         group.MapGet("/imports/{batchId:guid}/review-summary", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -101,6 +101,12 @@ public static class CourtEndpoints
         {
             if (!user.UserId.HasValue) return Results.Unauthorized();
             try { return Results.Ok(await sync.RunAsync(user.UserId.Value, ct)); }
+            catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapPost("/imports/{batchId:guid}/add-ready", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            try { return Results.Ok(await review.AddReadyAsync(batchId, currentUser.UserId.Value, ct)); }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
         });
         group.MapGet("/dhc-sync/historical/status", async (DelhiHighCourtSyncService sync, ICurrentUserContext user, CancellationToken ct) =>

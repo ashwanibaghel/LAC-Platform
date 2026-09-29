@@ -74,6 +74,7 @@ export const CourtDirectory: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterOptions, setFilterOptions] = useState<CourtFilterOptionsDto | null>(null);
+  const [registerCount, setRegisterCount] = useState<number | null>(null);
 
   // New Case Modal
   const [showNewModal, setShowNewModal] = useState(false);
@@ -96,6 +97,13 @@ export const CourtDirectory: React.FC = () => {
       .then((data: CourtFilterOptionsDto | null) => {
         if (data) setFilterOptions(data);
       })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/court-cases?pageSize=1", { credentials: "include" })
+      .then(response => response.ok ? response.json() as Promise<CourtCaseListResponse> : null)
+      .then(result => { if (result) setRegisterCount(result.totalCount); })
       .catch(() => {});
   }, []);
 
@@ -177,10 +185,18 @@ export const CourtDirectory: React.FC = () => {
           <h1>Court Matters</h1>
           <p>Operational queue · NDOH · official court updates</p>
         </div>
-        {canCreate && <div className="court-directory-actions"><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>}
+        {canCreate && registerCount !== 0 && <div className="court-directory-actions"><Link className="secondary-button" to="/court-cases/imports">Import Excel</Link><button className="primary-button" onClick={() => { setCreateError(null); setShowNewModal(true); }}>+ New Court Case</button></div>}
       </div>
 
-      <DhcSyncPanel />
+      {registerCount === 0 ? <section className="court-first-run">
+        <h2>No court register has been added yet</h2>
+        <p>Import your existing LAC court Excel file to begin.</p>
+        <div><Link className="primary-button" to="/court-cases/imports">Import Court Excel</Link>
+          {canCreate && <button className="secondary-button" onClick={() => setShowNewModal(true)}>Add one case manually</button>}</div>
+        <small>Delhi High Court automatic updates will start after DHC matters are imported.</small>
+      </section> : <DhcSyncPanel />}
+
+      {registerCount !== 0 && <>
 
       <nav className="court-queue-nav" aria-label="Court queue quick filters">
         <div className="court-queue-tabs">
@@ -221,17 +237,20 @@ export const CourtDirectory: React.FC = () => {
           <label>Advocate<input className="form-input" value={value("advocate")} onChange={e => setFilter("advocate", e.target.value)} /></label>
           <label>Village<input className="form-input" value={value("village")} onChange={e => setFilter("village", e.target.value)} /></label>
           <label>Award<input className="form-input" value={value("award")} onChange={e => setFilter("award", e.target.value)} /></label>
-          <label>Responsible desk<select className="form-input" value={value("deskId")} onChange={e => setFilter("deskId", e.target.value)}>
-            <option value="">All desks</option>{(filterOptions?.viewDesks ?? filterOptions?.desks ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select></label>
           <label>Assigned officer<select className="form-input" value={value("assignedUserId")} onChange={e => setFilter("assignedUserId", e.target.value)}>
             <option value="">All officers</option>{(filterOptions?.directoryOfficers ?? []).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select></label>
-          <label>Order link<select className="form-input" value={value("sourceOrderLinkState")} onChange={e => setFilter("sourceOrderLinkState", e.target.value)}>
-            <option value="">Any</option><option value="ValidHttpUrl">Valid source URL</option><option value="Missing">Missing</option><option value="NeedsReview">Needs review</option>
-          </select></label>
-          <label>Source directions<input className="form-input" value={value("directions")} onChange={e => setFilter("directions", e.target.value)} /></label>
-          <label>Brief facts<input className="form-input" value={value("briefFacts")} onChange={e => setFilter("briefFacts", e.target.value)} /></label>
+          <details className="court-additional-filters" open={Boolean(value("deskId") || value("sourceOrderLinkState") || value("directions") || value("briefFacts")) || undefined}>
+            <summary>Additional filters</summary><div>
+              <label>Responsible desk<select className="form-input" value={value("deskId")} onChange={e => setFilter("deskId", e.target.value)}>
+                <option value="">All desks</option>{(filterOptions?.viewDesks ?? filterOptions?.desks ?? []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select></label>
+              <label>Order link<select className="form-input" value={value("sourceOrderLinkState")} onChange={e => setFilter("sourceOrderLinkState", e.target.value)}>
+                <option value="">Any</option><option value="ValidHttpUrl">Valid source URL</option><option value="Missing">Missing</option><option value="NeedsReview">Needs review</option>
+              </select></label>
+              <label>Source directions<input className="form-input" value={value("directions")} onChange={e => setFilter("directions", e.target.value)} /></label>
+              <label>Brief facts<input className="form-input" value={value("briefFacts")} onChange={e => setFilter("briefFacts", e.target.value)} /></label>
+            </div></details>
           {value("ndohFilter") === "CustomRange" && <>
             <label>NDOH from<input className="form-input" type="date" value={value("ndohFrom")} onChange={e => setFilter("ndohFrom", e.target.value)} /></label>
             <label>NDOH to<input className="form-input" type="date" value={value("ndohTo")} onChange={e => setFilter("ndohTo", e.target.value)} /></label>
@@ -342,6 +361,8 @@ export const CourtDirectory: React.FC = () => {
           </div>
         </div>
       )}
+
+      </>}
 
       {/* New Court Case Modal */}
       {showNewModal && (

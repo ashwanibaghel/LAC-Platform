@@ -10,17 +10,17 @@ const dhc = readFileSync(path.join(here, "../src/court/DhcSyncPanel.tsx"), "utf8
 const assisted = readFileSync(path.join(here, "../src/court/DhcAssistedPage.tsx"), "utf8");
 const css = readFileSync(path.join(here, "../src/court/court.css"), "utf8");
 
-test("DHC status has three compact cards and attention details start collapsed", () => {
-  assert.equal((dhc.match(/className="dhc-sync-card"/g) ?? []).length, 3);
-  assert.match(dhc, /className="dhc-sync-grid"/);
-  assert.match(css, /\.dhc-sync-grid \{[^}]*repeat\(3/);
+test("DHC daily status is one compact summary and technical details start collapsed", () => {
+  assert.match(dhc, /className="dhc-daily-summary"/);
+  assert.match(dhc, /Every 5 hours/);
+  assert.match(dhc, /<details className="dhc-more"/);
   assert.match(dhc, /<details className="dhc-attention"/);
   assert.doesNotMatch(dhc, /<details className="dhc-attention"[^>]*open/);
 });
 
 test("assisted CTA and all six queue tabs are retained", () => {
-  assert.match(dhc, /Start verification →/);
-  assert.match(dhc, /Continue session →/);
+  assert.match(dhc, /Check now/);
+  assert.match(dhc, /Continue check/);
   for (const label of ["All", "Today", "Upcoming", "Overdue", "No NDOH", "Disposed"])
     assert.ok(directory.includes(`"${label}"`), `${label} tab missing`);
   assert.match(directory, /setQuick\(key\)/);
@@ -58,10 +58,10 @@ test("assisted preview, manual challenge, order choice and review decisions rema
   assert.match(assisted, /Official DHC verification code/);
   assert.match(assisted, /setAnswer\(""\); \/\/ Never retain a submitted answer/);
   assert.match(assisted, /run\.status === "ReadyForOrders"/);
-  assert.match(assisted, /Check official order links/);
-  assert.match(assisted, /Finish session/);
+  assert.match(assisted, /Check order links/);
+  assert.match(assisted, />Done</);
   assert.match(assisted, /Accept evidence/);
   assert.match(assisted, /Keep LAC record/);
   assert.match(assisted, /Confirm LAC status as Disposed/);
-  assert.match(assisted, /window\.confirm\("Confirm LAC status as Disposed\?/);
+  assert.match(assisted, /window\.confirm\("Update the office case status to Disposed\?/);
 });

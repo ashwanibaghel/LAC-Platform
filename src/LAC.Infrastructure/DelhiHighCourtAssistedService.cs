@@ -144,7 +144,8 @@ public sealed class DelhiHighCourtAssistedService(
         await RequireOperatorAsync(userId, ct);
         return await db.CourtExternalCaseStatusObservations.AsNoTracking()
             .Include(x => x.CourtCase)
-            .Where(x => x.Status == DhcAssistedEvidenceStatus.NeedsReview)
+            .Where(x => x.Status == DhcAssistedEvidenceStatus.NeedsReview &&
+                x.CourtCase.RecordStatus == RecordStatus.Active && x.CourtCase.CourtName == "Delhi High Court")
             .OrderByDescending(x => x.ObservedAt).Take(200).ToListAsync(ct);
     }
 
@@ -230,7 +231,8 @@ public sealed class DelhiHighCourtAssistedService(
         if (!await authorization.CanEditCourtCaseAsync(observed.CourtCaseId, userId, ct))
             throw new CourtWorkflowException("Court case edit access is required.", 403);
         if (observed.Status == DhcAssistedEvidenceStatus.Rejected ||
-            observed.ReviewReason is "IdentityMismatch" or "MultipleExactRows" or "DateConflict" ||
+            observed.ReviewReason is "IdentityMismatch" or "MultipleExactRows" or "AmbiguousOfficialRows" or "DateConflict" or
+                "LocalIdentityConflict" or "OfficialStatusUnclear" ||
             CourtImportService.Identity(observed.CourtCase.CourtName, observed.CourtCase.CaseNumber) !=
                 observed.NormalizedCaseIdentity ||
             !ContainsRequestedIdentity(observed.RawCaseNumber, observed.NormalizedCaseIdentity))
@@ -303,6 +305,8 @@ public sealed class DelhiHighCourtAssistedService(
         var rows = DelhiHighCourtAssistedForms.ParseStatusRows(response);
         var exact = rows.Where(x => ContainsRequestedIdentity(x.RawCaseNumber, requested)).ToList();
         var now = clock.GetUtcNow();
+        var autoDispose = false;
+        Guid? autoEvidenceId = null;
         if (exact.Count == 0)
         {
             item.Status = rows.Count == 0 ? DhcAssistedItemStatus.NotFound : DhcAssistedItemStatus.NeedsReview;
@@ -345,13 +349,25 @@ public sealed class DelhiHighCourtAssistedService(
                     (unresolvedConflict || officialDates.Any(x => x != row.ListingDate));
                 var statusDifference = !string.IsNullOrWhiteSpace(row.RawStatus) &&
                     !string.Equals(row.RawStatus.Trim(), courtCase.CurrentStatus?.Trim(), StringComparison.OrdinalIgnoreCase);
-                var review = conflict || statusDifference;
+                var unknownStatus = !string.Equals(row.RawStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(row.RawStatus?.Trim(), "Disposed", StringComparison.OrdinalIgnoreCase);
+                var ambiguousResult = rows.Count != 1;
+                var localNumbers = await db.CourtCases.AsNoTracking()
+                    .Where(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court")
+                    .Select(x => x.CaseNumber).ToListAsync(ct);
+                var uniqueLocalIdentity = localNumbers.Count(number =>
+                    CourtImportService.Identity("Delhi High Court", number) == requested) == 1;
+                autoDispose = workflow != null && !ambiguousResult && uniqueLocalIdentity && !conflict && statusDifference &&
+                    string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(row.RawStatus?.Trim(), "Disposed", StringComparison.OrdinalIgnoreCase) &&
+                    await authorization.CanEditCourtCaseAsync(courtCase.Id, run.StartedByUserId, ct);
+                var review = conflict || ambiguousResult || !uniqueLocalIdentity || unknownStatus || statusDifference && !autoDispose;
                 var previousOperationalDate = row.ListingDate >= today
                     ? await CourtOperationalNdohQuery.Resolve(db.CourtCases.AsNoTracking()
                         .Where(x => x.Id == courtCase.Id), db, today)
                         .Select(x => x.OperationalNdoh).SingleAsync(ct)
                     : null;
-                db.CourtExternalCaseStatusObservations.Add(new CourtExternalCaseStatusObservation
+                var evidence = new CourtExternalCaseStatusObservation
                 {
                     CourtCaseId = courtCase.Id, RunItemId = item.Id, ObservedAt = now,
                     NormalizedCaseIdentity = requested, RawCaseNumber = row.RawCaseNumber,
@@ -360,16 +376,26 @@ public sealed class DelhiHighCourtAssistedService(
                     RawCourtNumber = row.RawCourtNumber, SourceUrl = DelhiHighCourtAssistedForms.StatusUrl,
                     RawEvidenceText = row.RawEvidenceText, EvidenceSha256 = row.EvidenceSha256,
                     Status = review ? DhcAssistedEvidenceStatus.NeedsReview : DhcAssistedEvidenceStatus.Accepted,
-                    ReviewReason = conflict ? "DateConflict" : statusDifference ? "StatusDifference" : null
-                });
+                    ReviewReason = autoDispose ? "AutoStatusApplied" : conflict ? "DateConflict" :
+                        ambiguousResult ? "AmbiguousOfficialRows" : !uniqueLocalIdentity ? "LocalIdentityConflict" :
+                        unknownStatus ? "OfficialStatusUnclear" :
+                        statusDifference ? "StatusDifference" : null
+                };
+                db.CourtExternalCaseStatusObservations.Add(evidence);
+                if (autoDispose) autoEvidenceId = evidence.Id;
                 if (review)
                 {
-                    item.FailureCode = conflict ? "DateConflict" : "StatusDifference";
+                    item.FailureCode = conflict ? "DateConflict" : ambiguousResult ? "AmbiguousOfficialRows" :
+                        !uniqueLocalIdentity ? "LocalIdentityConflict" :
+                        unknownStatus ? "OfficialStatusUnclear" : "StatusDifference";
                     item.FailureMessage = conflict ? "Current official listing dates disagree; officer review required." :
+                        ambiguousResult ? "Official search returned more than one row; review required." :
+                        !uniqueLocalIdentity ? "More than one office case has this number; review required." :
+                        unknownStatus ? "Official case status could not be understood safely." :
                         "Official case status differs from the LAC record; officer review required.";
                     run.NeedsReviewCases++;
                 }
-                else if (row.ListingDate >= today && row.ListingDate != previousOperationalDate)
+                else if (autoDispose || row.ListingDate >= today && row.ListingDate != previousOperationalDate)
                     run.UpdatedCases++;
                 else run.NoChangeCases++;
             }
@@ -383,7 +409,41 @@ public sealed class DelhiHighCourtAssistedService(
             run.CompletedCases++;
         }
         run.LastActivityAt = now;
-        await db.SaveChangesAsync(ct);
+        if (autoDispose && autoEvidenceId.HasValue && workflow != null)
+        {
+            await using var transaction = db.Database.IsRelational()
+                ? await db.Database.BeginTransactionAsync(ct) : null;
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                await workflow.UpdateMetadataWithAuditReasonAsync(courtCase.Id,
+                    new UpdateCourtCaseMetadataCommand(courtCase.CaseNumber, courtCase.CourtName,
+                        courtCase.CaseTitle, courtCase.CaseType, courtCase.FiledDate, "Disposed",
+                        courtCase.DisposedDate, courtCase.Remarks, courtCase.Revision),
+                    $"Exact DHC case-status result; assisted run {run.Id}; evidence {autoEvidenceId.Value}",
+                    run.StartedByUserId, ct);
+                // The workflow clears its DbContext tracker while updating metadata.
+                // Reattach queue state so the coordinator can continue the same run.
+                db.Entry(run).State = EntityState.Unchanged;
+                foreach (var queued in run.Items) db.Entry(queued).State = EntityState.Unchanged;
+                db.CourtExternalAssistedDecisions.Add(new CourtExternalAssistedDecision
+                {
+                    ObservationId = autoEvidenceId.Value,
+                    FromStatus = DhcAssistedEvidenceStatus.Accepted,
+                    ToStatus = DhcAssistedEvidenceStatus.Accepted,
+                    ActorUserId = run.StartedByUserId, DecidedAt = clock.GetUtcNow(),
+                    Reason = "Exact official Delhi High Court Pending to Disposed status applied automatically."
+                });
+                await db.SaveChangesAsync(ct);
+                if (transaction != null) await transaction.CommitAsync(ct);
+            }
+            catch
+            {
+                if (transaction != null) await transaction.RollbackAsync(ct);
+                throw;
+            }
+        }
+        else await db.SaveChangesAsync(ct);
     }
 
     public async Task ProcessOrdersAsync(DhcAssistedSyncRun run, DhcAssistedSyncItem item,

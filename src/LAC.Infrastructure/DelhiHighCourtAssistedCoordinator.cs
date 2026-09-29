@@ -116,6 +116,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 await session.LoadFormAsync(orders, ct);
                 run.Status = DhcAssistedRunStatus.WaitingForCaptcha;
                 run.CompletedAt = null;
+                run.FailureMessage = null;
                 run.CaptchaChallenges++;
                 run.LastActivityAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
@@ -259,6 +260,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             active!.OrdersChallenge = true;
             run.Phase = DhcAssistedPhase.OrderLookup;
             run.Status = DhcAssistedRunStatus.WaitingForCaptcha;
+            run.FailureMessage = null;
             run.CaptchaChallenges++;
             run.LastActivityAt = clock.GetUtcNow();
             await db.SaveChangesAsync(ct);
@@ -454,6 +456,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 try
                 {
                     run.Status = DhcAssistedRunStatus.ReadyForOrders;
+                    run.FailureMessage = null;
                     run.LastActivityAt = clock.GetUtcNow();
                     await db.SaveChangesAsync(ct);
                     Touch(current);

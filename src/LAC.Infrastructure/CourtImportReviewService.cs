@@ -15,7 +15,8 @@ public sealed record CourtImportDecisionRequest(
     string? ReviewerNotes = null);
 
 public sealed record CourtImportReviewSummary(
-    int Unresolved, int Ready, int Committed, int Skipped, int Failed, int SafeBulkCandidates);
+    int Unresolved, int Ready, int Committed, int Skipped, int Failed, int SafeBulkCandidates,
+    int RetryableSafe);
 
 public sealed record CourtImportCommitResult(
     CourtImportReviewSummary Summary, int CommittedThisRun, IReadOnlyList<string> Failures);
@@ -26,6 +27,7 @@ public interface ICourtImportReviewService
     Task<CourtImportReviewSummary> DecideAsync(Guid batchId, Guid rowId, CourtImportDecisionRequest request, Guid userId, CancellationToken ct = default);
     Task<CourtImportReviewSummary> ClearDecisionAsync(Guid batchId, Guid rowId, Guid userId, CancellationToken ct = default);
     Task<CourtImportReviewSummary> ApproveSafeAsync(Guid batchId, Guid userId, CancellationToken ct = default);
+    Task<CourtImportCommitResult> AddReadyAsync(Guid batchId, Guid userId, CancellationToken ct = default);
     Task<CourtImportCommitResult> CommitAsync(Guid batchId, Guid userId, CancellationToken ct = default);
 }
 
@@ -76,6 +78,7 @@ public sealed class CourtImportReviewService(
     {
         var rows = await db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == batchId)
             .Select(x => new { x.ResolutionAction, x.CommitStatus, x.RowStatus, x.IdentityKey,
+                x.ReviewerNotes, x.RawCaseNumber, x.ApprovedCaseNumber, x.ApprovedCourtName, x.ApprovedStatus,
                 x.SuggestedStatusClass, x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId }).ToListAsync(ct);
         return new CourtImportReviewSummary(
             rows.Count(x => x.ResolutionAction == null),
@@ -85,7 +88,15 @@ public sealed class CourtImportReviewService(
             rows.Count(x => x.ResolutionAction == CourtImportResolutionAction.Skip),
             rows.Count(x => x.CommitStatus == CourtImportCommitStatus.Failed),
             rows.Count(x => x.ResolutionAction == null && IsSafe(x.RowStatus, x.IdentityKey, x.SuggestedStatusClass,
-                x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId)));
+                x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId)),
+            rows.Count(x => x.CommitStatus == CourtImportCommitStatus.Failed &&
+                x.ResolutionAction == CourtImportResolutionAction.ImportAsNewCase &&
+                x.ReviewerNotes == "Safe deterministic candidate bulk-approved" &&
+                IsSafe(x.RowStatus, x.IdentityKey, x.SuggestedStatusClass,
+                    x.SuggestedCourtName, x.ValidationIssuesJson, x.CandidateCourtCaseId) &&
+                Trim(x.ApprovedCaseNumber) == Trim(x.RawCaseNumber) &&
+                Trim(x.ApprovedCourtName) == Trim(x.SuggestedCourtName) &&
+                x.ApprovedStatus == x.SuggestedStatusClass!.Value.ToString()));
     }
 
     private static bool IsSafe(CourtImportRowStatus status, string? identity,
@@ -265,6 +276,37 @@ public sealed class CourtImportReviewService(
                          x.ResolutionAction == CourtImportResolutionAction.LinkToExistingCase) &&
                         x.CommitStatus != CourtImportCommitStatus.Committed)
             .OrderBy(x => x.SourceRowNumber).Select(x => x.Id).ToListAsync(ct);
+        return await CommitRowsAsync(batchId, userId, canCreate, canEdit, rowIds, ct);
+    }
+
+    public async Task<CourtImportCommitResult> AddReadyAsync(Guid batchId, Guid userId, CancellationToken ct = default)
+    {
+        var (_, canCreate, canEdit) = await AuthorizeAsync(userId, ct);
+        if (!canCreate || !canEdit)
+            throw new CourtWorkflowException("Court create and edit permissions are required.", 403);
+        await ApproveSafeAsync(batchId, userId, ct);
+        // This single officer action may write only the deterministic rows promoted by
+        // the safe rule. Explicitly reviewed ambiguous rows remain a separate decision.
+        var safeRows = await db.CourtImportRows.AsNoTracking()
+            .Where(x => x.BatchId == batchId && x.RowStatus == CourtImportRowStatus.NewCandidate &&
+                x.ReviewerNotes == "Safe deterministic candidate bulk-approved" &&
+                x.ResolutionAction == CourtImportResolutionAction.ImportAsNewCase &&
+                x.CommitStatus != CourtImportCommitStatus.Committed && x.IdentityKey != null &&
+                x.CandidateCourtCaseId == null && x.ValidationIssuesJson == "[]" &&
+                (x.SuggestedStatusClass == CourtImportStatusClass.Pending ||
+                 x.SuggestedStatusClass == CourtImportStatusClass.Disposed))
+            .OrderBy(x => x.SourceRowNumber).ToListAsync(ct);
+        var rowIds = safeRows.Where(x => CourtImportService.IsApprovedCanonicalCourtName(x.SuggestedCourtName) &&
+            Trim(x.ApprovedCourtName) == Trim(x.SuggestedCourtName) &&
+            Trim(x.ApprovedCaseNumber) == Trim(x.RawCaseNumber) &&
+            x.ApprovedStatus == x.SuggestedStatusClass!.Value.ToString())
+            .Select(x => x.Id).ToList();
+        return await CommitRowsAsync(batchId, userId, canCreate, canEdit, rowIds, ct);
+    }
+
+    private async Task<CourtImportCommitResult> CommitRowsAsync(Guid batchId, Guid userId,
+        bool canCreate, bool canEdit, IReadOnlyList<Guid> rowIds, CancellationToken ct)
+    {
         var committed = 0;
         var failures = new List<string>();
         foreach (var rowId in rowIds)

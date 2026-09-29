@@ -8,21 +8,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const preview = readFileSync(path.join(here, "../src/court/CourtImportPreview.tsx"), "utf8");
 const review = readFileSync(path.join(here, "../src/court/CourtImportRowReview.tsx"), "utf8");
 
-test("upload screen explains staging and never uploads without a chosen file", () => {
-  assert.match(preview, /Nothing is added to Court Matters until you approve and commit/);
+test("upload screen explains Excel check and never uploads without a chosen file", () => {
+  assert.match(preview, /We will check it before anything is added/);
   assert.match(preview, /accept="\.xlsx"/);
   assert.match(preview, /disabled=\{!file \|\| uploading\}/);
   assert.match(preview, /court-import-guide/);
   assert.match(preview, /form\.append\("file", file\)/);
 });
 
-test("review screen leads with the safe next action and keeps commit separate", () => {
+test("review screen leads with one safe add action while separate reviewed decisions remain", () => {
   assert.match(preview, /court-import-next-step/);
-  assert.match(preview, /Approve safe rows/);
-  assert.match(preview, /Commit approved/);
+  assert.match(preview, /Add \{safeActionCount\} Court Matters/);
   assert.match(preview, /summary\.safeBulkCandidates/);
   assert.match(preview, /summary\.ready/);
-  assert.match(preview, /\/approve-safe/);
+  assert.match(preview, /\/add-ready/);
   assert.match(preview, /\/commit/);
 });
 
@@ -34,6 +33,13 @@ test("classification tabs and condensed rows preserve every review action", () =
   assert.match(preview, /Edit decision/);
   assert.match(preview, /Clear decision/);
   assert.match(preview, /court-import-review-dialog/);
+});
+
+test("review queue defaults to pending work and keeps committed rows in history", () => {
+  assert.match(preview, /useState<"pending" \| "committed" \| "all">\("pending"\)/);
+  assert.match(preview, /query\.set\("workState", workState\)/);
+  assert.match(preview, /Imported history/);
+  assert.match(preview, /Committed rows are hidden from this working queue/);
 });
 
 test("visible item numbering starts at one while retaining the Excel source row", () => {
