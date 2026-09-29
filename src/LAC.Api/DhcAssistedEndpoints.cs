@@ -21,11 +21,12 @@ public static class DhcAssistedEndpoints
             catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
         });
         group.MapGet("/dhc-assisted/active", async (DelhiHighCourtAssistedCoordinator coordinator,
+            DelhiHighCourtAssistedService service,
             ICourtAuthorizationService auth, ICurrentUserContext user, CancellationToken ct) =>
         {
             if (user.UserId is not { } id) return Results.Unauthorized();
             if (!await auth.CanViewCourtReferencesAsync(id, ct)) return Results.Forbid();
-            return Results.Ok(new { runId = coordinator.ActiveRunId });
+            return Results.Ok(new { runId = coordinator.ActiveRunId ?? await service.RecoverableRunIdAsync(id, ct) });
         });
         group.MapPost("/dhc-assisted/runs", async (DhcAssistedStartRequest request,
             DelhiHighCourtAssistedCoordinator coordinator, ICurrentUserContext user, CancellationToken ct) =>
@@ -56,7 +57,8 @@ public static class DhcAssistedEndpoints
                     IsOwner = run.StartedByUserId == id,
                     Items = result.Items.Select(x => new
                     {
-                        x.Id, x.CourtCaseId, CaseNumber = x.CourtCase.CaseNumber,
+                        x.Id, x.CourtCaseId, x.NormalizedCaseIdentity,
+                        CaseNumber = x.CourtCase.CaseNumber,
                         x.QueueOrder, x.Reason, Status = x.Status.ToString(),
                         x.AttemptCount, x.StartedAt, x.CompletedAt, x.FailureCode, x.FailureMessage
                     })

@@ -49,6 +49,12 @@ test("status batch completes before the separately chosen order phase", () => {
   assert.match(page, /Finish session/);
 });
 
+test("completed status interruption reopens at the order-or-finish choice", () => {
+  assert.match(page, /Return to order\/finish choice/);
+  assert.match(page, /run\.items\.every\(item => \["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"\]/);
+  assert.match(page, /Could not reopen this verification run/);
+});
+
 test("canonical status confirmation is distinct from accepting external evidence", () => {
   assert.match(page, /Accept evidence/);
   assert.match(page, /Confirm LAC status as Disposed/);

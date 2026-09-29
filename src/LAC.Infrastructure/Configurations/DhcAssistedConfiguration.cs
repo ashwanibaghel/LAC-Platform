@@ -19,6 +19,7 @@ public static class DhcAssistedConfiguration
         b.Entity<DhcAssistedSyncItem>(e =>
         {
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.NormalizedCaseIdentity).HasMaxLength(512);
             e.Property(x => x.Reason).HasMaxLength(80);
             e.Property(x => x.FailureCode).HasMaxLength(80);
             e.Property(x => x.FailureMessage).HasMaxLength(500);

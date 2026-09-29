@@ -161,6 +161,17 @@ export const DhcAssistedPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
+  const resume = async () => {
+    if (!runId) return;
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch(`${base}/runs/${runId}/resume`, { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("Could not reopen this verification run.");
+      await load();
+    } catch (error) { setMessage(String(error)); }
+    finally { setBusy(false); }
+  };
+
   return <main className="court-page" style={{ padding: "24px", maxWidth: 1050, margin: "0 auto", boxSizing: "border-box", minWidth: 0 }}>
     <p><Link to="/court-cases">← Court queue</Link></p>
     <h1>Delhi High Court assisted verification</h1>
@@ -218,8 +229,12 @@ export const DhcAssistedPage: React.FC = () => {
           <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button>
           <small style={{ display: "block", marginTop: 12 }}>This verification code is entered manually by you. LAC Platform does not solve or bypass it.</small>
         </section>}
-      {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders"].includes(run.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
-      {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <button onClick={() => void fetch(`${base}/runs/${run.id}/resume`, { method: "POST", credentials: "include" }).then(() => load())}>Resume with new code</button>}
+      {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders", "Interrupted"].includes(run.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
+      {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <button disabled={busy} onClick={() => void resume()}>
+        {run.phase === "StatusLookup" && run.items.length === run.totalCases &&
+          run.items.every(item => ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status))
+          ? "Return to order/finish choice" : "Resume with new code"}
+      </button>}
       <h3>Cases</h3>
       <div style={{ maxWidth: "100%", overflowX: "auto" }}><table><thead><tr><th>Case</th><th>Reason</th><th>Result</th></tr></thead><tbody>
         {run.items.map(item => <tr key={item.id}><td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td><td>{item.reason}</td><td>{item.status === "StatusCaptured" ? "Case status checked" : item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</td></tr>)}

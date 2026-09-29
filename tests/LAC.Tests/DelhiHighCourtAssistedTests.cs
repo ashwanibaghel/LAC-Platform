@@ -33,19 +33,28 @@ public sealed class DelhiHighCourtAssistedTests
         <tbody><tr><td>1</td><td>W.P.(C) 7003/2026</td><td><a href='/app/showlogo/order.pdf'>25.09.2026</a></td><td>Parties</td><td></td><td>26.09.2026</td><td>Order</td></tr></tbody></table>
         """;
 
-    private sealed class FakeHandler : HttpMessageHandler
+    private sealed class FakeHandler(bool imageChallenge = false) : HttpMessageHandler
     {
         public List<string> Requests { get; } = [];
         public string? SubmittedHumanAnswer { get; private set; }
         public string? SubmittedOrderForm { get; private set; }
         public int StatusLookups;
+        public int ImageRequests;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
             Requests.Add($"{request.Method} {path}");
             string body;
+            if (request.Method == HttpMethod.Get && path.EndsWith("captcha-image"))
+            {
+                ImageRequests++;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                { Content = new ByteArrayContent([137, 80, 78, 71])
+                    { Headers = { ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/png") } } };
+            }
             if (request.Method == HttpMethod.Get && path.EndsWith("get-case-type-status") && request.RequestUri.Query == "")
-                body = StatusForm;
+                body = imageChallenge ? StatusForm.Replace("<span id='captcha-code'>TEST7</span>",
+                    "<img id='captcha-image' src='/app/captcha-image'>") : StatusForm;
             else if (request.Method == HttpMethod.Get && path.EndsWith("case-number")) body = OrderForm;
             else if (request.Method == HttpMethod.Post && path.EndsWith("validateCaptcha"))
             {
@@ -267,7 +276,8 @@ public sealed class DelhiHighCourtAssistedTests
         db.CourtProceedings.Add(new CourtProceeding { CourtCaseId = courtCase.Id,
             SourceKind = "LegacyRegisterNDOH", NextDate = new DateOnly(2026, 3, 15) });
         var run = new DhcAssistedSyncRun { StartedByUserId = user.Id, StartedAt = new Clock().GetUtcNow() };
-        var item = new DhcAssistedSyncItem { CourtCaseId = courtCase.Id, QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+        var item = new DhcAssistedSyncItem { CourtCaseId = courtCase.Id,
+            NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026", QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
         run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync();
         var auth = new CourtAuthorizationService(db, null!, null!, null!);
@@ -356,6 +366,7 @@ public sealed class DelhiHighCourtAssistedTests
             new DhcAssistedStartRequest("Selected", [healthy.Id]), default);
         Assert.Single(run.Items);
         Assert.Equal(healthy.Id, run.Items.Single().CourtCaseId);
+        Assert.Equal("delhihighcourt|wpc|7003|2026", run.Items.Single().NormalizedCaseIdentity);
         await Assert.ThrowsAsync<CourtWorkflowException>(() => service.CreateRunAsync(user.Id,
             new DhcAssistedStartRequest("Selected", [otherCourt.Id]), default));
     }
@@ -370,7 +381,8 @@ public sealed class DelhiHighCourtAssistedTests
         { CourtName = "Delhi High Court", CaseNumber = "W.P.(C) 7003/2026", CurrentStatus = "Pending" };
         var run = new DhcAssistedSyncRun { StartedByUserId = user.Id, StartedAt = new Clock().GetUtcNow() };
         var item = new DhcAssistedSyncItem
-        { CourtCaseId = courtCase.Id, QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+        { CourtCaseId = courtCase.Id, NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+            QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
         run.Items.Add(item);
         db.AppUsers.Add(user); db.CourtCases.Add(courtCase); db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync();
@@ -538,7 +550,8 @@ public sealed class DelhiHighCourtAssistedTests
         { CourtName = "Delhi High Court", CaseNumber = "W.P.(C) 7003/2026", CurrentStatus = "Pending" };
         var run = new DhcAssistedSyncRun { StartedByUserId = user.Id, StartedAt = new Clock().GetUtcNow() };
         var item = new DhcAssistedSyncItem
-        { CourtCaseId = courtCase.Id, QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+        { CourtCaseId = courtCase.Id, NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+            QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
         run.Items.Add(item);
         db.AppUsers.Add(user); db.CourtCases.Add(courtCase); db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync();
@@ -581,11 +594,14 @@ public sealed class DelhiHighCourtAssistedTests
         db.CourtCases.Add(courtCase);
         var run = new DhcAssistedSyncRun { StartedByUserId = user.Id, StartedAt = new Clock().GetUtcNow() };
         var first = new DhcAssistedSyncItem
-        { CourtCaseId = courtCase.Id, QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+        { CourtCaseId = courtCase.Id, NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+            QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
         var second = new DhcAssistedSyncItem
-        { CourtCaseId = courtCase.Id, QueueOrder = 1, Status = DhcAssistedItemStatus.CheckingStatus };
+        { CourtCaseId = courtCase.Id, NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+            QueueOrder = 1, Status = DhcAssistedItemStatus.CheckingStatus };
         var third = new DhcAssistedSyncItem
-        { CourtCaseId = courtCase.Id, QueueOrder = 2, Status = DhcAssistedItemStatus.CheckingStatus };
+        { CourtCaseId = courtCase.Id, NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+            QueueOrder = 2, Status = DhcAssistedItemStatus.CheckingStatus };
         run.Items.Add(first); run.Items.Add(second); run.Items.Add(third);
         db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync();
@@ -673,13 +689,15 @@ public sealed class DelhiHighCourtAssistedTests
                 clock);
             var runId = await coordinator.StartAsync(userId,
                 new DhcAssistedStartRequest("Selected", caseIds), default);
-            clock.Advance(TimeSpan.FromMinutes(10));
-            using (var scope = provider.CreateScope())
+            for (var i = 0; i < 3; i++)
             {
-                var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
-                await service.GetRunAsync(runId, userId, default); // passive polling is not activity
+                clock.Advance(TimeSpan.FromMinutes(4));
+                using var scope = provider.CreateScope();
+                await scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>()
+                    .GetRunAsync(runId, userId, default);
+                Assert.Equal("TEST7", (await coordinator.ChallengeAsync(runId, userId, default)).OfficialText);
             }
-            clock.Advance(TimeSpan.FromMinutes(6));
+            clock.Advance(TimeSpan.FromMinutes(4));
             await coordinator.SweepExpiredAsync();
             Assert.Null(coordinator.ActiveRunId);
             Assert.True(sessions[0].IsDisposed);
@@ -698,6 +716,111 @@ public sealed class DelhiHighCourtAssistedTests
     }
 
     [Fact]
+    public async Task ImageChallengeRead_DoesNotExtendIdleLifetime()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var clock = new ManualTime();
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler(imageChallenge: true);
+            var sessions = new List<DelhiHighCourtAssistedSession>();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => { var session = new DelhiHighCourtAssistedSession(config, _ => fake); sessions.Add(session); return session; }, clock);
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.Equal("Image", (await coordinator.ChallengeAsync(runId, userId, default)).Kind);
+            for (var i = 0; i < 3; i++)
+            {
+                clock.Advance(TimeSpan.FromMinutes(4));
+                Assert.Equal("image/png", (await coordinator.ChallengeImageAsync(runId, userId, default)).ContentType);
+            }
+            clock.Advance(TimeSpan.FromMinutes(4));
+            await coordinator.SweepExpiredAsync();
+            Assert.Equal(3, fake.ImageRequests);
+            Assert.Null(coordinator.ActiveRunId);
+            Assert.True(sessions[0].IsDisposed);
+        }
+    }
+
+    [Theory]
+    [InlineData("number")]
+    [InlineData("court")]
+    [InlineData("status")]
+    [InlineData("record")]
+    public async Task ChangedQueuedCase_NeverIssuesStatusLookup(string change)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                var item = await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId);
+                Assert.Equal("delhihighcourt|wpc|7003|2026", item.NormalizedCaseIdentity);
+                var courtCase = await db.CourtCases.SingleAsync(x => x.Id == caseIds[0]);
+                switch (change)
+                {
+                    case "number": courtCase.CaseNumber = "W.P.(C) 7004/2026"; break;
+                    case "court": courtCase.CourtName = "Supreme Court"; break;
+                    case "status": courtCase.CurrentStatus = "Disposed"; break;
+                    case "record": courtCase.RecordStatus = RecordStatus.Inactive; break;
+                }
+                await db.SaveChangesAsync();
+            }
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                var item = await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId);
+                Assert.Equal("CaseChangedSinceQueue", item.FailureCode);
+                Assert.Equal(DhcAssistedItemStatus.NeedsReview, item.Status);
+                Assert.Contains("changed after", item.FailureMessage);
+                Assert.Empty(db.CourtExternalCaseStatusObservations);
+            }
+            Assert.Equal(0, fake.StatusLookups);
+            await coordinator.FinishSessionAsync(runId, userId, default);
+        }
+    }
+
+    [Fact]
+    public async Task UnchangedQueuedCase_UsesSnapshotForExactStatusLookup()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            Assert.Equal(1, fake.StatusLookups);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var item = await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId);
+            var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
+            Assert.Equal(item.NormalizedCaseIdentity, observation.NormalizedCaseIdentity);
+            await coordinator.FinishSessionAsync(runId, userId, default);
+        }
+    }
+
+    [Fact]
     public async Task HardLifetime_ExpiresDespiteIntermittentOwnerActivity()
     {
         var (provider, userId, caseIds) = await HarnessAsync(1);
@@ -705,16 +828,17 @@ public sealed class DelhiHighCourtAssistedTests
         {
             var clock = new ManualTime();
             var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
             var coordinator = new DelhiHighCourtAssistedCoordinator(
                 provider.GetRequiredService<IServiceScopeFactory>(), config,
                 new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
-                () => new DelhiHighCourtAssistedSession(config, _ => new FakeHandler()), clock);
+                () => new DelhiHighCourtAssistedSession(config, _ => fake), clock);
             var runId = await coordinator.StartAsync(userId,
                 new DhcAssistedStartRequest("Selected", caseIds), default);
             for (var i = 0; i < 4; i++)
             {
                 clock.Advance(TimeSpan.FromMinutes(14));
-                await coordinator.ChallengeAsync(runId, userId, default);
+                await coordinator.RefreshAsync(runId, userId, default);
             }
             clock.Advance(TimeSpan.FromMinutes(5));
             await coordinator.SweepExpiredAsync();
@@ -766,10 +890,11 @@ public sealed class DelhiHighCourtAssistedTests
         {
             var clock = new ManualTime();
             var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
             var coordinator = new DelhiHighCourtAssistedCoordinator(
                 provider.GetRequiredService<IServiceScopeFactory>(), config,
                 new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
-                () => new DelhiHighCourtAssistedSession(config, _ => new FakeHandler()), clock);
+                () => new DelhiHighCourtAssistedSession(config, _ => fake), clock);
             var runId = await coordinator.StartAsync(userId,
                 new DhcAssistedStartRequest("Selected", caseIds), default);
             Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
@@ -783,6 +908,132 @@ public sealed class DelhiHighCourtAssistedTests
             Assert.Single(await db.CourtExternalCaseStatusObservations.ToListAsync());
             Assert.Equal(DhcAssistedItemStatus.StatusCaptured,
                 (await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId)).Status);
+            var statusRequests = fake.StatusLookups;
+            var allRequests = fake.Requests.Count;
+            await coordinator.ResumeAsync(runId, userId, default);
+            Assert.Null(coordinator.ActiveRunId);
+            Assert.Equal(allRequests, fake.Requests.Count); // No new status form or CAPTCHA request.
+            db.ChangeTracker.Clear();
+            Assert.Equal(DhcAssistedRunStatus.ReadyForOrders,
+                (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).Status);
+            Assert.Single(await db.CourtExternalCaseStatusObservations.ToListAsync());
+            Assert.Equal(statusRequests, fake.StatusLookups);
+            await coordinator.FinishSessionAsync(runId, userId, default);
+        }
+    }
+
+    [Fact]
+    public async Task OrderPhase_ChangedIdentityNeverIssuesOrderLookup()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CaseNumber = "W.P.(C) 7004/2026";
+                await db.SaveChangesAsync();
+            }
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.Completed);
+            using var verifyScope = provider.CreateScope();
+            var verify = verifyScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal("CaseChangedSinceQueue",
+                (await verify.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId)).FailureCode);
+            Assert.Single(await verify.CourtExternalCaseStatusObservations.ToListAsync());
+            Assert.Empty(verify.CourtExternalOrderObservations);
+            Assert.Null(fake.SubmittedOrderForm);
+        }
+    }
+
+    [Fact]
+    public async Task ApplicationInterruption_AfterCompletedStatus_RestoresDecisionWithoutNewChallenge()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
+            Guid runId;
+            using (var setup = provider.CreateScope())
+            {
+                var service = setup.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+                var db = setup.ServiceProvider.GetRequiredService<LacDbContext>();
+                var run = await service.CreateRunAsync(userId,
+                    new DhcAssistedStartRequest("Selected", caseIds), default);
+                var item = Assert.Single(run.Items);
+                await service.ProcessStatusAsync(run, item, StatusResult, default);
+                run.Status = DhcAssistedRunStatus.ReadyForOrders; // Durable state at app shutdown.
+                await db.SaveChangesAsync();
+                runId = run.Id;
+            }
+            var restarted = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            await restarted.ResumeAsync(runId, userId, default);
+            Assert.Null(restarted.ActiveRunId);
+            Assert.Empty(fake.Requests);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                Assert.Equal(DhcAssistedRunStatus.ReadyForOrders,
+                    (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).Status);
+                Assert.Single(await db.CourtExternalCaseStatusObservations.ToListAsync());
+                Assert.Equal(runId, await scope.ServiceProvider
+                    .GetRequiredService<DelhiHighCourtAssistedService>()
+                    .RecoverableRunIdAsync(userId, default));
+            }
+            await restarted.StartOrdersAsync(runId, userId, default);
+            Assert.Equal("Order search", (await restarted.ChallengeAsync(runId, userId, default)).Operation);
+            await restarted.CancelAsync(runId, userId, default);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "Case status")]
+    [InlineData(true, "Order search")]
+    public async Task InterruptedIncompletePhase_RequiresFreshCorrectChallenge(bool orders, string operation)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new FakeHandler();
+            Guid runId;
+            using (var setup = provider.CreateScope())
+            {
+                var service = setup.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+                var db = setup.ServiceProvider.GetRequiredService<LacDbContext>();
+                var run = await service.CreateRunAsync(userId,
+                    new DhcAssistedStartRequest("Selected", caseIds), default);
+                if (orders)
+                {
+                    await service.ProcessStatusAsync(run, Assert.Single(run.Items), StatusResult, default);
+                    run.Phase = DhcAssistedPhase.OrderLookup;
+                }
+                run.Status = DhcAssistedRunStatus.Interrupted;
+                await db.SaveChangesAsync();
+                runId = run.Id;
+            }
+            var restarted = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            await restarted.ResumeAsync(runId, userId, default);
+            Assert.Equal(operation, (await restarted.ChallengeAsync(runId, userId, default)).Operation);
+            await restarted.CancelAsync(runId, userId, default);
         }
     }
 
@@ -797,7 +1048,8 @@ public sealed class DelhiHighCourtAssistedTests
             var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
             var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
             var item = new DhcAssistedSyncItem
-            { CourtCaseId = caseIds[0], QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+            { CourtCaseId = caseIds[0], NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+                QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
             run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
             await db.SaveChangesAsync();
             await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", "[Disposed]"), default);
@@ -833,7 +1085,8 @@ public sealed class DelhiHighCourtAssistedTests
             var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
             var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
             var item = new DhcAssistedSyncItem
-            { CourtCaseId = caseIds[0], QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+            { CourtCaseId = caseIds[0], NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+                QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
             run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
             await db.SaveChangesAsync();
             await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", $"[{rawStatus}]"), default);

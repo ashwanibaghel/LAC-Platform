@@ -45,6 +45,7 @@ public sealed class DhcAssistedSyncItem
     public DhcAssistedSyncRun Run { get; set; } = null!;
     public Guid CourtCaseId { get; set; }
     public CourtCase CourtCase { get; set; } = null!;
+    public string NormalizedCaseIdentity { get; set; } = "";
     public int QueueOrder { get; set; }
     public string Reason { get; set; } = "";
     public DhcAssistedItemStatus Status { get; set; } = DhcAssistedItemStatus.Queued;

@@ -81,10 +81,19 @@ public sealed class DelhiHighCourtAssistedService(
             TotalCases = queue.Count, CaptchaChallenges = 1
         };
         foreach (var (item, index) in queue.Select((x, i) => (x, i)))
+        {
+            var courtCase = await db.CourtCases.AsNoTracking().SingleAsync(x => x.Id == item.CourtCaseId, ct);
+            var identity = CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber);
+            if (courtCase.RecordStatus != RecordStatus.Active || courtCase.CourtName != "Delhi High Court" ||
+                !string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) ||
+                identity == null || identity.Length > 512)
+                throw new CourtWorkflowException("Selected cases must still be active, pending, exact Delhi High Court identities.", 409);
             run.Items.Add(new DhcAssistedSyncItem
             {
-                CourtCaseId = item.CourtCaseId, QueueOrder = index, Reason = item.Reason
+                CourtCaseId = item.CourtCaseId, QueueOrder = index, Reason = item.Reason,
+                NormalizedCaseIdentity = identity
             });
+        }
         db.DhcAssistedSyncRuns.Add(run);
         await db.SaveChangesAsync(ct);
         return run;
@@ -98,6 +107,16 @@ public sealed class DelhiHighCourtAssistedService(
             .Include(x => x.StartedByUser).Include(x => x.Items).ThenInclude(x => x.CourtCase)
             .SingleOrDefaultAsync(x => x.Id == runId, ct) ?? throw new CourtWorkflowException("Assisted run not found.", 404);
         return new(run, run.Items.OrderBy(x => x.QueueOrder).ToList(), run.StartedByUser.DisplayName);
+    }
+
+    public async Task<Guid?> RecoverableRunIdAsync(Guid userId, CancellationToken ct)
+    {
+        return await db.DhcAssistedSyncRuns.AsNoTracking()
+            .Where(x => x.StartedByUserId == userId &&
+                (x.Status == DhcAssistedRunStatus.Interrupted ||
+                 x.Status == DhcAssistedRunStatus.Failed ||
+                 x.Status == DhcAssistedRunStatus.ReadyForOrders))
+            .OrderByDescending(x => x.StartedAt).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(ct);
     }
 
     public async Task<IReadOnlyList<CourtExternalCaseStatusObservation>> StatusObservationsAsync(
@@ -255,11 +274,32 @@ public sealed class DelhiHighCourtAssistedService(
 
     // No canonical CourtCase, CourtProceeding, ScheduledEvent or imported URL
     // is ever modified here. An accepted observation changes only the resolver.
+    public async Task<bool> ValidateQueuedCaseAsync(DhcAssistedSyncRun run, DhcAssistedSyncItem item,
+        bool statusPhase, CancellationToken ct)
+    {
+        var courtCase = await db.CourtCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.CourtCaseId, ct);
+        if (courtCase != null && courtCase.RecordStatus == RecordStatus.Active &&
+            courtCase.CourtName == "Delhi High Court" &&
+            string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrEmpty(item.NormalizedCaseIdentity) &&
+            CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber) == item.NormalizedCaseIdentity)
+            return true;
+        item.Status = DhcAssistedItemStatus.NeedsReview;
+        item.FailureCode = "CaseChangedSinceQueue";
+        item.FailureMessage = "Case identity or eligibility changed after this verification run was created.";
+        item.CompletedAt = clock.GetUtcNow();
+        run.NeedsReviewCases++;
+        if (statusPhase) run.CompletedCases++;
+        await db.SaveChangesAsync(ct);
+        return false;
+    }
+
     public async Task ProcessStatusAsync(DhcAssistedSyncRun run, DhcAssistedSyncItem item,
         string response, CancellationToken ct)
     {
+        if (!await ValidateQueuedCaseAsync(run, item, true, ct)) return;
         var courtCase = await db.CourtCases.SingleAsync(x => x.Id == item.CourtCaseId, ct);
-        var requested = CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber)!;
+        var requested = item.NormalizedCaseIdentity;
         var rows = DelhiHighCourtAssistedForms.ParseStatusRows(response);
         var exact = rows.Where(x => ContainsRequestedIdentity(x.RawCaseNumber, requested)).ToList();
         var now = clock.GetUtcNow();
@@ -349,8 +389,9 @@ public sealed class DelhiHighCourtAssistedService(
     public async Task ProcessOrdersAsync(DhcAssistedSyncRun run, DhcAssistedSyncItem item,
         string response, CancellationToken ct)
     {
+        if (!await ValidateQueuedCaseAsync(run, item, false, ct)) return;
         var courtCase = await db.CourtCases.AsNoTracking().SingleAsync(x => x.Id == item.CourtCaseId, ct);
-        var requested = CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber)!;
+        var requested = item.NormalizedCaseIdentity;
         var rows = DelhiHighCourtAssistedForms.ParseOrderRows(response);
         var exactRows = rows.Where(x => ContainsRequestedIdentity(x.RawCaseNumber, requested)).ToList();
         if (rows.Count > 0 && exactRows.Count == 0)
