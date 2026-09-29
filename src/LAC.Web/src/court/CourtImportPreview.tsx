@@ -200,12 +200,13 @@ export function CourtImportPreview() {
         aria-current={status === key ? "page" : undefined} onClick={() => { setStatus(key); setPage(1); }}>{label}</button>)}
     </nav>
     <div className="court-table-wrap court-import-table-wrap"><table className="court-import-review-table"><thead><tr>
-      <th>Excel row</th><th>Case from workbook</th><th>Key details</th><th>Classification</th><th>Decision</th>
-    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">No rows in this classification.</td></tr> : rows.map(row => {
+      <th>No.</th><th>Case from workbook</th><th>Key details</th><th>Classification</th><th>Decision</th>
+    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">No rows in this classification.</td></tr> : rows.map((row, index) => {
       let issues: string[] = [];
       try { issues = JSON.parse(row.validationIssuesJson) as string[]; } catch { issues = ["Issues could not be displayed."]; }
       return <tr key={row.id}>
-        <td className="court-import-row-number"><strong>#{row.sourceRowNumber}</strong><small>Sr. {row.sourceSerialNumberRaw || "—"}</small></td>
+        <td className="court-import-row-number"><strong>#{(page - 1) * pageSize + index + 1}</strong>
+          <small>Excel row {row.sourceRowNumber}</small>{row.sourceSerialNumberRaw && <small>Sr. {row.sourceSerialNumberRaw}</small>}</td>
         <td className="court-import-case"><strong>{row.rawCaseNumber || "Case number missing"}</strong>
           <span title={row.rawCaseTitle || ""}>{row.rawCaseTitle || "No party title supplied"}</span></td>
         <td className="court-import-key-details"><strong>{row.suggestedCourtName || row.rawCourt || "Court not identified"}</strong>

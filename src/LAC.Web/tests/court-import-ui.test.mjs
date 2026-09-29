@@ -36,6 +36,13 @@ test("classification tabs and condensed rows preserve every review action", () =
   assert.match(preview, /court-import-review-dialog/);
 });
 
+test("visible item numbering starts at one while retaining the Excel source row", () => {
+  assert.match(preview, /rows\.map\(\(row, index\) =>/);
+  assert.match(preview, /#\{\(page - 1\) \* pageSize \+ index \+ 1\}/);
+  assert.match(preview, /Excel row \{row\.sourceRowNumber\}/);
+  assert.match(preview, /Sr\. \{row\.sourceSerialNumberRaw\}/);
+});
+
 test("decision panel requires explicit choice for risky rows and retains safeguards", () => {
   assert.match(review, /row\.rowStatus === "NewCandidate" \? "ImportAsNewCase" : ""/);
   assert.match(review, /if \(!action\) \{ setError/);
