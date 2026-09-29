@@ -180,7 +180,8 @@ public static class DhcAssistedEndpoints
                 var rows = await service.ReviewsAsync(id, ct);
                 return Results.Ok(rows.Select(x => new
                 {
-                    x.Id, x.CourtCaseId, x.ObservedAt, x.RawCaseNumber, x.RawStatus,
+                    x.Id, x.CourtCaseId, CaseNumber = x.CourtCase.CaseNumber,
+                    x.ObservedAt, x.RawCaseNumber, x.RawStatus,
                     x.ListingDate, x.RawCourtNumber, x.RawEvidenceText, x.ReviewReason,
                     CanonicalStatus = x.CourtCase.CurrentStatus
                 }));

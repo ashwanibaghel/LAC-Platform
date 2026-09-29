@@ -64,6 +64,32 @@ test("completed status interruption explains the separate order check", () => {
   assert.match(page, /Could not reopen this verification run/);
 });
 
+test("interrupted order phase leads with its own heading and separate progress", () => {
+  assert.match(page, /run\.phase === "OrderLookup" && \["Interrupted", "Failed"\]\.includes\(run\.status\)[\s\S]*?"Order-link check interrupted"/);
+  assert.match(page, /Case-status check is complete\. Order-link checking has not finished\./);
+  const progress = page.match(/\{run\.phase === "OrderLookup" \? <div className="court-assisted-phase-progress">([\s\S]*?)<\/div> :/);
+  assert.ok(progress, "order phase must have a dedicated progress layout");
+  assert.match(progress[1], /Case-status check progress[\s\S]*?run\.completedCases\} of \{run\.totalCases\} complete/);
+  assert.match(progress[1], /Order-link check progress[\s\S]*?orderCount\} order searches completed[\s\S]*?run\.status/);
+  assert.doesNotMatch(progress[1], /orderCount\} \/ \{run\.totalCases/);
+  const countedOrderResults = page.match(/const orderCount = [\s\S]*?\.length \?\? 0;/)?.[0];
+  assert.ok(countedOrderResults);
+  assert.doesNotMatch(countedOrderResults, /StatusDifference|DateConflict|UnsupportedOrderCaseType/);
+  assert.match(page, /run\.phase === "OrderLookup" \? "Resume order check"/);
+  assert.match(page, /onClick=\{\(\) => void resume\(\)\}/);
+  assert.match(page, /onClick=\{\(\) => void orderAction\("orders"\)\}>Check order links/);
+});
+
+test("review heading uses local case number while raw official number stays in details", () => {
+  assert.match(page, /type Review = \{[^\n]*caseNumber: string;[^\n]*rawCaseNumber: string;/);
+  assert.match(page, /court-assisted-review-title"><Link[^>]*>\{row\.caseNumber\}<\/Link>/);
+  assert.doesNotMatch(page, /court-assisted-review-title"><Link[^>]*>\{row\.rawCaseNumber\}<\/Link>/);
+  assert.match(page, /<details><summary>View official result \/ Technical details<\/summary>[\s\S]*?Official case number as shown: \{row\.rawCaseNumber\}/);
+  assert.match(page, /\{row\.rawEvidenceText\}/);
+  assert.match(page, /Delhi High Court says: <strong>DISPOSED<\/strong>/);
+  assert.match(page, /LAC record says: <strong>PENDING<\/strong>/);
+});
+
 test("normal status difference has explicit office actions without a typed reason", () => {
   assert.match(page, /Update LAC status to Disposed/);
   assert.match(page, /Keep LAC as Pending/);

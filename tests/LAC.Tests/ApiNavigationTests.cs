@@ -26,6 +26,44 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     public ApiNavigationTests(ApiFactory factory) { _factory = factory; _client = factory.CreateClient(); }
 
     [Fact]
+    public async Task Dhc_assisted_review_api_returns_local_case_number_separately_from_raw_official_evidence()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var courtCase = new CourtCase
+        {
+            CourtName = "Delhi High Court", CaseNumber = "W.P.(C) 2493/2023", CurrentStatus = "Pending"
+        };
+        var run = new DhcAssistedSyncRun
+        {
+            StartedByUserId = SeedData.BootstrapAdminId, StartedAt = DateTimeOffset.UtcNow,
+            LastActivityAt = DateTimeOffset.UtcNow, TotalCases = 1
+        };
+        var item = new DhcAssistedSyncItem
+        {
+            CourtCase = courtCase, Run = run, NormalizedCaseIdentity = "delhihighcourt|wpc|2493|2023"
+        };
+        const string raw = "W.P.(C) - 2493 / 2023 [DISPOSED] Click here for Orders Click here forJudgments";
+        var evidence = new CourtExternalCaseStatusObservation
+        {
+            CourtCase = courtCase, RunItem = item, RawCaseNumber = raw,
+            RawStatus = "DISPOSED", RawEvidenceText = raw, ObservedAt = DateTimeOffset.UtcNow,
+            Status = DhcAssistedEvidenceStatus.NeedsReview, ReviewReason = "StatusDifference"
+        };
+        db.AddRange(courtCase, run, item, evidence);
+        await db.SaveChangesAsync();
+
+        using var response = await _client.GetAsync("/api/court-cases/dhc-assisted/reviews");
+        response.EnsureSuccessStatusCode();
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var review = json.RootElement.EnumerateArray().Single(x => x.GetProperty("id").GetGuid() == evidence.Id);
+        Assert.Equal(courtCase.CaseNumber, review.GetProperty("caseNumber").GetString());
+        Assert.Equal(raw, review.GetProperty("rawCaseNumber").GetString());
+        Assert.Equal(raw, review.GetProperty("rawEvidenceText").GetString());
+        Assert.Equal("Pending", review.GetProperty("canonicalStatus").GetString());
+    }
+
+    [Fact]
     public async Task Award_review_audit_identity_comes_from_authentication_not_request_body()
     {
         using var scope = _factory.Services.CreateScope();

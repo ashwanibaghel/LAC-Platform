@@ -6,7 +6,7 @@ type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: nu
 type RunItem = { id: string; courtCaseId: string; caseNumber: string; queueOrder: number; reason: string; status: string; failureCode: string | null; failureMessage: string | null };
 type Run = { id: string; startedAt: string; status: string; phase: "StatusLookup" | "OrderLookup"; ownerName: string; isOwner: boolean; totalCases: number; completedCases: number; updatedCases: number; noChangeCases: number; needsReviewCases: number; failedCases: number; captchaChallenges: number; failureMessage: string | null; items: RunItem[] };
 type Challenge = { kind: "Text" | "Image"; officialText: string | null; imageAvailable: boolean; operation: string };
-type Review = { id: string; courtCaseId: string; observedAt: string; rawCaseNumber: string; rawStatus: string | null; canonicalStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; reviewReason: string | null };
+type Review = { id: string; courtCaseId: string; caseNumber: string; observedAt: string; rawCaseNumber: string; rawStatus: string | null; canonicalStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; reviewReason: string | null };
 type CaseResult = { observedAt: string; rawStatus: string | null; listingDate: string | null; status: string; reviewReason: string | null };
 
 const base = "/api/court-cases/dhc-assisted";
@@ -224,7 +224,7 @@ export const DhcAssistedPage: React.FC = () => {
   const statusResultsVisible = !!run && (run.completedCases > 0 || run.phase === "OrderLookup");
   const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
   const orderCount = run?.items.filter(item => item.status === "Completed" ||
-    item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length ?? 0;
+    item.status === "NeedsReview" && ["OrderIdentityMismatch", "OrderDateNeedsReview"].includes(item.failureCode ?? "")).length ?? 0;
   const reviewMessage = (reason: string | null) => ({
     DateConflict: "Two official dates differ. Compare the case record before deciding.",
     StatusDifference: "The office status and Delhi High Court status differ.",
@@ -268,8 +268,11 @@ export const DhcAssistedPage: React.FC = () => {
     </div>}
     {run && <div className="court-assisted-run-layout">
       <section className="court-assisted-main-card" aria-label="Assisted verification work">
-        <div className="court-assisted-card-heading"><div><h2>{run.status === "Completed" ? "Delhi High Court check complete" : "Checking Delhi High Court"}</h2>
-          <p>{run.phase === "StatusLookup" ? "Checking case status" : "Checking order links"} · Run by {run.ownerName}</p></div></div>
+        <div className="court-assisted-card-heading"><div><h2>{run.phase === "OrderLookup" && ["Interrupted", "Failed"].includes(run.status)
+          ? "Order-link check interrupted" : run.status === "Completed" ? "Delhi High Court check complete" : "Checking Delhi High Court"}</h2>
+          <p>{run.phase === "OrderLookup" && ["Interrupted", "Failed"].includes(run.status)
+            ? "Case-status check is complete. Order-link checking has not finished."
+            : run.phase === "StatusLookup" ? "Checking case status" : "Checking order links"} · Run by {run.ownerName}</p></div></div>
         {run.phase === "OrderLookup" && <p className="court-assisted-phase-note">Case status checking is complete. {run.status === "Interrupted" || run.status === "Failed" ? "Order-link checking was interrupted." : "Order-link checking is separate."}</p>}
         {run.failureMessage && ["Interrupted", "Failed"].includes(run.status) && <details className="court-assisted-technical"><summary>Interruption details</summary><p>{run.failureMessage}</p></details>}
         {run.isOwner && run.status === "ReadyForOrders" && <section className="court-assisted-decision" aria-label="Order verification choice">
@@ -316,12 +319,17 @@ export const DhcAssistedPage: React.FC = () => {
           <button className="court-assisted-cancel" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
       </section>
       <aside className="court-assisted-progress" aria-label="Verification progress and queue">
-        <h2>{run.phase === "OrderLookup" ? "Order-link check" : "Case-status check"}</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong><p>case statuses checked</p>
-        <progress value={run.completedCases} max={Math.max(1, run.totalCases)} />
+        {run.phase === "OrderLookup" ? <div className="court-assisted-phase-progress">
+          <section aria-label="Case-status check progress"><h2>Case-status check</h2>
+            <strong>{run.completedCases} of {run.totalCases} complete</strong>
+            <progress value={run.completedCases} max={Math.max(1, run.totalCases)} /></section>
+          <section aria-label="Order-link check progress"><h2>Order-link check</h2>
+            <strong>{orderCount} order searches completed</strong><span>{run.status}</span></section>
+        </div> : <><h2>Case-status check</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong>
+          <p>case statuses checked</p><progress value={run.completedCases} max={Math.max(1, run.totalCases)} /></>}
         <div className="court-assisted-metrics"><span>Updated <b>{run.updatedCases}</b></span><span>No change <b>{run.noChangeCases}</b></span>
           <span>Review <b>{run.needsReviewCases}</b></span><span>Not found <b>{run.items.filter(item => item.status === "NotFound").length}</b></span>
-          <span>Failed <b>{run.failedCases}</b></span><span>Remaining <b>{Math.max(0, run.totalCases - run.completedCases)}</b></span>
-          {run.phase === "OrderLookup" && <span>Order searches <b>{orderCount}</b></span>}</div>
+          <span>Failed <b>{run.failedCases}</b></span><span>Remaining status checks <b>{Math.max(0, run.totalCases - run.completedCases)}</b></span></div>
         <h3>Queue</h3><ol>{run.items.map(item => {
           const result = caseResults[`${runId}:${item.courtCaseId}`];
           return <li key={item.id}>
@@ -337,7 +345,7 @@ export const DhcAssistedPage: React.FC = () => {
         const safeStatusDecision = row.reviewReason === "StatusDifference" &&
           row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() === "pending";
         return <article key={row.id} className="court-assisted-review-card">
-          <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link><span>ACTION NEEDED</span></div>
+          <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.caseNumber}</Link><span>ACTION NEEDED</span></div>
           {safeStatusDecision ? <>
             <div className="court-assisted-status-comparison"><p>Delhi High Court says: <strong>DISPOSED</strong></p>
               <p>LAC record says: <strong>PENDING</strong></p></div>
@@ -354,6 +362,7 @@ export const DhcAssistedPage: React.FC = () => {
               <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, false)}>Keep LAC record</button></div>
           </>}
           <details><summary>View official result / Technical details</summary><p>Checked {new Date(row.observedAt).toLocaleString("en-IN")}</p>
+            <p>Official case number as shown: {row.rawCaseNumber}</p>
             <p>Official next date: {row.listingDate ?? "Not stated"} · Court: {row.rawCourtNumber ?? "Not stated"}</p>
             <p>{row.rawEvidenceText}</p></details>
         </article>;
