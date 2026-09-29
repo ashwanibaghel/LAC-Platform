@@ -99,6 +99,60 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task LiveWindow_RetainsOnlyTargetRelevantPdfAcrossLargePublications()
+    {
+        using var fixture = new Fixture();
+        fixture.Case("W.P.(C) 7003/2026");
+        fixture.Case("W.P.(C) 7004/2026");
+        fixture.Case("W.P.(C) 9000/2026");
+        fixture.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "unrelated-large.pdf",
+            Enumerable.Range(1, 2500).Select(n => $"{n} W.P.(C)-{n + 10000}/2026 OTHER PARTY").ToArray());
+        fixture.Publish("ADVANCE CAUSE LIST OF CASES FOR 01.10.2026", "01-10-2026", "matched-large.pdf",
+            Enumerable.Range(1, 2500).Select(n => $"{n} W.P.(C)-{n + 6000}/2026 TEST PARTY").ToArray());
+
+        var first = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, first.Status);
+        Assert.Equal(2, first.SourceDocumentsProcessed);
+        Assert.Equal(2, first.ObservationsCreated);
+        var sources = await fixture.Db.CourtExternalSourceDocuments.OrderBy(x => x.SourceUrl).ToListAsync();
+        Assert.Equal(2, sources.Count);
+        Assert.All(sources, source => { Assert.Equal(CourtExternalSourceStatus.Processed, source.Status); Assert.NotNull(source.Sha256Hash); });
+        Assert.Null(sources.Single(x => x.SourceUrl.Contains("unrelated-large.pdf")).DocumentId);
+        Assert.NotNull(sources.Single(x => x.SourceUrl.Contains("matched-large.pdf")).DocumentId);
+        Assert.Single(fixture.Db.Documents);
+        Assert.Single(fixture.Storage.Files);
+        Assert.Equal(2, await fixture.Db.CourtExternalListingObservations.CountAsync());
+        Assert.All(fixture.Db.CourtExternalListingObservations,
+            observation => Assert.Contains(observation.NormalizedCaseIdentity, new[] { "delhihighcourt|wpc|7003|2026", "delhihighcourt|wpc|7004|2026" }));
+
+        var second = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, second.Status);
+        Assert.Equal(0, second.SourceDocumentsProcessed);
+        Assert.Equal(2, fixture.Source.PdfRequests);
+        Assert.Single(fixture.Storage.Files);
+    }
+
+    [Fact]
+    public async Task UnrelatedDeletionNote_LeavesOnlyProcessedSourceMetadata()
+    {
+        using var fixture = new Fixture();
+        fixture.Case("W.P.(C) 7003/2026");
+        fixture.Publish("Deletion Note for 30.09.2026", "30-09-2026", "unrelated-deletion.pdf",
+            "1 W.P.(C)-9999/2026");
+
+        var run = await fixture.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(1, run.SourceDocumentsProcessed);
+        var source = Assert.Single(fixture.Db.CourtExternalSourceDocuments);
+        Assert.Equal(CourtExternalSourceStatus.Processed, source.Status);
+        Assert.NotNull(source.Sha256Hash);
+        Assert.Null(source.DocumentId);
+        Assert.Empty(fixture.Db.Documents);
+        Assert.Empty(fixture.Storage.Files);
+        Assert.Empty(fixture.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
     public async Task OfficialGet_RetriesAtMostTwiceWithoutDuplicatingEvidence()
     {
         using var fixture = new Fixture();

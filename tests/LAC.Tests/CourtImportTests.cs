@@ -238,6 +238,37 @@ public sealed class CourtImportTests
     }
 
     [Fact]
+    public async Task PendingWork_ExcludesCommittedAndSkippedButPreservesSourceRows()
+    {
+        using var db = Db(); var storage = new MemoryStorage(); var actor = new AppUser { DisplayName = "Importer" };
+        db.AppUsers.Add(actor); await db.SaveChangesAsync();
+        var bytes = Workbook(sheet =>
+        {
+            Row(sheet, 3, "W.P.(C) 101/2026", "Committed case");
+            Row(sheet, 4, "W.P.(C) 102/2026", "Skipped case");
+            Row(sheet, 5, "W.P.(C) 103/2026", "Needs a decision");
+            Row(sheet, 6, "W.P.(C) 104/2026", "Retryable case");
+        });
+        var batch = await new CourtImportService(db, storage).StageAsync(new MemoryStream(bytes), "pending.xlsx", null, actor.Id);
+        var sourceRows = await db.CourtImportRows.OrderBy(x => x.SourceRowNumber).ToListAsync();
+        sourceRows[0].CommitStatus = CourtImportCommitStatus.Committed;
+        sourceRows[1].ResolutionAction = CourtImportResolutionAction.Skip;
+        sourceRows[3].CommitStatus = CourtImportCommitStatus.Failed;
+        await db.SaveChangesAsync();
+
+        var service = new CourtImportService(db, storage);
+        var (pending, pendingTotal) = await service.RowsAsync(batch.Id, null, null, null, 1, 25, workState: "pending");
+        Assert.Equal(2, pendingTotal);
+        Assert.Equal(new[] { 5, 6 }, pending.Select(x => x.SourceRowNumber));
+        var (committed, committedTotal) = await service.RowsAsync(batch.Id, null, null, null, 1, 25, workState: "committed");
+        Assert.Equal(1, committedTotal);
+        Assert.Equal(3, Assert.Single(committed).SourceRowNumber);
+        var (all, allTotal) = await service.RowsAsync(batch.Id, null, null, null, 1, 25);
+        Assert.Equal(4, allTotal);
+        Assert.Contains(all, x => x.SourceRowNumber == 4 && x.ResolutionAction == "Skip");
+    }
+
+    [Fact]
     public async Task RealWorkbook_ReadOnlySmoke_WhenPathProvided()
     {
         var path = Environment.GetEnvironmentVariable("COURT_IMPORT_SMOKE_FILE");

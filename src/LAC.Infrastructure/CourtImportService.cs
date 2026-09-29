@@ -118,7 +118,8 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
     public async Task<(IReadOnlyList<CourtImportRowDto>, int)> RowsAsync(Guid id, string? status, string? search, int? sourceRow, int page, int pageSize, CancellationToken ct = default, string? workState = null)
     {
         var q = db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == id);
-        if (workState == "pending") q = q.Where(x => x.CommitStatus != CourtImportCommitStatus.Committed);
+        if (workState == "pending") q = q.Where(x => x.CommitStatus != CourtImportCommitStatus.Committed &&
+            x.ResolutionAction != CourtImportResolutionAction.Skip);
         else if (workState == "committed") q = q.Where(x => x.CommitStatus == CourtImportCommitStatus.Committed);
         if (Enum.TryParse<CourtImportRowStatus>(status, true, out var rs)) q = q.Where(x => x.RowStatus == rs);
         if (sourceRow.HasValue) q = q.Where(x => x.SourceRowNumber == sourceRow);

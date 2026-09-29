@@ -182,7 +182,7 @@ export function CourtImportPreview() {
     <header className="court-import-header"><span className="court-import-eyebrow">COURT REGISTER</span><h1>Excel check results</h1>
       <p>Add the ready Court Matters now. Records needing attention can be reviewed later.</p></header>
     {batch && summary && <div className="court-import-batch-stats" aria-label="Import progress summary">
-      <span><strong>{batch.totalRows - summary.committed}</strong>Still to check</span>
+      <span><strong>{batch.totalRows - summary.committed - summary.skipped}</strong>Still to check</span>
       <span><strong>{summary.committed}</strong>Added to Court Matters</span>
       <span><strong>{batch.totalRows}</strong>Records found</span></div>}
     {summary && <section className="court-import-next-step" aria-label="Recommended next action">
@@ -211,11 +211,11 @@ export function CourtImportPreview() {
         {summary && summary.unresolved > 0 && <button className="secondary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review remaining later</button>}</div>
     </div>}
     <div className="court-import-review-toolbar" id="court-import-rows"><h2>{workState === "pending" ? "Pending work" : workState === "committed" ? "Imported history" : "All source rows"} <small>{totalRows.toLocaleString("en-IN")} in {classificationLabel(status).toLowerCase()}</small></h2>
-      <span>{workState === "pending" ? "Committed rows are hidden from this working queue." : "Original workbook rows are preserved for audit."}</span></div>
+      <span>{workState === "pending" ? "Added and skipped rows are hidden from this working queue." : "Original workbook rows are preserved for audit."}</span></div>
     <nav className="court-import-work-tabs" aria-label="Import work status">
       {([ ["pending", "Pending work"], ["committed", "Imported history"], ["all", "All source rows"] ] as const).map(([key, label]) =>
         <button type="button" key={key} className={workState === key ? "active" : ""} aria-current={workState === key ? "page" : undefined}
-          onClick={() => { setWorkState(key); setPage(1); }}>{label}{key === "pending" && batch && summary ? ` (${batch.totalRows - summary.committed})` : key === "committed" && summary ? ` (${summary.committed})` : ""}</button>)}
+          onClick={() => { setWorkState(key); setPage(1); }}>{label}{key === "pending" && batch && summary ? ` (${batch.totalRows - summary.committed - summary.skipped})` : key === "committed" && summary ? ` (${summary.committed})` : ""}</button>)}
     </nav>
     <nav className="court-import-classification-tabs" aria-label="Import row classifications">
       {classifications.map(([key, label]) => <button type="button" key={key || "all"} className={status === key ? "active" : ""}

@@ -163,12 +163,17 @@ public sealed partial class DelhiHighCourtSyncService(
                         // require human review instead of silently rewriting an accepted source.
                         if (source.Sha256Hash != null && source.Sha256Hash != sha)
                             throw new InvalidDataException("A previously observed publication URL changed content.");
+                        IReadOnlyList<DhcCaseLine> caseLines;
+                        using (var pdf = new MemoryStream(bytes, writable: false))
+                            caseLines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
+                        var targets = (await ActiveTargetIdentitiesAsync(ct)).ToHashSet(StringComparer.Ordinal);
+                        var hasTargetEvidence = caseLines.Any(line => targets.Contains(line.Identity));
                         var sameHashSources = await db.CourtExternalSourceDocuments
                             .Where(x => x.ProviderCode == Provider && x.Sha256Hash == sha &&
                                 x.DocumentId != null && x.Id != source.Id)
                             .ToListAsync(ct);
                         var storedPeer = sameHashSources.FirstOrDefault();
-                        if (source.DocumentId == null && storedPeer != null)
+                        if (hasTargetEvidence && source.DocumentId == null && storedPeer != null)
                         {
                             source.DocumentId = storedPeer.DocumentId;
                             source.DownloadedAt = clock.GetUtcNow();
@@ -180,7 +185,7 @@ public sealed partial class DelhiHighCourtSyncService(
                             // The bytes cannot establish which conflicting publication metadata is correct.
                             // Withdraw any previously accepted date from this PDF until an officer resolves it.
                             var accepted = await db.CourtExternalListingObservations
-                                .Where(x => x.SourceDocument.DocumentId == source.DocumentId &&
+                                .Where(x => x.SourceDocument.DocumentId == storedPeer!.DocumentId &&
                                     x.Status == CourtExternalListingStatus.Accepted)
                                 .ToListAsync(ct);
                             foreach (var item in accepted)
@@ -192,9 +197,17 @@ public sealed partial class DelhiHighCourtSyncService(
                             await db.SaveChangesAsync(ct);
                             continue;
                         }
-                        IReadOnlyList<DhcCaseLine> caseLines;
-                        using (var pdf = new MemoryStream(bytes, writable: false))
-                            caseLines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
+                        if (!hasTargetEvidence)
+                        {
+                            // Keep source metadata for the next run, but do not retain unrelated public PDFs.
+                            source.Sha256Hash = sha;
+                            source.DownloadedAt = clock.GetUtcNow();
+                            source.Status = CourtExternalSourceStatus.Processed;
+                            source.FailureMessage = null;
+                            run.SourceDocumentsProcessed++;
+                            await db.SaveChangesAsync(ct);
+                            continue;
+                        }
                         if (source.DocumentId == null)
                         {
                             using var upload = new MemoryStream(bytes, writable: false);

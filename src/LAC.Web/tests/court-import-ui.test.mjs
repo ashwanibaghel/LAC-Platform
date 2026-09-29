@@ -35,11 +35,12 @@ test("classification tabs and condensed rows preserve every review action", () =
   assert.match(preview, /court-import-review-dialog/);
 });
 
-test("review queue defaults to pending work and keeps committed rows in history", () => {
+test("review queue excludes committed and skipped rows while preserving source history", () => {
   assert.match(preview, /useState<"pending" \| "committed" \| "all">\("pending"\)/);
   assert.match(preview, /query\.set\("workState", workState\)/);
   assert.match(preview, /Imported history/);
-  assert.match(preview, /Committed rows are hidden from this working queue/);
+  assert.match(preview, /Added and skipped rows are hidden from this working queue/);
+  assert.equal((preview.match(/batch\.totalRows - summary\.committed - summary\.skipped/g) || []).length, 2);
 });
 
 test("visible item numbering starts at one while retaining the Excel source row", () => {
