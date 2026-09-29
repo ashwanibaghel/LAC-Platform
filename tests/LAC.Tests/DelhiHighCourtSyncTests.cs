@@ -1040,6 +1040,37 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task HistoricalMissingStoredDocumentMetadata_FailsRunInsteadOfMislabelingPdf()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "missing-metadata.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-03-2026", "later.pdf", ["1 W.P.(C)-7003/2026"]));
+        var url = f.Source.Pdfs.Keys.Single(x => x.EndsWith("missing-metadata.pdf"));
+        var source = new CourtExternalSourceDocument
+        {
+            SourceUrl = url, SourceTitle = "Previously retained official PDF",
+            ListingDate = new DateOnly(2026, 9, 5), Kind = CourtExternalSourceKind.OrdinaryListing,
+            DocumentId = Guid.NewGuid() // Simulates broken database document metadata.
+        };
+        f.Db.CourtExternalSourceDocuments.Add(source);
+        await f.Db.SaveChangesAsync();
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Failed, run.Status);
+        Assert.Equal(CourtExternalSourceStatus.Discovered, source.Status);
+        Assert.DoesNotContain("Historical publication unreadable", source.FailureMessage ?? "");
+        Assert.Equal(0, run.ReviewCount);
+        Assert.Equal(0, run.SourceDocumentsProcessed);
+        Assert.Equal(0, f.Source.PdfRequests);
+        Assert.Empty(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
     public async Task HistoricalDeletionFallsBackAndFailedRunRetriesWithoutDuplicateEvidence()
     {
         using var f = new Fixture();

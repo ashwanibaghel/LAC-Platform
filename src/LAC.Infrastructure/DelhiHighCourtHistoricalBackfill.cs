@@ -255,18 +255,21 @@ public sealed partial class DelhiHighCourtSyncService
         byte[] bytes;
         string sha;
         IReadOnlyList<DhcCaseLine> lines;
+        byte[]? storedBytes = null;
+        if (source.DocumentId != null)
+        {
+            // DB metadata and retained-evidence storage are infrastructure state;
+            // failures here must fail the run, not become a publication review.
+            var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
+            await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
+                ?? throw new InvalidDataException("Stored official PDF is missing.");
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct);
+            storedBytes = buffer.ToArray();
+        }
         try
         {
-            if (source.DocumentId != null)
-            {
-                var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
-                await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
-                    ?? throw new InvalidDataException("Stored official PDF is missing.");
-                using var buffer = new MemoryStream();
-                await stream.CopyToAsync(buffer, ct);
-                bytes = buffer.ToArray();
-            }
-            else bytes = await get(publication.PdfUrl, HistoricalMaxPdfBytes);
+            bytes = storedBytes ?? await get(publication.PdfUrl, HistoricalMaxPdfBytes);
             if (bytes.Length < 4 || bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
                 throw new InvalidDataException("Official download is not a PDF.");
             sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
