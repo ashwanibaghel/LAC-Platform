@@ -955,6 +955,91 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task HistoricalUnreadablePublication_NeedsReviewAndLaterPublicationStillProcesses()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "first.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("22-07-2026", "unreadable.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-03-2026", "later.pdf", ["1 W.P.(C)-7003/2026"]));
+        var unreadableUrl = f.Source.Pdfs.Keys.Single(x => x.EndsWith("unreadable.pdf"));
+        f.Source.Pdfs[unreadableUrl] = Encoding.ASCII.GetBytes("%PDF-1.4\nnot a readable PDF");
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(3, run.SourceDocumentsDiscovered);
+        Assert.Equal(2, run.SourceDocumentsProcessed);
+        Assert.Equal(1, run.ReviewCount);
+        var review = f.Db.CourtExternalSourceDocuments.Single(x => x.SourceUrl == unreadableUrl);
+        Assert.Equal(CourtExternalSourceStatus.NeedsReview, review.Status);
+        Assert.Contains("Historical publication unreadable:", review.FailureMessage);
+        Assert.Null(review.DocumentId);
+        Assert.DoesNotContain(f.Db.CourtExternalListingObservations, x => x.SourceDocumentId == review.Id);
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count());
+        Assert.Contains(f.Db.CourtExternalListingObservations, x => x.ListingDate == new DateOnly(2026, 3, 15));
+        Assert.Contains(await f.Sync.SourceReviewsAsync(f.User.Id, default), x => x.Id == review.Id);
+        Assert.False((await f.Sync.HistoricalStatusAsync(f.User.Id, default)).CanStart);
+        await Assert.ThrowsAsync<CourtWorkflowException>(() => f.Sync.RunHistoricalAsync(f.User.Id, default));
+    }
+
+    [Fact]
+    public async Task HistoricalResume_SkipsEarlierSuccessfullyProcessedPublication()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "processed.pdf", ["1 W.P.(C)-9999/2026"]),
+            ("15-03-2026", "new.pdf", ["1 W.P.(C)-7003/2026"]));
+        var url = f.Source.Pdfs.Keys.Single(x => x.EndsWith("processed.pdf"));
+        f.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        {
+            Mode = CourtExternalSyncMode.HistoricalBackfill,
+            Status = CourtExternalSyncRunStatus.Failed,
+            StartedAt = f.Clock.Now.AddMinutes(-10),
+            CompletedAt = f.Clock.Now.AddMinutes(-1)
+        });
+        f.Db.CourtExternalSourceDocuments.Add(new CourtExternalSourceDocument
+        {
+            SourceUrl = url, SourceTitle = "Previously checked publication",
+            ListingDate = new DateOnly(2026, 9, 5), Kind = CourtExternalSourceKind.OrdinaryListing,
+            Status = CourtExternalSourceStatus.Processed,
+            Sha256Hash = Convert.ToHexString(SHA256.HashData(f.Source.Pdfs[url])).ToLowerInvariant(),
+            DownloadedAt = f.Clock.Now.AddMinutes(-5)
+        });
+        await f.Db.SaveChangesAsync();
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(2, run.SourceDocumentsProcessed);
+        Assert.Equal(1, f.Source.PdfRequests);
+        Assert.Single(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
+    public async Task HistoricalArchiveDiscoveryFailure_RemainsFatal()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        f.Source.Pages[DelhiHighCourtSyncService.OfficialArchive + "?title=2026"] = "<html>layout changed</html>";
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Failed, run.Status);
+        Assert.Contains("archive", run.FailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(f.Db.CourtExternalSourceDocuments);
+        Assert.Empty(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
     public async Task HistoricalDeletionFallsBackAndFailedRunRetriesWithoutDuplicateEvidence()
     {
         using var f = new Fixture();

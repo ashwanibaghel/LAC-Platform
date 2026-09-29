@@ -78,11 +78,11 @@ public sealed partial class DelhiHighCourtSyncService(
         if (!await authorization.CanViewCourtReferencesAsync(userId, ct))
             throw new CourtWorkflowException("Global Court view permission is required.", 403);
         var targets = await ActiveTargetIdentitiesAsync(ct);
-        if (targets.Count == 0) return [];
         var sources = await db.CourtExternalSourceDocuments.AsNoTracking()
             .Where(x => x.Status == CourtExternalSourceStatus.NeedsReview &&
+                ((x.FailureMessage != null && x.FailureMessage.StartsWith("Historical publication unreadable:")) ||
                 db.CourtExternalListingObservations.Any(o => o.SourceDocumentId == x.Id &&
-                    targets.Contains(o.NormalizedCaseIdentity)))
+                    targets.Contains(o.NormalizedCaseIdentity))))
             .OrderByDescending(x => x.DiscoveredAt).Take(100).ToListAsync(ct);
         return sources.Select(x => new DhcSourceReviewDto(x.Id, x.SourceTitle, x.SourceUrl,
             x.ListingDate, x.Kind.ToString(), x.FailureMessage)).ToList();

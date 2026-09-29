@@ -136,11 +136,17 @@ public sealed partial class DelhiHighCourtSyncService
                     }
                     var publications = await DiscoverHistoricalAsync(run.WindowStart!.Value, run.WindowEnd!.Value,
                         run, PoliteGet, ct);
+                    var previousAttempts = await db.CourtExternalSyncRuns.AsNoTracking()
+                        .Where(x => x.ProviderCode == Provider && x.Mode == CourtExternalSyncMode.HistoricalBackfill &&
+                            x.Id != run.Id && x.CompletedAt != null)
+                        .Select(x => new { x.StartedAt, x.CompletedAt }).ToListAsync(ct);
                     foreach (var publication in publications.OrderBy(x =>
                                  x.Kind == CourtExternalSourceKind.DeletionOrCorrigendum ? 1 : 0))
                     {
                         ct.ThrowIfCancellationRequested();
-                        await ProcessHistoricalPublicationAsync(publication, targets, today, run, PoliteGet, ct);
+                        await ProcessHistoricalPublicationAsync(publication, targets, today, run, PoliteGet,
+                            downloadedAt => previousAttempts.Any(x => downloadedAt >= x.StartedAt &&
+                                downloadedAt <= x.CompletedAt), ct);
                     }
                     var advanced = 0;
                     foreach (var target in audit.Targets)
@@ -218,7 +224,8 @@ public sealed partial class DelhiHighCourtSyncService
 
     private async Task ProcessHistoricalPublicationAsync(DhcPublication publication,
         Dictionary<string, Target> targets, DateOnly today, CourtExternalSyncRun run,
-        Func<Uri, int, Task<byte[]>> get, CancellationToken ct)
+        Func<Uri, int, Task<byte[]>> get, Func<DateTimeOffset, bool> processedInEarlierAttempt,
+        CancellationToken ct)
     {
         if (publication.Kind == CourtExternalSourceKind.Unsupported || publication.ListingDate == null ||
             publication.DateConflict != null) { if (publication.DateConflict != null) run.ReviewCount++; return; }
@@ -236,25 +243,51 @@ public sealed partial class DelhiHighCourtSyncService
         }
         if (source.ListingDate != publication.ListingDate || source.Kind != publication.Kind)
             throw new InvalidDataException("Previously stored official source metadata differs from archive.");
-        byte[] bytes;
-        if (source.DocumentId != null)
+        // A previously completed historical publication is already accounted for.
+        // A live-window Processed source alone is not proof of historical processing.
+        if (source.Status == CourtExternalSourceStatus.Processed && source.Sha256Hash != null &&
+            source.DownloadedAt is { } downloadedAt && processedInEarlierAttempt(downloadedAt))
         {
-            var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
-            await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
-                ?? throw new InvalidDataException("Stored official PDF is missing.");
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer, ct);
-            bytes = buffer.ToArray();
+            run.SourceDocumentsProcessed++;
+            await db.SaveChangesAsync(ct);
+            return;
         }
-        else bytes = await get(publication.PdfUrl, HistoricalMaxPdfBytes);
-        if (bytes.Length < 4 || bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
-            throw new InvalidDataException("Official download is not a PDF.");
-        var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-        if (source.Sha256Hash != null && source.Sha256Hash != sha)
-            throw new InvalidDataException("Previously stored official PDF hash differs.");
+        byte[] bytes;
+        string sha;
         IReadOnlyList<DhcCaseLine> lines;
-        using (var pdf = new MemoryStream(bytes, writable: false))
+        try
+        {
+            if (source.DocumentId != null)
+            {
+                var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
+                await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
+                    ?? throw new InvalidDataException("Stored official PDF is missing.");
+                using var buffer = new MemoryStream();
+                await stream.CopyToAsync(buffer, ct);
+                bytes = buffer.ToArray();
+            }
+            else bytes = await get(publication.PdfUrl, HistoricalMaxPdfBytes);
+            if (bytes.Length < 4 || bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
+                throw new InvalidDataException("Official download is not a PDF.");
+            sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            if (source.Sha256Hash != null && source.Sha256Hash != sha)
+                throw new InvalidDataException("Previously stored official PDF hash differs.");
+            using var pdf = new MemoryStream(bytes, writable: false);
             lines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is not OperationCanceledException &&
+            ex is not OutOfMemoryException)
+        {
+            // Only download/read/parse failures are isolated here. Discovery and
+            // persistence failures still fail the run rather than hiding unsafe state.
+            source.Status = CourtExternalSourceStatus.NeedsReview;
+            var reason = "Historical publication unreadable: " + ex.Message;
+            source.FailureMessage = reason[..Math.Min(reason.Length, 500)];
+            run.ReviewCount++;
+            await db.SaveChangesAsync(ct);
+            return;
+        }
+        source.FailureMessage = null;
         var relevant = lines.Where(x => targets.TryGetValue(x.Identity, out var target) &&
             publication.ListingDate >= target.Baseline && publication.ListingDate < today).ToList();
         if (publication.Kind == CourtExternalSourceKind.DeletionOrCorrigendum && relevant.Count > 0)

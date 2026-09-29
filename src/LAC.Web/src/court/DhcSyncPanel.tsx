@@ -150,6 +150,14 @@ export const DhcSyncPanel: React.FC = () => {
   const completed = status.lastSuccess;
   const syncTone = attempt?.status === "Failed" ? "error" : status.lastSuccess ? "healthy" : "neutral";
   const checkedAt = attempt?.completedAt ?? attempt?.startedAt;
+  const historyRun = historical?.lastAttempt;
+  const historicalProgress = historyRun?.status === "Running"
+    ? `Checking historical publications… ${historyRun.sourceDocumentsProcessed} of ${historyRun.sourceDocumentsDiscovered} checked`
+    : historyRun?.status === "Completed"
+    ? `Historical check complete · ${historyRun.sourceDocumentsProcessed} of ${historyRun.sourceDocumentsDiscovered} checked · ${historyRun.reviewCount} needs review`
+    : historyRun?.status === "Failed"
+    ? `Historical check paused · ${historyRun.sourceDocumentsProcessed} of ${historyRun.sourceDocumentsDiscovered} checked`
+    : null;
   const attentionCount = reviews.length + sourceReviews.length;
   const badgeCount = (assisted?.recommendedCount ?? 0) + attentionCount;
   return (
@@ -335,8 +343,20 @@ export const DhcSyncPanel: React.FC = () => {
                       </strong>
                     </div>
                     <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">History Run</span>
-                      <strong className="dhc-stat-val">{historical?.lastAttempt?.status ?? "None"}</strong>
+                      <span className="dhc-stat-lbl">Archive pages scanned</span>
+                      <strong className="dhc-stat-val">{historyRun?.archivePagesDiscovered ?? 0}</strong>
+                    </div>
+                    <div className="dhc-tech-stat">
+                      <span className="dhc-stat-lbl">Publications found</span>
+                      <strong className="dhc-stat-val">{historyRun?.sourceDocumentsDiscovered ?? 0}</strong>
+                    </div>
+                    <div className="dhc-tech-stat">
+                      <span className="dhc-stat-lbl">Publications checked</span>
+                      <strong className="dhc-stat-val">{historyRun?.sourceDocumentsProcessed ?? 0}</strong>
+                    </div>
+                    <div className="dhc-tech-stat">
+                      <span className="dhc-stat-lbl">Needs review</span>
+                      <strong className="dhc-stat-val">{historyRun?.reviewCount ?? 0}</strong>
                     </div>
                   </div>
                   <details className="dhc-raw-json-details">
@@ -422,12 +442,12 @@ export const DhcSyncPanel: React.FC = () => {
               </div>
             </details>
           </div>
-          {historical && !historical.completedRun && historical.eligibleCaseCount > 0 && (
+          {historical && (historyRun || (!historical.completedRun && historical.eligibleCaseCount > 0)) && (
             <div className="dhc-history-banner">
               <span>
-                {historical.lastAttempt?.status === "Failed"
-                  ? `Historical check paused. Connection was interrupted; completed progress is safe. ${historical.lastAttempt.sourceDocumentsProcessed} of ${historical.lastAttempt.sourceDocumentsDiscovered} publications checked.`
-                  : `${historical.eligibleCaseCount} old DHC matters can be checked against earlier cause lists.`}
+                {historicalProgress ?? `${historical.eligibleCaseCount} old DHC matters can be checked against earlier cause lists.`}
+                {historyRun?.status === "Running" && historyRun.reviewCount > 0 &&
+                  <> · {historyRun.reviewCount} publication needs review; continuing with the remaining publications.</>}
               </span>
               {historical.canStart && (
                 <button className="secondary-button" disabled={busy} onClick={() => setConfirmHistorical(true)}>

@@ -42,6 +42,18 @@ test("DHC modal keeps the polished two-card hub without a plain inline panel", (
   assert.match(courtCss, /\.dhc-hub-cards-grid \{\s*display: grid;\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
 });
 
+test("historical progress separates archive pages, publications, and review items", () => {
+  assert.match(panel, /Archive pages scanned<\/span>[\s\S]*?historyRun\?\.archivePagesDiscovered/);
+  assert.match(panel, /Publications found<\/span>[\s\S]*?historyRun\?\.sourceDocumentsDiscovered/);
+  assert.match(panel, /Publications checked<\/span>[\s\S]*?historyRun\?\.sourceDocumentsProcessed/);
+  assert.match(panel, /Needs review<\/span>[\s\S]*?historyRun\?\.reviewCount/);
+  assert.match(panel, /Checking historical publications… \$\{historyRun\.sourceDocumentsProcessed\} of \$\{historyRun\.sourceDocumentsDiscovered\} checked/);
+  assert.match(panel, /publication needs review; continuing with the remaining publications/);
+  assert.match(panel, /Historical check complete · \$\{historyRun\.sourceDocumentsProcessed\} of \$\{historyRun\.sourceDocumentsDiscovered\} checked · \$\{historyRun\.reviewCount\} needs review/);
+  assert.match(panel, /historyRun\?\.status === "Failed"[\s\S]*?Historical check paused/);
+  assert.doesNotMatch(panel, /PUBLICATIONS.*archivePagesDiscovered/);
+});
+
 test("hub preserves contextual actions and only reports completed-cycle evidence", () => {
   for (const label of ["Check now", "Enter verification code", "Resume DHC check", "Resume order check", "View verification results"])
     assert.ok(panel.includes(label), `${label} action missing`);
