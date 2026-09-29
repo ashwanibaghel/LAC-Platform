@@ -7,6 +7,7 @@ namespace LAC.Api;
 
 public sealed record DhcCaptchaAnswerRequest(string Answer);
 public sealed record DhcAssistedReviewRequest(bool Accept, string Reason);
+public sealed record DhcAssistedStatusConfirmationRequest(string Reason);
 
 public static class DhcAssistedEndpoints
 {
@@ -49,6 +50,7 @@ public static class DhcAssistedEndpoints
                 {
                     run.Id, Status = run.Status.ToString(), run.StartedAt, run.LastActivityAt,
                     run.CompletedAt, run.TotalCases, run.CompletedCases, run.UpdatedCases,
+                    Phase = run.Phase.ToString(),
                     run.NoChangeCases, run.NeedsReviewCases, run.FailedCases,
                     run.CaptchaChallenges, run.FailureMessage, OwnerName = result.OwnerName,
                     IsOwner = run.StartedByUserId == id,
@@ -116,6 +118,20 @@ public static class DhcAssistedEndpoints
             try { await coordinator.CancelAsync(runId, id, ct); return Results.NoContent(); }
             catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
         });
+        group.MapPost("/dhc-assisted/runs/{runId:guid}/orders", async (Guid runId,
+            DelhiHighCourtAssistedCoordinator coordinator, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (user.UserId is not { } id) return Results.Unauthorized();
+            try { await coordinator.StartOrdersAsync(runId, id, ct); return Results.NoContent(); }
+            catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+        });
+        group.MapPost("/dhc-assisted/runs/{runId:guid}/finish", async (Guid runId,
+            DelhiHighCourtAssistedCoordinator coordinator, ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (user.UserId is not { } id) return Results.Unauthorized();
+            try { await coordinator.FinishSessionAsync(runId, id, ct); return Results.NoContent(); }
+            catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+        });
         group.MapGet("/{id:guid}/dhc-status-observations", async (Guid id,
             DelhiHighCourtAssistedService service, ICurrentUserContext user, CancellationToken ct) =>
         {
@@ -160,7 +176,8 @@ public static class DhcAssistedEndpoints
                 return Results.Ok(rows.Select(x => new
                 {
                     x.Id, x.CourtCaseId, x.ObservedAt, x.RawCaseNumber, x.RawStatus,
-                    x.ListingDate, x.RawCourtNumber, x.RawEvidenceText, x.ReviewReason
+                    x.ListingDate, x.RawCourtNumber, x.RawEvidenceText, x.ReviewReason,
+                    CanonicalStatus = x.CourtCase.CurrentStatus
                 }));
             }
             catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
@@ -171,6 +188,14 @@ public static class DhcAssistedEndpoints
         {
             if (user.UserId is not { } uid) return Results.Unauthorized();
             try { await service.ReviewAsync(id, request.Accept, request.Reason, uid, ct); return Results.NoContent(); }
+            catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+        });
+        group.MapPost("/dhc-assisted/reviews/{id:guid}/confirm-canonical-status", async (Guid id,
+            DhcAssistedStatusConfirmationRequest request, DelhiHighCourtAssistedService service,
+            ICurrentUserContext user, CancellationToken ct) =>
+        {
+            if (user.UserId is not { } uid) return Results.Unauthorized();
+            try { await service.ConfirmCanonicalStatusAsync(id, request.Reason, uid, ct); return Results.NoContent(); }
             catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
         });
     }

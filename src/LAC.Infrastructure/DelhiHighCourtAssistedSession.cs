@@ -22,6 +22,7 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
     public DelhiHighCourtAssistedForms.FormState? StatusForm { get; private set; }
     public DelhiHighCourtAssistedForms.FormState? OrderForm { get; private set; }
     public bool Verified { get; private set; }
+    public bool IsDisposed { get; private set; }
 
     public DelhiHighCourtAssistedSession(IConfiguration configuration,
         Func<CookieContainer, HttpMessageHandler>? handlerFactory = null)
@@ -156,6 +157,8 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         StatusForm = null;
         OrderForm = null;
         pendingHumanOrderAnswer = null;
+        Verified = false;
+        IsDisposed = true;
         return ValueTask.CompletedTask;
     }
 }

@@ -10,6 +10,7 @@ public static class DhcAssistedConfiguration
         b.Entity<DhcAssistedSyncRun>(e =>
         {
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.Phase).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.FailureMessage).HasMaxLength(500);
             e.HasIndex(x => new { x.Status, x.StartedAt });
             e.HasOne(x => x.StartedByUser).WithMany().HasForeignKey(x => x.StartedByUserId)

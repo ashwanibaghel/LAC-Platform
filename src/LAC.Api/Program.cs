@@ -169,7 +169,8 @@ using (var scope = app.Services.CreateScope())
     var interruptedAssistedRuns = await db.DhcAssistedSyncRuns.Where(x =>
         x.Status == DhcAssistedRunStatus.Running ||
         x.Status == DhcAssistedRunStatus.WaitingForCaptcha ||
-        x.Status == DhcAssistedRunStatus.PausedForCaptcha).ToListAsync();
+        x.Status == DhcAssistedRunStatus.PausedForCaptcha ||
+        x.Status == DhcAssistedRunStatus.ReadyForOrders).ToListAsync();
     foreach (var run in interruptedAssistedRuns)
     {
         run.Status = DhcAssistedRunStatus.Interrupted;

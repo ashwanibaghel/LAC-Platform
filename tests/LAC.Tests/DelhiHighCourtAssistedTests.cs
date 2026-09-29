@@ -79,6 +79,91 @@ public sealed class DelhiHighCourtAssistedTests
         public void StopApplication() { }
     }
 
+    private sealed class ManualTime : TimeProvider
+    {
+        private DateTimeOffset now = new(2026, 9, 29, 8, 0, 0, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => now;
+        public void Advance(TimeSpan span) => now += span;
+    }
+
+    private sealed class BatchHandler : HttpMessageHandler
+    {
+        public int StatusLookups { get; private set; }
+        public int Validations { get; private set; }
+        public int OrderForms { get; private set; }
+        public string? OrderPostBody { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            string body;
+            if (request.Method == HttpMethod.Get && path.EndsWith("get-case-type-status") &&
+                request.RequestUri.Query.Length == 0) body = StatusForm;
+            else if (request.Method == HttpMethod.Post && path.EndsWith("validateCaptcha"))
+            {
+                var submitted = await request.Content!.ReadAsStringAsync(ct);
+                Assert.Contains("captchaInput=typed-by-officer", submitted);
+                Validations++;
+                body = "{\"success\":true}";
+            }
+            else if (request.Method == HttpMethod.Get && path.EndsWith("get-case-type-status"))
+            {
+                StatusLookups++;
+                if (StatusLookups == 4 && Validations == 1) body = "{\"error\":\"captcha required\"}";
+                else
+                {
+                    var number = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query)["case_number"]!;
+                    body = StatusResult.Replace("7003", number);
+                }
+            }
+            else if (request.Method == HttpMethod.Get && path.EndsWith("case-number"))
+            {
+                OrderForms++;
+                body = OrderForm;
+            }
+            else if (request.Method == HttpMethod.Post && path.EndsWith("case-number"))
+            {
+                OrderPostBody = await request.Content!.ReadAsStringAsync(ct);
+                body = OrderResult;
+            }
+            else return new HttpResponseMessage(HttpStatusCode.NotFound);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(body, Encoding.UTF8, "text/html") };
+        }
+    }
+
+    private static async Task<(ServiceProvider Provider, Guid UserId, Guid[] CaseIds)> HarnessAsync(int count)
+    {
+        var services = new ServiceCollection();
+        var databaseName = Guid.NewGuid().ToString();
+        services.AddDbContext<LacDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        services.AddScoped<ICourtAuthorizationService>(provider => new CourtAuthorizationService(
+            provider.GetRequiredService<LacDbContext>(), null!, null!, provider));
+        services.AddScoped<ICourtWorkflowService>(provider => new CourtWorkflowService(
+            provider.GetRequiredService<LacDbContext>(),
+            provider.GetRequiredService<ICourtAuthorizationService>(), null!));
+        services.AddScoped<DelhiHighCourtAssistedService>();
+        services.AddSingleton<IOfficeClock, Clock>();
+        var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var user = new AppUser { Username = "operator", NormalizedUsername = "OPERATOR", DisplayName = "Operator" };
+        var role = new Role { Code = "OPERATOR", Name = "Operator" };
+        db.AppUsers.Add(user); db.Roles.Add(role);
+        db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = role.Id });
+        foreach (var code in new[] { PermissionCodes.CourtView, PermissionCodes.CourtEdit })
+        {
+            var permission = new Permission { Code = code, Name = code, Category = "Court" };
+            db.Permissions.Add(permission);
+            db.RolePermissions.Add(new RolePermission
+            { RoleId = role.Id, PermissionId = permission.Id, ScopeMode = ScopeMode.All });
+        }
+        var cases = Enumerable.Range(0, count).Select(index => new CourtCase
+        { CourtName = "Delhi High Court", CaseNumber = $"W.P.(C) {7003 + index}/2026", CurrentStatus = "Pending" }).ToArray();
+        db.CourtCases.AddRange(cases);
+        await db.SaveChangesAsync();
+        return (provider, user.Id, cases.Select(x => x.Id).ToArray());
+    }
+
     [Fact]
     public void CurrentOfficialForms_RequireTwoIndependentExactOptionMaps()
     {
@@ -293,8 +378,8 @@ public sealed class DelhiHighCourtAssistedTests
             new CourtAuthorizationService(db, null!, null!, null!), new Clock());
         await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", "[Disposed]"), default);
         Assert.Equal("StatusDifference", item.FailureCode);
-        Assert.Equal(DhcAssistedItemStatus.CheckingStatus, item.Status);
-        Assert.Equal(0, run.CompletedCases);
+        Assert.Equal(DhcAssistedItemStatus.StatusCaptured, item.Status);
+        Assert.Equal(1, run.CompletedCases);
         Assert.Equal("Pending", courtCase.CurrentStatus);
         Assert.Equal(DhcAssistedEvidenceStatus.NeedsReview,
             Assert.Single(db.CourtExternalCaseStatusObservations).Status);
@@ -403,7 +488,8 @@ public sealed class DelhiHighCourtAssistedTests
             Assert.Empty(db.CourtExternalCaseStatusObservations);
         }
         Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
-        await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.PausedForCaptcha);
+        await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+        await coordinator.StartOrdersAsync(runId, userId, default);
         Assert.Equal("TEST8", (await coordinator.ChallengeAsync(runId, userId, default)).OfficialText);
         Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
         await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.Completed);
@@ -522,5 +608,242 @@ public sealed class DelhiHighCourtAssistedTests
         Assert.Equal(new DateOnly(2026, 10, 9), resolved.OperationalNdoh);
         Assert.Equal(3, await db.CourtExternalAssistedDecisions.CountAsync());
         Assert.Equal("Pending", courtCase.CurrentStatus);
+    }
+
+    [Fact]
+    public async Task StatusBatch_ReusesOneVerificationForThreeCases_ThenPausesAtFourth_BeforeAnyOrder()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(5);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new BatchHandler();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.PausedForCaptcha);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                var run = await db.DhcAssistedSyncRuns.AsNoTracking().SingleAsync(x => x.Id == runId);
+                Assert.Equal(DhcAssistedPhase.StatusLookup, run.Phase);
+                Assert.Equal(3, run.CompletedCases);
+                Assert.Equal(3, await db.DhcAssistedSyncItems.CountAsync(x => x.Status == DhcAssistedItemStatus.StatusCaptured));
+                Assert.Equal(1, await db.DhcAssistedSyncItems.CountAsync(x => x.Status == DhcAssistedItemStatus.CaptchaRequired));
+            }
+            Assert.Equal(0, fake.OrderForms);
+            Assert.Equal("Case status", (await coordinator.ChallengeAsync(runId, userId, default)).Operation);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            Assert.Equal(6, fake.StatusLookups); // A/B/C, D challenge, D/E after human retry.
+            Assert.Equal(0, fake.OrderForms);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                Assert.Equal(5, await db.CourtExternalCaseStatusObservations.CountAsync());
+                Assert.Equal(5, (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).CompletedCases);
+            }
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            Assert.Equal(1, fake.OrderForms);
+            Assert.Equal("Order search", (await coordinator.ChallengeAsync(runId, userId, default)).Operation);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.PausedForCaptcha);
+            Assert.Contains("case_type=CW", fake.OrderPostBody);
+            await coordinator.CancelAsync(runId, userId, default);
+        }
+    }
+
+    [Fact]
+    public async Task IdleExpiry_ReleasesSlot_DisposesSession_AndResumeRequiresFreshChallenge()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var clock = new ManualTime();
+            var config = new ConfigurationBuilder().Build();
+            var sessions = new List<DelhiHighCourtAssistedSession>();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => { var session = new DelhiHighCourtAssistedSession(config, _ => new FakeHandler()); sessions.Add(session); return session; },
+                clock);
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            clock.Advance(TimeSpan.FromMinutes(10));
+            using (var scope = provider.CreateScope())
+            {
+                var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+                await service.GetRunAsync(runId, userId, default); // passive polling is not activity
+            }
+            clock.Advance(TimeSpan.FromMinutes(6));
+            await coordinator.SweepExpiredAsync();
+            Assert.Null(coordinator.ActiveRunId);
+            Assert.True(sessions[0].IsDisposed);
+            using (var scope = provider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+                Assert.Equal(DhcAssistedRunStatus.Interrupted,
+                    (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).Status);
+            }
+            await coordinator.ResumeAsync(runId, userId, default);
+            Assert.Equal(2, sessions.Count);
+            Assert.NotSame(sessions[0].Cookies, sessions[1].Cookies);
+            Assert.Equal("Case status", (await coordinator.ChallengeAsync(runId, userId, default)).Operation);
+            await coordinator.CancelAsync(runId, userId, default);
+        }
+    }
+
+    [Fact]
+    public async Task HardLifetime_ExpiresDespiteIntermittentOwnerActivity()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var clock = new ManualTime();
+            var config = new ConfigurationBuilder().Build();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => new FakeHandler()), clock);
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            for (var i = 0; i < 4; i++)
+            {
+                clock.Advance(TimeSpan.FromMinutes(14));
+                await coordinator.ChallengeAsync(runId, userId, default);
+            }
+            clock.Advance(TimeSpan.FromMinutes(5));
+            await coordinator.SweepExpiredAsync();
+            Assert.Null(coordinator.ActiveRunId);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(DhcAssistedRunStatus.Interrupted,
+                (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).Status);
+        }
+    }
+
+    [Theory]
+    [InlineData(100, true)]
+    [InlineData(101, false)]
+    public async Task AssistedQueue_HasStrictHundredCaseCap_NoSilentTruncation(int count, bool accepted)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(count);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            if (accepted)
+            {
+                var run = await service.CreateRunAsync(userId,
+                    new DhcAssistedStartRequest("Recommended", null), default);
+                Assert.Equal(100, run.TotalCases);
+                Assert.Equal(100, run.Items.Count);
+            }
+            else
+            {
+                var error = await Assert.ThrowsAsync<CourtWorkflowException>(() => service.CreateRunAsync(userId,
+                    new DhcAssistedStartRequest("Recommended", null), default));
+                Assert.Contains("100 cases", error.Message);
+                Assert.Empty(db.DhcAssistedSyncRuns);
+                var selectedError = await Assert.ThrowsAsync<CourtWorkflowException>(() => service.CreateRunAsync(userId,
+                    new DhcAssistedStartRequest("Selected", caseIds), default));
+                Assert.Contains("100 cases", selectedError.Message);
+                Assert.Empty(db.DhcAssistedSyncRuns);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExpiryAfterStatusBatch_PreservesCompletedOfficialEvidence()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var clock = new ManualTime();
+            var config = new ConfigurationBuilder().Build();
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => new FakeHandler()), clock);
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            clock.Advance(TimeSpan.FromMinutes(16));
+            await coordinator.SweepExpiredAsync();
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(DhcAssistedRunStatus.Interrupted,
+                (await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId)).Status);
+            Assert.Single(await db.CourtExternalCaseStatusObservations.ToListAsync());
+            Assert.Equal(DhcAssistedItemStatus.StatusCaptured,
+                (await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId)).Status);
+        }
+    }
+
+    [Fact]
+    public async Task OfficialDisposed_RequiresSeparateExplicitAuditedCanonicalConfirmation()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
+            var item = new DhcAssistedSyncItem
+            { CourtCaseId = caseIds[0], QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+            run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
+            await db.SaveChangesAsync();
+            await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", "[Disposed]"), default);
+            var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            await service.ReviewAsync(observation.Id, true, "Accept official evidence only", userId, default);
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            await service.ConfirmCanonicalStatusAsync(observation.Id,
+                "Verified official disposal with case file", userId, default);
+            db.ChangeTracker.Clear();
+            Assert.Equal("Disposed", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            var history = await db.CourtCaseEvents.SingleAsync(x => x.CourtCaseId == caseIds[0]);
+            Assert.Equal(CourtCaseAction.StatusChanged, history.Action);
+            Assert.Equal("Pending", history.OldStatus);
+            Assert.Equal("Disposed", history.NewStatus);
+            Assert.Equal(userId, history.ActorUserId);
+            Assert.Contains(observation.Id.ToString(), history.Notes);
+            Assert.Contains("Verified official disposal", history.Notes);
+            Assert.Equal(2, await db.CourtExternalAssistedDecisions.CountAsync(x => x.ObservationId == observation.Id));
+        }
+    }
+
+    [Theory]
+    [InlineData("Archived", false)]
+    [InlineData("Disposed", true)]
+    public async Task UnknownOrRejectedOfficialStatus_CannotMutateCanonical(string rawStatus, bool reject)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            var run = new DhcAssistedSyncRun { StartedByUserId = userId, StartedAt = new Clock().GetUtcNow() };
+            var item = new DhcAssistedSyncItem
+            { CourtCaseId = caseIds[0], QueueOrder = 0, Status = DhcAssistedItemStatus.CheckingStatus };
+            run.Items.Add(item); db.DhcAssistedSyncRuns.Add(run);
+            await db.SaveChangesAsync();
+            await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", $"[{rawStatus}]"), default);
+            var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
+            if (reject) await service.ReviewAsync(observation.Id, false, "Keep LAC record", userId, default);
+            await Assert.ThrowsAsync<CourtWorkflowException>(() =>
+                service.ConfirmCanonicalStatusAsync(observation.Id, "Attempt confirmation", userId, default));
+            db.ChangeTracker.Clear();
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync(x => x.Id == caseIds[0])).CurrentStatus);
+            Assert.Empty(db.CourtCaseEvents);
+        }
     }
 }

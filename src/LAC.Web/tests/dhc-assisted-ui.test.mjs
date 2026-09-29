@@ -40,3 +40,24 @@ test("case workspace separates official status and order evidence from canonical
   assert.match(workspace, /Latest official DHC order:/);
   assert.match(workspace, /Official DHC status differs from LAC record/);
 });
+
+test("status batch completes before the separately chosen order phase", () => {
+  assert.match(page, /Phase 1 of 2 · Case status verification/);
+  assert.match(page, /Phase 2 of 2 · Official order links/);
+  assert.match(page, /run\.status === "ReadyForOrders"/);
+  assert.match(page, /Check official order links/);
+  assert.match(page, /Finish session/);
+});
+
+test("canonical status confirmation is distinct from accepting external evidence", () => {
+  assert.match(page, /Accept evidence/);
+  assert.match(page, /Confirm LAC status as Disposed/);
+  assert.match(page, /confirm-canonical-status/);
+  assert.match(page, /Reason for decision/);
+});
+
+test("assisted queue keeps narrow office screens inside the page width", () => {
+  assert.match(page, /maxWidth: 1050/);
+  assert.match(page, /overflowX: "auto"/);
+  assert.match(page, /maxWidth: "100%"/);
+});

@@ -2,12 +2,14 @@ namespace LAC.Domain;
 
 public enum DhcAssistedRunStatus
 {
-    WaitingForCaptcha, Running, PausedForCaptcha, Completed, Failed, Cancelled, Interrupted
+    WaitingForCaptcha, Running, PausedForCaptcha, ReadyForOrders, Completed, Failed, Cancelled, Interrupted
 }
+
+public enum DhcAssistedPhase { StatusLookup, OrderLookup }
 
 public enum DhcAssistedItemStatus
 {
-    Queued, CheckingStatus, CheckingOrders, Completed, NeedsReview, NotFound,
+    Queued, CheckingStatus, StatusCaptured, CheckingOrders, Completed, NeedsReview, NotFound,
     CaptchaRequired, Failed, Skipped, Cancelled
 }
 
@@ -24,6 +26,7 @@ public sealed class DhcAssistedSyncRun
     public DateTimeOffset LastActivityAt { get; set; }
     public DateTimeOffset? CompletedAt { get; set; }
     public DhcAssistedRunStatus Status { get; set; } = DhcAssistedRunStatus.WaitingForCaptcha;
+    public DhcAssistedPhase Phase { get; set; } = DhcAssistedPhase.StatusLookup;
     public int TotalCases { get; set; }
     public int CompletedCases { get; set; }
     public int UpdatedCases { get; set; }

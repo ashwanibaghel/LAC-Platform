@@ -1,12 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 type PreviewCase = { courtCaseId: string; caseNumber: string; operationalNdoh: string | null; reason: string; identityNeedsReview: boolean };
 type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number; skippedIdentityCount: number; cases: PreviewCase[] };
 type RunItem = { id: string; courtCaseId: string; caseNumber: string; queueOrder: number; reason: string; status: string; failureCode: string | null; failureMessage: string | null };
-type Run = { id: string; status: string; ownerName: string; isOwner: boolean; totalCases: number; completedCases: number; updatedCases: number; noChangeCases: number; needsReviewCases: number; failedCases: number; failureMessage: string | null; items: RunItem[] };
+type Run = { id: string; status: string; phase: "StatusLookup" | "OrderLookup"; ownerName: string; isOwner: boolean; totalCases: number; completedCases: number; updatedCases: number; noChangeCases: number; needsReviewCases: number; failedCases: number; captchaChallenges: number; failureMessage: string | null; items: RunItem[] };
 type Challenge = { kind: "Text" | "Image"; officialText: string | null; imageAvailable: boolean; operation: string };
-type Review = { id: string; courtCaseId: string; observedAt: string; rawCaseNumber: string; rawStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; reviewReason: string | null };
+type Review = { id: string; courtCaseId: string; observedAt: string; rawCaseNumber: string; rawStatus: string | null; canonicalStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; reviewReason: string | null };
 
 const base = "/api/court-cases/dhc-assisted";
 
@@ -16,6 +16,7 @@ export const DhcAssistedPage: React.FC = () => {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const challengeKey = useRef<string | null>(null);
   const [scope, setScope] = useState("Recommended");
   const [selected, setSelected] = useState<string[]>([]);
   const [answer, setAnswer] = useState("");
@@ -48,6 +49,23 @@ export const DhcAssistedPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
+  const confirmStatus = async (id: string) => {
+    const reason = reviewReasons[id]?.trim();
+    if (!reason) { setMessage("Enter a reason before confirming the LAC case status."); return; }
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch(`${base}/reviews/${id}/confirm-canonical-status`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!response.ok) throw new Error("Canonical status could not be confirmed. Reload the case and review exact evidence.");
+      setReviewReasons(previous => ({ ...previous, [id]: "" }));
+      await loadReviews();
+      if (runId) await load();
+    } catch (error) { setMessage(String(error)); }
+    finally { setBusy(false); }
+  };
+
   const load = useCallback(async () => {
     if (runId) {
       const response = await fetch(`${base}/runs/${runId}`, { credentials: "include", cache: "no-store" });
@@ -55,10 +73,15 @@ export const DhcAssistedPage: React.FC = () => {
       const next = await response.json() as Run;
       setRun(next);
       if (next.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(next.status)) {
-        const challengeResponse = await fetch(`${base}/runs/${runId}/captcha`, { credentials: "include", cache: "no-store" });
-        if (challengeResponse.ok) setChallenge(await challengeResponse.json() as Challenge);
-        else setChallenge(null);
-      } else setChallenge(null);
+        const key = `${runId}:${next.captchaChallenges}`;
+        if (challengeKey.current !== key) {
+          const challengeResponse = await fetch(`${base}/runs/${runId}/captcha`, { credentials: "include", cache: "no-store" });
+          if (challengeResponse.ok) {
+            setChallenge(await challengeResponse.json() as Challenge);
+            challengeKey.current = key;
+          } else setChallenge(null);
+        }
+      } else { setChallenge(null); challengeKey.current = null; }
     } else {
       const response = await fetch(`${base}/preview`, { credentials: "include" });
       if (!response.ok) throw new Error("Assisted queue preview is unavailable or requires Court view/edit access.");
@@ -127,7 +150,18 @@ export const DhcAssistedPage: React.FC = () => {
     } finally { setBusy(false); }
   };
 
-  return <main className="court-page" style={{ padding: "24px", maxWidth: 1050, margin: "0 auto" }}>
+  const orderAction = async (action: "orders" | "finish") => {
+    if (!runId) return;
+    setBusy(true); setMessage(null);
+    try {
+      const response = await fetch(`${base}/runs/${runId}/${action}`, { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("Could not change the verification phase.");
+      await load();
+    } catch (error) { setMessage(String(error)); }
+    finally { setBusy(false); }
+  };
+
+  return <main className="court-page" style={{ padding: "24px", maxWidth: 1050, margin: "0 auto", boxSizing: "border-box", minWidth: 0 }}>
     <p><Link to="/court-cases">← Court queue</Link></p>
     <h1>Delhi High Court assisted verification</h1>
     <p>Official case status and order links, checked with a code entered by an officer.</p>
@@ -142,7 +176,7 @@ export const DhcAssistedPage: React.FC = () => {
             <input type="radio" name="scope" checked={scope === value} onChange={() => setScope(value)} /> {label}
           </label>)}
       </fieldset>
-      <table><thead><tr><th>Select</th><th>Case number</th><th>Current NDOH</th><th>Reason</th></tr></thead><tbody>
+      <div style={{ maxWidth: "100%", overflowX: "auto" }}><table><thead><tr><th>Select</th><th>Case number</th><th>Current NDOH</th><th>Reason</th></tr></thead><tbody>
         {preview.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview).map(item => <tr key={item.courtCaseId}>
           <td><input type="checkbox" aria-label={`Select ${item.caseNumber}`} disabled={item.identityNeedsReview}
             checked={selected.includes(item.courtCaseId)} onChange={event => setSelected(previous =>
@@ -151,21 +185,31 @@ export const DhcAssistedPage: React.FC = () => {
           <td>{item.operationalNdoh ?? "No NDOH"}</td>
           <td>{item.identityNeedsReview ? "Skipped — case identity needs review" : item.reason || "Officer selected"}</td>
         </tr>)}
-      </tbody></table>
+      </tbody></table></div>
       <button disabled={busy || (scope === "Selected" && selected.length === 0)} onClick={() => void start()}>Start verification</button>
     </section>}
     {run && <section className="court-card" style={{ padding: 20 }}>
       <h2>{run.status === "Completed" ? "Assisted verification complete" : "Assisted verification progress"}</h2>
+      <h3>{run.phase === "StatusLookup" ? "Phase 1 of 2 · Case status verification" : "Phase 2 of 2 · Official order links"}</h3>
       <p>Status: {run.status} · Run by {run.ownerName}</p>
-      <progress value={run.completedCases} max={run.totalCases} /> {run.completedCases} / {run.totalCases} checked
+      {run.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status)) &&
+        <p>Current case: {run.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status))?.caseNumber}</p>}
+      <progress value={run.completedCases} max={run.totalCases} /> {run.completedCases} / {run.totalCases} case statuses checked
+      {run.phase === "OrderLookup" && <p>Order searches completed: {run.items.filter(item => item.status === "Completed" ||
+        item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length}</p>}
       <p>Updated: {run.updatedCases} · No change: {run.noChangeCases} · Not found: {run.items.filter(item => item.status === "NotFound").length} · Needs review: {run.needsReviewCases} · Failed: {run.failedCases} · Remaining: {Math.max(0, run.totalCases - run.completedCases)}</p>
       {run.failureMessage && <p role="alert">{run.failureMessage}</p>}
+      {run.isOwner && run.status === "ReadyForOrders" && <section aria-label="Order verification choice">
+        <p>Case status verification complete. {run.completedCases} status checks finished. Order links are a separate optional phase.</p>
+        <button disabled={busy} onClick={() => void orderAction("orders")}>Check official order links</button>{" "}
+        <button className="secondary-button" disabled={busy} onClick={() => void orderAction("finish")}>Finish session</button>
+      </section>}
       {run.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(run.status) && challenge &&
         <section aria-label="Official DHC verification code" style={{ border: "1px solid #cbd5e1", padding: 20, maxWidth: 520 }}>
           <h3>Delhi High Court verification required</h3>
           <p>To continue {challenge.operation.toLowerCase()}, enter the security code shown by the official Delhi High Court website.</p>
           <div>Official DHC verification code:</div>
-          {challenge.kind === "Text" ? <div aria-label="Official DHC security code" style={{ fontSize: 30, letterSpacing: 5, border: "1px solid #94a3b8", padding: 12, display: "inline-block", margin: "8px 0" }}>{challenge.officialText}</div> :
+          {challenge.kind === "Text" ? <div aria-label="Official DHC security code" style={{ fontSize: 30, letterSpacing: 5, border: "1px solid #94a3b8", padding: 12, display: "inline-block", margin: "8px 0", maxWidth: "100%", overflowWrap: "anywhere", boxSizing: "border-box" }}>{challenge.officialText}</div> :
             <img alt="Official DHC verification code" src={`${base}/runs/${runId}/captcha/image?v=${imageVersion}`} />}
           <label style={{ display: "block", marginTop: 12 }}>Enter the code shown above:
             <input autoComplete="off" spellCheck={false} value={answer} onChange={event => setAnswer(event.target.value)} />
@@ -174,26 +218,29 @@ export const DhcAssistedPage: React.FC = () => {
           <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button>
           <small style={{ display: "block", marginTop: 12 }}>This verification code is entered manually by you. LAC Platform does not solve or bypass it.</small>
         </section>}
-      {run.isOwner && !["Completed", "Cancelled", "Failed"].includes(run.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
+      {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders"].includes(run.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
       {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <button onClick={() => void fetch(`${base}/runs/${run.id}/resume`, { method: "POST", credentials: "include" }).then(() => load())}>Resume with new code</button>}
       <h3>Cases</h3>
-      <table><thead><tr><th>Case</th><th>Reason</th><th>Result</th></tr></thead><tbody>
-        {run.items.map(item => <tr key={item.id}><td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td><td>{item.reason}</td><td>{item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</td></tr>)}
-      </tbody></table>
+      <div style={{ maxWidth: "100%", overflowX: "auto" }}><table><thead><tr><th>Case</th><th>Reason</th><th>Result</th></tr></thead><tbody>
+        {run.items.map(item => <tr key={item.id}><td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td><td>{item.reason}</td><td>{item.status === "StatusCaptured" ? "Case status checked" : item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</td></tr>)}
+      </tbody></table></div>
     </section>}
     {reviews.length > 0 && <section className="court-card" style={{ padding: 20, marginTop: 18 }}>
       <h2>Official evidence needing officer review</h2>
       <p>These are observations, not changes to the LAC case record. Confirm the exact case and date before accepting.</p>
       {reviews.map(row => <article key={row.id} style={{ borderTop: "1px solid #cbd5e1", padding: "14px 0" }}>
         <p><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link> · {new Date(row.observedAt).toLocaleString()}</p>
-        <p>Official status: {row.rawStatus ?? "Not stated"} · Listing date: {row.listingDate ?? "Not stated"} · Court: {row.rawCourtNumber ?? "Not stated"}</p>
+        <p>DHC official: {row.rawStatus ?? "Not stated"} · LAC record: {row.canonicalStatus ?? "Not stated"} · Listing date: {row.listingDate ?? "Not stated"} · Court: {row.rawCourtNumber ?? "Not stated"}</p>
         <p>Review reason: {row.reviewReason ?? "Official evidence needs review"}</p>
         <details><summary>Captured official result</summary><p>{row.rawEvidenceText}</p></details>
         <label>Reason for decision <input value={reviewReasons[row.id] ?? ""}
           onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>{" "}
         <button disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Accept evidence</button>{" "}
         <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()}
-          onClick={() => void decide(row.id, false)}>Reject evidence</button>
+          onClick={() => void decide(row.id, false)}>Keep LAC status / Reject evidence</button>{" "}
+        {row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() !== "disposed" &&
+          <button disabled={busy || !reviewReasons[row.id]?.trim()}
+            onClick={() => void confirmStatus(row.id)}>Confirm LAC status as Disposed</button>}
       </article>)}
     </section>}
   </main>;

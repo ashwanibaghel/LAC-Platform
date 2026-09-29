@@ -14,7 +14,8 @@ public sealed record DhcAssistedResult(DhcAssistedSyncRun Run,
     IReadOnlyList<DhcAssistedSyncItem> Items, string? OwnerName);
 
 public sealed class DelhiHighCourtAssistedService(
-    LacDbContext db, ICourtAuthorizationService authorization, IOfficeClock clock)
+    LacDbContext db, ICourtAuthorizationService authorization, IOfficeClock clock,
+    ICourtWorkflowService? workflow = null)
 {
     public async Task RequireOperatorAsync(Guid userId, CancellationToken ct)
     {
@@ -71,6 +72,8 @@ public sealed class DelhiHighCourtAssistedService(
             request.CaseIds.Distinct().Count() != queue.Count))
             throw new CourtWorkflowException("Selected cases must be active, pending, exact Delhi High Court identities.", 400);
         if (queue.Count == 0) throw new CourtWorkflowException("No eligible Delhi High Court cases in this queue.", 400);
+        if (queue.Count > 100)
+            throw new CourtWorkflowException("Assisted verification is limited to 100 cases per run. Narrow the queue or select up to 100 cases.", 400);
         var now = clock.GetUtcNow();
         var run = new DhcAssistedSyncRun
         {
@@ -121,6 +124,7 @@ public sealed class DelhiHighCourtAssistedService(
     {
         await RequireOperatorAsync(userId, ct);
         return await db.CourtExternalCaseStatusObservations.AsNoTracking()
+            .Include(x => x.CourtCase)
             .Where(x => x.Status == DhcAssistedEvidenceStatus.NeedsReview)
             .OrderByDescending(x => x.ObservedAt).Take(200).ToListAsync(ct);
     }
@@ -192,6 +196,61 @@ public sealed class DelhiHighCourtAssistedService(
             ActorUserId = userId, DecidedAt = clock.GetUtcNow(), Reason = reason.Trim()
         });
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ConfirmCanonicalStatusAsync(Guid observationId, string reason,
+        Guid userId, CancellationToken ct)
+    {
+        await RequireOperatorAsync(userId, ct);
+        if (workflow == null) throw new InvalidOperationException("Court workflow is unavailable.");
+        if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > 500)
+            throw new CourtWorkflowException("A status-confirmation reason of at most 500 characters is required.", 400);
+        var observed = await db.CourtExternalCaseStatusObservations.AsNoTracking()
+            .Include(x => x.CourtCase).SingleOrDefaultAsync(x => x.Id == observationId, ct)
+            ?? throw new CourtWorkflowException("Official observation not found.", 404);
+        if (!await authorization.CanEditCourtCaseAsync(observed.CourtCaseId, userId, ct))
+            throw new CourtWorkflowException("Court case edit access is required.", 403);
+        if (observed.Status == DhcAssistedEvidenceStatus.Rejected ||
+            observed.ReviewReason is "IdentityMismatch" or "MultipleExactRows" or "DateConflict" ||
+            CourtImportService.Identity(observed.CourtCase.CourtName, observed.CourtCase.CaseNumber) !=
+                observed.NormalizedCaseIdentity ||
+            !ContainsRequestedIdentity(observed.RawCaseNumber, observed.NormalizedCaseIdentity))
+            throw new CourtWorkflowException("Only exact, non-conflicting official evidence can confirm case status.", 409);
+        var proposed = observed.RawStatus?.Trim() switch
+        {
+            var value when string.Equals(value, "Disposed", StringComparison.OrdinalIgnoreCase) => "Disposed",
+            var value when string.Equals(value, "Pending", StringComparison.OrdinalIgnoreCase) => "Pending",
+            _ => throw new CourtWorkflowException("Official status is not a supported canonical status.", 409)
+        };
+        var courtCase = observed.CourtCase;
+        if (courtCase.RecordStatus != RecordStatus.Active ||
+            string.Equals(courtCase.CurrentStatus, proposed, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(courtCase.CurrentStatus, "Disposed", StringComparison.OrdinalIgnoreCase))
+            throw new CourtWorkflowException("This case has no eligible status change; disposed cases are never reactivated here.", 409);
+        var command = new UpdateCourtCaseMetadataCommand(courtCase.CaseNumber, courtCase.CourtName,
+            courtCase.CaseTitle, courtCase.CaseType, courtCase.FiledDate, proposed,
+            courtCase.DisposedDate, courtCase.Remarks, courtCase.Revision);
+        await using var transaction = db.Database.IsRelational()
+            ? await db.Database.BeginTransactionAsync(ct) : null;
+        await workflow.UpdateMetadataWithAuditReasonAsync(courtCase.Id, command,
+            $"DHC assisted observation {observationId}; officer reason: {reason.Trim()}", userId, ct);
+        db.ChangeTracker.Clear();
+        var current = await db.CourtExternalCaseStatusObservations.SingleAsync(x => x.Id == observationId, ct);
+        var before = current.Status;
+        if (before == DhcAssistedEvidenceStatus.NeedsReview)
+        {
+            current.Status = DhcAssistedEvidenceStatus.Accepted;
+            current.ReviewReason = null;
+        }
+        db.CourtExternalAssistedDecisions.Add(new CourtExternalAssistedDecision
+        {
+            ObservationId = observationId, FromStatus = before,
+            ToStatus = DhcAssistedEvidenceStatus.Accepted, ActorUserId = userId,
+            DecidedAt = clock.GetUtcNow(),
+            Reason = $"Canonical status explicitly confirmed as {proposed}. {reason.Trim()}"
+        });
+        await db.SaveChangesAsync(ct);
+        if (transaction != null) await transaction.CommitAsync(ct);
     }
 
     // No canonical CourtCase, CourtProceeding, ScheduledEvent or imported URL
@@ -275,7 +334,10 @@ public sealed class DelhiHighCourtAssistedService(
                 else run.NoChangeCases++;
             }
         }
-        if (item.Status is DhcAssistedItemStatus.NotFound or DhcAssistedItemStatus.NeedsReview)
+        if (item.Status is not (DhcAssistedItemStatus.NotFound or DhcAssistedItemStatus.NeedsReview))
+            item.Status = DhcAssistedItemStatus.StatusCaptured;
+        if (item.Status is DhcAssistedItemStatus.NotFound or DhcAssistedItemStatus.NeedsReview or
+            DhcAssistedItemStatus.StatusCaptured)
         {
             item.CompletedAt = now;
             run.CompletedCases++;
@@ -331,7 +393,6 @@ public sealed class DelhiHighCourtAssistedService(
             item.Status = item.FailureCode is "DateConflict" or "StatusDifference"
                 ? DhcAssistedItemStatus.NeedsReview : DhcAssistedItemStatus.Completed;
         item.CompletedAt = clock.GetUtcNow();
-        run.CompletedCases++;
         run.LastActivityAt = clock.GetUtcNow();
         await db.SaveChangesAsync(ct);
     }

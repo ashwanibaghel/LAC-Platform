@@ -14,20 +14,32 @@ public sealed record DhcAssistedChallenge(Guid RunId, string Kind, string? Offic
 public sealed class DelhiHighCourtAssistedCoordinator(
     IServiceScopeFactory scopes, IConfiguration configuration,
     IHostApplicationLifetime lifetime, ILogger<DelhiHighCourtAssistedCoordinator> logger,
-    Func<DelhiHighCourtAssistedSession>? sessionFactory = null)
+    Func<DelhiHighCourtAssistedSession>? sessionFactory = null, TimeProvider? timeProvider = null)
 {
-    private sealed class Active(Guid runId, Guid ownerId, DelhiHighCourtAssistedSession session)
+    private sealed class Active(Guid runId, Guid ownerId, DelhiHighCourtAssistedSession session,
+        DateTimeOffset createdAt)
     {
         public Guid RunId { get; } = runId;
         public Guid OwnerId { get; } = ownerId;
         public DelhiHighCourtAssistedSession Session { get; } = session;
+        public DateTimeOffset CreatedAt { get; } = createdAt;
+        private long lastActivityTicks = createdAt.UtcTicks;
+        public DateTimeOffset LastActivityAt => new(Interlocked.Read(ref lastActivityTicks), TimeSpan.Zero);
+        public void Touch(DateTimeOffset now) => Interlocked.Exchange(ref lastActivityTicks, now.UtcTicks);
         public CancellationTokenSource Cancel { get; } = new();
+        public CancellationTokenSource MonitorCancel { get; } = new();
         public bool Busy { get; set; }
         public bool OrdersChallenge { get; set; }
         public int InvalidAnswers { get; set; }
         public int Finished;
+        public bool Expired;
     }
 
+    private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    private readonly TimeSpan idleTimeout = TimeSpan.FromMinutes(Math.Clamp(
+        configuration.GetValue<int?>("CourtSync:DelhiHighCourt:AssistedIdleMinutes") ?? 15, 1, 60));
+    private readonly TimeSpan maxLifetime = TimeSpan.FromMinutes(Math.Clamp(
+        configuration.GetValue<int?>("CourtSync:DelhiHighCourt:AssistedMaxSessionMinutes") ?? 60, 1, 240));
     private readonly SemaphoreSlim mutex = new(1, 1);
     private Active? active;
     public Guid? ActiveRunId => active?.RunId;
@@ -40,6 +52,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             using var scope = scopes.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
             await service.RequireOperatorAsync(userId, ct);
+            await ExpireIfNeededAsync();
             if (active != null) throw await BusyExceptionAsync(scope.ServiceProvider, active, ct);
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             await MarkInterruptedAsync(db, ct);
@@ -48,7 +61,8 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             {
                 await session.LoadFormAsync(false, ct);
                 var run = await service.CreateRunAsync(userId, request, ct);
-                active = new Active(run.Id, userId, session);
+                active = new Active(run.Id, userId, session, clock.GetUtcNow());
+                StartMonitor(active);
                 return run.Id;
             }
             catch { await session.DisposeAsync(); throw; }
@@ -64,6 +78,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             using var scope = scopes.CreateScope();
             var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
             await service.RequireOperatorAsync(userId, ct);
+            await ExpireIfNeededAsync();
             if (active != null) throw await BusyExceptionAsync(scope.ServiceProvider, active, ct);
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             await MarkInterruptedAsync(db, ct);
@@ -81,7 +96,10 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 .OrderBy(x => x.QueueOrder).FirstOrDefaultAsync(ct);
             if (pending == null)
                 throw new CourtWorkflowException("This assisted run has no remaining cases to resume.", 409);
-            var orders = pending.Status == DhcAssistedItemStatus.CheckingOrders ||
+            var orders = run.Phase == DhcAssistedPhase.OrderLookup;
+            if (orders && pending.Status == DhcAssistedItemStatus.Failed)
+                orders = await db.CourtExternalCaseStatusObservations.AnyAsync(x => x.RunItemId == pending.Id, ct);
+            else if (!orders) orders = pending.Status == DhcAssistedItemStatus.CheckingOrders ||
                 pending.Status == DhcAssistedItemStatus.Failed &&
                 await db.CourtExternalCaseStatusObservations.AnyAsync(x => x.RunItemId == pending.Id, ct);
             var session = sessionFactory?.Invoke() ?? new DelhiHighCourtAssistedSession(configuration);
@@ -89,10 +107,12 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             {
                 await session.LoadFormAsync(orders, ct);
                 run.Status = DhcAssistedRunStatus.WaitingForCaptcha;
+                run.CompletedAt = null;
                 run.CaptchaChallenges++;
                 run.LastActivityAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
-                active = new Active(run.Id, userId, session) { OrdersChallenge = orders };
+                active = new Active(run.Id, userId, session, clock.GetUtcNow()) { OrdersChallenge = orders };
+                StartMonitor(active);
                 return run.Id;
             }
             catch { await session.DisposeAsync(); throw; }
@@ -108,6 +128,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             var current = await RequireOwnerAsync(runId, userId, ct);
             var form = current.OrdersChallenge ? current.Session.OrderForm : current.Session.StatusForm;
             if (form == null || current.Busy) throw new CourtWorkflowException("No DHC verification is pending.", 409);
+            Touch(current);
             return new(runId, form.VisibleChallenge == null ? "Image" : "Text",
                 form.VisibleChallenge, form.ImageChallenge != null,
                 current.OrdersChallenge ? "Order search" : "Case status");
@@ -121,7 +142,9 @@ public sealed class DelhiHighCourtAssistedCoordinator(
         try
         {
             var current = await RequireOwnerAsync(runId, userId, ct);
-            return await current.Session.GetChallengeImageAsync(current.OrdersChallenge, ct);
+            var image = await current.Session.GetChallengeImageAsync(current.OrdersChallenge, ct);
+            Touch(current);
+            return image;
         }
         finally { mutex.Release(); }
     }
@@ -134,6 +157,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             var current = await RequireOwnerAsync(runId, userId, ct);
             if (current.Busy) throw new CourtWorkflowException("Verification is already running.", 409);
             await current.Session.LoadFormAsync(current.OrdersChallenge, ct);
+            Touch(current);
             current.InvalidAnswers = 0;
             using var scope = scopes.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -161,10 +185,12 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             // Never compare with the displayed challenge, store, log or replay
             // the officer's answer. Submit it solely to the normal official form.
             var valid = await current.Session.ValidateHumanAnswerAsync(answer, current.OrdersChallenge, ct);
+            Touch(current);
             if (!valid)
             {
                 current.InvalidAnswers++;
                 await current.Session.LoadFormAsync(current.OrdersChallenge, ct);
+                Touch(current);
                 using var scope = scopes.CreateScope();
                 var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
                 var run = await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId, ct);
@@ -185,6 +211,47 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             }
             _ = Task.Run(() => ProcessQueueAsync(current), CancellationToken.None);
             return true;
+        }
+        finally { mutex.Release(); }
+    }
+
+    public async Task StartOrdersAsync(Guid runId, Guid userId, CancellationToken ct)
+    {
+        await mutex.WaitAsync(ct);
+        try
+        {
+            var current = await RequireOwnerAsync(runId, userId, ct);
+            if (current.Busy) throw new CourtWorkflowException("Verification is already running.", 409);
+            using var scope = scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var run = await db.DhcAssistedSyncRuns.SingleAsync(x => x.Id == runId, ct);
+            if (run.Status != DhcAssistedRunStatus.ReadyForOrders)
+                throw new CourtWorkflowException("Complete case-status verification before order lookup.", 409);
+            await current.Session.LoadFormAsync(true, ct);
+            Touch(current);
+            current.OrdersChallenge = true;
+            run.Phase = DhcAssistedPhase.OrderLookup;
+            run.Status = DhcAssistedRunStatus.WaitingForCaptcha;
+            run.CaptchaChallenges++;
+            run.LastActivityAt = clock.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+        }
+        finally { mutex.Release(); }
+    }
+
+    public async Task FinishSessionAsync(Guid runId, Guid userId, CancellationToken ct)
+    {
+        await mutex.WaitAsync(ct);
+        try
+        {
+            var current = await RequireOwnerAsync(runId, userId, ct);
+            if (current.Busy) throw new CourtWorkflowException("Verification is already running.", 409);
+            using var scope = scopes.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            if (!await db.DhcAssistedSyncRuns.AnyAsync(x => x.Id == runId &&
+                x.Status == DhcAssistedRunStatus.ReadyForOrders, ct))
+                throw new CourtWorkflowException("Order lookup can be skipped only after status verification.", 409);
+            await FinishAsync(current, DhcAssistedRunStatus.Completed, null);
         }
         finally { mutex.Release(); }
     }
@@ -216,18 +283,27 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             foreach (var item in run.Items.OrderBy(x => x.QueueOrder))
             {
                 ct.ThrowIfCancellationRequested();
-                if (item.Status is DhcAssistedItemStatus.Completed or DhcAssistedItemStatus.NeedsReview or
-                    DhcAssistedItemStatus.NotFound or DhcAssistedItemStatus.Skipped or DhcAssistedItemStatus.Cancelled)
+                if (run.Phase == DhcAssistedPhase.StatusLookup && item.Status is
+                    (DhcAssistedItemStatus.StatusCaptured or DhcAssistedItemStatus.Completed or
+                     DhcAssistedItemStatus.NeedsReview or DhcAssistedItemStatus.NotFound or
+                     DhcAssistedItemStatus.Skipped or DhcAssistedItemStatus.Cancelled))
+                    continue;
+                if (run.Phase == DhcAssistedPhase.OrderLookup && item.Status is not
+                    (DhcAssistedItemStatus.StatusCaptured or DhcAssistedItemStatus.CheckingOrders or
+                     DhcAssistedItemStatus.Failed))
                     continue;
                 if (item.Status == DhcAssistedItemStatus.Failed)
                 {
                     run.FailedCases = Math.Max(0, run.FailedCases - 1);
                     item.Status = await db.CourtExternalCaseStatusObservations
                         .AnyAsync(x => x.RunItemId == item.Id, ct)
-                        ? DhcAssistedItemStatus.CheckingOrders : DhcAssistedItemStatus.Queued;
+                        ? DhcAssistedItemStatus.StatusCaptured
+                        : DhcAssistedItemStatus.Queued;
                     item.FailureCode = null;
                     item.FailureMessage = null;
                     await db.SaveChangesAsync(ct);
+                    if (run.Phase == DhcAssistedPhase.StatusLookup &&
+                        item.Status == DhcAssistedItemStatus.StatusCaptured) continue;
                 }
                 var courtCase = await db.CourtCases.AsNoTracking().SingleAsync(x => x.Id == item.CourtCaseId, ct);
                 var identity = CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber);
@@ -239,7 +315,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                     await db.SaveChangesAsync(ct);
                     continue;
                 }
-                if (item.Status != DhcAssistedItemStatus.CheckingOrders)
+                if (run.Phase == DhcAssistedPhase.StatusLookup)
                 {
                     if (!current.Session.Verified)
                     {
@@ -259,11 +335,14 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                         continue;
                     }
                     item.Status = DhcAssistedItemStatus.CheckingStatus;
-                    item.StartedAt ??= DateTimeOffset.UtcNow;
+                    item.StartedAt ??= clock.GetUtcNow();
                     item.AttemptCount++;
                     await db.SaveChangesAsync(ct);
+                    EnsureWithinLifetime(current);
+                    Touch(current);
                     var response = await current.Session.SearchStatusAsync(mapped, parts.Value.Number,
                         parts.Value.Year, ct);
+                    Touch(current);
                     if (DelhiHighCourtAssistedForms.CaptchaRequired(response))
                     {
                         item.Status = DhcAssistedItemStatus.CaptchaRequired;
@@ -271,13 +350,22 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                         return;
                     }
                     await service.ProcessStatusAsync(run, item, response, ct);
-                    if (item.Status is DhcAssistedItemStatus.NotFound or DhcAssistedItemStatus.NeedsReview)
-                        continue;
+                    Touch(current);
+                    continue;
                 }
-                // Order search has an independently audited option map and its
-                // own normal form. Loading that form presents its own challenge;
-                // no earlier answer is replayed.
-                if (current.Session.OrderForm == null || item.Status != DhcAssistedItemStatus.CheckingOrders)
+                // Order phase starts only after every status item is terminal.
+                // The official order form has an independent type map/challenge.
+                if (!await db.CourtExternalCaseStatusObservations.AnyAsync(x =>
+                    x.RunItemId == item.Id && x.NormalizedCaseIdentity == identity, ct))
+                {
+                    item.Status = DhcAssistedItemStatus.NeedsReview;
+                    item.FailureCode = "MissingExactStatusEvidence";
+                    item.FailureMessage = "Order lookup skipped because exact status evidence is unavailable.";
+                    run.NeedsReviewCases++;
+                    await db.SaveChangesAsync(ct);
+                    continue;
+                }
+                if (!current.Session.Verified || current.Session.OrderForm == null)
                 {
                     item.Status = DhcAssistedItemStatus.CheckingOrders;
                     await PauseAsync(current, db, run, true, ct);
@@ -288,15 +376,22 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 if (orderType == null)
                 {
                     item.Status = DhcAssistedItemStatus.NeedsReview;
-                    item.FailureCode = "UnsupportedOrderCaseType";
-                    run.NeedsReviewCases++;
-                    run.CompletedCases++;
-                    item.CompletedAt = DateTimeOffset.UtcNow;
+                    if (item.FailureCode == null)
+                    {
+                        item.FailureCode = "UnsupportedOrderCaseType";
+                        run.NeedsReviewCases++;
+                    }
+                    item.CompletedAt = clock.GetUtcNow();
                     await db.SaveChangesAsync(ct);
                     continue;
                 }
+                item.Status = DhcAssistedItemStatus.CheckingOrders;
+                await db.SaveChangesAsync(ct);
+                EnsureWithinLifetime(current);
+                Touch(current);
                 var orderResponse = await current.Session.SearchOrdersAsync(orderType,
                     parts.Value.Number, parts.Value.Year, ct);
+                Touch(current);
                 if (DelhiHighCourtAssistedForms.CaptchaRequired(orderResponse))
                 {
                     await PauseAsync(current, db, run, true, ct);
@@ -304,12 +399,26 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 }
                 await service.ProcessOrdersAsync(run, item, orderResponse, ct);
             }
-            await FinishAsync(current, DhcAssistedRunStatus.Completed, null);
+            if (run.Phase == DhcAssistedPhase.StatusLookup)
+            {
+                await mutex.WaitAsync(ct);
+                try
+                {
+                    run.Status = DhcAssistedRunStatus.ReadyForOrders;
+                    run.LastActivityAt = clock.GetUtcNow();
+                    await db.SaveChangesAsync(ct);
+                    Touch(current);
+                    current.Busy = false;
+                }
+                finally { mutex.Release(); }
+            }
+            else await FinishAsync(current, DhcAssistedRunStatus.Completed, null);
         }
         catch (OperationCanceledException)
         {
-            await FinishAsync(current, current.Cancel.IsCancellationRequested ?
-                DhcAssistedRunStatus.Cancelled : DhcAssistedRunStatus.Interrupted, null);
+            await FinishAsync(current, current.Expired || !current.Cancel.IsCancellationRequested ?
+                DhcAssistedRunStatus.Interrupted : DhcAssistedRunStatus.Cancelled,
+                current.Expired ? "Assisted DHC session expired. Resume with a new official verification code." : null);
         }
         catch (Exception ex)
         {
@@ -324,13 +433,20 @@ public sealed class DelhiHighCourtAssistedCoordinator(
     private async Task PauseAsync(Active current, LacDbContext db, DhcAssistedSyncRun run,
         bool orders, CancellationToken ct)
     {
+        EnsureWithinLifetime(current);
         await current.Session.LoadFormAsync(orders, ct);
-        current.OrdersChallenge = orders;
-        run.Status = DhcAssistedRunStatus.PausedForCaptcha;
-        run.CaptchaChallenges++;
-        run.LastActivityAt = DateTimeOffset.UtcNow;
-        await db.SaveChangesAsync(ct);
-        current.Busy = false;
+        await mutex.WaitAsync(ct);
+        try
+        {
+            current.OrdersChallenge = orders;
+            run.Status = DhcAssistedRunStatus.PausedForCaptcha;
+            run.CaptchaChallenges++;
+            run.LastActivityAt = clock.GetUtcNow();
+            await db.SaveChangesAsync(ct);
+            Touch(current);
+            current.Busy = false;
+        }
+        finally { mutex.Release(); }
     }
 
     private async Task FinishAsync(Active current, DhcAssistedRunStatus status, string? message)
@@ -341,8 +457,8 @@ public sealed class DelhiHighCourtAssistedCoordinator(
         var run = await db.DhcAssistedSyncRuns.Include(x => x.Items)
             .SingleAsync(x => x.Id == current.RunId, CancellationToken.None);
         run.Status = status;
-        run.CompletedAt = DateTimeOffset.UtcNow;
-        run.LastActivityAt = run.CompletedAt.Value;
+        run.CompletedAt = status is DhcAssistedRunStatus.Interrupted ? null : clock.GetUtcNow();
+        run.LastActivityAt = clock.GetUtcNow();
         run.FailureMessage = message;
         if (status == DhcAssistedRunStatus.Failed)
         {
@@ -362,8 +478,10 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                          DhcAssistedItemStatus.CaptchaRequired or DhcAssistedItemStatus.CheckingStatus or
                          DhcAssistedItemStatus.CheckingOrders)) item.Status = DhcAssistedItemStatus.Cancelled;
         await db.SaveChangesAsync(CancellationToken.None);
+        current.MonitorCancel.Cancel();
         await current.Session.DisposeAsync();
         current.Cancel.Dispose();
+        current.MonitorCancel.Dispose();
         if (ReferenceEquals(active, current)) active = null;
     }
 
@@ -372,6 +490,7 @@ public sealed class DelhiHighCourtAssistedCoordinator(
         using var scope = scopes.CreateScope();
         await scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>()
             .RequireOperatorAsync(userId, ct);
+        await ExpireIfNeededAsync();
         if (active == null || active.RunId != runId)
             throw new CourtWorkflowException("No active DHC session. Resume with a new official challenge.", 409);
         if (active.OwnerId != userId)
@@ -394,12 +513,69 @@ public sealed class DelhiHighCourtAssistedCoordinator(
     {
         var runs = await db.DhcAssistedSyncRuns.Where(x =>
             x.Status == DhcAssistedRunStatus.Running || x.Status == DhcAssistedRunStatus.WaitingForCaptcha ||
-            x.Status == DhcAssistedRunStatus.PausedForCaptcha).ToListAsync(ct);
+            x.Status == DhcAssistedRunStatus.PausedForCaptcha ||
+            x.Status == DhcAssistedRunStatus.ReadyForOrders).ToListAsync(ct);
         foreach (var run in runs)
         {
             run.Status = DhcAssistedRunStatus.Interrupted;
             run.FailureMessage = "Application session ended. Resume with a new official verification code.";
         }
         if (runs.Count > 0) await db.SaveChangesAsync(ct);
+    }
+
+    private void Touch(Active current) => current.Touch(clock.GetUtcNow());
+
+    private void EnsureWithinLifetime(Active current)
+    {
+        var now = clock.GetUtcNow();
+        if (current.Expired || now - current.LastActivityAt >= idleTimeout ||
+            now - current.CreatedAt >= maxLifetime)
+        {
+            current.Expired = true;
+            current.Cancel.Cancel();
+            throw new OperationCanceledException("Assisted DHC session expired.");
+        }
+    }
+
+    private void StartMonitor(Active current)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!current.MonitorCancel.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), current.MonitorCancel.Token);
+                    await SweepExpiredAsync();
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                logger.LogWarning("Assisted DHC expiry monitor stopped: {Category}", ex.GetType().Name);
+            }
+        });
+    }
+
+    // Also called by actions, so a late timer tick cannot permit stale use.
+    // Tests advance a controllable TimeProvider and call this without waiting.
+    public async Task SweepExpiredAsync()
+    {
+        await mutex.WaitAsync();
+        try { await ExpireIfNeededAsync(); }
+        finally { mutex.Release(); }
+    }
+
+    private async Task ExpireIfNeededAsync()
+    {
+        var current = active;
+        if (current == null || current.Finished != 0 || current.Expired) return;
+        var now = clock.GetUtcNow();
+        if (now - current.LastActivityAt < idleTimeout && now - current.CreatedAt < maxLifetime) return;
+        current.Expired = true;
+        current.Cancel.Cancel();
+        if (!current.Busy)
+            await FinishAsync(current, DhcAssistedRunStatus.Interrupted,
+                "Assisted DHC session expired. Resume with a new official verification code.");
     }
 }

@@ -161,6 +161,8 @@ public interface ICourtWorkflowService
 {
     Task<Guid> CreateCourtCaseAsync(CreateCourtCaseCommand command, Guid callerUserId, CancellationToken ct = default);
     Task UpdateMetadataAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command, Guid callerUserId, CancellationToken ct = default);
+    Task UpdateMetadataWithAuditReasonAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command,
+        string auditReason, Guid callerUserId, CancellationToken ct = default);
     Task AssignAsync(Guid courtCaseId, AssignCourtCaseCommand command, Guid callerUserId, CancellationToken ct = default);
     Task<CourtProceedingDto> RecordProceedingAsync(Guid courtCaseId, RecordCourtProceedingCommand command, Guid callerUserId, CancellationToken ct = default);
     Task LinkAwardAsync(Guid courtCaseId, Guid awardId, int expectedRevision, Guid callerUserId, CancellationToken ct = default);
@@ -504,7 +506,17 @@ public sealed class CourtWorkflowService(
         }, verifySucceeded, ct);
     }
 
-    public async Task UpdateMetadataAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command, Guid callerUserId, CancellationToken ct = default)
+    public Task UpdateMetadataAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command,
+        Guid callerUserId, CancellationToken ct = default) =>
+        UpdateMetadataCoreAsync(courtCaseId, command, null, callerUserId, ct);
+
+    public Task UpdateMetadataWithAuditReasonAsync(Guid courtCaseId,
+        UpdateCourtCaseMetadataCommand command, string auditReason, Guid callerUserId,
+        CancellationToken ct = default) =>
+        UpdateMetadataCoreAsync(courtCaseId, command, auditReason, callerUserId, ct);
+
+    private async Task UpdateMetadataCoreAsync(Guid courtCaseId, UpdateCourtCaseMetadataCommand command,
+        string? auditReason, Guid callerUserId, CancellationToken ct)
     {
         var canEdit = await courtAuth.CanEditCourtCaseAsync(courtCaseId, callerUserId, ct);
         if (!canEdit)
@@ -572,7 +584,8 @@ public sealed class CourtWorkflowService(
                 WorkstreamNameSnapshot = courtWs?.Name ?? "Court References",
                 OldStatus = oldStatus,
                 NewStatus = courtCase.CurrentStatus,
-                Notes = statusChanged ? $"Status changed from {oldStatus ?? "None"} to {courtCase.CurrentStatus ?? "None"}" : "Metadata updated"
+                Notes = statusChanged ? $"Status changed from {oldStatus ?? "None"} to {courtCase.CurrentStatus ?? "None"}" +
+                    (string.IsNullOrWhiteSpace(auditReason) ? "" : $". {auditReason.Trim()}") : "Metadata updated"
             });
 
             await db.SaveChangesAsync(c);
