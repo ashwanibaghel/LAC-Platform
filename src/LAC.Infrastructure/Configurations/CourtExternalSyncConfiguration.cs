@@ -17,6 +17,7 @@ public static class CourtExternalSyncConfiguration
         b.Entity<CourtExternalSourceDocument>().Property(x => x.ProviderCode).HasMaxLength(80);
         b.Entity<CourtExternalSourceDocument>().Property(x => x.SourceUrl).HasMaxLength(2048);
         b.Entity<CourtExternalSourceDocument>().Property(x => x.Sha256Hash).HasMaxLength(64);
+        b.Entity<CourtExternalSourceDocument>().Property(x => x.LiveTargetSetFingerprint).HasMaxLength(64);
         b.Entity<CourtExternalSourceDocument>().HasIndex(x => new { x.ProviderCode, x.SourceUrl }).IsUnique();
         b.Entity<CourtExternalSourceDocument>().HasIndex(x => x.DocumentId);
         b.Entity<CourtExternalSourceDocument>().HasOne(x => x.Document).WithMany()

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Security.Cryptography;
+using System.Text;
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -32,6 +33,7 @@ public sealed partial class DelhiHighCourtSyncService(
     public const string Provider = "DELHI_HIGH_COURT_CAUSE_LIST";
     public const string OfficialPage = "https://delhihighcourt.nic.in/web/cause-lists/cause-list";
     private const int MaxPdfBytes = 20 * 1024 * 1024;
+    private sealed record LiveTarget(Guid Id, string Identity, string? CurrentStatus);
 
     public async Task<DhcSyncStatusDto> StatusAsync(Guid userId, CancellationToken ct)
     {
@@ -102,7 +104,8 @@ public sealed partial class DelhiHighCourtSyncService(
             await db.SaveChangesAsync(ct);
             try
             {
-                if ((await ActiveTargetIdentitiesAsync(ct)).Count == 0)
+                var liveTargets = await ActiveLiveTargetsAsync(ct);
+                if (liveTargets.Count == 0)
                 {
                     run.Status = CourtExternalSyncRunStatus.Completed;
                     run.CompletedAt = clock.GetUtcNow();
@@ -110,6 +113,10 @@ public sealed partial class DelhiHighCourtSyncService(
                     await db.SaveChangesAsync(ct);
                     return run;
                 }
+                var targetIdentities = liveTargets.Select(x => x.Identity).ToHashSet(StringComparer.Ordinal);
+                var targetFingerprint = Fingerprint(targetIdentities);
+                var targetsByIdentity = liveTargets.GroupBy(x => x.Identity)
+                    .ToDictionary(x => x.Key, x => x.ToList(), StringComparer.Ordinal);
                 var configured = configuration["CourtSync:DelhiHighCourt:BaseUrl"] ?? OfficialPage;
                 if (!Uri.TryCreate(configured, UriKind.Absolute, out var pageUrl) ||
                     !DelhiHighCourtCauseListParser.IsApprovedUri(pageUrl) ||
@@ -135,7 +142,8 @@ public sealed partial class DelhiHighCourtSyncService(
                     var url = publication.PdfUrl.AbsoluteUri;
                     var source = await db.CourtExternalSourceDocuments.SingleOrDefaultAsync(
                         x => x.ProviderCode == Provider && x.SourceUrl == url, ct);
-                    if (source?.Status == CourtExternalSourceStatus.Processed ||
+                    if (source is { Status: CourtExternalSourceStatus.Processed } &&
+                        source.LiveTargetSetFingerprint == targetFingerprint ||
                         source is { Kind: CourtExternalSourceKind.Unsupported, Status: CourtExternalSourceStatus.NeedsReview }) continue;
                     if (source == null)
                     {
@@ -155,7 +163,9 @@ public sealed partial class DelhiHighCourtSyncService(
                     }
                     try
                     {
-                        var bytes = await ReadBytesAsync(http, publication.PdfUrl, MaxPdfBytes, ct);
+                        var bytes = source.DocumentId.HasValue
+                            ? await ReadStoredPdfAsync(source.DocumentId.Value, ct)
+                            : await ReadBytesAsync(http, publication.PdfUrl, MaxPdfBytes, ct);
                         if (bytes.Length < 4 || bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
                             throw new InvalidDataException("Official download is not a PDF.");
                         var sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
@@ -166,8 +176,7 @@ public sealed partial class DelhiHighCourtSyncService(
                         IReadOnlyList<DhcCaseLine> caseLines;
                         using (var pdf = new MemoryStream(bytes, writable: false))
                             caseLines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
-                        var targets = (await ActiveTargetIdentitiesAsync(ct)).ToHashSet(StringComparer.Ordinal);
-                        var hasTargetEvidence = caseLines.Any(line => targets.Contains(line.Identity));
+                        var hasTargetEvidence = caseLines.Any(line => targetIdentities.Contains(line.Identity));
                         var sameHashSources = await db.CourtExternalSourceDocuments
                             .Where(x => x.ProviderCode == Provider && x.Sha256Hash == sha &&
                                 x.DocumentId != null && x.Id != source.Id)
@@ -203,6 +212,7 @@ public sealed partial class DelhiHighCourtSyncService(
                             source.Sha256Hash = sha;
                             source.DownloadedAt = clock.GetUtcNow();
                             source.Status = CourtExternalSourceStatus.Processed;
+                            source.LiveTargetSetFingerprint = targetFingerprint;
                             source.FailureMessage = null;
                             run.SourceDocumentsProcessed++;
                             await db.SaveChangesAsync(ct);
@@ -223,10 +233,11 @@ public sealed partial class DelhiHighCourtSyncService(
                             await db.SaveChangesAsync(ct);
                         }
                         if (publication.Kind == CourtExternalSourceKind.DeletionOrCorrigendum)
-                            await ApplyDeletionSignalsAsync(source, caseLines, run, ct);
+                            await ApplyDeletionSignalsAsync(source, caseLines, targetIdentities, run, ct);
                         else
-                            await ApplyPositiveListingsAsync(source, caseLines, today, run, ct);
+                            await ApplyPositiveListingsAsync(source, caseLines, targetsByIdentity, today, run, ct);
                         source.Status = CourtExternalSourceStatus.Processed;
+                        source.LiveTargetSetFingerprint = targetFingerprint;
                         source.FailureMessage = null;
                         run.SourceDocumentsProcessed++;
                         await db.SaveChangesAsync(ct);
@@ -262,12 +273,8 @@ public sealed partial class DelhiHighCourtSyncService(
     }
 
     private async Task ApplyPositiveListingsAsync(CourtExternalSourceDocument source, IReadOnlyList<DhcCaseLine> lines,
-        DateOnly today, CourtExternalSyncRun run, CancellationToken ct)
+        IReadOnlyDictionary<string, List<LiveTarget>> identities, DateOnly today, CourtExternalSyncRun run, CancellationToken ct)
     {
-        var local = await db.CourtCases.AsNoTracking().Where(x => x.RecordStatus == RecordStatus.Active &&
-            x.CourtName == "Delhi High Court").Select(x => new { x.Id, x.CourtName, x.CaseNumber, x.CurrentStatus }).ToListAsync(ct);
-        var identities = local.GroupBy(x => CourtImportService.Identity(x.CourtName, x.CaseNumber))
-            .Where(x => x.Key != null).ToDictionary(x => x.Key!, x => x.ToList());
         var alreadySeen = (await db.CourtExternalListingObservations.AsNoTracking()
             .Where(x => x.SourceDocument.DocumentId == source.DocumentId &&
                 x.ListingDate == source.ListingDate && x.SourceDocument.Kind == source.Kind)
@@ -320,9 +327,8 @@ public sealed partial class DelhiHighCourtSyncService(
     }
 
     private async Task ApplyDeletionSignalsAsync(CourtExternalSourceDocument source, IReadOnlyList<DhcCaseLine> lines,
-        CourtExternalSyncRun run, CancellationToken ct)
+        IReadOnlySet<string> targets, CourtExternalSyncRun run, CancellationToken ct)
     {
-        var targets = await ActiveTargetIdentitiesAsync(ct);
         foreach (var line in lines)
         {
             if (!targets.Contains(line.Identity)) continue;
@@ -357,6 +363,39 @@ public sealed partial class DelhiHighCourtSyncService(
             .Select(x => new { x.CourtName, x.CaseNumber }).ToListAsync(ct);
         return cases.Select(x => CourtImportService.Identity(x.CourtName, x.CaseNumber))
             .Where(x => x != null).Select(x => x!).Distinct().ToList();
+    }
+
+    private async Task<List<LiveTarget>> ActiveLiveTargetsAsync(CancellationToken ct)
+    {
+        var cases = await db.CourtCases.AsNoTracking()
+            .Where(x => x.RecordStatus == RecordStatus.Active && x.CourtName == "Delhi High Court")
+            .Select(x => new { x.Id, x.CourtName, x.CaseNumber, x.CurrentStatus }).ToListAsync(ct);
+        return cases.Select(x => new LiveTarget(x.Id, CourtImportService.Identity(x.CourtName, x.CaseNumber) ?? "", x.CurrentStatus))
+            .Where(x => x.Identity.Length > 0).ToList();
+    }
+
+    private static string Fingerprint(IEnumerable<string> identities) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Join("\n", identities.Distinct(StringComparer.Ordinal).OrderBy(x => x, StringComparer.Ordinal))))).ToLowerInvariant();
+
+    private async Task<byte[]> ReadStoredPdfAsync(Guid documentId, CancellationToken ct)
+    {
+        var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == documentId, ct);
+        if (document.FileSize > MaxPdfBytes) throw new InvalidDataException("Stored DHC source exceeds size limit.");
+        await using var stored = await storage.OpenReadAsync(document.StoragePath, ct)
+            ?? throw new FileNotFoundException("Stored DHC source evidence is missing.");
+        using var output = new MemoryStream();
+        var buffer = new byte[81920];
+        int count;
+        while ((count = await stored.ReadAsync(buffer, ct)) > 0)
+        {
+            if (output.Length + count > MaxPdfBytes) throw new InvalidDataException("Stored DHC source exceeds size limit.");
+            output.Write(buffer, 0, count);
+        }
+        var bytes = output.ToArray();
+        if (Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant() != document.Sha256Hash)
+            throw new InvalidDataException("Stored DHC source hash mismatch.");
+        return bytes;
     }
 
     public async Task<DhcObservationDto> ReviewAsync(Guid id, DhcReviewDecisionRequest decision,

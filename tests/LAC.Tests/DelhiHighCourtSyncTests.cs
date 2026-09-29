@@ -153,6 +153,105 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task UnchangedTargets_DoNotRedownloadEphemeralUnmatchedPdf()
+    {
+        using var f = new Fixture();
+        f.Case("W.P.(C) 7003/2026");
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "unmatched.pdf",
+            "1 W.P.(C)-8004/2026");
+        await f.Sync.RunAsync(null, default);
+        var source = Assert.Single(f.Db.CourtExternalSourceDocuments);
+        Assert.NotNull(source.LiveTargetSetFingerprint);
+        Assert.Null(source.DocumentId);
+        await f.Sync.RunAsync(null, default);
+        Assert.Equal(1, f.Source.PdfRequests);
+        Assert.Empty(f.Storage.Files);
+        Assert.Empty(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
+    public async Task NewTarget_RechecksEphemeralPdfAndRetainsNewEvidence()
+    {
+        using var f = new Fixture();
+        f.Case("W.P.(C) 7003/2026");
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "later-target.pdf",
+            "1 W.P.(C)-8004/2026");
+        await f.Sync.RunAsync(null, default);
+        var source = Assert.Single(f.Db.CourtExternalSourceDocuments);
+        var firstFingerprint = source.LiveTargetSetFingerprint;
+        Assert.Null(source.DocumentId);
+        f.Case("W.P.(C) 8004/2026");
+
+        var second = await f.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, second.Status);
+        Assert.NotEqual(firstFingerprint, source.LiveTargetSetFingerprint);
+        Assert.Equal(2, f.Source.PdfRequests);
+        Assert.NotNull(source.DocumentId);
+        Assert.Single(f.Db.Documents);
+        Assert.Single(f.Storage.Files);
+        Assert.Equal("delhihighcourt|wpc|8004|2026", Assert.Single(f.Db.CourtExternalListingObservations).NormalizedCaseIdentity);
+    }
+
+    [Fact]
+    public async Task NewTarget_ReusesStoredPdfWithoutNetworkOrDuplicateObservation()
+    {
+        using var f = new Fixture();
+        f.Case("W.P.(C) 7003/2026");
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "stored-targets.pdf",
+            "1 W.P.(C)-7003/2026", "2 W.P.(C)-8004/2026");
+        await f.Sync.RunAsync(null, default);
+        var source = Assert.Single(f.Db.CourtExternalSourceDocuments);
+        var documentId = source.DocumentId;
+        Assert.NotNull(documentId);
+        Assert.Single(f.Db.CourtExternalListingObservations);
+        f.Case("W.P.(C) 8004/2026");
+
+        var second = await f.Sync.RunAsync(null, default);
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, second.Status);
+        Assert.Equal(1, second.ObservationsCreated);
+        Assert.Equal(1, f.Source.PdfRequests);
+        Assert.Equal(documentId, source.DocumentId);
+        Assert.Single(f.Db.Documents);
+        Assert.Single(f.Storage.Files);
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Count());
+        Assert.Equal(2, f.Db.CourtExternalListingObservations.Select(x => x.NormalizedCaseIdentity).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task TargetFingerprint_IsIndependentOfCaseInsertionOrder()
+    {
+        using var first = new Fixture();
+        using var second = new Fixture();
+        first.Case("W.P.(C) 7003/2026"); first.Case("W.P.(C) 8004/2026");
+        second.Case("W.P.(C) 8004/2026"); second.Case("W.P.(C) 7003/2026");
+        first.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "order.pdf", "1 W.P.(C)-9999/2026");
+        second.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "order.pdf", "1 W.P.(C)-9999/2026");
+        await first.Sync.RunAsync(null, default);
+        await second.Sync.RunAsync(null, default);
+        Assert.Equal(Assert.Single(first.Db.CourtExternalSourceDocuments).LiveTargetSetFingerprint,
+            Assert.Single(second.Db.CourtExternalSourceDocuments).LiveTargetSetFingerprint);
+    }
+
+    [Fact]
+    public async Task CorrectedCanonicalIdentity_ChangesFingerprintAndRechecksSource()
+    {
+        using var f = new Fixture();
+        var target = f.Case("W.P.(C) 7003/2026");
+        f.Publish("ADVANCE CAUSE LIST OF CASES FOR 30.09.2026", "30-09-2026", "correction.pdf",
+            "1 W.P.(C)-8004/2026");
+        await f.Sync.RunAsync(null, default);
+        var source = Assert.Single(f.Db.CourtExternalSourceDocuments);
+        var firstFingerprint = source.LiveTargetSetFingerprint;
+        target.CaseNumber = "W.P.(C) 8004/2026";
+        await f.Db.SaveChangesAsync();
+
+        await f.Sync.RunAsync(null, default);
+        Assert.NotEqual(firstFingerprint, source.LiveTargetSetFingerprint);
+        Assert.Equal(2, f.Source.PdfRequests);
+        Assert.Single(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
     public async Task OfficialGet_RetriesAtMostTwiceWithoutDuplicatingEvidence()
     {
         using var fixture = new Fixture();

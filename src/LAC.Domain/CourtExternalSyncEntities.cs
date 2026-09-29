@@ -44,6 +44,7 @@ public sealed class CourtExternalSourceDocument
     public Guid? DocumentId { get; set; }
     public Document? Document { get; set; }
     public string? Sha256Hash { get; set; }
+    public string? LiveTargetSetFingerprint { get; set; }
     public string? FailureMessage { get; set; }
 }
 
