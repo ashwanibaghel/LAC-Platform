@@ -34,6 +34,28 @@ test("assisted results show each current-run official status and date only after
   assert.match(assisted, /Action needed/);
 });
 
+test("individual result labels follow the current observation, not a stale run item", () => {
+  const source = assisted.match(/const caseResultLabel = \(result: CaseResult\) => \{[\s\S]*?\n\};/);
+  assert.ok(source, "current-observation result label function missing");
+  assert.doesNotMatch(source[0], /item\.status/);
+  const label = new Function(`${source[0].replace("(result: CaseResult)", "(result)")}\nreturn caseResultLabel;`)();
+  assert.equal(label({ reviewReason: "AutoStatusApplied", status: "Accepted", listingDate: null }), "LAC status updated to Disposed");
+  assert.equal(label({ reviewReason: null, status: "NeedsReview", listingDate: null }), "Action needed");
+  assert.equal(label({ reviewReason: null, status: "Rejected", listingDate: null }), "Reviewed · LAC record kept");
+  assert.equal(label({ reviewReason: null, status: "Accepted", listingDate: null }), "Verified · no action needed");
+  assert.equal(label({ reviewReason: null, status: "Accepted", listingDate: "2026-10-01" }), "Official date available");
+  assert.match(assisted, /\{result \? <>[\s\S]*?<strong>\{caseResultLabel\(result\)\}<\/strong>/);
+  assert.match(assisted, /<\/> : item\.status === "NotFound"/);
+  assert.match(assisted, /<small>\{result \? caseResultLabel\(result\) : result === null \? "Official result unavailable"/);
+  assert.match(assisted, /\[key\]: null/);
+});
+
+test("case workspace offers a direct resolution route only for an unresolved DHC status", () => {
+  assert.match(workspace, /const actionNeeded = !!latest && latest\.status === "NeedsReview"/);
+  assert.match(workspace, /\{actionNeeded && <p><Link className="dhc-resolve-link" to="\/court-cases\/dhc-assisted">Resolve DHC status →<\/Link><\/p>\}/);
+  assert.match(workspace, /<details><summary>View official result \/ Technical details<\/summary>/);
+});
+
 test("status difference uses backend-validated update or keep actions with standard audit reasons", () => {
   assert.match(assisted, /reviewReason === "StatusDifference"/);
   assert.match(assisted, /rawStatus\?\.trim\(\)\.toLowerCase\(\) === "disposed"/);

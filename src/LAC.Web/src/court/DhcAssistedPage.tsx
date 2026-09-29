@@ -13,6 +13,13 @@ const base = "/api/court-cases/dhc-assisted";
 const statusDecisionReason = "Officer confirmed the exact official Delhi High Court status shown in assisted verification.";
 const keepDecisionReason = "Officer reviewed the official Delhi High Court result and retained the current LAC record.";
 const displayDate = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+const caseResultLabel = (result: CaseResult) => {
+  if (result.reviewReason === "AutoStatusApplied") return "LAC status updated to Disposed";
+  if (result.status === "NeedsReview") return "Action needed";
+  if (result.status === "Rejected") return "Reviewed · LAC record kept";
+  if (result.status === "Accepted") return result.listingDate ? "Official date available" : "Verified · no action needed";
+  return "Official result recorded";
+};
 
 export const DhcAssistedPage: React.FC = () => {
   const [params, setParams] = useSearchParams();
@@ -50,7 +57,11 @@ export const DhcAssistedPage: React.FC = () => {
       if (!response.ok) throw new Error(accept ? "This evidence cannot be accepted automatically. Check the exact identity and current date." : "Review decision could not be saved.");
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
       const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
-      if (runId && courtCaseId) requestedResults.current.delete(`${runId}:${courtCaseId}`);
+      if (runId && courtCaseId) {
+        const key = `${runId}:${courtCaseId}`;
+        requestedResults.current.delete(key);
+        setCaseResults(previous => ({ ...previous, [key]: null }));
+      }
       await loadReviews();
       if (runId) await load();
     } catch (error) { setMessage(String(error)); }
@@ -67,7 +78,11 @@ export const DhcAssistedPage: React.FC = () => {
       if (!response.ok) throw new Error("The office status could not be updated. Open the case and review the official result.");
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
       const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
-      if (runId && courtCaseId) requestedResults.current.delete(`${runId}:${courtCaseId}`);
+      if (runId && courtCaseId) {
+        const key = `${runId}:${courtCaseId}`;
+        requestedResults.current.delete(key);
+        setCaseResults(previous => ({ ...previous, [key]: null }));
+      }
       await loadReviews();
       if (runId) await load();
     } catch (error) { setMessage(String(error)); }
@@ -118,8 +133,8 @@ export const DhcAssistedPage: React.FC = () => {
           if (!response.ok) throw new Error("Official result unavailable.");
           const observations = await response.json() as CaseResult[];
           const current = observations.find(row => new Date(row.observedAt).getTime() >= new Date(run.startedAt).getTime()) ?? null;
-          setCaseResults(previous => ({ ...previous, [item.courtCaseId]: current }));
-        }).catch(() => { setCaseResults(previous => ({ ...previous, [item.courtCaseId]: null })); });
+          setCaseResults(previous => ({ ...previous, [key]: current }));
+        }).catch(() => { setCaseResults(previous => ({ ...previous, [key]: null })); });
     }
   }, [runId, run]);
 
@@ -286,14 +301,14 @@ export const DhcAssistedPage: React.FC = () => {
           <h3>{statusComplete ? `All ${run.totalCases} case statuses checked.` : `${run.completedCases} of ${run.totalCases} case statuses checked.`}</h3>
           <p>Official case-status results{run.phase === "OrderLookup" ? " · Order links are checked separately" : ""}</p>
           <div className="court-assisted-result-list">{run.items.map(item => {
-            const result = caseResults[item.courtCaseId];
+            const result = caseResults[`${runId}:${item.courtCaseId}`];
             const done = ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status) || run.phase === "OrderLookup";
             return <article key={item.id}>
               <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link>
-              {item.status === "NotFound" ? <span>No official case result found in this check</span> : result ? <>
+              {result ? <>
                 <span>DHC: {result.rawStatus ?? "Status not stated"}{result.listingDate ? ` · Next date: ${displayDate(result.listingDate)}` : " · Next date: —"}</span>
-                <strong>{result.status === "NeedsReview" || item.status === "NeedsReview" ? "Action needed" : result.listingDate ? "Official date available" : "No action needed"}</strong>
-              </> : <span>{done ? item.failureMessage || (item.status === "Skipped" ? "Not checked — case details need review" : result === null ? "Official result unavailable for this check" : "Official result is being loaded") : "Waiting to be checked"}</span>}
+                <strong>{caseResultLabel(result)}</strong>
+              </> : item.status === "NotFound" ? <span>No official case result found in this check</span> : <span>{done ? item.failureMessage || (item.status === "Skipped" ? "Not checked — case details need review" : result === null ? "Official result unavailable for this check" : "Official result is being loaded") : "Waiting to be checked"}</span>}
             </article>;
           })}</div>
         </section>}
@@ -307,10 +322,13 @@ export const DhcAssistedPage: React.FC = () => {
           <span>Review <b>{run.needsReviewCases}</b></span><span>Not found <b>{run.items.filter(item => item.status === "NotFound").length}</b></span>
           <span>Failed <b>{run.failedCases}</b></span><span>Remaining <b>{Math.max(0, run.totalCases - run.completedCases)}</b></span>
           {run.phase === "OrderLookup" && <span>Order searches <b>{orderCount}</b></span>}</div>
-        <h3>Queue</h3><ol>{run.items.map(item => <li key={item.id}>
-          <span aria-hidden="true">{["Completed", "StatusCaptured"].includes(item.status) ? "✓" : ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status) ? "→" : "○"}</span>
-          <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link><small>{["StatusCaptured", "Completed"].includes(item.status) ? "Checked" : item.status === "NeedsReview" ? "Needs attention" : item.status === "CaptchaRequired" ? "Code needed" : item.status === "Queued" ? "Waiting" : item.status === "CheckingStatus" ? "Checking" : item.status === "NotFound" ? "Not found" : item.status}</small>
-        </li>)}</ol>
+        <h3>Queue</h3><ol>{run.items.map(item => {
+          const result = caseResults[`${runId}:${item.courtCaseId}`];
+          return <li key={item.id}>
+            <span aria-hidden="true">{["Completed", "StatusCaptured"].includes(item.status) ? "✓" : ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status) ? "→" : "○"}</span>
+            <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link><small>{result ? caseResultLabel(result) : result === null ? "Official result unavailable" : ["StatusCaptured", "Completed"].includes(item.status) ? "Checked" : item.status === "NeedsReview" ? "Needs attention" : item.status === "CaptchaRequired" ? "Code needed" : item.status === "Queued" ? "Waiting" : item.status === "CheckingStatus" ? "Checking" : item.status === "NotFound" ? "Not found" : item.status}</small>
+          </li>;
+        })}</ol>
       </aside>
     </div>}
     {reviews.length > 0 && <section className="court-assisted-reviews" aria-label="Official evidence needing officer review">

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 type StatusObservation = { id: string; observedAt: string; rawStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; status: string; reviewReason: string | null };
 type OrderObservation = { id: string; observedAt: string; orderDate: string | null; officialUrl: string | null; rawRemark: string | null };
@@ -31,6 +32,7 @@ export const DhcOfficialVerification: React.FC<{ caseId: string; canonicalStatus
       {updated ? <p role="status">LAC status was updated Pending → Disposed from an exact official DHC result.</p> :
         actionNeeded ? <p role="alert">LAC record: {canonicalStatus ?? "Not stated"}. No automatic change was made. Review the official result and choose an action.</p> :
         <p>{latest.status === "Rejected" ? `LAC record retained: ${canonicalStatus ?? "Not stated"}.` : differs ? `LAC record: ${canonicalStatus}. Check the earlier decision in history.` : "No change needed."}</p>}
+      {actionNeeded && <p><Link className="dhc-resolve-link" to="/court-cases/dhc-assisted">Resolve DHC status →</Link></p>}
       <details><summary>View official result / Technical details</summary><p>Checked {new Date(latest.observedAt).toLocaleString("en-IN")}</p><p>{latest.rawEvidenceText}</p></details>
     </>}
     {order && <p>Official order dated {order.orderDate}: <a href={order.officialUrl!} target="_blank" rel="noreferrer">Open order</a></p>}

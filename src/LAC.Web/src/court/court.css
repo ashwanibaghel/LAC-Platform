@@ -662,4 +662,5 @@
 .court-assisted-review-card .court-assisted-review-actions .primary-button { font-size: 11px; }.court-assisted-review-card details p { white-space: pre-wrap; }
 .dhc-case-outcome-label { display: inline-block; margin-bottom: 6px; padding: 3px 6px; border-radius: 4px; background: #eaf5ef; color: #216343; font-size: 10px; font-weight: 800; letter-spacing: .06em; }.dhc-case-outcome-label.attention { background: #fff1de; color: #9a5b12; }
 .dhc-case-outcome p { margin: 6px 0; font-size: 12px; }.dhc-case-outcome details { margin-top: 10px; color: #64748b; font-size: 11px; }.dhc-case-outcome summary { color: #255e87; cursor: pointer; }
+.dhc-resolve-link { display: inline-flex; align-items: center; min-height: 34px; padding: 7px 12px; border-radius: 5px; background: #235f92; color: #fff; font-size: 12px; font-weight: 700; text-decoration: none; }.dhc-resolve-link:hover { background: #194b76; color: #fff; }
 @media (max-width: 850px) { .dhc-cycle-numbers { grid-template-columns: repeat(2,minmax(0,1fr)); }.dhc-watched ul { grid-template-columns: 1fr; }.court-assisted-result-list article { grid-template-columns: 1fr; } }
