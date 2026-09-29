@@ -1071,6 +1071,89 @@ public sealed class DelhiHighCourtSyncTests
     }
 
     [Fact]
+    public async Task HistoricalRetainedDocumentHashMismatch_FailsRun()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "retained.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-03-2026", "later.pdf", ["1 W.P.(C)-7003/2026"]));
+        var url = f.Source.Pdfs.Keys.Single(x => x.EndsWith("retained.pdf"));
+        var bytes = f.Source.Pdfs[url];
+        const string path = "retained-historical-evidence.pdf";
+        f.Storage.Files[path] = bytes;
+        var document = new LAC.Domain.Document
+        {
+            DocumentType = "CourtCauseList", StoragePath = path,
+            Sha256Hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+            FileSize = bytes.Length, MimeType = "application/pdf"
+        };
+        f.Db.Documents.Add(document);
+        f.Db.CourtExternalSyncRuns.Add(new CourtExternalSyncRun
+        {
+            Mode = CourtExternalSyncMode.HistoricalBackfill,
+            Status = CourtExternalSyncRunStatus.Failed,
+            StartedAt = f.Clock.Now.AddMinutes(-10), CompletedAt = f.Clock.Now.AddMinutes(-1)
+        });
+        var source = new CourtExternalSourceDocument
+        {
+            SourceUrl = url, SourceTitle = "Retained official PDF",
+            ListingDate = new DateOnly(2026, 9, 5), Kind = CourtExternalSourceKind.OrdinaryListing,
+            DocumentId = document.Id, Sha256Hash = new string('0', 64),
+            Status = CourtExternalSourceStatus.Processed,
+            DownloadedAt = f.Clock.Now.AddMinutes(-5)
+        };
+        f.Db.CourtExternalSourceDocuments.Add(source);
+        await f.Db.SaveChangesAsync();
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Failed, run.Status);
+        Assert.Contains("Stored official PDF hash differs", run.FailureMessage);
+        Assert.DoesNotContain("Historical publication unreadable", run.FailureMessage);
+        Assert.Equal(CourtExternalSourceStatus.Processed, source.Status);
+        Assert.Null(source.FailureMessage);
+        Assert.Equal(0, run.ReviewCount);
+        Assert.Equal(0, run.SourceDocumentsProcessed);
+        Assert.Equal(0, f.Source.PdfRequests);
+        Assert.Empty(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
+    public async Task HistoricalDownloadedKnownHashChange_IsNeverAcceptedAsEvidence()
+    {
+        using var f = new Fixture();
+        f.Clock.Today = new DateOnly(2026, 9, 29);
+        var item = f.Case();
+        Legacy(f, item, new DateOnly(2026, 3, 15));
+        HistoricalPages(f,
+            ("05-09-2026", "changed.pdf", ["1 W.P.(C)-7003/2026"]),
+            ("15-03-2026", "later.pdf", ["1 W.P.(C)-7003/2026"]));
+        var url = f.Source.Pdfs.Keys.Single(x => x.EndsWith("changed.pdf"));
+        var source = new CourtExternalSourceDocument
+        {
+            SourceUrl = url, SourceTitle = "Known official URL",
+            ListingDate = new DateOnly(2026, 9, 5), Kind = CourtExternalSourceKind.OrdinaryListing,
+            Sha256Hash = new string('0', 64)
+        };
+        f.Db.CourtExternalSourceDocuments.Add(source);
+        await f.Db.SaveChangesAsync();
+
+        var run = await f.Sync.RunHistoricalAsync(f.User.Id, default);
+
+        Assert.Equal(CourtExternalSyncRunStatus.Completed, run.Status);
+        Assert.Equal(CourtExternalSourceStatus.NeedsReview, source.Status);
+        Assert.Contains("hash differs", source.FailureMessage);
+        Assert.Equal(1, run.ReviewCount);
+        Assert.Equal(1, run.SourceDocumentsProcessed);
+        Assert.Null(source.DocumentId);
+        Assert.DoesNotContain(f.Db.CourtExternalListingObservations, x => x.SourceDocumentId == source.Id);
+        Assert.Single(f.Db.CourtExternalListingObservations);
+    }
+
+    [Fact]
     public async Task HistoricalDeletionFallsBackAndFailedRunRetriesWithoutDuplicateEvidence()
     {
         using var f = new Fixture();

@@ -243,6 +243,26 @@ public sealed partial class DelhiHighCourtSyncService
         }
         if (source.ListingDate != publication.ListingDate || source.Kind != publication.Kind)
             throw new InvalidDataException("Previously stored official source metadata differs from archive.");
+        byte[] bytes;
+        string sha;
+        IReadOnlyList<DhcCaseLine> lines;
+        byte[]? storedBytes = null;
+        string? retainedSha = null;
+        if (source.DocumentId != null)
+        {
+            // Retained evidence must pass metadata, storage, and hash integrity
+            // checks before any recoverable PDF parsing or resume shortcut.
+            var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
+            await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
+                ?? throw new InvalidDataException("Stored official PDF is missing.");
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct);
+            storedBytes = buffer.ToArray();
+            retainedSha = Convert.ToHexString(SHA256.HashData(storedBytes)).ToLowerInvariant();
+            if (source.Sha256Hash != retainedSha ||
+                (document.Sha256Hash != null && document.Sha256Hash != retainedSha))
+                throw new InvalidDataException("Stored official PDF hash differs from retained evidence metadata.");
+        }
         // A previously completed historical publication is already accounted for.
         // A live-window Processed source alone is not proof of historical processing.
         if (source.Status == CourtExternalSourceStatus.Processed && source.Sha256Hash != null &&
@@ -252,28 +272,13 @@ public sealed partial class DelhiHighCourtSyncService
             await db.SaveChangesAsync(ct);
             return;
         }
-        byte[] bytes;
-        string sha;
-        IReadOnlyList<DhcCaseLine> lines;
-        byte[]? storedBytes = null;
-        if (source.DocumentId != null)
-        {
-            // DB metadata and retained-evidence storage are infrastructure state;
-            // failures here must fail the run, not become a publication review.
-            var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == source.DocumentId, ct);
-            await using var stream = await storage.OpenReadAsync(document.StoragePath, ct)
-                ?? throw new InvalidDataException("Stored official PDF is missing.");
-            using var buffer = new MemoryStream();
-            await stream.CopyToAsync(buffer, ct);
-            storedBytes = buffer.ToArray();
-        }
         try
         {
             bytes = storedBytes ?? await get(publication.PdfUrl, HistoricalMaxPdfBytes);
             if (bytes.Length < 4 || bytes[0] != '%' || bytes[1] != 'P' || bytes[2] != 'D' || bytes[3] != 'F')
                 throw new InvalidDataException("Official download is not a PDF.");
-            sha = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
-            if (source.Sha256Hash != null && source.Sha256Hash != sha)
+            sha = retainedSha ?? Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            if (storedBytes == null && source.Sha256Hash != null && source.Sha256Hash != sha)
                 throw new InvalidDataException("Previously stored official PDF hash differs.");
             using var pdf = new MemoryStream(bytes, writable: false);
             lines = DelhiHighCourtCauseListParser.ExtractCases(pdf);
