@@ -4,11 +4,15 @@ import { Link, useSearchParams } from "react-router-dom";
 type PreviewCase = { courtCaseId: string; caseNumber: string; operationalNdoh: string | null; reason: string; identityNeedsReview: boolean };
 type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number; skippedIdentityCount: number; cases: PreviewCase[] };
 type RunItem = { id: string; courtCaseId: string; caseNumber: string; queueOrder: number; reason: string; status: string; failureCode: string | null; failureMessage: string | null };
-type Run = { id: string; status: string; phase: "StatusLookup" | "OrderLookup"; ownerName: string; isOwner: boolean; totalCases: number; completedCases: number; updatedCases: number; noChangeCases: number; needsReviewCases: number; failedCases: number; captchaChallenges: number; failureMessage: string | null; items: RunItem[] };
+type Run = { id: string; startedAt: string; status: string; phase: "StatusLookup" | "OrderLookup"; ownerName: string; isOwner: boolean; totalCases: number; completedCases: number; updatedCases: number; noChangeCases: number; needsReviewCases: number; failedCases: number; captchaChallenges: number; failureMessage: string | null; items: RunItem[] };
 type Challenge = { kind: "Text" | "Image"; officialText: string | null; imageAvailable: boolean; operation: string };
 type Review = { id: string; courtCaseId: string; observedAt: string; rawCaseNumber: string; rawStatus: string | null; canonicalStatus: string | null; listingDate: string | null; rawCourtNumber: string | null; rawEvidenceText: string; reviewReason: string | null };
+type CaseResult = { observedAt: string; rawStatus: string | null; listingDate: string | null; status: string; reviewReason: string | null };
 
 const base = "/api/court-cases/dhc-assisted";
+const statusDecisionReason = "Officer confirmed the exact official Delhi High Court status shown in assisted verification.";
+const keepDecisionReason = "Officer reviewed the official Delhi High Court result and retained the current LAC record.";
+const displayDate = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 
 export const DhcAssistedPage: React.FC = () => {
   const [params, setParams] = useSearchParams();
@@ -25,6 +29,8 @@ export const DhcAssistedPage: React.FC = () => {
   const [imageVersion, setImageVersion] = useState(0);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
+  const [caseResults, setCaseResults] = useState<Record<string, CaseResult | null>>({});
+  const requestedResults = useRef(new Set<string>());
 
   const loadReviews = useCallback(async () => {
     const response = await fetch(`${base}/reviews`, { credentials: "include", cache: "no-store" });
@@ -32,8 +38,8 @@ export const DhcAssistedPage: React.FC = () => {
   }, []);
   useEffect(() => { void loadReviews().catch(() => {}); }, [loadReviews]);
 
-  const decide = async (id: string, accept: boolean) => {
-    const reason = reviewReasons[id]?.trim();
+  const decide = async (id: string, accept: boolean, standardReason?: string) => {
+    const reason = standardReason ?? reviewReasons[id]?.trim();
     if (!reason) { setMessage("Enter a reason before recording a review decision."); return; }
     setBusy(true); setMessage(null);
     try {
@@ -43,6 +49,8 @@ export const DhcAssistedPage: React.FC = () => {
       });
       if (!response.ok) throw new Error(accept ? "This evidence cannot be accepted automatically. Check the exact identity and current date." : "Review decision could not be saved.");
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
+      const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
+      if (runId && courtCaseId) requestedResults.current.delete(`${runId}:${courtCaseId}`);
       await loadReviews();
       if (runId) await load();
     } catch (error) { setMessage(String(error)); }
@@ -50,17 +58,16 @@ export const DhcAssistedPage: React.FC = () => {
   };
 
   const confirmStatus = async (id: string) => {
-    const reason = reviewReasons[id]?.trim();
-    if (!reason) { setMessage("Enter a reason before confirming the LAC case status."); return; }
-    if (!window.confirm("Update the office case status to Disposed? The previous status and official result will remain in history.")) return;
     setBusy(true); setMessage(null);
     try {
       const response = await fetch(`${base}/reviews/${id}/confirm-canonical-status`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify({ reason: statusDecisionReason }),
       });
       if (!response.ok) throw new Error("The office status could not be updated. Open the case and review the official result.");
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
+      const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
+      if (runId && courtCaseId) requestedResults.current.delete(`${runId}:${courtCaseId}`);
       await loadReviews();
       if (runId) await load();
     } catch (error) { setMessage(String(error)); }
@@ -96,6 +103,25 @@ export const DhcAssistedPage: React.FC = () => {
     const timer = window.setInterval(() => { void load().catch(() => {}); }, 3000);
     return () => window.clearInterval(timer);
   }, [runId, run?.status, load]);
+
+  // Load each finished case once, at the result stage; never present an older run's observation as this run's result.
+  useEffect(() => {
+    if (!runId || !run || (run.completedCases === 0 && run.phase === "StatusLookup")) return;
+    const finished = run.items.filter(item => ["StatusCaptured", "Completed", "NeedsReview"].includes(item.status) ||
+      run.phase === "OrderLookup" && !["NotFound", "Skipped", "Cancelled"].includes(item.status));
+    for (const item of finished) {
+      const key = `${runId}:${item.courtCaseId}`;
+      if (requestedResults.current.has(key)) continue;
+      requestedResults.current.add(key);
+      void fetch(`/api/court-cases/${item.courtCaseId}/dhc-status-observations`, { credentials: "include", cache: "no-store" })
+        .then(async response => {
+          if (!response.ok) throw new Error("Official result unavailable.");
+          const observations = await response.json() as CaseResult[];
+          const current = observations.find(row => new Date(row.observedAt).getTime() >= new Date(run.startedAt).getTime()) ?? null;
+          setCaseResults(previous => ({ ...previous, [item.courtCaseId]: current }));
+        }).catch(() => { setCaseResults(previous => ({ ...previous, [item.courtCaseId]: null })); });
+    }
+  }, [runId, run]);
 
   const start = async () => {
     setBusy(true); setMessage(null);
@@ -178,6 +204,9 @@ export const DhcAssistedPage: React.FC = () => {
 
   const currentItem = run?.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status))
     ?? run?.items.find(item => item.status === "Queued");
+  const currentPosition = run && currentItem ? run.items.findIndex(item => item.id === currentItem.id) + 1 : 0;
+  const statusComplete = !!run && run.completedCases >= run.totalCases;
+  const statusResultsVisible = !!run && (run.completedCases > 0 || run.phase === "OrderLookup");
   const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
   const orderCount = run?.items.filter(item => item.status === "Completed" ||
     item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length ?? 0;
@@ -226,9 +255,10 @@ export const DhcAssistedPage: React.FC = () => {
       <section className="court-assisted-main-card" aria-label="Assisted verification work">
         <div className="court-assisted-card-heading"><div><h2>{run.status === "Completed" ? "Delhi High Court check complete" : "Checking Delhi High Court"}</h2>
           <p>{run.phase === "StatusLookup" ? "Checking case status" : "Checking order links"} · Run by {run.ownerName}</p></div></div>
-        {run.failureMessage && ["Interrupted", "Failed"].includes(run.status) && <p className="court-assisted-alert" role="alert">{run.failureMessage}</p>}
+        {run.phase === "OrderLookup" && <p className="court-assisted-phase-note">Case status checking is complete. {run.status === "Interrupted" || run.status === "Failed" ? "Order-link checking was interrupted." : "Order-link checking is separate."}</p>}
+        {run.failureMessage && ["Interrupted", "Failed"].includes(run.status) && <details className="court-assisted-technical"><summary>Interruption details</summary><p>{run.failureMessage}</p></details>}
         {run.isOwner && run.status === "ReadyForOrders" && <section className="court-assisted-decision" aria-label="Order verification choice">
-          <span className="court-assisted-eyebrow">CASES CHECKED</span><h3>✓ {run.completedCases} cases checked</h3>
+          <span className="court-assisted-eyebrow">STATUS CHECK COMPLETE</span><h3>All {run.totalCases} case statuses checked.</h3>
           <p>{run.noChangeCases} no change · {run.updatedCases} updated · {run.needsReviewCases} need attention</p>
           <p>Check latest official order links too? Order search is separate and may ask for another Delhi High Court verification code.</p>
           <div><button className="primary-button" disabled={busy} onClick={() => void orderAction("orders")}>Check order links</button>
@@ -237,26 +267,41 @@ export const DhcAssistedPage: React.FC = () => {
         {run.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(run.status) && challenge &&
           <section className="court-assisted-challenge" aria-label="Official DHC verification code">
             <span className="court-assisted-eyebrow">OFFICIAL CHECK</span><h3>{run.status === "PausedForCaptcha" ? "Delhi High Court needs another verification code" : "Delhi High Court verification"}</h3>
-            {currentItem && <p>Checking <strong>{currentItem.caseNumber}</strong></p>}
-            {run.status === "PausedForCaptcha" && <p>{run.completedCases} of {run.totalCases} cases are already complete.</p>}
+            {currentItem && <p>{run.phase === "OrderLookup" ? "Checking order links for" : `Checking case ${currentPosition} of ${run.totalCases}:`} <strong>{currentItem.caseNumber}</strong></p>}
+            {run.status === "PausedForCaptcha" && <p>{run.phase === "OrderLookup" ? `All ${run.totalCases} case statuses are checked. Delhi High Court needs another verification code to continue order-link checking.` : `${run.completedCases} of ${run.totalCases} cases are already checked. Delhi High Court needs another verification code to continue.`}</p>}
             <span className="court-assisted-code-label">Official DHC verification code</span>
             {challenge.kind === "Text" ? <div className="court-assisted-code" aria-label="Official DHC security code">{challenge.officialText}</div> :
               <img className="court-assisted-code-image" alt="Official DHC verification code" src={`${base}/runs/${runId}/captcha/image?v=${imageVersion}`} />}
             <label className="court-assisted-answer">Enter code<input autoComplete="off" spellCheck={false} value={answer} onChange={event => setAnswer(event.target.value)} /></label>
-            <div className="court-assisted-challenge-actions"><button className="primary-button" disabled={busy || !answer.trim()} onClick={() => void verify()}>Continue</button>
+            <div className="court-assisted-challenge-actions"><button className="primary-button" disabled={busy || !answer.trim()} onClick={() => void verify()}>Enter verification code</button>
               <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button></div>
             <small>The code is entered manually by the officer.</small>
           </section>}
         {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <div className="court-assisted-reopen"><button className="primary-button" disabled={busy} onClick={() => void resume()}>
-          {run.phase === "StatusLookup" && run.items.length === run.totalCases &&
+          {run.phase === "OrderLookup" ? "Resume order check" : run.phase === "StatusLookup" && run.items.length === run.totalCases &&
             run.items.every(item => ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status))
-            ? "Return to order/finish choice" : "Resume with new code"}</button></div>}
-        {currentItem && run.status === "Running" && <div className="court-assisted-current"><span>Checking case {run.completedCases + 1} of {run.totalCases}</span><strong>{currentItem.caseNumber}</strong></div>}
+            ? "View verification results" : "Resume DHC check"}</button></div>}
+        {currentItem && run.status === "Running" && <div className="court-assisted-current"><span>{run.phase === "OrderLookup" ? "Checking official order links" : `Checking case ${currentPosition} of ${run.totalCases}`}</span><strong>{currentItem.caseNumber}</strong></div>}
+        {statusResultsVisible && <section className="court-assisted-results" aria-label="Individual official case results">
+          <h3>{statusComplete ? `All ${run.totalCases} case statuses checked.` : `${run.completedCases} of ${run.totalCases} case statuses checked.`}</h3>
+          <p>Official case-status results{run.phase === "OrderLookup" ? " · Order links are checked separately" : ""}</p>
+          <div className="court-assisted-result-list">{run.items.map(item => {
+            const result = caseResults[item.courtCaseId];
+            const done = ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status) || run.phase === "OrderLookup";
+            return <article key={item.id}>
+              <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link>
+              {item.status === "NotFound" ? <span>No official case result found in this check</span> : result ? <>
+                <span>DHC: {result.rawStatus ?? "Status not stated"}{result.listingDate ? ` · Next date: ${displayDate(result.listingDate)}` : " · Next date: —"}</span>
+                <strong>{result.status === "NeedsReview" || item.status === "NeedsReview" ? "Action needed" : result.listingDate ? "Official date available" : "No action needed"}</strong>
+              </> : <span>{done ? item.failureMessage || (item.status === "Skipped" ? "Not checked — case details need review" : result === null ? "Official result unavailable for this check" : "Official result is being loaded") : "Waiting to be checked"}</span>}
+            </article>;
+          })}</div>
+        </section>}
         {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders", "Interrupted"].includes(run.status) &&
           <button className="court-assisted-cancel" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
       </section>
       <aside className="court-assisted-progress" aria-label="Verification progress and queue">
-        <h2>Progress</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong><p>case statuses checked</p>
+        <h2>{run.phase === "OrderLookup" ? "Order-link check" : "Case-status check"}</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong><p>case statuses checked</p>
         <progress value={run.completedCases} max={Math.max(1, run.totalCases)} />
         <div className="court-assisted-metrics"><span>Updated <b>{run.updatedCases}</b></span><span>No change <b>{run.noChangeCases}</b></span>
           <span>Review <b>{run.needsReviewCases}</b></span><span>Not found <b>{run.items.filter(item => item.status === "NotFound").length}</b></span>
@@ -270,20 +315,31 @@ export const DhcAssistedPage: React.FC = () => {
     </div>}
     {reviews.length > 0 && <section className="court-assisted-reviews" aria-label="Official evidence needing officer review">
       <div className="court-assisted-review-heading"><h2>Cases needing attention</h2><p>These official results were not applied automatically. Compare them with the office record.</p></div>
-      <div className="court-assisted-review-grid">{reviews.map(row => <article key={row.id} className="court-assisted-review-card">
-        <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link><span>NEEDS REVIEW</span></div>
-        <dl><div><dt>Official</dt><dd>{row.rawStatus ?? "Not stated"}</dd></div><div><dt>LAC</dt><dd>{row.canonicalStatus ?? "Not stated"}</dd></div>
-          <div><dt>Listing</dt><dd>{row.listingDate ?? "Not stated"}</dd></div><div><dt>Court</dt><dd>{row.rawCourtNumber ?? "Not stated"}</dd></div></dl>
-        <small>{new Date(row.observedAt).toLocaleString()} · {reviewMessage(row.reviewReason)}</small>
-        <details><summary>Captured evidence</summary><p>{row.rawEvidenceText}</p></details>
-        <label>Reason for decision<input value={reviewReasons[row.id] ?? ""}
-          onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>
-        <div className="court-assisted-review-actions"><button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Accept evidence</button>
-          <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, false)}>Keep LAC record</button></div>
-        {row.reviewReason === "StatusDifference" && row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() !== "disposed" &&
-          <button className="court-assisted-danger" disabled={busy || !reviewReasons[row.id]?.trim()}
-            onClick={() => void confirmStatus(row.id)}>Confirm LAC status as Disposed</button>}
-      </article>)}</div>
+      <div className="court-assisted-review-grid">{reviews.map(row => {
+        const safeStatusDecision = row.reviewReason === "StatusDifference" &&
+          row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() === "pending";
+        return <article key={row.id} className="court-assisted-review-card">
+          <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link><span>ACTION NEEDED</span></div>
+          {safeStatusDecision ? <>
+            <div className="court-assisted-status-comparison"><p>Delhi High Court says: <strong>DISPOSED</strong></p>
+              <p>LAC record says: <strong>PENDING</strong></p></div>
+            <p>No automatic change was made. Choose the correct office action.</p>
+            <div className="court-assisted-review-actions"><button className="primary-button" disabled={busy} onClick={() => void confirmStatus(row.id)}>Update LAC status to Disposed</button>
+              <button className="secondary-button" disabled={busy} onClick={() => void decide(row.id, false, keepDecisionReason)}>Keep LAC as Pending</button></div>
+          </> : <>
+            <p>{reviewMessage(row.reviewReason)}</p>
+            <dl><div><dt>Delhi High Court</dt><dd>{row.rawStatus ?? "Not stated"}</dd></div><div><dt>LAC record</dt><dd>{row.canonicalStatus ?? "Not stated"}</dd></div>
+              <div><dt>Official next date</dt><dd>{row.listingDate ? displayDate(row.listingDate) : "Not stated"}</dd></div></dl>
+            <label>Reason for decision<input value={reviewReasons[row.id] ?? ""}
+              onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>
+            <div className="court-assisted-review-actions"><button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Use official result</button>
+              <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, false)}>Keep LAC record</button></div>
+          </>}
+          <details><summary>View official result / Technical details</summary><p>Checked {new Date(row.observedAt).toLocaleString("en-IN")}</p>
+            <p>Official next date: {row.listingDate ?? "Not stated"} · Court: {row.rawCourtNumber ?? "Not stated"}</p>
+            <p>{row.rawEvidenceText}</p></details>
+        </article>;
+      })}</div>
     </section>}
   </main>;
 };

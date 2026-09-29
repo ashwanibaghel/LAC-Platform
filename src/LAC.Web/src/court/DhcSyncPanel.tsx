@@ -1,12 +1,25 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
+import type { CourtCaseListItemDto, CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
+
+type ActiveCheck = { status: string; phase: string; completedCases: number; totalCases: number };
+const watchedUrl = "/api/court-cases?courtName=Delhi%20High%20Court";
+const displayDate = (value: string) => new Date(`${value.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+const checkButton = (run: ActiveCheck | null) => !run ? "Check now" :
+  run.status === "Completed" || run.status === "ReadyForOrders" ? "View verification results" :
+  run.status === "WaitingForCaptcha" || run.status === "PausedForCaptcha" ? "Enter verification code" :
+  run.phase === "OrderLookup" && ["Interrupted", "Failed"].includes(run.status) ? "Resume order check" :
+  ["Interrupted", "Failed"].includes(run.status) ? "Resume DHC check" : "View check progress";
 
 export const DhcSyncPanel: React.FC = () => {
   const [status, setStatus] = useState<DhcSyncStatusDto | null>(null);
   const [historical, setHistorical] = useState<DhcHistoricalStatusDto | null>(null);
   const [assisted, setAssisted] = useState<{ recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number } | null>(null);
   const [activeAssistedRun, setActiveAssistedRun] = useState<string | null>(null);
+  const [activeCheck, setActiveCheck] = useState<ActiveCheck | null>(null);
+  const [watchedCount, setWatchedCount] = useState<number | null>(null);
+  const [watchedCases, setWatchedCases] = useState<CourtCaseListItemDto[] | null>(null);
+  const [watchError, setWatchError] = useState(false);
   const [pendingHistoricalAttempt, setPendingHistoricalAttempt] = useState<string | null>(null);
   const [reviews, setReviews] = useState<DhcObservationDto[]>([]);
   const [sourceReviews, setSourceReviews] = useState<DhcSourceReviewDto[]>([]);
@@ -19,13 +32,14 @@ export const DhcSyncPanel: React.FC = () => {
   const [candidates, setCandidates] = useState<Record<string, { id: string; caseNumber: string }[]>>({});
 
   const refresh = useCallback(async () => {
-    const [statusResult, historicalResult, reviewResult, sourceResult, assistedResult, activeResult] = await Promise.all([
+    const [statusResult, historicalResult, reviewResult, sourceResult, assistedResult, activeResult, watchedResult] = await Promise.all([
       fetch("/api/court-cases/dhc-sync/status", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/historical/status", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/review", { credentials: "include" }),
       fetch("/api/court-cases/dhc-sync/sources/review", { credentials: "include" }),
       fetch("/api/court-cases/dhc-assisted/preview", { credentials: "include" }),
       fetch("/api/court-cases/dhc-assisted/active", { credentials: "include" }),
+      fetch(`${watchedUrl}&page=1&pageSize=1`, { credentials: "include" }),
     ]);
     if (statusResult.ok) setStatus(await statusResult.json() as DhcSyncStatusDto);
     if (historicalResult.ok) {
@@ -37,8 +51,35 @@ export const DhcSyncPanel: React.FC = () => {
     if (reviewResult.ok) setReviews(await reviewResult.json() as DhcObservationDto[]);
     if (sourceResult.ok) setSourceReviews(await sourceResult.json() as DhcSourceReviewDto[]);
     if (assistedResult.ok) setAssisted(await assistedResult.json() as typeof assisted);
-    if (activeResult.ok) setActiveAssistedRun((await activeResult.json() as { runId: string | null }).runId);
+    if (watchedResult.ok) setWatchedCount((await watchedResult.json() as CourtCaseListResponse).totalCount);
+    if (activeResult.ok) {
+      const id = (await activeResult.json() as { runId: string | null }).runId;
+      setActiveAssistedRun(id);
+      if (id) {
+        const response = await fetch(`/api/court-cases/dhc-assisted/runs/${id}`, { credentials: "include", cache: "no-store" });
+        setActiveCheck(response.ok ? await response.json() as ActiveCheck : null);
+      } else setActiveCheck(null);
+    }
   }, []);
+
+  const loadWatchedCases = async () => {
+    if (watchedCases) return;
+    setWatchError(false);
+    try {
+      const first = await fetch(`${watchedUrl}&page=1&pageSize=100`, { credentials: "include" });
+      if (!first.ok) throw new Error();
+      const page = await first.json() as CourtCaseListResponse;
+      const all = [...page.items];
+      for (let number = 2; all.length < page.totalCount; number++) {
+        const next = await fetch(`${watchedUrl}&page=${number}&pageSize=100`, { credentials: "include" });
+        if (!next.ok) throw new Error();
+        const result = await next.json() as CourtCaseListResponse;
+        if (result.items.length === 0) break;
+        all.push(...result.items);
+      }
+      setWatchedCases(all);
+    } catch { setWatchError(true); }
+  };
 
   useEffect(() => { void refresh().catch(() => setMessage("DHC sync status unavailable.")); }, [refresh]);
   useEffect(() => {
@@ -99,6 +140,7 @@ export const DhcSyncPanel: React.FC = () => {
 
   if (!status) return null;
   const attempt = status.lastAttempt;
+  const completed = status.lastSuccess;
   const syncTone = attempt?.status === "Failed" ? "error" : status.lastSuccess ? "healthy" : "neutral";
   const checkedAt = attempt?.completedAt ?? attempt?.startedAt;
   return <section className="dhc-sync-section" aria-label="Delhi High Court public cause-list sync">
@@ -108,8 +150,29 @@ export const DhcSyncPanel: React.FC = () => {
         <strong>{assisted?.recommendedCount ?? 0} cases need official checking</strong>
         {reviews.length + sourceReviews.length > 0 && <p className="dhc-daily-attention">Needs attention: {reviews.length + sourceReviews.length} · Open More to review</p>}</div>
       <Link className="primary-button" to={activeAssistedRun ? `/court-cases/dhc-assisted?run=${activeAssistedRun}` : "/court-cases/dhc-assisted"}>
-        {activeAssistedRun ? "Continue check" : "Check now"}</Link>
+        {activeAssistedRun ? checkButton(activeCheck) : "Check now"}</Link>
     </div>
+    {completed && <div className="dhc-cycle-result" aria-label="Last completed DHC cause-list check">
+      <strong>Last completed cause-list check</strong>
+      <span>{completed.completedAt ? new Date(completed.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "Time unavailable"}</span>
+      <div className="dhc-cycle-numbers">
+        <span><b>{watchedCount ?? "—"}</b>DHC cases being watched</span>
+        <span><b>{completed.sourceDocumentsProcessed}</b>official publications checked</span>
+        <span><b>{completed.observationsCreated}</b>new listing entries found</span>
+        <span><b>{completed.observationsAccepted}</b>official listing entries confirmed</span>
+        <span><b>{completed.reviewCount}</b>need attention</span>
+      </div>
+      <small>Listing entries can include more than one publication for a case; they are not a count of distinct cases.</small>
+    </div>}
+    <details className="dhc-watched" onToggle={event => { if (event.currentTarget.open) void loadWatchedCases(); }}>
+      <summary>DHC cases being watched{watchedCount !== null ? ` (${watchedCount})` : ""}</summary>
+      {watchError ? <p>Could not load the case list. Close and reopen to retry.</p> : watchedCases === null ? <p>Loading cases…</p> : watchedCases.length === 0 ? <p>No Delhi High Court cases are currently registered.</p> :
+        <ul>{watchedCases.map(item => <li key={item.id}><Link to={`/court-cases/${item.id}`}>{item.caseNumber}</Link>
+          {item.operationalNdoh && <span>Current date: {displayDate(item.operationalNdoh)} · {item.operationalNdohSource ?? "Office record"}</span>}
+          <small>{item.operationalNdohSource === "DHC Cause List" && item.operationalNdoh
+            ? `Official date found · ${displayDate(item.operationalNdoh)} · ${item.daysFromToday === 0 ? "Today" : item.daysFromToday === 1 ? "Tomorrow" : item.daysFromToday !== null ? `${item.daysFromToday} days away` : "Date recorded"}`
+            : "No current DHC cause-list date recorded"}</small></li>)}</ul>}
+    </details>
     {historical && !historical.completedRun && historical.eligibleCaseCount > 0 &&
       <div className="dhc-history-banner"><span>{historical.lastAttempt?.status === "Failed" ?
         `Historical check paused. Connection was interrupted; completed progress is safe. ${historical.lastAttempt.sourceDocumentsProcessed} of ${historical.lastAttempt.sourceDocumentsDiscovered} publications checked.` :

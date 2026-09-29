@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useCalculator } from "../calculator/CalculatorContext";
+import type { CourtCaseListResponse } from "../court/types";
 import {
   IconDesk,
   IconWorkItem,
@@ -30,6 +31,7 @@ export const Home: React.FC = () => {
   const { user, hasPermission } = useAuth();
   const { openCalculator } = useCalculator();
   const [counts, setCounts] = useState<OperationalCounts>({});
+  const [upcomingCourt, setUpcomingCourt] = useState<CourtCaseListResponse | null>(null);
 
   const userDisplayName = user?.displayName || user?.username || "Officer";
   const designationName = user?.designation?.name || null;
@@ -122,6 +124,13 @@ export const Home: React.FC = () => {
             }));
           }
         })
+        .catch(() => {});
+    }
+
+    if (hasPermission("Court.View")) {
+      fetch("/api/court-cases?ndohFilter=Next7Days&page=1&pageSize=5", { credentials: "include" })
+        .then(res => res.ok ? res.json() as Promise<CourtCaseListResponse> : null)
+        .then(data => { if (active && data) setUpcomingCourt(data); })
         .catch(() => {});
     }
 
@@ -241,6 +250,18 @@ export const Home: React.FC = () => {
           )}
         </div>
       </section>
+
+      {hasPermission("Court.View") && upcomingCourt && upcomingCourt.totalCount > 0 &&
+        <section className="home-court-upcoming" aria-label="Upcoming court hearings">
+          <div className="home-block-header"><h2>Court hearings coming up</h2>
+            <Link to="/court-cases?ndohFilter=Next7Days">View all <IconArrowRight size={14} /></Link></div>
+          <p>{upcomingCourt.totalCount} {upcomingCourt.totalCount === 1 ? "hearing" : "hearings"} in the next 7 days</p>
+          <ul>{upcomingCourt.items.slice(0, 5).map(item => <li key={item.id}>
+            <Link to={`/court-cases/${item.id}`}>{item.caseNumber}</Link>
+            <span>{item.daysFromToday === 0 ? "Today" : item.daysFromToday === 1 ? "Tomorrow" : item.daysFromToday !== null ? `In ${item.daysFromToday} days` : item.operationalNdoh ?? "Date recorded"}</span>
+            {item.operationalNdohSource === "DHC Cause List" && <small>Verified from DHC cause list</small>}
+          </li>)}</ul>
+        </section>}
 
       {/* 3. Office Modules Command Center Cards */}
       <section>

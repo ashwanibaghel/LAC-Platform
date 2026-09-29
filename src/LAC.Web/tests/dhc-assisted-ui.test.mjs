@@ -34,16 +34,18 @@ test("official challenge remains human-entered, blank, and cleared after submiss
   assert.match(page, /setAnswer\(""\); \/\/ Never retain a submitted answer/);
   assert.match(page, /Official DHC verification code/);
   assert.match(page, /code is entered manually by the officer/);
-  assert.match(page, />Continue</);
+  assert.match(page, />Enter verification code</);
   assert.doesNotMatch(page, /setAnswer\(challenge\.officialText/);
 });
 
-test("case workspace shows plain-language official status and order evidence", () => {
-  assert.match(workspace, /Last checked:/);
-  assert.match(workspace, /Delhi High Court status:/);
-  assert.match(workspace, /Next date:/);
-  assert.match(workspace, /Latest official DHC order:/);
-  assert.match(workspace, /Office status and Delhi High Court status differ/);
+test("case workspace leads with outcome and keeps technical evidence collapsed", () => {
+  assert.match(workspace, /UPDATED/);
+  assert.match(workspace, /ACTION NEEDED/);
+  assert.match(workspace, /VERIFIED/);
+  assert.match(workspace, /Official next date:/);
+  assert.match(workspace, /No change needed/);
+  assert.match(workspace, /View official result \/ Technical details/);
+  assert.match(workspace, /Official order links and details/);
 });
 
 test("status batch completes before the separately chosen order phase", () => {
@@ -54,17 +56,22 @@ test("status batch completes before the separately chosen order phase", () => {
   assert.match(page, />Done</);
 });
 
-test("completed status interruption reopens at the order-or-finish choice", () => {
-  assert.match(page, /Return to order\/finish choice/);
+test("completed status interruption explains the separate order check", () => {
+  assert.match(page, /Case status checking is complete/);
+  assert.match(page, /Order-link checking was interrupted/);
+  assert.match(page, /Resume order check/);
   assert.match(page, /run\.items\.every\(item => \["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"\]/);
   assert.match(page, /Could not reopen this verification run/);
 });
 
-test("canonical status confirmation is distinct from accepting external evidence", () => {
-  assert.match(page, /Accept evidence/);
-  assert.match(page, /Confirm LAC status as Disposed/);
+test("normal status difference has explicit office actions without a typed reason", () => {
+  assert.match(page, /Update LAC status to Disposed/);
+  assert.match(page, /Keep LAC as Pending/);
   assert.match(page, /confirm-canonical-status/);
-  assert.match(page, /Reason for decision/);
+  assert.match(page, /statusDecisionReason/);
+  assert.match(page, /keepDecisionReason/);
+  assert.match(page, /safeStatusDecision \? <>/);
+  assert.match(page, /: <>[\s\S]*Reason for decision/);
 });
 
 test("assisted queue keeps narrow office screens inside the page width", () => {

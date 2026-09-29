@@ -265,6 +265,17 @@
 }
 
 /* Motion Accessibility Support */
+.home-court-upcoming { margin-top: 14px; padding: 12px 15px; border: 1px solid #dce7f0; border-radius: 9px; background: #fff; }
+.home-court-upcoming .home-block-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.home-court-upcoming .home-block-header a { display: inline-flex; align-items: center; gap: 4px; color: #175d95; font-size: 12px; font-weight: 700; text-decoration: none; }
+.home-court-upcoming > p { margin: 3px 0 9px; color: #64748b; font-size: 12px; }
+.home-court-upcoming ul { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px 15px; margin: 0; padding: 0; list-style: none; }
+.home-court-upcoming li { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 2px 8px; padding: 7px 9px; border-radius: 6px; background: #f6f9fc; font-size: 12px; }
+.home-court-upcoming li a { overflow: hidden; color: #175d95; font-weight: 700; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.home-court-upcoming li span { color: #344f67; }.home-court-upcoming li small { grid-column: 1/-1; color: #62836a; }
+@media (max-width: 640px) { .home-court-upcoming ul { grid-template-columns: 1fr; } }
+
+/* Motion Accessibility Support */
 @media (prefers-reduced-motion: reduce) {
   .home-myday-card:hover,
   .home-clean-card:hover,

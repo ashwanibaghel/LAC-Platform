@@ -20,18 +20,21 @@ export const DhcOfficialVerification: React.FC<{ caseId: string; canonicalStatus
   const order = orders.find(x => x.officialUrl && x.orderDate);
   const differs = latest?.rawStatus && canonicalStatus &&
     latest.rawStatus.trim().toLowerCase() !== canonicalStatus.trim().toLowerCase();
-  return <section className="court-card" aria-label="DHC Official Verification" style={{ marginTop: 16, padding: 16 }}>
-    <h3>DHC Official Verification</h3>
+  const updated = latest?.reviewReason === "AutoStatusApplied";
+  const actionNeeded = !!latest && latest.status === "NeedsReview";
+  const outcome = !latest ? "OFFICIAL ORDERS" : updated ? "UPDATED" : actionNeeded ? "ACTION NEEDED" : latest.status === "Rejected" ? "REVIEWED" : "VERIFIED";
+  return <section className="court-card dhc-case-outcome" aria-label="DHC Official Verification" style={{ marginTop: 16, padding: 16 }}>
+    <span className={`dhc-case-outcome-label ${actionNeeded ? "attention" : ""}`}>{outcome}</span>
+    <h3>Delhi High Court verification</h3>
     {latest && <>
-      <p>Last checked: {new Date(latest.observedAt).toLocaleString()}</p>
-      <p>Delhi High Court status: {latest.rawStatus ?? "Not stated"} · Next date: {latest.listingDate ?? "Not stated"}</p>
-      {latest.reviewReason === "AutoStatusApplied" && <p role="status">✓ Status updated: Pending → Disposed, based on the exact official case result.</p>}
-      {differs && <p role="alert">Office status and Delhi High Court status differ. Please review this case.</p>}
-      {latest.status === "NeedsReview" && <p role="alert">This result needs a closer look before the office record changes.</p>}
-      <details><summary>View captured official result</summary><p>{latest.rawEvidenceText}</p></details>
+      <p><strong>Delhi High Court:</strong> {latest.rawStatus ?? "Not stated"}{latest.listingDate && <> · <strong>Official next date:</strong> {new Date(`${latest.listingDate.slice(0, 10)}T00:00:00`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</>}</p>
+      {updated ? <p role="status">LAC status was updated Pending → Disposed from an exact official DHC result.</p> :
+        actionNeeded ? <p role="alert">LAC record: {canonicalStatus ?? "Not stated"}. No automatic change was made. Review the official result and choose an action.</p> :
+        <p>{latest.status === "Rejected" ? `LAC record retained: ${canonicalStatus ?? "Not stated"}.` : differs ? `LAC record: ${canonicalStatus}. Check the earlier decision in history.` : "No change needed."}</p>}
+      <details><summary>View official result / Technical details</summary><p>Checked {new Date(latest.observedAt).toLocaleString("en-IN")}</p><p>{latest.rawEvidenceText}</p></details>
     </>}
-    {order && <p>Latest official DHC order: {order.orderDate} · <a href={order.officialUrl!} target="_blank" rel="noreferrer">Open official order</a></p>}
-    {orders.length > 0 && <details><summary>Previous official order links ({orders.length})</summary><ul>
+    {order && <p>Official order dated {order.orderDate}: <a href={order.officialUrl!} target="_blank" rel="noreferrer">Open order</a></p>}
+    {orders.length > 0 && <details><summary>Official order links and details ({orders.length})</summary><ul>
       {orders.filter(x => x.officialUrl).map(x => <li key={x.id}>{x.orderDate ?? "Undated"} · <a href={x.officialUrl!} target="_blank" rel="noreferrer">Official order</a>{x.rawRemark && ` · ${x.rawRemark}`}</li>)}
     </ul></details>}
   </section>;

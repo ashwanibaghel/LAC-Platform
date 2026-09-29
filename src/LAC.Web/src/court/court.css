@@ -641,3 +641,25 @@
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
+
+/* Officer-facing DHC summaries: compact enough for a 1366 × 768 office screen. */
+.dhc-cycle-result { margin-top: 8px; padding: 12px 15px; border: 1px solid #d7e4ef; border-radius: 8px; background: #fff; color: #25445f; font-size: 12px; }
+.dhc-cycle-result > strong { font-size: 13px; }.dhc-cycle-result > span { margin-left: 9px; color: #64748b; }
+.dhc-cycle-numbers { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin: 10px 0 5px; }
+.dhc-cycle-numbers > span { display: grid; gap: 2px; padding: 8px; border-radius: 6px; background: #f5f9fc; color: #51677b; font-size: 11px; }
+.dhc-cycle-numbers b { color: #153b5f; font-size: 19px; }.dhc-cycle-result small { color: #708197; font-size: 10px; }
+.dhc-watched { margin-top: 8px; padding: 9px 13px; border: 1px solid #dce7f0; border-radius: 7px; background: #fff; font-size: 12px; }
+.dhc-watched summary { color: #245d88; font-weight: 700; cursor: pointer; }.dhc-watched > p { color: #64748b; }
+.dhc-watched ul { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 12px; max-height: 260px; overflow: auto; margin: 8px 0 0; padding: 0; list-style: none; }
+.dhc-watched li { display: grid; gap: 2px; padding: 7px 0; border-top: 1px solid #edf2f6; }.dhc-watched li a { color: #175b92; font-weight: 700; text-decoration: none; }
+.dhc-watched li span, .dhc-watched li small { color: #60748a; }
+.court-assisted-phase-note { margin: 0 0 11px; padding: 9px 11px; border: 1px solid #cfe0eb; border-radius: 6px; background: #f2f8fc; color: #235578; font-size: 12px; font-weight: 650; }
+.court-assisted-technical { margin: 8px 0; color: #64748b; font-size: 11px; }.court-assisted-technical summary { cursor: pointer; }
+.court-assisted-results { margin-top: 13px; padding-top: 11px; border-top: 1px solid #e2e8f0; }.court-assisted-results h3 { margin: 0; font-size: 14px; }.court-assisted-results > p { margin: 3px 0 9px; color: #64748b; font-size: 11px; }
+.court-assisted-result-list { display: grid; gap: 6px; max-height: 280px; overflow: auto; }.court-assisted-result-list article { display: grid; grid-template-columns: minmax(130px,1.1fr) minmax(180px,2fr) minmax(100px,1fr); align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid #e4edf3; border-radius: 6px; background: #fbfdff; font-size: 11px; }
+.court-assisted-result-list article a { color: #185c93; font-weight: 700; text-decoration: none; }.court-assisted-result-list article span { color: #52677d; }.court-assisted-result-list article strong { color: #3b6655; font-size: 11px; }
+.court-assisted-status-comparison { margin: 11px 0; padding: 9px 10px; border-left: 3px solid #c17924; background: #fff9ef; }.court-assisted-status-comparison p { margin: 2px 0; color: #4c5967; font-size: 12px; }.court-assisted-review-card > p { color: #52677d; font-size: 11px; }
+.court-assisted-review-card .court-assisted-review-actions .primary-button { font-size: 11px; }.court-assisted-review-card details p { white-space: pre-wrap; }
+.dhc-case-outcome-label { display: inline-block; margin-bottom: 6px; padding: 3px 6px; border-radius: 4px; background: #eaf5ef; color: #216343; font-size: 10px; font-weight: 800; letter-spacing: .06em; }.dhc-case-outcome-label.attention { background: #fff1de; color: #9a5b12; }
+.dhc-case-outcome p { margin: 6px 0; font-size: 12px; }.dhc-case-outcome details { margin-top: 10px; color: #64748b; font-size: 11px; }.dhc-case-outcome summary { color: #255e87; cursor: pointer; }
+@media (max-width: 850px) { .dhc-cycle-numbers { grid-template-columns: repeat(2,minmax(0,1fr)); }.dhc-watched ul { grid-template-columns: 1fr; }.court-assisted-result-list article { grid-template-columns: 1fr; } }

@@ -18,9 +18,11 @@ test("DHC daily status is one compact summary and technical details start collap
   assert.doesNotMatch(dhc, /<details className="dhc-attention"[^>]*open/);
 });
 
-test("assisted CTA and all six queue tabs are retained", () => {
+test("assisted CTA is contextual and all six queue tabs are retained", () => {
   assert.match(dhc, /Check now/);
-  assert.match(dhc, /Continue check/);
+  assert.match(dhc, /Enter verification code/);
+  assert.match(dhc, /Resume order check/);
+  assert.match(dhc, /View verification results/);
   for (const label of ["All", "Today", "Upcoming", "Overdue", "No NDOH", "Disposed"])
     assert.ok(directory.includes(`"${label}"`), `${label} tab missing`);
   assert.match(directory, /setQuick\(key\)/);
@@ -60,8 +62,8 @@ test("assisted preview, manual challenge, order choice and review decisions rema
   assert.match(assisted, /run\.status === "ReadyForOrders"/);
   assert.match(assisted, /Check order links/);
   assert.match(assisted, />Done</);
-  assert.match(assisted, /Accept evidence/);
+  assert.match(assisted, /Use official result/);
   assert.match(assisted, /Keep LAC record/);
-  assert.match(assisted, /Confirm LAC status as Disposed/);
-  assert.match(assisted, /window\.confirm\("Update the office case status to Disposed\?/);
+  assert.match(assisted, /Update LAC status to Disposed/);
+  assert.match(assisted, /Keep LAC as Pending/);
 });
