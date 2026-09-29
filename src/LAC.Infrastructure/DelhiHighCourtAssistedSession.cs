@@ -18,6 +18,8 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
     private DateTimeOffset lastRequest;
     private string? pendingHumanOrderAnswer;
     private string? lastResponseContentType;
+    public string? LastOrderResponseContentType { get; private set; }
+    public IReadOnlyList<string> LastOrderPostFieldNames { get; private set; } = [];
     public CookieContainer Cookies { get; } = new();
     public DelhiHighCourtAssistedForms.FormState? StatusForm { get; private set; }
     public DelhiHighCourtAssistedForms.FormState? OrderForm { get; private set; }
@@ -93,6 +95,7 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         if (orders) OrderForm = parsed; else StatusForm = parsed;
         Verified = false;
         pendingHumanOrderAnswer = null;
+        if (orders) { LastOrderResponseContentType = null; LastOrderPostFieldNames = []; }
         return parsed;
     }
 
@@ -163,9 +166,13 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
             ["case_type"] = officialType, ["case_number"] = number, ["year"] = year,
             ["captchaInput"] = manualAnswer
         };
+        LastOrderPostFieldNames = fields.Keys.Order(StringComparer.Ordinal).ToArray();
         using var request = new HttpRequestMessage(HttpMethod.Post, DelhiHighCourtAssistedForms.OrderUrl)
         { Content = new FormUrlEncodedContent(fields) };
-        return await TextAsync(request, ct);
+        // Never replay this POST automatically after a transport/protocol failure.
+        var response = await TextAsync(request, ct);
+        LastOrderResponseContentType = lastResponseContentType;
+        return response;
     }
 
     public ValueTask DisposeAsync()

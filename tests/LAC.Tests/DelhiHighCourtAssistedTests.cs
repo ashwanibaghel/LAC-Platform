@@ -22,6 +22,8 @@ public sealed class DelhiHighCourtAssistedTests
     private const string OrderForm = """
         <html><form id='search1' method='post' action='https://delhihighcourt.nic.in/app/case-number'>
         <input type='hidden' name='_token' value='fixture-order-csrf'>
+        <input type='hidden' name='randomid' value='TEST8'>
+        <input type='hidden' name='officialOpaque' value='fixture-state'>
         <select id='case_type'><option value='CW'>W.P.(C)</option><option value='LPA'>LPA</option></select>
         <span id='captcha-code'>TEST8</span><input id='captchaInput' name='captchaInput'></form></html>
         """;
@@ -121,11 +123,12 @@ public sealed class DelhiHighCourtAssistedTests
         public void Advance(TimeSpan span) => now += span;
     }
 
-    private sealed class BatchHandler : HttpMessageHandler
+    private sealed class BatchHandler(string? orderReply = null) : HttpMessageHandler
     {
         public int StatusLookups { get; private set; }
         public int Validations { get; private set; }
         public int OrderForms { get; private set; }
+        public int OrderPosts { get; private set; }
         public string? OrderPostBody { get; private set; }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
@@ -158,8 +161,9 @@ public sealed class DelhiHighCourtAssistedTests
             }
             else if (request.Method == HttpMethod.Post && path.EndsWith("case-number"))
             {
+                OrderPosts++;
                 OrderPostBody = await request.Content!.ReadAsStringAsync(ct);
-                body = OrderResult;
+                body = orderReply ?? OrderResult;
             }
             else return new HttpResponseMessage(HttpStatusCode.NotFound);
             return new HttpResponseMessage(HttpStatusCode.OK)
@@ -212,6 +216,8 @@ public sealed class DelhiHighCourtAssistedTests
         Assert.Equal("TEST7", status.VisibleChallenge);
         Assert.Equal("TEST8", orders.VisibleChallenge);
         Assert.NotEqual(status.Csrf, orders.Csrf);
+        Assert.Equal("TEST8", orders.HiddenFields["randomid"]);
+        Assert.Equal("fixture-state", orders.HiddenFields["officialOpaque"]);
     }
 
     [Fact]
@@ -277,10 +283,68 @@ public sealed class DelhiHighCourtAssistedTests
         Assert.True(await session.ValidateHumanAnswerAsync("typed-by-officer", true, default));
         Assert.Single(DelhiHighCourtAssistedForms.ParseOrderRows(
             await session.SearchOrdersAsync("CW", "7003", "2026", default)));
-        Assert.Contains("captchaInput=typed-by-officer", fake.SubmittedOrderForm);
-        Assert.DoesNotContain("TEST8", fake.SubmittedOrderForm);
+        var submitted = System.Web.HttpUtility.ParseQueryString(fake.SubmittedOrderForm!);
+        Assert.Equal("typed-by-officer", submitted["captchaInput"]);
+        Assert.NotEqual("TEST8", submitted["captchaInput"]);
+        Assert.Equal("TEST8", submitted["randomid"]); // Browser's opaque hidden form state.
+        Assert.Equal("fixture-state", submitted["officialOpaque"]);
+        Assert.Equal("fixture-order-csrf", submitted["_token"]);
+        Assert.Equal("CW", submitted["case_type"]);
+        Assert.Equal("7003", submitted["case_number"]);
+        Assert.Equal("2026", submitted["year"]);
+        Assert.Equal(new[] { "_token", "captchaInput", "case_number", "case_type", "officialOpaque", "randomid", "year" },
+            session.LastOrderPostFieldNames);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             session.SearchOrdersAsync("CW", "7004", "2026", default));
+    }
+
+    [Fact]
+    public void OrderResponse_SeparatesResultsExplicitCaptchaAndGenericForm()
+    {
+        var resultWithVisibleChallenge = OrderForm.Replace("</form>",
+            "<script>const message = 'CAPTCHA is required';</script></form>") + OrderResult;
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.Result,
+            DelhiHighCourtAssistedForms.AssessOrderResponse(resultWithVisibleChallenge).Kind);
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.UnconfirmedForm,
+            DelhiHighCourtAssistedForms.AssessOrderResponse(OrderForm).Kind);
+        var missingField = DelhiHighCourtAssistedForms.AssessOrderResponse(
+            OrderForm.Replace("</form>", "<p>Case number field is required</p></form>"));
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.FormValidationError, missingField.Kind);
+        Assert.True(missingField.HasFormError);
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.CaptchaRequired,
+            DelhiHighCourtAssistedForms.AssessOrderResponse("captcha required").Kind);
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.CaptchaRequired,
+            DelhiHighCourtAssistedForms.AssessOrderResponse(
+                OrderForm.Replace("</form>", "<p>CAPTCHA is incorrect</p></form>")).Kind);
+    }
+
+    private sealed class OrderPostTransportFailureHandler : HttpMessageHandler
+    {
+        public int OrderPosts { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.EndsWith("case-number"))
+            {
+                OrderPosts++;
+                throw new HttpRequestException("Simulated order POST transport failure");
+            }
+            var body = request.Method == HttpMethod.Get ? OrderForm : "{\"success\":true}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = new StringContent(body, Encoding.UTF8, "text/html") });
+        }
+    }
+
+    [Fact]
+    public async Task OrderPostTransportFailure_IsNotReplayed()
+    {
+        var handler = new OrderPostTransportFailureHandler();
+        await using var session = new DelhiHighCourtAssistedSession(new ConfigurationBuilder().Build(), _ => handler);
+        await session.LoadFormAsync(true, default);
+        Assert.True(await session.ValidateHumanAnswerAsync("typed-by-officer", true, default));
+        await Assert.ThrowsAsync<HttpRequestException>(() => session.SearchOrdersAsync("CW", "7003", "2026", default));
+        Assert.Equal(1, handler.OrderPosts);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.SearchOrdersAsync("CW", "7003", "2026", default));
+        Assert.Equal(1, handler.OrderPosts);
     }
 
     [Fact]
@@ -712,6 +776,49 @@ public sealed class DelhiHighCourtAssistedTests
             await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.PausedForCaptcha);
             Assert.Contains("case_type=CW", fake.OrderPostBody);
             await coordinator.CancelAsync(runId, userId, default);
+        }
+    }
+
+    [Theory]
+    [InlineData("result")]
+    [InlineData("captcha")]
+    [InlineData("form-rejected")]
+    public async Task OrderPhase_DistinguishesResultCaptchaAndGenericReturnedForm(string scenario)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var fake = new BatchHandler(scenario switch
+            {
+                "captcha" => "captcha required",
+                "form-rejected" => OrderForm,
+                _ => OrderResult
+            });
+            var coordinator = new DelhiHighCourtAssistedCoordinator(
+                provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => fake));
+            var runId = await coordinator.StartAsync(userId,
+                new DhcAssistedStartRequest("Selected", caseIds), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, scenario switch
+            {
+                "captcha" => DhcAssistedRunStatus.PausedForCaptcha,
+                "form-rejected" => DhcAssistedRunStatus.Failed,
+                _ => DhcAssistedRunStatus.Completed
+            });
+            Assert.Equal(1, fake.OrderPosts);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(scenario == "result" ? 1 : 0,
+                await db.CourtExternalOrderObservations.CountAsync());
+            if (scenario == "captcha") Assert.Equal(2, fake.OrderForms);
+            if (scenario == "form-rejected") Assert.Equal(1, fake.OrderForms);
+            if (scenario == "captcha") await coordinator.CancelAsync(runId, userId, default);
         }
     }
 

@@ -42,6 +42,11 @@ public static class DelhiHighCourtAssistedForms
         Uri? ImageChallenge, IReadOnlyDictionary<string, string> CaseTypeOptions,
         IReadOnlyDictionary<string, string> HiddenFields);
 
+    public enum OrderResponseKind { Result, CaptchaRequired, FormValidationError, UnconfirmedForm, Unrecognized }
+
+    public sealed record OrderResponseAssessment(OrderResponseKind Kind, bool HasResultRows,
+        bool HasCaptchaForm, bool HasCaptchaError, bool HasFormError);
+
     public static FormState ParseForm(string html, bool orders)
     {
         var doc = new HtmlParser().ParseDocument(html);
@@ -57,7 +62,6 @@ public static class DelhiHighCourtAssistedForms
             throw new InvalidDataException("DHC order form action changed; no case data was updated.");
         var hidden = (orders ? doc.QuerySelector("form#search1")! : doc.DocumentElement!)
             .QuerySelectorAll("input[type=hidden][name]")
-            .Where(x => x.GetAttribute("name") != "randomid")
             .ToDictionary(x => x.GetAttribute("name")!, x => x.GetAttribute("value") ?? "", StringComparer.Ordinal);
         var csrf = hidden.GetValueOrDefault("_token");
         if (!orders && string.IsNullOrWhiteSpace(csrf))
@@ -125,6 +129,29 @@ public static class DelhiHighCourtAssistedForms
         if (!body.Contains("<", StringComparison.Ordinal)) return false;
         var doc = new HtmlParser().ParseDocument(body);
         return doc.QuerySelector("#captcha-code, #captcha-image") != null;
+    }
+
+    public static OrderResponseAssessment AssessOrderResponse(string body)
+    {
+        var doc = new HtmlParser().ParseDocument(body);
+        // The official page embeds fixed CAPTCHA-error strings in JavaScript,
+        // even on a successful result. Only visible response text is evidence.
+        var visible = Regex.Replace(body, @"(?is)<(?:script|style)\b[^>]*>.*?</(?:script|style)>", " ");
+        visible = Regex.Replace(Regex.Replace(visible, "<[^>]+>", " "), @"\s+", " ");
+        var captchaError = Regex.IsMatch(visible,
+            @"\bcaptcha\b.{0,80}\b(required|incorrect|invalid|expired|failed)\b|\b(required|incorrect|invalid|expired|failed)\b.{0,80}\bcaptcha\b",
+            RegexOptions.IgnoreCase);
+        var formError = Regex.IsMatch(visible,
+            @"\b(case type|case number|year|form field)\b.{0,80}\b(required|invalid|missing)\b",
+            RegexOptions.IgnoreCase);
+        var table = doc.QuerySelector("#s_judgeTable");
+        var hasRows = table?.QuerySelector("tbody tr td:not([colspan])") != null;
+        var hasCaptchaForm = doc.QuerySelector("form#search1 #captchaInput") != null;
+        var kind = captchaError ? OrderResponseKind.CaptchaRequired :
+            formError ? OrderResponseKind.FormValidationError :
+            hasCaptchaForm && !hasRows ? OrderResponseKind.UnconfirmedForm :
+            hasRows ? OrderResponseKind.Result : OrderResponseKind.Unrecognized;
+        return new OrderResponseAssessment(kind, hasRows, hasCaptchaForm, captchaError, formError);
     }
 
     public sealed record StatusRow(string RawCaseNumber, string? RawDiaryNumber,

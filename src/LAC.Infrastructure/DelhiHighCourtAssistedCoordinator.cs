@@ -443,11 +443,19 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 var orderResponse = await current.Session.SearchOrdersAsync(orderType,
                     parts.Value.Number, parts.Value.Year, ct);
                 Touch(current);
-                if (DelhiHighCourtAssistedForms.CaptchaRequired(orderResponse))
+                var assessment = DelhiHighCourtAssistedForms.AssessOrderResponse(orderResponse);
+                if (assessment.Kind != DelhiHighCourtAssistedForms.OrderResponseKind.Result)
+                    logger.LogWarning("DHC order response {Category}: fields {FieldNames}, content type {ContentType}, result rows {HasResultRows}, captcha form {HasCaptchaForm}, captcha error {HasCaptchaError}, form error {HasFormError}",
+                        assessment.Kind, string.Join(",", current.Session.LastOrderPostFieldNames),
+                        current.Session.LastOrderResponseContentType, assessment.HasResultRows,
+                        assessment.HasCaptchaForm, assessment.HasCaptchaError, assessment.HasFormError);
+                if (assessment.Kind == DelhiHighCourtAssistedForms.OrderResponseKind.CaptchaRequired)
                 {
                     await PauseAsync(current, db, run, true, ct);
                     return;
                 }
+                if (assessment.Kind != DelhiHighCourtAssistedForms.OrderResponseKind.Result)
+                    throw new InvalidDataException("DHC order form returned without a proven result or explicit verification request.");
                 await service.ProcessOrdersAsync(run, item, orderResponse, ct);
             }
             if (run.Phase == DhcAssistedPhase.StatusLookup)
