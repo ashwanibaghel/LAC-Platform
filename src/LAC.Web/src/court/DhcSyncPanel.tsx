@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { dailyCauseListOutcome } from "./DhcDailyCauseListOutcome";
 import type { CourtCaseListItemDto, CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
 
 type ActiveCheck = { status: string; phase: string; completedCases: number; totalCases: number };
@@ -24,6 +25,7 @@ export const DhcSyncPanel: React.FC = () => {
   const [reviews, setReviews] = useState<DhcObservationDto[]>([]);
   const [sourceReviews, setSourceReviews] = useState<DhcSourceReviewDto[]>([]);
   const [busy, setBusy] = useState(false);
+  const [syncInProgress, setSyncInProgress] = useState(false);
   const [confirmHistorical, setConfirmHistorical] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedCase, setSelectedCase] = useState<Record<string, string>>({});
@@ -96,13 +98,13 @@ export const DhcSyncPanel: React.FC = () => {
   }, [isOpen]);
 
   const syncNow = async () => {
-    setBusy(true); setMessage(null);
+    setSyncInProgress(true); setMessage(null);
     try {
       const response = await fetch("/api/court-cases/dhc-sync/run", { method: "POST", credentials: "include" });
       if (!response.ok) throw new Error("Sync request failed or another cycle is running.");
       await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Sync failed."); }
-    finally { setBusy(false); }
+    finally { setSyncInProgress(false); }
   };
 
   const runHistorical = async () => {
@@ -147,7 +149,6 @@ export const DhcSyncPanel: React.FC = () => {
 
   if (!status) return null;
   const attempt = status.lastAttempt;
-  const completed = status.lastSuccess;
   const syncTone = attempt?.status === "Failed" ? "error" : status.lastSuccess ? "healthy" : "neutral";
   const checkedAt = attempt?.completedAt ?? attempt?.startedAt;
   const historyRun = historical?.lastAttempt;
@@ -159,6 +160,7 @@ export const DhcSyncPanel: React.FC = () => {
     ? `Historical check paused · ${historyRun.sourceDocumentsProcessed} of ${historyRun.sourceDocumentsDiscovered} checked`
     : null;
   const attentionCount = reviews.length + sourceReviews.length;
+  const dailyOutcome = dailyCauseListOutcome(attempt, watchedCount, syncInProgress);
   const badgeCount = (assisted?.recommendedCount ?? 0) + attentionCount;
   return (
     <section className="dhc-sync-section" aria-label="Delhi High Court public cause-list sync">
@@ -233,7 +235,7 @@ export const DhcSyncPanel: React.FC = () => {
                 <span className="dhc-status-divider" aria-hidden="true">·</span>
                 <strong className="dhc-assisted-pill">{assisted?.recommendedCount ?? 0} cases need official checking</strong>
                 {attentionCount > 0 && (
-                  <span className="dhc-daily-attention">Needs attention: {attentionCount}</span>
+                  <span className="dhc-daily-attention">{attentionCount} DHC item{attentionCount === 1 ? "" : "s"} still need review</span>
                 )}
               </div>
             </div>
@@ -249,31 +251,30 @@ export const DhcSyncPanel: React.FC = () => {
                     <span className="dhc-hub-card-sub">Next Date of Hearing (NDOH)</span>
                   </div>
                 </div>
-                <p className="dhc-hub-card-desc">
-                  Automatically matches published High Court cause lists to track Next Dates of Hearing (NDOH).
-                </p>
-                <div className="dhc-hub-card-meta">
-                  <span>Last success: {status.lastSuccess?.completedAt ? new Date(status.lastSuccess.completedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "Pending"}</span>
+                <div className={`dhc-hub-outcome ${dailyOutcome.tone}`} role="status" aria-live="polite">
+                  <strong>{dailyOutcome.title}</strong>
+                  {dailyOutcome.lines.map(line => <p key={line}>{line}</p>)}
                 </div>
                 {status.canSyncNow && (
                   <button
                     type="button"
                     className="secondary-button dhc-hub-action-btn"
-                    disabled={busy}
+                    disabled={syncInProgress || busy}
                     onClick={() => void syncNow()}
                     title="Fetch latest cause list from Delhi High Court"
                   >
-                    🔄 Sync now
+                    {syncInProgress ? "Checking cause lists…" : "🔄 Sync now"}
                   </button>
                 )}
-                {completed && <details className="dhc-hub-detail" aria-label="Last completed DHC cause-list check">
+                {attempt?.status === "Completed" && <details className="dhc-hub-detail" aria-label="Last completed DHC cause-list check">
                   <summary>View last check details</summary>
                   <div className="dhc-hub-detail-stats">
-                    <span><b>{watchedCount ?? "—"}</b>DHC cases being watched</span>
-                    <span><b>{completed.sourceDocumentsProcessed}</b>official publications checked</span>
-                    <span><b>{completed.observationsCreated}</b>new listing entries found</span>
-                    <span><b>{completed.observationsAccepted}</b>official listing entries confirmed</span>
-                    <span><b>{completed.reviewCount}</b>need attention</span>
+                    <span>Status: <b>Completed</b></span>
+                    <span>Publications found: <b>{attempt.sourceDocumentsDiscovered}</b></span>
+                    <span>Processed this cycle: <b>{attempt.sourceDocumentsProcessed}</b></span>
+                    <span>New listing entries: <b>{attempt.observationsCreated}</b></span>
+                    <span>Confirmed entries: <b>{attempt.observationsAccepted}</b></span>
+                    <span>New review items: <b>{attempt.reviewCount}</b></span>
                   </div>
                   <small>Listing entries can include more than one publication for a case; they are not a count of distinct cases.</small>
                 </details>}

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import ts from "typescript";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const read = relative => readFileSync(path.join(root, relative), "utf8");
@@ -11,10 +12,14 @@ const assisted = read("court/DhcAssistedPage.tsx");
 const workspace = read("court/DhcOfficialVerification.tsx");
 const home = read("home/Home.tsx");
 const courtCss = read("court/court.css");
+const dailyOutcomeJs = ts.transpileModule(read("court/DhcDailyCauseListOutcome.ts"), {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const { dailyCauseListOutcome } = await import(`data:text/javascript;base64,${Buffer.from(dailyOutcomeJs).toString("base64")}`);
 
 test("daily DHC panel reports proven completed-cycle counts and offers watched cases", () => {
-  for (const field of ["sourceDocumentsProcessed", "observationsCreated", "observationsAccepted", "reviewCount"])
-    assert.match(panel, new RegExp(`completed\\.${field}`));
+  for (const field of ["sourceDocumentsDiscovered", "sourceDocumentsProcessed", "observationsCreated", "observationsAccepted", "reviewCount"])
+    assert.match(panel, new RegExp(`attempt\\.${field}`));
   assert.match(panel, /watchedCount/);
   assert.match(panel, /DHC cases being watched/);
   assert.match(panel, /No current DHC cause-list date recorded/);
@@ -58,7 +63,7 @@ test("hub preserves contextual actions and only reports completed-cycle evidence
   for (const label of ["Check now", "Enter verification code", "Resume DHC check", "Resume order check", "View verification results"])
     assert.ok(panel.includes(label), `${label} action missing`);
   assert.match(panel, /activeAssistedRun \? activeCheck \? checkButton\(activeCheck\) : "View check progress" : "Check now"/);
-  assert.match(panel, /\{completed && <details className="dhc-hub-detail"/);
+  assert.match(panel, /\{attempt\?\.status === "Completed" && <details className="dhc-hub-detail"/);
   assert.match(panel, /sourceDocumentsProcessed/);
   assert.match(panel, /observationsCreated/);
   assert.match(panel, /observationsAccepted/);
@@ -67,6 +72,44 @@ test("hub preserves contextual actions and only reports completed-cycle evidence
   assert.match(panel, /operationalNdohSource === "DHC Cause List"/);
   assert.match(panel, /No current DHC cause-list date recorded/);
   assert.match(panel, /status\.canSyncNow && \(/);
+});
+
+test("latest completed check with ten found and zero processed reports no new updates, not failure", () => {
+  const run = { status: "Completed", sourceDocumentsDiscovered: 10, sourceDocumentsProcessed: 0,
+    observationsCreated: 0, observationsAccepted: 0, reviewCount: 0 };
+  const outcome = dailyCauseListOutcome(run, 126, false);
+  assert.equal(outcome.title, "✓ No new DHC updates found");
+  assert.equal(outcome.tone, "success");
+  assert.ok(outcome.lines.includes("126 Delhi High Court cases are being monitored."));
+  assert.ok(outcome.lines.includes("10 current cause-list publications found."));
+  assert.ok(outcome.lines.includes("No publication needed reprocessing."));
+  assert.doesNotMatch(JSON.stringify(outcome), /failed|interrupted|126 cases updated/i);
+  assert.match(panel, /DHC cases being watched\{watchedCount !== null/);
+});
+
+test("new listing evidence, latest review items, and older unresolved attention remain separate", () => {
+  const run = { status: "Completed", sourceDocumentsDiscovered: 10, sourceDocumentsProcessed: 3,
+    observationsCreated: 2, observationsAccepted: 1, reviewCount: 1 };
+  const outcome = dailyCauseListOutcome(run, 126, false);
+  assert.equal(outcome.title, "New official cause-list evidence found");
+  assert.ok(outcome.lines.includes("2 new listing entries found."));
+  assert.ok(outcome.lines.includes("1 official listing entry confirmed."));
+  assert.ok(outcome.lines.includes("1 new issue from this check needs attention."));
+  assert.match(panel, /attentionCount = reviews\.length \+ sourceReviews\.length/);
+  assert.match(panel, /DHC item\{attentionCount === 1[\s\S]*?still need review/);
+  assert.doesNotMatch(panel, /attentionCount[^\n]*new issue/);
+});
+
+test("manual sync gives immediate dedicated progress without changing historical or assisted actions", () => {
+  const outcome = dailyCauseListOutcome(null, 126, true);
+  assert.equal(outcome.title, "Checking cause lists…");
+  assert.match(panel, /setSyncInProgress\(true\)/);
+  assert.match(panel, /disabled=\{syncInProgress \|\| busy\}/);
+  assert.match(panel, /syncInProgress \? "Checking cause lists…" : "🔄 Sync now"/);
+  assert.match(panel, /setSyncInProgress\(false\)/);
+  assert.match(panel, /const runHistorical = async \(\) => \{/);
+  assert.match(panel, /const checkButton = \(run: ActiveCheck \| null\)/);
+  assert.equal(dailyCauseListOutcome({ status: "Failed" }, 126, false).title, "Cause-list check was interrupted");
 });
 
 test("assisted results show each current-run official status and date only after an individual lookup", () => {
