@@ -46,7 +46,8 @@ test("visible item numbering starts at one while retaining the Excel source row"
 test("decision panel requires explicit choice for risky rows and retains safeguards", () => {
   assert.match(review, /row\.rowStatus === "NewCandidate" \? "ImportAsNewCase" : ""/);
   assert.match(review, /if \(!action\) \{ setError/);
-  assert.match(review, /Manual check required/);
+  assert.match(review, /Why this row needs your check/);
+  assert.match(review, /courtImportReviewGuidance\(row\)/);
   assert.match(review, /LinkToExistingCase/);
   assert.match(review, /KeepExisting/);
   assert.match(review, /UseImported/);

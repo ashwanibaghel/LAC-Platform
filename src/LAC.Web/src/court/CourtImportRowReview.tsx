@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Row } from "./CourtImportPreview";
+import { courtImportReviewGuidance } from "./courtImportReviewGuidance";
 
 type Action = "ImportAsNewCase" | "LinkToExistingCase" | "Skip";
 type ExistingCase = {
@@ -32,6 +33,7 @@ export function CourtImportRowReview({ row, save, close }: {
   const [existing, setExisting] = useState<ExistingCase | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const guidance = courtImportReviewGuidance(row);
 
   const findCases = async () => {
     setError("");
@@ -68,8 +70,12 @@ export function CourtImportRowReview({ row, save, close }: {
       <h2>Review this case</h2><p>Compare the workbook entry, then choose one decision.</p></div>
       <button type="button" aria-label="Close review" onClick={close}>✕</button></header>
     <div className="court-import-row-review-body">
-      {["PotentialDuplicate", "IdentityConflict", "NeedsReview", "Invalid"].includes(row.rowStatus) &&
-        <div className="court-import-risk" role="alert"><strong>Manual check required</strong><span>{row.rowStatus} rows are never bulk-approved. Check the source carefully and explain your decision.</span></div>}
+      {guidance.reasons.length > 0 && <section className="court-import-guidance" aria-label="Why this row needs review">
+        <h3>Why this row needs your check</h3>
+        <ul>{guidance.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>
+        <p><strong>What to do:</strong> {guidance.nextStep}</p>
+        <small>This row is not included in bulk approval.</small>
+      </section>}
       <section className="court-import-source-summary"><h3>From the workbook</h3>
         <strong className="court-import-source-case">{row.rawCaseNumber || "Case number missing"}</strong>
         <p>{row.rawCaseTitle || "No party title supplied"}</p>

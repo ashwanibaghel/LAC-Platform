@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { CourtImportRowReview } from "./CourtImportRowReview";
+import { courtImportReviewGuidance } from "./courtImportReviewGuidance";
 import "./court.css";
 
 type Batch = {
@@ -47,6 +48,9 @@ export function CourtImportPreview() {
   const [refresh, setRefresh] = useState(0);
   const [summary, setSummary] = useState<ReviewSummary | null>(null);
   const [selected, setSelected] = useState<Row | null>(null);
+  const [confirmation, setConfirmation] = useState<"approveSafe" | "commitApproved" | null>(null);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
+  const [commitAcknowledged, setCommitAcknowledged] = useState(false);
 
   useEffect(() => {
     if (!batchId) return;
@@ -92,20 +96,24 @@ export function CourtImportPreview() {
 
   const approveSafe = async () => {
     if (!batchId || !summary?.safeBulkCandidates) return;
-    if (!confirm("Approve only " + summary.safeBulkCandidates + " deterministic NewCandidate rows? Other rows remain unresolved.")) return;
+    setConfirmationBusy(true);
     try {
       await mutate("/api/court-cases/imports/" + batchId + "/approve-safe", "POST");
       setNotice("Safe rows approved; no Court records created yet.");
+      setConfirmation(null);
     } catch (e) { setError(e instanceof Error ? e.message : "Approval failed."); }
+    finally { setConfirmationBusy(false); }
   };
 
   const commitApproved = async () => {
     if (!batchId || !summary?.ready) return;
-    if (!confirm("Only " + summary.ready + " reviewed/approved rows will be written to Court records. Unresolved rows remain staging. Continue?")) return;
+    setConfirmationBusy(true);
     try {
       const result = await mutate("/api/court-cases/imports/" + batchId + "/commit", "POST");
       setNotice(result.committedThisRun + " row(s) committed; " + (result.failures?.length || 0) + " failed.");
+      setConfirmation(null);
     } catch (e) { setError(e instanceof Error ? e.message : "Commit failed."); }
+    finally { setConfirmationBusy(false); }
   };
 
   const clearDecision = async (row: Row) => {
@@ -184,8 +192,8 @@ export function CourtImportPreview() {
         <div className="court-import-progress-text">{summary.unresolved} unresolved <span>·</span> {summary.ready} ready to commit <span>·</span> {summary.committed} committed</div>
       </div>
       <div className="court-import-next-step-actions">
-        {summary.safeBulkCandidates > 0 && <button className="primary-button" onClick={approveSafe}>Approve safe rows ({summary.safeBulkCandidates})</button>}
-        {summary.ready > 0 && <button className={summary.safeBulkCandidates > 0 ? "secondary-button" : "primary-button"} onClick={commitApproved}>Commit approved ({summary.ready})</button>}
+        {summary.safeBulkCandidates > 0 && <button className="primary-button" onClick={() => { setError(""); setConfirmation("approveSafe"); }}>Approve safe rows ({summary.safeBulkCandidates})</button>}
+        {summary.ready > 0 && <button className={summary.safeBulkCandidates > 0 ? "secondary-button" : "primary-button"} onClick={() => { setError(""); setCommitAcknowledged(false); setConfirmation("commitApproved"); }}>Commit approved ({summary.ready})</button>}
         {summary.safeBulkCandidates === 0 && summary.ready === 0 && summary.unresolved > 0 &&
           <button className="primary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review rows below ↓</button>}
       </div>
@@ -202,8 +210,7 @@ export function CourtImportPreview() {
     <div className="court-table-wrap court-import-table-wrap"><table className="court-import-review-table"><thead><tr>
       <th>No.</th><th>Case from workbook</th><th>Key details</th><th>Classification</th><th>Decision</th>
     </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">No rows in this classification.</td></tr> : rows.map((row, index) => {
-      let issues: string[] = [];
-      try { issues = JSON.parse(row.validationIssuesJson) as string[]; } catch { issues = ["Issues could not be displayed."]; }
+      const { reasons } = courtImportReviewGuidance(row);
       return <tr key={row.id}>
         <td className="court-import-row-number"><strong>#{(page - 1) * pageSize + index + 1}</strong>
           <small>Excel row {row.sourceRowNumber}</small>{row.sourceSerialNumberRaw && <small>Sr. {row.sourceSerialNumberRaw}</small>}</td>
@@ -213,7 +220,7 @@ export function CourtImportPreview() {
           <span>NDOH {row.rawNdoh || "not supplied"} · {row.rawStatus || "Status not supplied"}</span>
           <span>{row.rawVillage || "Village not supplied"}{row.rawAwardNumber ? ` · Award ${row.rawAwardNumber}` : ""}</span></td>
         <td><span className={`court-import-classification court-import-classification-${row.rowStatus.toLowerCase()}`}>{classificationLabel(row.rowStatus)}</span>
-          {issues.length > 0 && <span className="court-import-issue" title={issues.join(" · ")}>{issues[0]}{issues.length > 1 ? ` +${issues.length - 1} more` : ""}</span>}</td>
+          {reasons.length > 0 && <span className="court-import-issue" title={reasons.join(" · ")}>{reasons[0]}{reasons.length > 1 ? ` +${reasons.length - 1} more` : ""}</span>}</td>
         <td className="court-import-row-action"><span className={row.resolutionAction ? "decided" : ""}>{decisionLabel(row.resolutionAction)}</span>
           {row.commitStatus === "Committed" ? row.committedCourtCaseId && <Link to={"/court-cases/" + row.committedCourtCaseId}>Open case →</Link> :
             <button type="button" onClick={() => setSelected(row)}>{row.resolutionAction ? "Edit decision" : "Review row"} →</button>}
@@ -237,5 +244,23 @@ export function CourtImportPreview() {
           }}
           close={() => setSelected(null)} />
       </div></div>}
+    {confirmation && summary && <div className="court-import-confirm-overlay" role="presentation">
+      <section className="court-import-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="court-import-confirm-title"
+        onKeyDown={event => { if (event.key === "Escape" && !confirmationBusy) setConfirmation(null); }}>
+        <span className="court-import-eyebrow">{confirmation === "approveSafe" ? "STAGING APPROVAL" : "WRITE TO COURT MATTERS"}</span>
+        <h2 id="court-import-confirm-title">{confirmation === "approveSafe"
+          ? `Approve ${summary.safeBulkCandidates} safe new-case rows?`
+          : `Commit ${summary.ready} approved rows?`}</h2>
+        <p>{confirmation === "approveSafe"
+          ? "Only rows confidently classified as new cases will be marked ready. This does not create Court cases yet; all other rows remain unresolved for individual review."
+          : "This writes only approved rows to Court Matters. Unresolved rows stay in staging and will not be imported."}</p>
+        {confirmation === "commitApproved" && <label className="court-import-confirm-check"><input type="checkbox" checked={commitAcknowledged}
+          onChange={event => setCommitAcknowledged(event.target.checked)} /> I have reviewed the approved rows and want to write them to Court Matters.</label>}
+        {error && <div className="court-import-error" role="alert">{error}</div>}
+        <div className="court-import-confirm-actions"><button type="button" className="secondary-button" autoFocus disabled={confirmationBusy} onClick={() => setConfirmation(null)}>Cancel</button>
+          <button type="button" className="primary-button" disabled={confirmationBusy || confirmation === "commitApproved" && !commitAcknowledged}
+            onClick={() => void (confirmation === "approveSafe" ? approveSafe() : commitApproved())}>
+            {confirmationBusy ? "Working…" : confirmation === "approveSafe" ? `Approve ${summary.safeBulkCandidates} rows` : `Commit ${summary.ready} rows`}</button></div>
+      </section></div>}
   </main>;
 }
