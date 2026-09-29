@@ -110,9 +110,8 @@ builder.Services.AddSingleton<DelhiHighCourtAssistedCoordinator>();
 builder.Services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
-builder.Services.AddHostedService<AwardPdfExtractionWorker>();
-if (!builder.Environment.IsEnvironment("Testing"))
-    builder.Services.AddHostedService<DelhiHighCourtSyncWorker>();
+ApiStartupPolicy.RegisterBackgroundWorkers(builder.Services, builder.Configuration,
+    builder.Environment.IsEnvironment("Testing"));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
@@ -161,9 +160,10 @@ app.UseStaticFiles();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
-    if (db.Database.IsRelational()) await db.Database.MigrateAsync();
-    else await db.Database.EnsureCreatedAsync();
-    await SeedData.SeedAsync(db, app.Configuration, app.Logger, CancellationToken.None);
+    await ApiStartupPolicy.BootstrapDatabaseAsync(app.Configuration, db.Database.IsRelational(),
+        () => db.Database.MigrateAsync(),
+        () => db.Database.EnsureCreatedAsync(),
+        () => SeedData.SeedAsync(db, app.Configuration, app.Logger, CancellationToken.None));
     // An official CookieContainer/challenge exists only in the previous
     // process. Durable unfinished runs must request a fresh human challenge.
     var interruptedAssistedRuns = await db.DhcAssistedSyncRuns.Where(x =>
