@@ -1,8 +1,14 @@
-type OrderProgressItem = { status: string; failureCode: string | null };
-
-// Status-phase reviews never prove an order search. These order-specific codes
-// are set only after the official order response is processed by the backend.
-export const countCompletedOrderSearches = (items: OrderProgressItem[]): number =>
-  items.filter(item => item.status === "Completed" ||
-    item.status === "NeedsReview" &&
-    ["OrderIdentityMismatch", "OrderDateNeedsReview"].includes(item.failureCode ?? "")).length;
+// Persisted item states do not prove how many order searches finished: a
+// status-phase review can survive a completed order lookup. Report only the
+// durable run state, never an inferred per-item count.
+export const orderLinkCheckState = (status: string): string => {
+  switch (status) {
+    case "WaitingForCaptcha": return "Waiting for verification code";
+    case "PausedForCaptcha": return "Verification code needed to continue";
+    case "Running": return "Checking official order links…";
+    case "Interrupted":
+    case "Failed": return "Order-link check interrupted";
+    case "Completed": return "Order-link check complete";
+    default: return "Order-link check status unavailable";
+  }
+};

@@ -14,7 +14,7 @@ const orderProgressSource = readFileSync(path.join(here, "../src/court/DhcAssist
 const orderProgressJs = ts.transpileModule(orderProgressSource, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { countCompletedOrderSearches } = await import(`data:text/javascript;base64,${Buffer.from(orderProgressJs).toString("base64")}`);
+const { orderLinkCheckState } = await import(`data:text/javascript;base64,${Buffer.from(orderProgressJs).toString("base64")}`);
 
 test("DHC panel leads with daily status and hides technical work under More", () => {
   assert.match(panel, /Automatic updates active/);
@@ -76,29 +76,27 @@ test("interrupted order phase leads with its own heading and separate progress",
   const progress = page.match(/\{run\.phase === "OrderLookup" \? <div className="court-assisted-phase-progress">([\s\S]*?)<\/div> :/);
   assert.ok(progress, "order phase must have a dedicated progress layout");
   assert.match(progress[1], /Case-status check progress[\s\S]*?run\.completedCases\} of \{run\.totalCases\} complete/);
-  assert.match(progress[1], /Order-link check progress[\s\S]*?orderCount\} order searches completed[\s\S]*?run\.status/);
-  assert.doesNotMatch(progress[1], /orderCount\} \/ \{run\.totalCases/);
-  assert.match(page, /run\?\.phase === "OrderLookup" \? countCompletedOrderSearches\(run\.items\) : 0/);
+  assert.match(progress[1], /Order-link check progress[\s\S]*?orderLinkCheckState\(run\.status\)/);
+  assert.doesNotMatch(page, /order searches completed|orderCount|countCompletedOrderSearches/);
   assert.match(page, /run\.phase === "OrderLookup" \? "Resume order check"/);
   assert.match(page, /onClick=\{\(\) => void resume\(\)\}/);
   assert.match(page, /onClick=\{\(\) => void orderAction\("orders"\)\}>Check order links/);
 });
 
-test("order-search count includes only backend-proven completed order outcomes", () => {
-  const item = (status, failureCode = null) => ({ status, failureCode });
-  assert.equal(countCompletedOrderSearches([
-    item("NeedsReview", "StatusDifference"), item("StatusCaptured"), item("StatusCaptured"),
-  ]), 0, "real interrupted 3/3 status-complete state has no completed order search");
-  assert.equal(countCompletedOrderSearches([item("NeedsReview", "DateConflict")]), 0);
-  assert.equal(countCompletedOrderSearches([item("Completed")]), 1);
-  assert.equal(countCompletedOrderSearches([
-    item("NeedsReview", "OrderIdentityMismatch"), item("NeedsReview", "OrderDateNeedsReview"),
-  ]), 2, "only order-response review codes prove a search was attempted");
-  for (const code of ["LocalIdentityConflict", "UnsupportedOrderCaseType", "MissingExactStatusEvidence"])
-    assert.equal(countCompletedOrderSearches([item("NeedsReview", code)]), 0, code);
-  for (const status of ["Queued", "CheckingOrders", "CaptchaRequired", "Failed", "Interrupted"])
-    assert.equal(countCompletedOrderSearches([item(status)]), 0, status);
-  assert.doesNotMatch(orderProgressSource, /StatusDifference|DateConflict|LocalIdentityConflict|UnsupportedOrderCaseType|MissingExactStatusEvidence/);
+test("order-link progress uses truthful run state instead of a derived search count", () => {
+  assert.equal(orderLinkCheckState("WaitingForCaptcha"), "Waiting for verification code");
+  assert.equal(orderLinkCheckState("PausedForCaptcha"), "Verification code needed to continue");
+  assert.equal(orderLinkCheckState("Running"), "Checking official order links…");
+  assert.equal(orderLinkCheckState("Interrupted"), "Order-link check interrupted");
+  assert.equal(orderLinkCheckState("Failed"), "Order-link check interrupted");
+  assert.equal(orderLinkCheckState("Completed"), "Order-link check complete");
+  assert.doesNotMatch(orderProgressSource, /items|failureCode|order searches completed/);
+  assert.match(page, /\["CheckingStatus", "CheckingOrders", "CaptchaRequired"\]\.includes\(item\.status\)/);
+  assert.match(page, /run\.phase === "OrderLookup" \? "Checking order links for"[\s\S]*?currentItem\.caseNumber/);
+  assert.match(page, /<strong>\{run\.completedCases\} of \{run\.totalCases\} complete<\/strong>/);
+  assert.match(page, /run\.phase === "OrderLookup" \? "Resume order check"/);
+  assert.match(page, /onClick=\{\(\) => void resume\(\)\}/);
+  assert.match(page, /onClick=\{\(\) => void orderAction\("orders"\)\}>Check order links/);
 });
 
 test("review heading uses local case number while raw official number stays in details", () => {

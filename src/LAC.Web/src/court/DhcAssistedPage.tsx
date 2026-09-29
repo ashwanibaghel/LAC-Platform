@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { countCompletedOrderSearches } from "./DhcAssistedOrderProgress";
+import { orderLinkCheckState } from "./DhcAssistedOrderProgress";
 
 type PreviewCase = { courtCaseId: string; caseNumber: string; operationalNdoh: string | null; reason: string; identityNeedsReview: boolean };
 type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number; skippedIdentityCount: number; cases: PreviewCase[] };
@@ -224,7 +224,6 @@ export const DhcAssistedPage: React.FC = () => {
   const statusComplete = !!run && run.completedCases >= run.totalCases;
   const statusResultsVisible = !!run && (run.completedCases > 0 || run.phase === "OrderLookup");
   const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
-  const orderCount = run?.phase === "OrderLookup" ? countCompletedOrderSearches(run.items) : 0;
   const reviewMessage = (reason: string | null) => ({
     DateConflict: "Two official dates differ. Compare the case record before deciding.",
     StatusDifference: "The office status and Delhi High Court status differ.",
@@ -324,7 +323,7 @@ export const DhcAssistedPage: React.FC = () => {
             <strong>{run.completedCases} of {run.totalCases} complete</strong>
             <progress value={run.completedCases} max={Math.max(1, run.totalCases)} /></section>
           <section aria-label="Order-link check progress"><h2>Order-link check</h2>
-            <strong>{orderCount} order searches completed</strong><span>{run.status}</span></section>
+            <strong>{orderLinkCheckState(run.status)}</strong></section>
         </div> : <><h2>Case-status check</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong>
           <p>case statuses checked</p><progress value={run.completedCases} max={Math.max(1, run.totalCases)} /></>}
         <div className="court-assisted-metrics"><span>Updated <b>{run.updatedCases}</b></span><span>No change <b>{run.noChangeCases}</b></span>
