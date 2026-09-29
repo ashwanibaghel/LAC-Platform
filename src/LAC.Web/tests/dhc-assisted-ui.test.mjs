@@ -3,12 +3,18 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import ts from "typescript";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = readFileSync(path.join(here, "../src/court/DhcAssistedPage.tsx"), "utf8");
 const panel = readFileSync(path.join(here, "../src/court/DhcSyncPanel.tsx"), "utf8");
 const workspace = readFileSync(path.join(here, "../src/court/DhcOfficialVerification.tsx"), "utf8");
 const css = readFileSync(path.join(here, "../src/court/court.css"), "utf8");
+const orderProgressSource = readFileSync(path.join(here, "../src/court/DhcAssistedOrderProgress.ts"), "utf8");
+const orderProgressJs = ts.transpileModule(orderProgressSource, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const { countCompletedOrderSearches } = await import(`data:text/javascript;base64,${Buffer.from(orderProgressJs).toString("base64")}`);
 
 test("DHC panel leads with daily status and hides technical work under More", () => {
   assert.match(panel, /Automatic updates active/);
@@ -72,12 +78,27 @@ test("interrupted order phase leads with its own heading and separate progress",
   assert.match(progress[1], /Case-status check progress[\s\S]*?run\.completedCases\} of \{run\.totalCases\} complete/);
   assert.match(progress[1], /Order-link check progress[\s\S]*?orderCount\} order searches completed[\s\S]*?run\.status/);
   assert.doesNotMatch(progress[1], /orderCount\} \/ \{run\.totalCases/);
-  const countedOrderResults = page.match(/const orderCount = [\s\S]*?\.length \?\? 0;/)?.[0];
-  assert.ok(countedOrderResults);
-  assert.doesNotMatch(countedOrderResults, /StatusDifference|DateConflict|UnsupportedOrderCaseType/);
+  assert.match(page, /run\?\.phase === "OrderLookup" \? countCompletedOrderSearches\(run\.items\) : 0/);
   assert.match(page, /run\.phase === "OrderLookup" \? "Resume order check"/);
   assert.match(page, /onClick=\{\(\) => void resume\(\)\}/);
   assert.match(page, /onClick=\{\(\) => void orderAction\("orders"\)\}>Check order links/);
+});
+
+test("order-search count includes only backend-proven completed order outcomes", () => {
+  const item = (status, failureCode = null) => ({ status, failureCode });
+  assert.equal(countCompletedOrderSearches([
+    item("NeedsReview", "StatusDifference"), item("StatusCaptured"), item("StatusCaptured"),
+  ]), 0, "real interrupted 3/3 status-complete state has no completed order search");
+  assert.equal(countCompletedOrderSearches([item("NeedsReview", "DateConflict")]), 0);
+  assert.equal(countCompletedOrderSearches([item("Completed")]), 1);
+  assert.equal(countCompletedOrderSearches([
+    item("NeedsReview", "OrderIdentityMismatch"), item("NeedsReview", "OrderDateNeedsReview"),
+  ]), 2, "only order-response review codes prove a search was attempted");
+  for (const code of ["LocalIdentityConflict", "UnsupportedOrderCaseType", "MissingExactStatusEvidence"])
+    assert.equal(countCompletedOrderSearches([item("NeedsReview", code)]), 0, code);
+  for (const status of ["Queued", "CheckingOrders", "CaptchaRequired", "Failed", "Interrupted"])
+    assert.equal(countCompletedOrderSearches([item(status)]), 0, status);
+  assert.doesNotMatch(orderProgressSource, /StatusDifference|DateConflict|LocalIdentityConflict|UnsupportedOrderCaseType|MissingExactStatusEvidence/);
 });
 
 test("review heading uses local case number while raw official number stays in details", () => {

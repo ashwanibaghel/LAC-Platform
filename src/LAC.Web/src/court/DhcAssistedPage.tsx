@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { countCompletedOrderSearches } from "./DhcAssistedOrderProgress";
 
 type PreviewCase = { courtCaseId: string; caseNumber: string; operationalNdoh: string | null; reason: string; identityNeedsReview: boolean };
 type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number; skippedIdentityCount: number; cases: PreviewCase[] };
@@ -223,8 +224,7 @@ export const DhcAssistedPage: React.FC = () => {
   const statusComplete = !!run && run.completedCases >= run.totalCases;
   const statusResultsVisible = !!run && (run.completedCases > 0 || run.phase === "OrderLookup");
   const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
-  const orderCount = run?.items.filter(item => item.status === "Completed" ||
-    item.status === "NeedsReview" && ["OrderIdentityMismatch", "OrderDateNeedsReview"].includes(item.failureCode ?? "")).length ?? 0;
+  const orderCount = run?.phase === "OrderLookup" ? countCompletedOrderSearches(run.items) : 0;
   const reviewMessage = (reason: string | null) => ({
     DateConflict: "Two official dates differ. Compare the case record before deciding.",
     StatusDifference: "The office status and Delhi High Court status differ.",
