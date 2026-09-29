@@ -332,34 +332,27 @@ export const DhcSyncPanel: React.FC = () => {
 
                 <details className="dhc-tech-details">
                   <summary>Technical and history details</summary>
-                  <div className="dhc-tech-summary-grid">
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Cycle Status</span>
-                      <strong className={`dhc-stat-val ${syncTone}`}>{attempt?.status ?? "Idle"}</strong>
+                  <section className="dhc-tech-run-group" aria-label="Latest automatic check">
+                    <h4>Latest automatic check</h4>
+                    <div className="dhc-tech-summary-grid">
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Status</span><strong className={`dhc-stat-val ${syncTone}`}>{attempt?.status ?? "None"}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Publications found</span><strong className="dhc-stat-val">{attempt?.sourceDocumentsDiscovered ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Processed this cycle</span><strong className="dhc-stat-val">{attempt?.sourceDocumentsProcessed ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">New listing entries</span><strong className="dhc-stat-val">{attempt?.observationsCreated ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Confirmed entries</span><strong className="dhc-stat-val">{attempt?.observationsAccepted ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">New review items</span><strong className="dhc-stat-val">{attempt?.reviewCount ?? 0}</strong></div>
                     </div>
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Publications</span>
-                      <strong className="dhc-stat-val">
-                        {attempt?.sourceDocumentsProcessed ?? 0} / {attempt?.sourceDocumentsDiscovered ?? 0}
-                      </strong>
+                  </section>
+                  <section className="dhc-tech-run-group" aria-label="One-time historical check">
+                    <h4>One-time historical check</h4>
+                    <div className="dhc-tech-summary-grid">
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Status</span><strong className="dhc-stat-val">{historyRun?.status ?? "None"}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Archive pages scanned</span><strong className="dhc-stat-val">{historyRun?.archivePagesDiscovered ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Publications found</span><strong className="dhc-stat-val">{historyRun?.sourceDocumentsDiscovered ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Publications checked</span><strong className="dhc-stat-val">{historyRun?.sourceDocumentsProcessed ?? 0}</strong></div>
+                      <div className="dhc-tech-stat"><span className="dhc-stat-lbl">Needs review</span><strong className="dhc-stat-val">{historyRun?.reviewCount ?? 0}</strong></div>
                     </div>
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Archive pages scanned</span>
-                      <strong className="dhc-stat-val">{historyRun?.archivePagesDiscovered ?? 0}</strong>
-                    </div>
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Publications found</span>
-                      <strong className="dhc-stat-val">{historyRun?.sourceDocumentsDiscovered ?? 0}</strong>
-                    </div>
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Publications checked</span>
-                      <strong className="dhc-stat-val">{historyRun?.sourceDocumentsProcessed ?? 0}</strong>
-                    </div>
-                    <div className="dhc-tech-stat">
-                      <span className="dhc-stat-lbl">Needs review</span>
-                      <strong className="dhc-stat-val">{historyRun?.reviewCount ?? 0}</strong>
-                    </div>
-                  </div>
+                  </section>
                   <details className="dhc-raw-json-details">
                     <summary>View Diagnostic JSON Payload</summary>
                     <pre className="dhc-clean-pre">{JSON.stringify({ latestRun: attempt, historicalRun: historical?.lastAttempt }, null, 2)}</pre>

@@ -59,6 +59,22 @@ test("historical progress separates archive pages, publications, and review item
   assert.doesNotMatch(panel, /PUBLICATIONS.*archivePagesDiscovered/);
 });
 
+test("technical history labels live and one-time historical counters in separate groups", () => {
+  const live = panel.match(/<section className="dhc-tech-run-group" aria-label="Latest automatic check">([\s\S]*?)<\/section>/)?.[1];
+  const history = panel.match(/<section className="dhc-tech-run-group" aria-label="One-time historical check">([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(live && history, "both technical run groups must be visible as distinct sections");
+  for (const field of ["status", "sourceDocumentsDiscovered", "sourceDocumentsProcessed", "observationsCreated", "observationsAccepted", "reviewCount"])
+    assert.match(live, new RegExp(`attempt\\?\\.${field}`));
+  for (const field of ["status", "archivePagesDiscovered", "sourceDocumentsDiscovered", "sourceDocumentsProcessed", "reviewCount"])
+    assert.match(history, new RegExp(`historyRun\\?\\.${field}`));
+  assert.match(live, /Processed this cycle/);
+  assert.match(history, /Publications checked/);
+  assert.doesNotMatch(live, /archivePagesDiscovered|historyRun/);
+  assert.doesNotMatch(history, /observationsCreated|attempt/);
+  assert.doesNotMatch(panel, /sourceDocumentsProcessed \?\? 0\}\s*\/\s*\{attempt\?\.sourceDocumentsDiscovered/);
+  assert.match(panel, /<details className="dhc-raw-json-details">/);
+});
+
 test("hub preserves contextual actions and only reports completed-cycle evidence", () => {
   for (const label of ["Check now", "Enter verification code", "Resume DHC check", "Resume order check", "View verification results"])
     assert.ok(panel.includes(label), `${label} action missing`);
