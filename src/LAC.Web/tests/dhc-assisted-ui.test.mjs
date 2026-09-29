@@ -8,6 +8,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const page = readFileSync(path.join(here, "../src/court/DhcAssistedPage.tsx"), "utf8");
 const panel = readFileSync(path.join(here, "../src/court/DhcSyncPanel.tsx"), "utf8");
 const workspace = readFileSync(path.join(here, "../src/court/DhcOfficialVerification.tsx"), "utf8");
+const css = readFileSync(path.join(here, "../src/court/court.css"), "utf8");
 
 test("DHC panel separates automatic, historical, and human-assisted work", () => {
   assert.match(panel, /AUTOMATIC CAUSE LIST/i);
@@ -63,7 +64,8 @@ test("canonical status confirmation is distinct from accepting external evidence
 });
 
 test("assisted queue keeps narrow office screens inside the page width", () => {
-  assert.match(page, /maxWidth: 1050/);
-  assert.match(page, /overflowX: "auto"/);
-  assert.match(page, /maxWidth: "100%"/);
+  assert.match(page, /court-assisted-page/);
+  assert.match(css, /\.court-assisted-page \{[^}]*max-width: 1220px; min-width: 0/);
+  assert.match(css, /\.court-assisted-table-wrap \{[^}]*overflow: auto/);
+  assert.match(css, /@media \(max-width: 850px\) \{ \.court-assisted-preview, \.court-assisted-run-layout \{ grid-template-columns: 1fr/);
 });

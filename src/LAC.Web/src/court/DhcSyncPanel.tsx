@@ -95,86 +95,94 @@ export const DhcSyncPanel: React.FC = () => {
 
   if (!status) return null;
   const attempt = status.lastAttempt;
-  return (
-    <section className="court-card" aria-label="Delhi High Court public cause-list sync" style={{ marginTop: 16, padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 17 }}>Delhi High Court data</h2>
-          <small>Automatic cause list, one-time history, and officer-assisted verification.</small>
-        </div>
-        {status.canSyncNow && <button className="secondary-button" disabled={busy} onClick={() => void syncNow()}>Sync now</button>}
-      </div>
-      <h3>Automatic cause list</h3>
-      <p>Checks official public cause lists for today and upcoming dates.</p>
-      <p style={{ margin: "9px 0" }}>
-        Last success: {status.lastSuccess?.completedAt ? new Date(status.lastSuccess.completedAt).toLocaleString() : "Never"}
-        {" · "}Last attempt: {attempt ? `${new Date(attempt.startedAt).toLocaleString()} (${attempt.status})` : "Never"}
-        {" · "}Documents processed: {attempt?.sourceDocumentsProcessed ?? 0}
-        {" · "}Accepted: {attempt?.observationsAccepted ?? 0}
-        {" · "}Needs review: {attempt?.reviewCount ?? 0}
-      </p>
-      {attempt?.failureMessage && <p role="alert">{attempt.failureMessage}</p>}
-      {message && <p role="alert">{message}</p>}
-      {historical && <section aria-label="One-time historical catch-up" style={{ borderTop: "1px solid #e2e8f0", marginTop: 16, paddingTop: 12 }}>
-        <h3>Historical catch-up</h3>
-        <p>Eligible stale DHC cases: {historical.eligibleCaseCount} · Earliest register date: {historical.earliestBaseline ?? "None"}
-          {" · "}Window: {historical.earliestBaseline ?? "None"} through {historical.windowEnd}
-          {" · "}Skipped — no historical baseline: {historical.noBaselineCount}
-          {" · "}Real proceeding exclusions: {historical.realProceedingExclusionCount}</p>
-        {historical.completedRun?.completedAt ? <p>Historical backfill completed on {new Date(historical.completedRun.completedAt).toLocaleString()}.</p> :
-          historical.canStart && <button className="secondary-button" disabled={busy} onClick={() => void runHistorical()}>
-            {historical.lastAttempt?.status === "Failed" || historical.lastAttempt?.status === "Running"
-              ? "Resume historical backfill" : "Run one-time historical backfill"}
-          </button>}
-        {historical.lastAttempt && <p>Status: {historical.lastAttempt.status}
-          {" · "}Started: {new Date(historical.lastAttempt.startedAt).toLocaleString()}
-          {" · "}Completed: {historical.lastAttempt.completedAt ? new Date(historical.lastAttempt.completedAt).toLocaleString() : "—"}
-          {" · "}Eligible: {historical.lastAttempt.eligibleCaseCount}
-          {" · "}Archive pages: {historical.lastAttempt.archivePagesDiscovered}
-          {" · "}Supported sources: {historical.lastAttempt.sourceDocumentsDiscovered}
-          {" · "}Documents processed: {historical.lastAttempt.sourceDocumentsProcessed}
-          {" · "}Target matches: {historical.lastAttempt.targetCaseMatches}
-          {" · "}Cases advanced: {historical.lastAttempt.casesAdvanced}
-          {" · "}Needs review: {historical.lastAttempt.reviewCount}</p>}
-        {historical.lastAttempt?.failureMessage && <p role="alert">{historical.lastAttempt.failureMessage}</p>}
-      </section>}
-      <section aria-label="Assisted case status" style={{ borderTop: "1px solid #e2e8f0", marginTop: 16, paddingTop: 12 }}>
-        <h3>Assisted case status</h3>
-        <p>Officer-entered official DHC verification code; no automatic CAPTCHA solving.</p>
-        {assisted && <p>Recommended: {assisted.recommendedCount} · No NDOH: {assisted.noNdohCount} · Overdue: {assisted.overdueCount} · Needs review: {assisted.reviewCount}</p>}
-        <Link to={activeAssistedRun ? `/court-cases/dhc-assisted?run=${activeAssistedRun}` : "/court-cases/dhc-assisted"}>
-          {activeAssistedRun ? "Continue assisted session" : "Start assisted verification"}
-        </Link>
+  const syncTone = attempt?.status === "Failed" ? "error" : (attempt?.reviewCount ?? 0) > 0 ? "attention" : status.lastSuccess ? "healthy" : "neutral";
+  const syncLabel = attempt?.status === "Failed" ? "Needs attention" : attempt?.status === "Running" ? "Checking now" : status.lastSuccess ? "Active" : "Not checked yet";
+  return <section className="dhc-sync-section" aria-label="Delhi High Court public cause-list sync">
+    <div className="dhc-sync-heading"><div><h2>Delhi High Court</h2><p>Official cause-list and assisted verification status</p></div></div>
+    <div className="dhc-sync-grid">
+      <section className="dhc-sync-card" aria-label="Automatic cause list">
+        <div className="dhc-card-kicker"><span className={`dhc-status-dot ${syncTone}`} />AUTOMATIC SYNC</div>
+        <h3>Automatic cause list</h3>
+        <strong className="dhc-card-value">{syncLabel}</strong>
+        <p className="dhc-card-meta">{attempt ? `Last checked ${new Date(attempt.completedAt ?? attempt.startedAt).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" })}` : "Awaiting first check"}</p>
+        <div className="dhc-card-stats"><span>{attempt?.sourceDocumentsProcessed ?? 0} documents</span><span>{attempt?.observationsAccepted ?? 0} updates</span>
+          {(attempt?.reviewCount ?? 0) > 0 && <span className="attention">{(attempt?.reviewCount ?? 0).toLocaleString("en-IN")} review</span>}</div>
+        <div className="dhc-card-action">{status.canSyncNow && <button className="secondary-button" disabled={busy} onClick={() => void syncNow()}>Sync now</button>}</div>
+        <details className="dhc-card-details"><summary>View sync details</summary>
+          <dl><div><dt>Last success</dt><dd>{status.lastSuccess?.completedAt ? new Date(status.lastSuccess.completedAt).toLocaleString() : "Never"}</dd></div>
+            <div><dt>Last attempt</dt><dd>{attempt ? `${new Date(attempt.startedAt).toLocaleString()} (${attempt.status})` : "Never"}</dd></div>
+            <div><dt>Documents</dt><dd>{attempt?.sourceDocumentsProcessed ?? 0}</dd></div>
+            <div><dt>Accepted</dt><dd>{attempt?.observationsAccepted ?? 0}</dd></div>
+            <div><dt>Needs review</dt><dd>{attempt?.reviewCount ?? 0}</dd></div></dl>
+          {attempt?.failureMessage && <p role="alert">{attempt.failureMessage}</p>}
+        </details>
       </section>
-      {reviews.length > 0 && <details>
-        <summary>Listing observations needing review ({reviews.length})</summary>
-        {reviews.map(item => <div key={item.id} style={{ borderTop: "1px solid #e2e8f0", padding: "12px 0" }}>
-          <strong>{item.identity}</strong> · {item.listingDate} · page {item.pageNumber} · {item.conflictReason}
-          <div>{item.rawMatchedText}</div>
-          <a href={item.sourceUrl} target="_blank" rel="noreferrer">Official publication: {item.sourceTitle}</a>
-          {item.documentId && <> · <a href={`/api/court-cases/dhc-sync/documents/${item.documentId}/content`} target="_blank" rel="noreferrer">Stored PDF</a></>}
-          {status.canSyncNow && <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <input aria-label="Search canonical case number" placeholder="Find exact case number" value={search[item.id] ?? ""}
-              onChange={event => setSearch(previous => ({ ...previous, [item.id]: event.target.value }))} />
-            <button className="secondary-button" onClick={() => void findCase(item.id)}>Find case</button>
-            <select aria-label="Select canonical case" value={selectedCase[item.id] ?? item.courtCaseId ?? ""}
-              onChange={event => setSelectedCase(previous => ({ ...previous, [item.id]: event.target.value }))}>
-              <option value="">Select exact case</option>
-              {item.courtCaseId && <option value={item.courtCaseId}>Previously matched case</option>}
-              {(candidates[item.id] ?? []).map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.caseNumber}</option>)}
-            </select>
-            {item.sourceKind === "OrdinaryListing" && item.mode !== "HistoricalBackfill" && <button className="secondary-button" disabled={busy} onClick={() => void decide(item, true)}>Accept evidenced date</button>}
-            <button className="secondary-button" disabled={busy} onClick={() => void decide(item, false)}>Reject</button>
-          </div>}
-        </div>)}
-      </details>}
-      {sourceReviews.length > 0 && <details>
-        <summary>Publications needing source review ({sourceReviews.length})</summary>
-        <ul>{sourceReviews.map(source => <li key={source.id}>
-          {source.listingDate ?? "Undated"} · {source.kind} · <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceTitle}</a>
-          {source.failureMessage && <> · {source.failureMessage}</>}
-        </li>)}</ul>
-      </details>}
-    </section>
-  );
+      <section className="dhc-sync-card" aria-label="One-time historical catch-up">
+        <div className="dhc-card-kicker">HISTORICAL CATCH-UP</div>
+        <h3>Historical catch-up</h3>
+        <strong className="dhc-card-value">{historical?.completedRun ? "Completed" : historical?.eligibleCaseCount ? `${historical.eligibleCaseCount.toLocaleString("en-IN")} stale matters` : "No stale matters eligible"}</strong>
+        <p className="dhc-card-meta">{historical?.completedRun?.completedAt ? new Date(historical.completedRun.completedAt).toLocaleDateString("en-IN") :
+          historical?.eligibleCaseCount ? `Earliest: ${historical.earliestBaseline ?? "Not available"}` : `Checked through ${historical?.windowEnd ?? "—"}`}</p>
+        <div className="dhc-card-stats">{historical?.completedRun ? <span>{historical.completedRun.casesAdvanced} matters advanced</span> :
+          <span>Eligible: {historical?.eligibleCaseCount ?? 0}</span>}</div>
+        <div className="dhc-card-action">{historical?.canStart ? <button className="secondary-button" disabled={busy} onClick={() => void runHistorical()}>
+          {historical.lastAttempt?.status === "Failed" || historical.lastAttempt?.status === "Running" ? "Resume catch-up" : "Run one-time catch-up"}
+        </button> : <span className="dhc-no-action">No action required</span>}</div>
+        {historical && <details className="dhc-card-details"><summary>View details</summary>
+          <dl><div><dt>Window</dt><dd>{historical.earliestBaseline ?? "None"} through {historical.windowEnd}</dd></div>
+            <div><dt>No baseline</dt><dd>{historical.noBaselineCount}</dd></div><div><dt>Proceeding exclusions</dt><dd>{historical.realProceedingExclusionCount}</dd></div>
+            {historical.lastAttempt && <><div><dt>Status</dt><dd>{historical.lastAttempt.status}</dd></div>
+              <div><dt>Archive pages</dt><dd>{historical.lastAttempt.archivePagesDiscovered}</dd></div>
+              <div><dt>Supported sources</dt><dd>{historical.lastAttempt.sourceDocumentsDiscovered}</dd></div>
+              <div><dt>Documents processed</dt><dd>{historical.lastAttempt.sourceDocumentsProcessed}</dd></div>
+              <div><dt>Target matches</dt><dd>{historical.lastAttempt.targetCaseMatches}</dd></div>
+              <div><dt>Cases advanced</dt><dd>{historical.lastAttempt.casesAdvanced}</dd></div>
+              <div><dt>Needs review</dt><dd>{historical.lastAttempt.reviewCount}</dd></div></>}</dl>
+          {historical.lastAttempt?.failureMessage && <p role="alert">{historical.lastAttempt.failureMessage}</p>}
+        </details>}
+      </section>
+      <section className="dhc-sync-card" aria-label="Assisted case status">
+        <div className="dhc-card-kicker">ASSISTED VERIFICATION</div>
+        <h3>Assisted case status</h3>
+        <strong className="dhc-card-value">{assisted?.recommendedCount ?? 0} need verification</strong>
+        <p className="dhc-card-meta">Officer-led official case check</p>
+        <div className="dhc-card-stats"><span>No NDOH {assisted?.noNdohCount ?? 0}</span><span>Overdue {assisted?.overdueCount ?? 0}</span><span>Review {assisted?.reviewCount ?? 0}</span></div>
+        <div className="dhc-card-action"><Link className="secondary-button" to={activeAssistedRun ? `/court-cases/dhc-assisted?run=${activeAssistedRun}` : "/court-cases/dhc-assisted"}>
+          {activeAssistedRun ? "Continue session →" : "Start verification →"}</Link></div>
+      </section>
+    </div>
+    {message && <p className="dhc-inline-message" role="alert">{message}</p>}
+    {(reviews.length > 0 || sourceReviews.length > 0) && <details className="dhc-attention" aria-label="DHC evidence needing attention">
+      <summary><strong>Needs attention</strong><span>Listing evidence reviews <b>{reviews.length.toLocaleString("en-IN")}</b></span>
+        <span>Source publication reviews <b>{sourceReviews.length.toLocaleString("en-IN")}</b></span><em>Review ▾</em></summary>
+      <div className="dhc-review-details">
+        {reviews.length > 0 && <section><h3>Listing observations needing review ({reviews.length})</h3>
+          {reviews.map(item => <div key={item.id} className="dhc-review-item">
+            <strong>{item.identity}</strong> · {item.listingDate} · page {item.pageNumber} · {item.conflictReason}
+            <div>{item.rawMatchedText}</div>
+            <a href={item.sourceUrl} target="_blank" rel="noreferrer">Official publication: {item.sourceTitle}</a>
+            {item.documentId && <> · <a href={`/api/court-cases/dhc-sync/documents/${item.documentId}/content`} target="_blank" rel="noreferrer">Stored PDF</a></>}
+            {status.canSyncNow && <div className="dhc-review-actions">
+              <input aria-label="Search canonical case number" placeholder="Find exact case number" value={search[item.id] ?? ""}
+                onChange={event => setSearch(previous => ({ ...previous, [item.id]: event.target.value }))} />
+              <button className="secondary-button" onClick={() => void findCase(item.id)}>Find case</button>
+              <select aria-label="Select canonical case" value={selectedCase[item.id] ?? item.courtCaseId ?? ""}
+                onChange={event => setSelectedCase(previous => ({ ...previous, [item.id]: event.target.value }))}>
+                <option value="">Select exact case</option>
+                {item.courtCaseId && <option value={item.courtCaseId}>Previously matched case</option>}
+                {(candidates[item.id] ?? []).map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.caseNumber}</option>)}
+              </select>
+              {item.sourceKind === "OrdinaryListing" && item.mode !== "HistoricalBackfill" && <button className="secondary-button" disabled={busy} onClick={() => void decide(item, true)}>Accept evidenced date</button>}
+              <button className="secondary-button" disabled={busy} onClick={() => void decide(item, false)}>Reject</button>
+            </div>}
+          </div>)}</section>}
+        {sourceReviews.length > 0 && <section><h3>Publications needing source review ({sourceReviews.length})</h3>
+          <ul>{sourceReviews.map(source => <li key={source.id}>
+            {source.listingDate ?? "Undated"} · {source.kind} · <a href={source.sourceUrl} target="_blank" rel="noreferrer">{source.sourceTitle}</a>
+            {source.failureMessage && <> · {source.failureMessage}</>}
+          </li>)}</ul>
+        </section>}
+      </div>
+    </details>}
+  </section>;
 };

@@ -52,6 +52,7 @@ export const DhcAssistedPage: React.FC = () => {
   const confirmStatus = async (id: string) => {
     const reason = reviewReasons[id]?.trim();
     if (!reason) { setMessage("Enter a reason before confirming the LAC case status."); return; }
+    if (!window.confirm("Confirm LAC status as Disposed? This changes the canonical court case status and records an audit event.")) return;
     setBusy(true); setMessage(null);
     try {
       const response = await fetch(`${base}/reviews/${id}/confirm-canonical-status`, {
@@ -172,91 +173,104 @@ export const DhcAssistedPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  return <main className="court-page" style={{ padding: "24px", maxWidth: 1050, margin: "0 auto", boxSizing: "border-box", minWidth: 0 }}>
-    <p><Link to="/court-cases">← Court queue</Link></p>
-    <h1>Delhi High Court assisted verification</h1>
-    <p>Official case status and order links, checked with a code entered by an officer.</p>
-    {message && <p role="alert">{message}</p>}
-    {!runId && preview && <section className="court-card" style={{ padding: 20 }}>
-      <h2>{preview.recommendedCount} matters recommended for verification</h2>
-      <p>No NDOH: {preview.noNdohCount} · Overdue: {preview.overdueCount} · Cause-list review: {preview.reviewCount}</p>
-      {preview.skippedIdentityCount > 0 && <p>{preview.skippedIdentityCount} case identities need review before official search.</p>}
-      <fieldset><legend>Verification scope</legend>
-        {[["Recommended", "All recommended"], ["NoNdoh", "No NDOH only"], ["Overdue", "Overdue only"], ["Selected", "Selected cases"]].map(([value, label]) =>
-          <label key={value} style={{ display: "inline-block", marginRight: 20 }}>
-            <input type="radio" name="scope" checked={scope === value} onChange={() => setScope(value)} /> {label}
-          </label>)}
-      </fieldset>
-      <div style={{ maxWidth: "100%", overflowX: "auto" }}><table><thead><tr><th>Select</th><th>Case number</th><th>Current NDOH</th><th>Reason</th></tr></thead><tbody>
-        {preview.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview).map(item => <tr key={item.courtCaseId}>
-          <td><input type="checkbox" aria-label={`Select ${item.caseNumber}`} disabled={item.identityNeedsReview}
-            checked={selected.includes(item.courtCaseId)} onChange={event => setSelected(previous =>
-              event.target.checked ? [...previous, item.courtCaseId] : previous.filter(id => id !== item.courtCaseId))} /></td>
-          <td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td>
-          <td>{item.operationalNdoh ?? "No NDOH"}</td>
-          <td>{item.identityNeedsReview ? "Skipped — case identity needs review" : item.reason || "Officer selected"}</td>
-        </tr>)}
-      </tbody></table></div>
-      <button disabled={busy || (scope === "Selected" && selected.length === 0)} onClick={() => void start()}>Start verification</button>
-    </section>}
-    {run && <section className="court-card" style={{ padding: 20 }}>
-      <h2>{run.status === "Completed" ? "Assisted verification complete" : "Assisted verification progress"}</h2>
-      <h3>{run.phase === "StatusLookup" ? "Phase 1 of 2 · Case status verification" : "Phase 2 of 2 · Official order links"}</h3>
-      <p>Status: {run.status} · Run by {run.ownerName}</p>
-      {run.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status)) &&
-        <p>Current case: {run.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status))?.caseNumber}</p>}
-      <progress value={run.completedCases} max={run.totalCases} /> {run.completedCases} / {run.totalCases} case statuses checked
-      {run.phase === "OrderLookup" && <p>Order searches completed: {run.items.filter(item => item.status === "Completed" ||
-        item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length}</p>}
-      <p>Updated: {run.updatedCases} · No change: {run.noChangeCases} · Not found: {run.items.filter(item => item.status === "NotFound").length} · Needs review: {run.needsReviewCases} · Failed: {run.failedCases} · Remaining: {Math.max(0, run.totalCases - run.completedCases)}</p>
-      {run.failureMessage && <p role="alert">{run.failureMessage}</p>}
-      {run.isOwner && run.status === "ReadyForOrders" && <section aria-label="Order verification choice">
-        <p>Case status verification complete. {run.completedCases} status checks finished. Order links are a separate optional phase.</p>
-        <button disabled={busy} onClick={() => void orderAction("orders")}>Check official order links</button>{" "}
-        <button className="secondary-button" disabled={busy} onClick={() => void orderAction("finish")}>Finish session</button>
-      </section>}
-      {run.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(run.status) && challenge &&
-        <section aria-label="Official DHC verification code" style={{ border: "1px solid #cbd5e1", padding: 20, maxWidth: 520 }}>
-          <h3>Delhi High Court verification required</h3>
-          <p>To continue {challenge.operation.toLowerCase()}, enter the security code shown by the official Delhi High Court website.</p>
-          <div>Official DHC verification code:</div>
-          {challenge.kind === "Text" ? <div aria-label="Official DHC security code" style={{ fontSize: 30, letterSpacing: 5, border: "1px solid #94a3b8", padding: 12, display: "inline-block", margin: "8px 0", maxWidth: "100%", overflowWrap: "anywhere", boxSizing: "border-box" }}>{challenge.officialText}</div> :
-            <img alt="Official DHC verification code" src={`${base}/runs/${runId}/captcha/image?v=${imageVersion}`} />}
-          <label style={{ display: "block", marginTop: 12 }}>Enter the code shown above:
-            <input autoComplete="off" spellCheck={false} value={answer} onChange={event => setAnswer(event.target.value)} />
-          </label>
-          <button disabled={busy || !answer.trim()} onClick={() => void verify()}>Verify &amp; continue</button>{" "}
-          <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button>
-          <small style={{ display: "block", marginTop: 12 }}>This verification code is entered manually by you. LAC Platform does not solve or bypass it.</small>
+  const currentItem = run?.items.find(item => ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status))
+    ?? run?.items.find(item => item.status === "Queued");
+  const previewRows = preview?.cases.filter(item => scope === "Selected" || item.reason || item.identityNeedsReview) ?? [];
+  const orderCount = run?.items.filter(item => item.status === "Completed" ||
+    item.status === "NeedsReview" && ["StatusDifference", "DateConflict", "OrderIdentityMismatch", "OrderDateNeedsReview", "UnsupportedOrderCaseType"].includes(item.failureCode ?? "")).length ?? 0;
+
+  return <main className="court-assisted-page">
+    <Link className="court-assisted-back" to="/court-cases">← Court Matters</Link>
+    <div className="court-assisted-header"><div><h1>Delhi High Court verification</h1><p>Official case-status check</p></div>
+      {run && <span className="court-assisted-status">{run.status === "ReadyForOrders" ? "Status checked" : run.status}</span>}</div>
+    {message && <p className="court-assisted-alert" role="alert">{message}</p>}
+    {!runId && preview && <div className="court-assisted-preview">
+      <section className="court-assisted-main-card" aria-label="Recommended cases for verification">
+        <div className="court-assisted-card-heading"><div><h2>Recommended matters</h2><p>Choose the cases to check against the official Delhi High Court status form.</p></div></div>
+        <fieldset className="court-assisted-scope"><legend>Verification scope</legend><div>
+          {[["Recommended", "All recommended"], ["NoNdoh", "No NDOH"], ["Overdue", "Overdue"], ["Selected", "Selected cases"]].map(([value, label]) =>
+            <label key={value} className={scope === value ? "active" : ""}><input type="radio" name="scope" checked={scope === value} onChange={() => setScope(value)} />{label}</label>)}
+        </div></fieldset>
+        {preview.skippedIdentityCount > 0 && <p className="court-assisted-note">{preview.skippedIdentityCount} case identities need review before official search.</p>}
+        <div className="court-assisted-table-wrap"><table><thead><tr><th>Select</th><th>Case number</th><th>Current NDOH</th><th>Reason</th></tr></thead><tbody>
+          {previewRows.map(item => <tr key={item.courtCaseId}>
+            <td><input type="checkbox" aria-label={`Select ${item.caseNumber}`} disabled={item.identityNeedsReview}
+              checked={selected.includes(item.courtCaseId)} onChange={event => setSelected(previous =>
+                event.target.checked ? [...previous, item.courtCaseId] : previous.filter(id => id !== item.courtCaseId))} /></td>
+            <td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td>
+            <td>{item.operationalNdoh ?? "No NDOH"}</td>
+            <td>{item.identityNeedsReview ? "Skipped — case identity needs review" : item.reason || "Officer selected"}</td>
+          </tr>)}
+        </tbody></table></div>
+        <div className="court-assisted-footer"><button className="primary-button" disabled={busy || (scope === "Selected" && selected.length === 0)} onClick={() => void start()}>Start verification</button></div>
+      </section>
+      <aside className="court-assisted-summary"><h2>Verification summary</h2><strong>{preview.recommendedCount}</strong><span>Need verification</span>
+        <dl><div><dt>No NDOH</dt><dd>{preview.noNdohCount}</dd></div><div><dt>Overdue</dt><dd>{preview.overdueCount}</dd></div>
+          <div><dt>Review</dt><dd>{preview.reviewCount}</dd></div></dl>
+        <p>Verification code is entered manually by the officer.</p>
+      </aside>
+    </div>}
+    {run && <div className="court-assisted-run-layout">
+      <section className="court-assisted-main-card" aria-label="Assisted verification work">
+        <div className="court-assisted-card-heading"><div><h2>{run.status === "Completed" ? "Assisted verification complete" : "Assisted verification progress"}</h2>
+          <p>{run.phase === "StatusLookup" ? "Phase 1 of 2 · Case status verification" : "Phase 2 of 2 · Official order links"} · Run by {run.ownerName}</p></div></div>
+        {run.failureMessage && <p className="court-assisted-alert" role="alert">{run.failureMessage}</p>}
+        {run.isOwner && run.status === "ReadyForOrders" && <section className="court-assisted-decision" aria-label="Order verification choice">
+          <span className="court-assisted-eyebrow">STATUS PHASE COMPLETE</span><h3>Case-status verification complete</h3>
+          <p>{run.completedCases} matters checked. Order links are a separate optional phase.</p>
+          <div><button className="primary-button" disabled={busy} onClick={() => void orderAction("orders")}>Check official order links</button>
+            <button className="secondary-button" disabled={busy} onClick={() => void orderAction("finish")}>Finish session</button></div>
         </section>}
-      {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders", "Interrupted"].includes(run.status) && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
-      {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <button disabled={busy} onClick={() => void resume()}>
-        {run.phase === "StatusLookup" && run.items.length === run.totalCases &&
-          run.items.every(item => ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status))
-          ? "Return to order/finish choice" : "Resume with new code"}
-      </button>}
-      <h3>Cases</h3>
-      <div style={{ maxWidth: "100%", overflowX: "auto" }}><table><thead><tr><th>Case</th><th>Reason</th><th>Result</th></tr></thead><tbody>
-        {run.items.map(item => <tr key={item.id}><td><Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link></td><td>{item.reason}</td><td>{item.status === "StatusCaptured" ? "Case status checked" : item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</td></tr>)}
-      </tbody></table></div>
-    </section>}
-    {reviews.length > 0 && <section className="court-card" style={{ padding: 20, marginTop: 18 }}>
-      <h2>Official evidence needing officer review</h2>
-      <p>These are observations, not changes to the LAC case record. Confirm the exact case and date before accepting.</p>
-      {reviews.map(row => <article key={row.id} style={{ borderTop: "1px solid #cbd5e1", padding: "14px 0" }}>
-        <p><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link> · {new Date(row.observedAt).toLocaleString()}</p>
-        <p>DHC official: {row.rawStatus ?? "Not stated"} · LAC record: {row.canonicalStatus ?? "Not stated"} · Listing date: {row.listingDate ?? "Not stated"} · Court: {row.rawCourtNumber ?? "Not stated"}</p>
-        <p>Review reason: {row.reviewReason ?? "Official evidence needs review"}</p>
-        <details><summary>Captured official result</summary><p>{row.rawEvidenceText}</p></details>
-        <label>Reason for decision <input value={reviewReasons[row.id] ?? ""}
-          onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>{" "}
-        <button disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Accept evidence</button>{" "}
-        <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()}
-          onClick={() => void decide(row.id, false)}>Keep LAC status / Reject evidence</button>{" "}
+        {run.isOwner && ["WaitingForCaptcha", "PausedForCaptcha"].includes(run.status) && challenge &&
+          <section className="court-assisted-challenge" aria-label="Official DHC verification code">
+            <span className="court-assisted-eyebrow">HUMAN VERIFICATION</span><h3>Delhi High Court verification required</h3>
+            {currentItem && <p>Current case <strong>{currentItem.caseNumber}</strong></p>}
+            <p>To continue {challenge.operation.toLowerCase()}, enter the code shown by the official court website.</p>
+            <span className="court-assisted-code-label">Official DHC verification code</span>
+            {challenge.kind === "Text" ? <div className="court-assisted-code" aria-label="Official DHC security code">{challenge.officialText}</div> :
+              <img className="court-assisted-code-image" alt="Official DHC verification code" src={`${base}/runs/${runId}/captcha/image?v=${imageVersion}`} />}
+            <label className="court-assisted-answer">Enter code<input autoComplete="off" spellCheck={false} value={answer} onChange={event => setAnswer(event.target.value)} /></label>
+            <div className="court-assisted-challenge-actions"><button className="primary-button" disabled={busy || !answer.trim()} onClick={() => void verify()}>Verify &amp; continue</button>
+              <button className="secondary-button" disabled={busy} onClick={() => void refresh()}>Refresh challenge</button></div>
+            <small>This verification code is entered manually by you. LAC Platform does not solve or bypass it.</small>
+          </section>}
+        {run.isOwner && ["Interrupted", "Failed"].includes(run.status) && <div className="court-assisted-reopen"><button className="primary-button" disabled={busy} onClick={() => void resume()}>
+          {run.phase === "StatusLookup" && run.items.length === run.totalCases &&
+            run.items.every(item => ["StatusCaptured", "Completed", "NeedsReview", "NotFound", "Skipped"].includes(item.status))
+            ? "Return to order/finish choice" : "Resume with new code"}</button></div>}
+        {currentItem && run.status === "Running" && <div className="court-assisted-current"><span>Current case</span><strong>{currentItem.caseNumber}</strong><small>{currentItem.status}</small></div>}
+        {run.isOwner && !["Completed", "Cancelled", "Failed", "ReadyForOrders", "Interrupted"].includes(run.status) &&
+          <button className="court-assisted-cancel" disabled={busy} onClick={() => void cancel()}>Cancel session</button>}
+      </section>
+      <aside className="court-assisted-progress" aria-label="Verification progress and queue">
+        <h2>Progress</h2><strong>{run.completedCases} <span>/ {run.totalCases}</span></strong><p>case statuses checked</p>
+        <progress value={run.completedCases} max={Math.max(1, run.totalCases)} />
+        <div className="court-assisted-metrics"><span>Updated <b>{run.updatedCases}</b></span><span>No change <b>{run.noChangeCases}</b></span>
+          <span>Review <b>{run.needsReviewCases}</b></span><span>Not found <b>{run.items.filter(item => item.status === "NotFound").length}</b></span>
+          <span>Failed <b>{run.failedCases}</b></span><span>Remaining <b>{Math.max(0, run.totalCases - run.completedCases)}</b></span>
+          {run.phase === "OrderLookup" && <span>Order searches <b>{orderCount}</b></span>}</div>
+        <h3>Queue</h3><ol>{run.items.map(item => <li key={item.id}>
+          <span aria-hidden="true">{["Completed", "StatusCaptured"].includes(item.status) ? "✓" : ["CheckingStatus", "CheckingOrders", "CaptchaRequired"].includes(item.status) ? "→" : "○"}</span>
+          <Link to={`/court-cases/${item.courtCaseId}`}>{item.caseNumber}</Link><small>{item.status === "StatusCaptured" ? "Case status checked" : item.status}{item.failureMessage ? ` — ${item.failureMessage}` : ""}</small>
+        </li>)}</ol>
+      </aside>
+    </div>}
+    {reviews.length > 0 && <section className="court-assisted-reviews" aria-label="Official evidence needing officer review">
+      <div className="court-assisted-review-heading"><h2>Official evidence needing officer review</h2><p>These observations do not change the LAC case record until an officer confirms status separately.</p></div>
+      <div className="court-assisted-review-grid">{reviews.map(row => <article key={row.id} className="court-assisted-review-card">
+        <div className="court-assisted-review-title"><Link to={`/court-cases/${row.courtCaseId}`}>{row.rawCaseNumber}</Link><span>NEEDS REVIEW</span></div>
+        <dl><div><dt>Official</dt><dd>{row.rawStatus ?? "Not stated"}</dd></div><div><dt>LAC</dt><dd>{row.canonicalStatus ?? "Not stated"}</dd></div>
+          <div><dt>Listing</dt><dd>{row.listingDate ?? "Not stated"}</dd></div><div><dt>Court</dt><dd>{row.rawCourtNumber ?? "Not stated"}</dd></div></dl>
+        <small>{new Date(row.observedAt).toLocaleString()} · {row.reviewReason ?? "Official evidence needs review"}</small>
+        <details><summary>Captured evidence</summary><p>{row.rawEvidenceText}</p></details>
+        <label>Reason for decision<input value={reviewReasons[row.id] ?? ""}
+          onChange={event => setReviewReasons(previous => ({ ...previous, [row.id]: event.target.value }))} /></label>
+        <div className="court-assisted-review-actions"><button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, true)}>Accept evidence</button>
+          <button className="secondary-button" disabled={busy || !reviewReasons[row.id]?.trim()} onClick={() => void decide(row.id, false)}>Keep LAC record</button></div>
         {row.rawStatus?.trim().toLowerCase() === "disposed" && row.canonicalStatus?.trim().toLowerCase() !== "disposed" &&
-          <button disabled={busy || !reviewReasons[row.id]?.trim()}
+          <button className="court-assisted-danger" disabled={busy || !reviewReasons[row.id]?.trim()}
             onClick={() => void confirmStatus(row.id)}>Confirm LAC status as Disposed</button>}
-      </article>)}
+      </article>)}</div>
     </section>}
   </main>;
 };

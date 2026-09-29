@@ -3,9 +3,133 @@
 .court-directory-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 24px;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
 }
+
+.court-directory-container { max-width: 1400px; min-width: 0; margin: 0 auto; padding: 0 24px 32px; color: #0f172a; }
+.court-directory-header h1 { margin: 0; font-size: 23px; line-height: 1.22; letter-spacing: -.02em; }
+.court-directory-header p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+.court-directory-actions { display: flex; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+.court-directory-actions .primary-button, .court-directory-actions .secondary-button { min-height: 34px; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+
+/* Compact DHC operational strip */
+.dhc-sync-section { margin: 0 0 14px; }
+.dhc-sync-heading { margin: 0 0 8px; }
+.dhc-sync-heading h2 { margin: 0; font-size: 16px; line-height: 1.25; }
+.dhc-sync-heading p { margin: 2px 0 0; color: #64748b; font-size: 11px; }
+.dhc-sync-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dhc-sync-card { min-width: 0; display: flex; flex-direction: column; padding: 11px 13px 9px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; }
+.dhc-card-kicker { display: flex; align-items: center; gap: 6px; color: #64748b; font-size: 10px; font-weight: 750; letter-spacing: .065em; }
+.dhc-status-dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: #94a3b8; }
+.dhc-status-dot.healthy { background: #279463; }.dhc-status-dot.attention { background: #d49b2d; }.dhc-status-dot.error { background: #c35757; }
+.dhc-sync-card h3 { margin: 6px 0 3px; color: #334155; font-size: 12px; font-weight: 650; }
+.dhc-card-value { display: block; overflow: hidden; color: #0f172a; font-size: 16px; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.dhc-card-meta { min-height: 16px; margin: 2px 0 4px; color: #64748b; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dhc-card-stats { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
+.dhc-card-stats span { padding: 2px 5px; border-radius: 4px; background: #f1f5f9; color: #475569; font-size: 10px; font-weight: 600; }
+.dhc-card-stats .attention { background: #fff5e7; color: #925c13; }
+.dhc-card-action { min-height: 31px; display: flex; align-items: end; margin-top: auto; padding-top: 6px; }
+.dhc-card-action .secondary-button { padding: 5px 9px; font-size: 11px; line-height: 1.2; }
+.dhc-no-action { color: #94a3b8; font-size: 11px; }
+.dhc-card-details { border-top: 1px solid #f1f5f9; margin-top: 7px; padding-top: 5px; }
+.dhc-card-details summary { width: max-content; color: #35618c; font-size: 10px; cursor: pointer; }
+.dhc-card-details dl { margin: 7px 0 0; }
+.dhc-card-details dl > div { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid #f1f5f9; font-size: 11px; }
+.dhc-card-details dt { color: #64748b; }.dhc-card-details dd { margin: 0; text-align: right; color: #334155; }
+.dhc-card-details p[role="alert"], .dhc-inline-message { margin: 7px 0 0; color: #a23636; font-size: 11px; }
+.dhc-attention { margin-top: 7px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; }
+.dhc-attention > summary { display: flex; align-items: center; gap: 14px; min-height: 32px; padding: 5px 11px; list-style: none; color: #64748b; font-size: 11px; cursor: pointer; }
+.dhc-attention > summary::-webkit-details-marker { display: none; }
+.dhc-attention > summary strong { color: #334155; font-size: 11px; }
+.dhc-attention > summary b { padding: 2px 5px; border-radius: 4px; background: #fff5e7; color: #925c13; }
+.dhc-attention > summary em { margin-left: auto; color: #35618c; font-style: normal; font-weight: 650; }
+.dhc-review-details { max-height: 420px; overflow: auto; padding: 11px; border-top: 1px solid #e2e8f0; font-size: 12px; }
+.dhc-review-details h3 { margin: 0 0 7px; font-size: 13px; }.dhc-review-details section + section { margin-top: 16px; }
+.dhc-review-item { padding: 9px 0; border-top: 1px solid #eef2f6; }.dhc-review-item > div { margin: 4px 0; }
+.dhc-review-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }.dhc-review-actions input, .dhc-review-actions select { min-height: 30px; border: 1px solid #cbd5e1; border-radius: 5px; }
+
+/* Directory navigation, filters, and results */
+.court-queue-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 39px; margin-bottom: 7px; border-bottom: 1px solid #e2e8f0; }
+.court-queue-tabs { display: flex; gap: 2px; overflow-x: auto; min-width: 0; }
+.court-queue-tabs button { padding: 7px 10px; border: 0; border-radius: 6px 6px 0 0; background: transparent; color: #64748b; font-size: 12px; font-weight: 650; white-space: nowrap; }
+.court-queue-tabs button:hover { background: #f1f5f9; color: #334155; }.court-queue-tabs button.active { background: #e8f1fa; color: #1c5d9f; }
+.court-queue-count { flex: 0 0 auto; color: #64748b; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.court-filter-shell { position: relative; z-index: 3; margin-bottom: 12px; }
+.court-primary-filters { display: grid; grid-template-columns: minmax(195px,1fr) 120px 146px 142px auto auto; align-items: center; gap: 7px; min-height: 48px; padding: 6px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; }
+.court-primary-filters label { min-width: 0; }.court-primary-filters .form-input { width: 100%; min-width: 0; height: 33px; padding: 5px 9px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; }
+.court-more-filters, .court-clear-filters { height: 33px; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #365a79; font-size: 11px; font-weight: 650; white-space: nowrap; }
+.court-more-filters.active { background: #eef5fc; border-color: #a7c4df; }.court-clear-filters { border-color: transparent; }
+.court-multi-select { position: relative; min-width: 0; }
+.court-multi-select summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 33px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 5px; list-style: none; background: #fff; color: #334155; font-size: 12px; cursor: pointer; }
+.court-multi-select summary::-webkit-details-marker { display: none; }.court-multi-select summary span { color: #64748b; }
+.court-multi-options { position: absolute; z-index: 15; top: calc(100% + 4px); left: 0; min-width: max(100%,190px); max-height: 220px; overflow: auto; padding: 5px; border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; box-shadow: 0 9px 22px #1e293b1a; }
+.court-multi-options label { display: flex; align-items: center; gap: 7px; padding: 6px 7px; color: #334155; font-size: 12px; cursor: pointer; }.court-multi-options label:hover { background: #f1f5f9; }.court-multi-options input { margin: 0; }
+.court-advanced-filters { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px 12px; margin-top: 6px; padding: 11px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; }
+.court-advanced-filters > label, .court-advanced-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #64748b; font-size: 11px; font-weight: 650; }
+.court-advanced-filters .form-input { width: 100%; height: 33px; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #334155; font-size: 12px; }
+.court-filter-error { margin-bottom: 8px; padding: 8px 10px; border: 1px solid #f1caca; border-radius: 5px; color: #9f3434; font-size: 12px; }
+.court-results-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 7px; }.court-results-heading h2 { margin: 0; color: #0f172a; font-size: 15px; }.court-results-heading span { color: #64748b; font-size: 11px; }
+.court-table-scroll { max-width: 100%; overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; }
+.court-matters-table { width: 100%; min-width: 1020px; table-layout: fixed; border-collapse: collapse; }
+.court-matters-table th, .court-matters-table td { padding: 7px 9px; border-bottom: 1px solid #edf1f4; text-align: left; vertical-align: middle; }
+.court-matters-table th { background: #f8fafc; color: #64748b; font-size: 10px; }.court-matters-table td { color: #334155; font-size: 12px; line-height: 1.3; }
+.court-matters-table tr:hover td { background: #f9fbfd; }.court-matters-table th:nth-child(1) { width: 19%; }.court-matters-table th:nth-child(2) { width: 13%; }.court-matters-table th:nth-child(3) { width: 12%; }.court-matters-table th:nth-child(4) { width: 12%; }.court-matters-table th:nth-child(5) { width: 13%; }.court-matters-table th:nth-child(6) { width: 14%; }.court-matters-table th:nth-child(7) { width: 11%; }.court-matters-table th:nth-child(8) { width: 6%; }
+.court-case-link { color: #1c5d9f; font-size: 12px; font-weight: 750; text-decoration: none; }.court-case-link:hover { text-decoration: underline; }
+.court-case-title { display: -webkit-box; overflow: hidden; margin-top: 2px; color: #64748b; font-size: 11px; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.court-case-type { display: inline-block; margin-top: 3px; padding: 1px 5px; border: 1px solid #e2e8f0; border-radius: 4px; color: #64748b; font-size: 10px; }
+.court-muted-cell { color: #475569 !important; overflow-wrap: anywhere; }.court-muted { color: #94a3b8; }.court-secondary-line { margin-top: 2px; color: #64748b; font-size: 11px; }
+.court-ndoh-cell { display: grid; gap: 2px; }.court-ndoh-cell strong { color: #0f172a; font-size: 12px; }.court-ndoh-cell small { color: #64748b; font-size: 10px; }.court-ndoh-cell .court-overdue-note { color: #9a641c; }
+.court-queue-badge { display: inline-block; padding: 2px 5px; border-radius: 4px; background: #eef2f6; color: #475569; font-size: 10px; font-weight: 700; }.court-queue-overdue { background: #fff3e1; color: #975d12; }.court-queue-today { background: #e9f3fb; color: #235f8e; }.court-queue-nondoh { background: #f0f1f4; }
+.court-canonical-status { display: block; margin-top: 3px; color: #475569; font-size: 11px; }.court-canonical-disposed { color: #637583; }.court-canonical-stay { color: #9a641c; }
+.court-open-link { color: #1c5d9f; font-size: 11px; font-weight: 700; white-space: nowrap; text-decoration: none; }.court-open-link:hover { text-decoration: underline; }
+.court-loading-state { padding: 22px; color: #64748b; font-size: 12px; text-align: center; }
+.court-empty-state { display: grid; justify-items: center; gap: 5px; padding: 27px 12px; text-align: center; }.court-empty-state strong { color: #334155; font-size: 14px; }.court-empty-state p { margin: 0 0 4px; color: #64748b; font-size: 12px; }.court-empty-state > div { display: flex; gap: 7px; }
+.court-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 9px; color: #64748b; font-size: 11px; }.court-pagination-actions { display: flex; align-items: center; gap: 7px; }.court-pagination-actions .secondary-button { padding: 5px 8px; font-size: 11px; }
+
+@media (max-width: 1180px) { .dhc-sync-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }.dhc-sync-card:last-child { grid-column: 1/-1; }.court-primary-filters { grid-template-columns: minmax(180px,1fr) 115px 140px 135px; }.court-advanced-filters { grid-template-columns: repeat(3,minmax(0,1fr)); } }
+@media (max-width: 760px) { .court-directory-container { padding: 0 12px 24px; }.court-directory-header { flex-direction: column; }.court-directory-actions { justify-content: flex-start; }.dhc-sync-grid { grid-template-columns: 1fr; }.dhc-sync-card:last-child { grid-column: auto; }.dhc-attention > summary { flex-wrap: wrap; gap: 7px; }.court-primary-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }.court-search-field { grid-column: 1/-1; }.court-advanced-filters { grid-template-columns: repeat(2,minmax(0,1fr)); }.court-queue-count { display: none; } }
+@media (max-width: 480px) { .court-primary-filters, .court-advanced-filters { grid-template-columns: 1fr; }.court-search-field { grid-column: auto; } }
+
+/* Officer-led Delhi High Court verification */
+.court-assisted-page { max-width: 1220px; min-width: 0; margin: 0 auto; padding: 0 24px 36px; color: #0f172a; }
+.court-assisted-back { color: #35618c; font-size: 12px; font-weight: 650; text-decoration: none; }.court-assisted-back:hover { text-decoration: underline; }
+.court-assisted-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 10px 0 16px; }
+.court-assisted-header h1 { margin: 0; font-size: 23px; line-height: 1.2; }.court-assisted-header p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+.court-assisted-status { padding: 5px 8px; border: 1px solid #d4e2ec; border-radius: 5px; background: #f1f7fb; color: #386484; font-size: 11px; font-weight: 700; }
+.court-assisted-alert { margin: 8px 0; padding: 9px 11px; border: 1px solid #f2d0d0; border-radius: 6px; background: #fffafa; color: #a33838; font-size: 12px; }
+.court-assisted-preview, .court-assisted-run-layout { display: grid; grid-template-columns: minmax(0,7fr) minmax(250px,3fr); gap: 12px; align-items: start; }
+.court-assisted-run-layout { grid-template-columns: minmax(0,13fr) minmax(270px,7fr); }
+.court-assisted-main-card, .court-assisted-summary, .court-assisted-progress { min-width: 0; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; }
+.court-assisted-card-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 13px; }.court-assisted-card-heading h2 { margin: 0; font-size: 16px; }.court-assisted-card-heading p { margin: 4px 0 0; color: #64748b; font-size: 12px; }
+.court-assisted-scope { margin: 0 0 11px; padding: 0; border: 0; }.court-assisted-scope legend { margin-bottom: 5px; color: #64748b; font-size: 11px; font-weight: 650; }
+.court-assisted-scope > div { display: flex; flex-wrap: wrap; gap: 3px; }.court-assisted-scope label { display: inline-flex; align-items: center; padding: 6px 10px; border: 1px solid #d7e0e8; border-radius: 5px; color: #526273; font-size: 11px; font-weight: 650; cursor: pointer; }
+.court-assisted-scope label.active { border-color: #aac8e2; background: #eaf3fb; color: #1c5d9f; }.court-assisted-scope input { position: absolute; opacity: 0; pointer-events: none; }
+.court-assisted-note { margin: 0 0 10px; color: #a36220; font-size: 11px; }
+.court-assisted-table-wrap { max-height: min(360px, calc(100vh - 460px)); overflow: auto; border: 1px solid #e2e8f0; border-radius: 6px; }.court-assisted-table-wrap table { width: 100%; border-collapse: collapse; }.court-assisted-table-wrap th, .court-assisted-table-wrap td { padding: 8px 9px; font-size: 11px; }.court-assisted-table-wrap a { color: #1c5d9f; font-weight: 700; text-decoration: none; }
+.court-assisted-footer { display: flex; justify-content: flex-end; padding-top: 11px; }.court-assisted-footer .primary-button { padding: 7px 12px; font-size: 12px; }
+.court-assisted-summary h2, .court-assisted-progress h2 { margin: 0 0 9px; font-size: 14px; }.court-assisted-summary > strong { display: block; font-size: 30px; line-height: 1; }.court-assisted-summary > span { display: block; margin-top: 4px; color: #64748b; font-size: 12px; }
+.court-assisted-summary dl { margin: 15px 0 10px; }.court-assisted-summary dl > div { display: flex; justify-content: space-between; padding: 7px 0; border-top: 1px solid #eef2f6; font-size: 12px; }.court-assisted-summary dt { color: #64748b; }.court-assisted-summary dd { margin: 0; font-weight: 700; }
+.court-assisted-summary p { color: #64748b; font-size: 11px; line-height: 1.4; }
+.court-assisted-eyebrow { color: #5982a5; font-size: 10px; font-weight: 750; letter-spacing: .06em; }
+.court-assisted-decision { padding: 16px; border: 1px solid #cfe0eb; border-radius: 7px; background: #f7fbfe; }.court-assisted-decision h3 { margin: 5px 0; font-size: 17px; }.court-assisted-decision p { margin: 0 0 13px; color: #64748b; font-size: 12px; }.court-assisted-decision > div { display: flex; flex-wrap: wrap; gap: 8px; }.court-assisted-decision button { padding: 7px 11px; font-size: 12px; }
+.court-assisted-challenge { max-width: 520px; margin: 0 auto; padding: 16px; border: 1px solid #cfdde8; border-radius: 8px; background: #fbfdff; }.court-assisted-challenge h3 { margin: 5px 0 9px; font-size: 17px; }.court-assisted-challenge p { margin: 5px 0 8px; color: #5b6a78; font-size: 12px; }.court-assisted-challenge p strong { color: #0f172a; }
+.court-assisted-code-label { display: block; margin-top: 11px; color: #475569; font-size: 11px; font-weight: 700; }.court-assisted-code { display: inline-block; max-width: 100%; margin: 6px 0 10px; padding: 7px 13px; overflow-wrap: anywhere; border: 1px solid #bccfdf; border-radius: 5px; background: #fff; color: #0f172a; font-size: 25px; font-weight: 750; letter-spacing: .14em; }.court-assisted-code-image { display: block; max-width: 100%; margin: 7px 0 10px; }
+.court-assisted-answer { display: grid; gap: 5px; color: #475569; font-size: 11px; font-weight: 700; }.court-assisted-answer input { width: min(100%,270px); height: 34px; padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; }
+.court-assisted-challenge-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0 9px; }.court-assisted-challenge-actions button { padding: 7px 10px; font-size: 12px; }.court-assisted-challenge small { color: #758493; font-size: 10px; }
+.court-assisted-reopen { padding: 12px 0; }.court-assisted-current { display: grid; gap: 4px; padding: 13px; border: 1px solid #e2e8f0; border-radius: 6px; }.court-assisted-current span, .court-assisted-current small { color: #64748b; font-size: 11px; }.court-assisted-current strong { font-size: 15px; }.court-assisted-cancel { margin-top: 14px; padding: 6px 9px; border: 1px solid #d6dfe8; border-radius: 5px; background: #fff; color: #64748b; font-size: 11px; }
+.court-assisted-progress > strong { display: block; font-size: 26px; }.court-assisted-progress > strong span { color: #94a3b8; font-size: 16px; }.court-assisted-progress > p { margin: 1px 0 10px; color: #64748b; font-size: 11px; }.court-assisted-progress progress { width: 100%; height: 7px; accent-color: #2d71a8; }
+.court-assisted-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin: 12px 0; }.court-assisted-metrics > span { display: flex; justify-content: space-between; gap: 6px; padding: 6px; border-radius: 5px; background: #f8fafc; color: #64748b; font-size: 10px; }.court-assisted-metrics b { color: #334155; }
+.court-assisted-progress h3 { margin: 15px 0 6px; font-size: 12px; }.court-assisted-progress ol { max-height: 300px; overflow: auto; margin: 0; padding: 0; list-style: none; }.court-assisted-progress li { display: grid; grid-template-columns: 16px 1fr; gap: 2px 5px; padding: 6px 0; border-top: 1px solid #edf1f4; font-size: 11px; }.court-assisted-progress li > span { grid-row: span 2; color: #548167; }.court-assisted-progress li a { color: #1c5d9f; font-weight: 650; text-decoration: none; }.court-assisted-progress li small { color: #64748b; font-size: 10px; }
+.court-assisted-reviews { margin-top: 15px; }.court-assisted-review-heading h2 { margin: 0; font-size: 16px; }.court-assisted-review-heading p { margin: 3px 0 10px; color: #64748b; font-size: 11px; }.court-assisted-review-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.court-assisted-review-card { min-width: 0; padding: 13px; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; }.court-assisted-review-title { display: flex; justify-content: space-between; gap: 10px; }.court-assisted-review-title a { color: #1c5d9f; font-size: 13px; font-weight: 750; text-decoration: none; }.court-assisted-review-title span { color: #9a641c; font-size: 10px; font-weight: 750; }
+.court-assisted-review-card dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 5px; margin: 10px 0; }.court-assisted-review-card dl > div { display: flex; gap: 6px; font-size: 11px; }.court-assisted-review-card dt { color: #64748b; }.court-assisted-review-card dd { margin: 0; color: #334155; font-weight: 650; }.court-assisted-review-card small { color: #64748b; font-size: 10px; }
+.court-assisted-review-card details { margin: 8px 0; color: #64748b; font-size: 11px; }.court-assisted-review-card summary { width: max-content; color: #35618c; cursor: pointer; }.court-assisted-review-card details p { max-height: 140px; overflow: auto; padding: 7px; background: #f8fafc; overflow-wrap: anywhere; }
+.court-assisted-review-card > label { display: grid; gap: 4px; color: #475569; font-size: 11px; font-weight: 650; }.court-assisted-review-card > label input { height: 32px; padding: 6px; border: 1px solid #cbd5e1; border-radius: 5px; }.court-assisted-review-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }.court-assisted-review-actions button { padding: 6px 9px; font-size: 11px; }.court-assisted-danger { margin-top: 10px; padding: 6px 9px; border: 1px solid #e7c6c6; border-radius: 5px; background: #fff7f7; color: #a43f3f; font-size: 11px; font-weight: 700; }
+
+@media (max-width: 850px) { .court-assisted-preview, .court-assisted-run-layout { grid-template-columns: 1fr; }.court-assisted-review-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .court-assisted-page { padding: 0 12px 28px; }.court-assisted-header { flex-direction: column; }.court-assisted-summary { order: -1; } }
 
 .court-filters-bar {
   display: flex;
