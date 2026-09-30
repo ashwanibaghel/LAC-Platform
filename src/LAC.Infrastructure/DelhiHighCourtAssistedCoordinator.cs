@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Text.RegularExpressions;
 
 namespace LAC.Infrastructure;
 
@@ -443,10 +444,11 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 var orderResponse = await current.Session.SearchOrdersAsync(orderType,
                     parts.Value.Number, parts.Value.Year, ct);
                 Touch(current);
-                var assessment = DelhiHighCourtAssistedForms.AssessOrderResponse(orderResponse);
+                var assessment = DelhiHighCourtAssistedForms.AssessOrderResponse(orderResponse,
+                    orderType, parts.Value.Number, parts.Value.Year);
                 if (assessment.Kind != DelhiHighCourtAssistedForms.OrderResponseKind.Result)
                     logger.LogWarning("DHC order response {Category}: fields {FieldNames}, content type {ContentType}, result rows {HasResultRows}, captcha form {HasCaptchaForm}, captcha error {HasCaptchaError}, form error {HasFormError}",
-                        assessment.Kind, string.Join(",", current.Session.LastOrderPostFieldNames),
+                        assessment.Kind, string.Join(",", SafeFieldNames(current.Session.LastOrderPostFieldNames)),
                         current.Session.LastOrderResponseContentType, assessment.HasResultRows,
                         assessment.HasCaptchaForm, assessment.HasCaptchaError, assessment.HasFormError);
                 if (assessment.Kind == DelhiHighCourtAssistedForms.OrderResponseKind.CaptchaRequired)
@@ -455,8 +457,27 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                     return;
                 }
                 if (assessment.Kind != DelhiHighCourtAssistedForms.OrderResponseKind.Result)
+                {
+                    item.FailureCode = $"OrderResponse{assessment.Kind}";
+                    item.FailureMessage = SafeOrderResponseSummary(assessment,
+                        current.Session.LastOrderPostFieldNames, current.Session.LastOrderResponseContentType);
+                    await db.SaveChangesAsync(ct);
                     throw new InvalidDataException("DHC order form returned without a proven result or explicit verification request.");
-                await service.ProcessOrdersAsync(run, item, orderResponse, ct);
+                }
+                try
+                {
+                    await service.ProcessOrdersAsync(run, item, orderResponse, ct);
+                }
+                catch (InvalidDataException)
+                {
+                    // A recognized table can still contain an unsafe or malformed row.
+                    // Persist only its response shape, never its HTML or values.
+                    item.FailureCode = "OrderResultParseFailed";
+                    item.FailureMessage = SafeOrderResponseSummary(assessment,
+                        current.Session.LastOrderPostFieldNames, current.Session.LastOrderResponseContentType);
+                    await db.SaveChangesAsync(ct);
+                    throw;
+                }
             }
             if (run.Phase == DhcAssistedPhase.StatusLookup)
             {
@@ -527,9 +548,9 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             if (pending != null)
             {
                 pending.Status = DhcAssistedItemStatus.Failed;
-                pending.FailureCode = message?.Contains("page format", StringComparison.OrdinalIgnoreCase) == true
+                pending.FailureCode ??= message?.Contains("page format", StringComparison.OrdinalIgnoreCase) == true
                     ? "ParseFailed" : "OfficialSiteUnavailable";
-                pending.FailureMessage = message;
+                pending.FailureMessage ??= message;
                 run.FailedCases++;
             }
         }
@@ -543,6 +564,33 @@ public sealed class DelhiHighCourtAssistedCoordinator(
         current.Cancel.Dispose();
         current.MonitorCancel.Dispose();
         if (ReferenceEquals(active, current)) active = null;
+    }
+
+    private static IReadOnlyList<string> SafeFieldNames(IEnumerable<string> names) => names
+        .Where(x => Regex.IsMatch(x, @"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"))
+        .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(40).ToArray();
+
+    private static string SafeOrderResponseSummary(
+        DelhiHighCourtAssistedForms.OrderResponseAssessment assessment,
+        IReadOnlyList<string> outgoingNames, string? contentType)
+    {
+        var safeType = contentType is { Length: <= 30 } &&
+            Regex.IsMatch(contentType, @"^[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+$")
+            ? contentType : "unknown";
+        static string BoundedNames(IEnumerable<string> names)
+        {
+            var value = string.Join(",", names);
+            return value.Length > 80 ? value[..77] + "..." : value;
+        }
+        var summary = $"Category={assessment.Kind}; ContentType={safeType}; " +
+            $"HasResultTable={assessment.HasResultTable}; HasValidResultColumns={assessment.HasValidResultColumns}; " +
+            $"ResultDataRowCount={assessment.ResultDataRowCount}; HasCaptchaForm={assessment.HasCaptchaForm}; " +
+            $"HasCaptchaError={assessment.HasCaptchaError}; HasFormError={assessment.HasFormError}; " +
+            $"EchoesCaseType={assessment.EchoesCaseType}; EchoesCaseNumber={assessment.EchoesCaseNumber}; " +
+            $"EchoesYear={assessment.EchoesYear}; " +
+            $"ReturnedControls=[{BoundedNames(assessment.ReturnedControlNames)}]; " +
+            $"OutgoingFields=[{BoundedNames(SafeFieldNames(outgoingNames))}].";
+        return summary.Length <= 500 ? summary : summary[..500];
     }
 
     private async Task<Active> RequireOwnerAsync(Guid runId, Guid userId, CancellationToken ct)

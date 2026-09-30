@@ -44,8 +44,13 @@ public static class DelhiHighCourtAssistedForms
 
     public enum OrderResponseKind { Result, CaptchaRequired, FormValidationError, UnconfirmedForm, Unrecognized }
 
-    public sealed record OrderResponseAssessment(OrderResponseKind Kind, bool HasResultRows,
-        bool HasCaptchaForm, bool HasCaptchaError, bool HasFormError);
+    public sealed record OrderResponseAssessment(OrderResponseKind Kind, bool HasResultTable,
+        bool HasValidResultColumns, int ResultDataRowCount, bool HasCaptchaForm,
+        bool HasCaptchaError, bool HasFormError, IReadOnlyList<string> ReturnedControlNames,
+        bool EchoesCaseType, bool EchoesCaseNumber, bool EchoesYear)
+    {
+        public bool HasResultRows => ResultDataRowCount > 0;
+    }
 
     public static FormState ParseForm(string html, bool orders)
     {
@@ -131,7 +136,8 @@ public static class DelhiHighCourtAssistedForms
         return doc.QuerySelector("#captcha-code, #captcha-image") != null;
     }
 
-    public static OrderResponseAssessment AssessOrderResponse(string body)
+    public static OrderResponseAssessment AssessOrderResponse(string body,
+        string? requestedCaseType = null, string? requestedCaseNumber = null, string? requestedYear = null)
     {
         var doc = new HtmlParser().ParseDocument(body);
         // The official page embeds fixed CAPTCHA-error strings in JavaScript,
@@ -145,13 +151,38 @@ public static class DelhiHighCourtAssistedForms
             @"\b(case type|case number|year|form field)\b.{0,80}\b(required|invalid|missing)\b",
             RegexOptions.IgnoreCase);
         var table = doc.QuerySelector("#s_judgeTable");
-        var hasRows = table?.QuerySelector("tbody tr td:not([colspan])") != null;
+        var headers = table?.QuerySelectorAll("thead th").Select(x => x.TextContent.Trim()).ToList();
+        var validColumns = headers is { Count: 7 } &&
+            headers[1].Contains("Case No", StringComparison.OrdinalIgnoreCase) &&
+            headers[2].Contains("Judgment/Order", StringComparison.OrdinalIgnoreCase) &&
+            headers[4].Contains("Corrigendum", StringComparison.OrdinalIgnoreCase);
+        var dataRows = table?.QuerySelectorAll("tbody tr")
+            .Count(x => x.QuerySelector("td:not([colspan])") != null) ?? 0;
         var hasCaptchaForm = doc.QuerySelector("form#search1 #captchaInput") != null;
+        var form = doc.QuerySelector("form#search1");
+        IEnumerable<IElement> controls = form?.QuerySelectorAll("input[name], select[name], textarea[name]")
+            ?? Enumerable.Empty<IElement>();
+        var controlNames = controls.Select(x => x.GetAttribute("name") ?? "")
+            .Where(x => Regex.IsMatch(x, @"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$"))
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(40).ToArray();
+        bool Echoes(string name, string? expected)
+        {
+            if (expected == null) return false;
+            var values = controls.Where(x => x.GetAttribute("name") == name)
+                .Select(x => x.LocalName == "select"
+                    ? x.QuerySelector("option[selected]")?.GetAttribute("value")
+                    : x.GetAttribute("value"))
+                .Take(2).ToArray();
+            return values.Length == 1 && values[0] == expected;
+        }
         var kind = captchaError ? OrderResponseKind.CaptchaRequired :
             formError ? OrderResponseKind.FormValidationError :
-            hasCaptchaForm && !hasRows ? OrderResponseKind.UnconfirmedForm :
-            hasRows ? OrderResponseKind.Result : OrderResponseKind.Unrecognized;
-        return new OrderResponseAssessment(kind, hasRows, hasCaptchaForm, captchaError, formError);
+            hasCaptchaForm && dataRows == 0 ? OrderResponseKind.UnconfirmedForm :
+            dataRows > 0 && validColumns ? OrderResponseKind.Result : OrderResponseKind.Unrecognized;
+        return new OrderResponseAssessment(kind, table != null, validColumns, dataRows,
+            hasCaptchaForm, captchaError, formError, controlNames,
+            Echoes("case_type", requestedCaseType), Echoes("case_number", requestedCaseNumber),
+            Echoes("year", requestedYear));
     }
 
     public sealed record StatusRow(string RawCaseNumber, string? RawDiaryNumber,

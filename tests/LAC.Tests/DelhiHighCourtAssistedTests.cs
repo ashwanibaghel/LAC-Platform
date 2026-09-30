@@ -303,10 +303,14 @@ public sealed class DelhiHighCourtAssistedTests
     {
         var resultWithVisibleChallenge = OrderForm.Replace("</form>",
             "<script>const message = 'CAPTCHA is required';</script></form>") + OrderResult;
-        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.Result,
-            DelhiHighCourtAssistedForms.AssessOrderResponse(resultWithVisibleChallenge).Kind);
-        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.UnconfirmedForm,
-            DelhiHighCourtAssistedForms.AssessOrderResponse(OrderForm).Kind);
+        var result = DelhiHighCourtAssistedForms.AssessOrderResponse(resultWithVisibleChallenge);
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.Result, result.Kind);
+        Assert.True(result.HasResultTable);
+        Assert.True(result.HasValidResultColumns);
+        Assert.Equal(1, result.ResultDataRowCount);
+        var initial = DelhiHighCourtAssistedForms.AssessOrderResponse(OrderForm);
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.UnconfirmedForm, initial.Kind);
+        Assert.False(initial.HasResultTable);
         var missingField = DelhiHighCourtAssistedForms.AssessOrderResponse(
             OrderForm.Replace("</form>", "<p>Case number field is required</p></form>"));
         Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.FormValidationError, missingField.Kind);
@@ -316,6 +320,42 @@ public sealed class DelhiHighCourtAssistedTests
         Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.CaptchaRequired,
             DelhiHighCourtAssistedForms.AssessOrderResponse(
                 OrderForm.Replace("</form>", "<p>CAPTCHA is incorrect</p></form>")).Kind);
+    }
+
+    [Fact]
+    public void EmptyOrderTable_IsParsedSafely_ButDoesNotConfirmSearch()
+    {
+        var emptyTable = OrderResult.Replace(
+            "<tbody><tr><td>1</td><td>W.P.(C) 7003/2026</td><td><a href='/app/showlogo/order.pdf'>25.09.2026</a></td><td>Parties</td><td></td><td>26.09.2026</td><td>Order</td></tr></tbody>",
+            "<tbody><tr><td colspan='7'>No records found</td></tr></tbody>");
+        Assert.Empty(DelhiHighCourtAssistedForms.ParseOrderRows(emptyTable));
+        var assessment = DelhiHighCourtAssistedForms.AssessOrderResponse(OrderForm + emptyTable,
+            "CW", "7003", "2026");
+        Assert.Equal(DelhiHighCourtAssistedForms.OrderResponseKind.UnconfirmedForm, assessment.Kind);
+        Assert.True(assessment.HasResultTable);
+        Assert.True(assessment.HasValidResultColumns);
+        Assert.Equal(0, assessment.ResultDataRowCount);
+        Assert.False(assessment.EchoesCaseType);
+        Assert.False(assessment.EchoesCaseNumber);
+        Assert.False(assessment.EchoesYear);
+    }
+
+    [Fact]
+    public void OrderResponseAssessment_ReportsOnlySafeControlNamesAndEchoBooleans()
+    {
+        var response = OrderForm.Replace("<select id='case_type'>", "<select id='case_type' name='case_type'>")
+            .Replace("<option value='CW'>", "<option value='CW' selected>")
+            .Replace("</form>", "<input name='case_number' value='7003'><input name='year' value='2026'>" +
+                "<input name='unsafe secret=value' value='do-not-store'></form>");
+        var assessment = DelhiHighCourtAssistedForms.AssessOrderResponse(response, "CW", "7003", "2026");
+        Assert.True(assessment.EchoesCaseType);
+        Assert.True(assessment.EchoesCaseNumber);
+        Assert.True(assessment.EchoesYear);
+        Assert.Contains("case_number", assessment.ReturnedControlNames);
+        Assert.DoesNotContain("unsafe secret=value", assessment.ReturnedControlNames);
+        Assert.DoesNotContain("fixture-order-csrf", string.Join(",", assessment.ReturnedControlNames));
+        Assert.False(DelhiHighCourtAssistedForms.AssessOrderResponse(response, "CW", "7004", "2026")
+            .EchoesCaseNumber);
     }
 
     private sealed class OrderPostTransportFailureHandler : HttpMessageHandler
@@ -783,6 +823,9 @@ public sealed class DelhiHighCourtAssistedTests
     [InlineData("result")]
     [InlineData("captcha")]
     [InlineData("form-rejected")]
+    [InlineData("form-validation")]
+    [InlineData("unrecognized")]
+    [InlineData("invalid-result")]
     public async Task OrderPhase_DistinguishesResultCaptchaAndGenericReturnedForm(string scenario)
     {
         var (provider, userId, caseIds) = await HarnessAsync(1);
@@ -793,6 +836,9 @@ public sealed class DelhiHighCourtAssistedTests
             {
                 "captcha" => "captcha required",
                 "form-rejected" => OrderForm,
+                "form-validation" => OrderForm.Replace("</form>", "<p>Case number field is required</p></form>"),
+                "unrecognized" => "<html><body>Unexpected official response</body></html>",
+                "invalid-result" => OrderResult.Replace("/app/showlogo/order.pdf", "https://unapproved.example/order.pdf"),
                 _ => OrderResult
             });
             var coordinator = new DelhiHighCourtAssistedCoordinator(
@@ -808,7 +854,7 @@ public sealed class DelhiHighCourtAssistedTests
             await WaitForRunStatusAsync(provider, runId, scenario switch
             {
                 "captcha" => DhcAssistedRunStatus.PausedForCaptcha,
-                "form-rejected" => DhcAssistedRunStatus.Failed,
+                "form-rejected" or "form-validation" or "unrecognized" or "invalid-result" => DhcAssistedRunStatus.Failed,
                 _ => DhcAssistedRunStatus.Completed
             });
             Assert.Equal(1, fake.OrderPosts);
@@ -818,6 +864,28 @@ public sealed class DelhiHighCourtAssistedTests
                 await db.CourtExternalOrderObservations.CountAsync());
             if (scenario == "captcha") Assert.Equal(2, fake.OrderForms);
             if (scenario == "form-rejected") Assert.Equal(1, fake.OrderForms);
+            if (scenario is "form-rejected" or "form-validation" or "unrecognized" or "invalid-result")
+            {
+                var item = await db.DhcAssistedSyncItems.SingleAsync(x => x.RunId == runId);
+                var kind = scenario switch
+                {
+                    "form-rejected" => "UnconfirmedForm",
+                    "form-validation" => "FormValidationError",
+                    "invalid-result" => "Result",
+                    _ => "Unrecognized"
+                };
+                Assert.Equal(scenario == "invalid-result" ? "OrderResultParseFailed" : "OrderResponse" + kind,
+                    item.FailureCode);
+                Assert.Contains("Category=" + kind, item.FailureMessage);
+                Assert.Contains("HasResultTable=" + (scenario == "invalid-result" ? "True" : "False"), item.FailureMessage);
+                Assert.Contains("ReturnedControls=[", item.FailureMessage);
+                Assert.Contains("OutgoingFields=[", item.FailureMessage);
+                Assert.True(item.FailureMessage!.Length <= 500);
+                Assert.DoesNotContain("typed-by-officer", item.FailureMessage);
+                Assert.DoesNotContain("TEST8", item.FailureMessage);
+                Assert.DoesNotContain("fixture-order-csrf", item.FailureMessage);
+                Assert.DoesNotContain("fixture-state", item.FailureMessage);
+            }
             if (scenario == "captcha") await coordinator.CancelAsync(runId, userId, default);
         }
     }
