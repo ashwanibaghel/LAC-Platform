@@ -18,6 +18,7 @@ import {
   IconAward,
   IconCalculator
 } from "../components/Icons";
+import type { CourtCaseListResponse } from "../court/types";
 import "./home.css";
 
 interface OperationalCounts {
@@ -30,6 +31,7 @@ export const Home: React.FC = () => {
   const { user, hasPermission } = useAuth();
   const { openCalculator } = useCalculator();
   const [counts, setCounts] = useState<OperationalCounts>({});
+  const [upcomingCourt, setUpcomingCourt] = useState<CourtCaseListResponse | null>(null);
 
   const userDisplayName = user?.displayName || user?.username || "Officer";
   const designationName = user?.designation?.name || null;
@@ -121,6 +123,16 @@ export const Home: React.FC = () => {
               attentionCount: data.totalCount
             }));
           }
+        })
+        .catch(() => {});
+    }
+
+    // 4. Fetch Upcoming Court Hearings
+    if (hasPermission("Court.View")) {
+      fetch("/api/court-cases?ndohFilter=Next7Days&page=1&pageSize=5", { credentials: "include" })
+        .then((res) => (res.ok ? (res.json() as Promise<CourtCaseListResponse>) : null))
+        .then((data) => {
+          if (active && data) setUpcomingCourt(data);
         })
         .catch(() => {});
     }
@@ -242,7 +254,90 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* 3. Office Modules Command Center Cards */}
+      {/* 3. Upcoming Court Hearings - Modern Scrollable Agenda Card */}
+      {hasPermission("Court.View") && upcomingCourt && upcomingCourt.totalCount > 0 && (
+        <section className="home-court-upcoming" aria-label="Upcoming court hearings">
+          <div className="home-court-header">
+            <div className="home-court-title-group">
+              <span className="home-court-emblem" aria-hidden="true">
+                <IconCourt size={18} />
+              </span>
+              <div>
+                <h2>Court Hearings Coming Up</h2>
+                <p>
+                  {upcomingCourt.totalCount} {upcomingCourt.totalCount === 1 ? "hearing" : "hearings"} in the next 7 days
+                </p>
+              </div>
+            </div>
+            <Link to="/court-cases?ndohFilter=Next7Days" className="home-court-viewall">
+              <span>View all ({upcomingCourt.totalCount})</span>
+              <IconArrowRight size={14} />
+            </Link>
+          </div>
+
+          <div className="home-court-scroll-container">
+            <ul className="home-court-list">
+              {upcomingCourt.items.slice(0, 5).map((item) => (
+                <li key={item.id} className="home-court-card-row">
+                  <div className="home-court-main-info">
+                    <div className="home-court-numbers-line">
+                      <Link to={`/court-cases/${item.id}`} className="home-court-case-num">
+                        {item.caseNumber}
+                      </Link>
+                      {item.caseType && <span className="home-court-badge-type">{item.caseType}</span>}
+                      {item.courtName && <span className="home-court-badge-court">{item.courtName}</span>}
+                    </div>
+
+                    {item.caseTitle ? (
+                      <div className="home-court-case-title" title={item.caseTitle}>
+                        {item.caseTitle}
+                      </div>
+                    ) : (
+                      <div className="home-court-case-title muted">Title not recorded</div>
+                    )}
+
+                    {item.operationalNdohSource === "DHC Cause List" && (
+                      <div className="home-court-source-verified">
+                        <span className="home-court-dot-verified" />
+                        <small>Verified from DHC cause list</small>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="home-court-date-col">
+                    <span
+                      className={`home-court-date-badge ${
+                        item.daysFromToday === 0
+                          ? "today"
+                          : item.daysFromToday === 1
+                          ? "tomorrow"
+                          : "upcoming"
+                      }`}
+                    >
+                      {item.daysFromToday === 0
+                        ? "Today"
+                        : item.daysFromToday === 1
+                        ? "Tomorrow"
+                        : item.daysFromToday !== null
+                        ? `In ${item.daysFromToday} days`
+                        : item.operationalNdoh ?? "Date recorded"}
+                    </span>
+                    {item.operationalNdoh && (
+                      <span className="home-court-actual-date">
+                        {new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short" }).format(
+                          new Date(item.operationalNdoh)
+                        )}
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {/* 4. Office Modules Command Center Cards */}
       <section>
         <div className="home-block-header">
           <h2>Office Modules</h2>
