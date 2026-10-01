@@ -2,7 +2,7 @@
 import re
 import copy
 import jsonschema
-from semantics import CATEGORIES, FIELDS, validate, party_speech
+from semantics import CATEGORIES, FIELDS, ROLE_FIELDS, SUBMISSION_ROLES, validate, party_speech
 
 ANCHOR_SCHEMA={'type':'object','additionalProperties':False,
  'properties':{'facts':{'type':'array','maxItems':8,'items':{'type':'object','additionalProperties':False,
@@ -29,10 +29,20 @@ not a party claim. Supersession needs an express modification, not silence/dispo
 Retain uncertainty with Uncertain and needsReview true. Missing fields need not be
 invented and do not make every order uncertain. Prefer most relevant anchors.
 Do not label quoted Court orders current merely because they use shall/directed.'''
+INSTRUCTIONS+='''
+Facts are separate from office actions. Select useful case context, the issue,
+party positions, Court observations/findings, procedural events and disposition
+even when LAC has no action. Prefer their specific semantic roles rather than
+classifying every paragraph COURT_FINDING. Select important compensation,
+possession, reference, Award/Khasra and filing developments with exact attribution.
+Select 3-6 useful distinct source anchors when available, not personal addresses
+or caption fragments. An allegation/party position is never LAND_FACT or a Court
+finding. Use OTHER_PARTY_SUBMISSION for a safely identified other party. Omit
+ambiguous attribution or mark Uncertain; never invent a role to fill the digest.'''
 
 ACTORS=re.compile(r'Land Acquisition Collector(?:\s*\([^)]{1,25}\))?|ADM[/ -]LAC|\bLAC\b|\bCollector\b|\bDDA\b|\bPetitioners?\b|\bGNCTD\b|\bRespondent(?:\s+No\.?\s*\d+)?\b',re.I)
-RELEVANT=re.compile(r'LAC|Land Acquisition|Collector|ADM|compensation|possession|award|khasra|village|reference|affidavit|status report|notification|list on|list for|renotify|next date|issue notice|shall|directed|complied|filed|disposed',re.I)
-HEADING=re.compile(r'\bO R D E R\b|\bJ U D G M E N T\b|\bJUDGMENT\b|,\s*J\.\s*\(ORAL\)|,\s*J\.(?=\s*\d+\.)')
+RELEVANT=re.compile(r'LAC|Land Acquisition|Collector|ADM|compensation|possession|award|khasra|village|reference|affidavit|status report|notification|list on|list for|renotify|next date|issue notice|shall|directed|complied|filed|disposed|petitioner|respondent|heard|argued|observ|finding|dismiss|allowed|adjourn|submission|issue',re.I)
+HEADING=re.compile(r'\bO R D E R\b|\bJ U D G M E N T\b|\bJUDGMENT\b|(?i:,\s*J\.\s*\(oral\))|,\s*J\.(?=\s*\d+\.)')
 CASE_REFERENCES=re.compile(r'(?:W\.?\s*P\.?\s*\(?C\)?|LA\.?\s*APP\.?|CO\.?\s*PET\.?|LPA|RSA|CONT\.?\s*CAS\s*\(?C\)?)\s*[-.:]*\s*\d+\s*/\s*\d{4}',re.I)
 
 def source_header(pages):
@@ -57,7 +67,7 @@ def sentences(text):
     for boundary in re.finditer(r'[.!?](?=\s+[A-Z“(\d])',text):
         prefix=text[start:boundary.end()]
         token=re.search(r'([A-Za-z]+)\.$',prefix)
-        if token and (token[1].lower() in ('no','nos','mr','ms','dr','sec','vs','ors','hon','j','adv','advs','ltd') or len(token[1])==1):
+        if token and (token[1].lower() in ('no','nos','mr','ms','dr','sec','vs','ors','hon','j','adv','advs','ltd','sq','yds','ld','sh','smt') or len(token[1])==1):
             continue
         if re.fullmatch(r'\s*\d{1,3}\.',prefix): continue
         yield start,boundary.end(),prefix.strip()
@@ -87,14 +97,19 @@ def anchors_for(pages):
             if re.match(r'^\d{1,3}\.',passage) or re.match(r'^(?:In view of|We |The Court |Renotify|List (?:on|for))',passage,re.I): inherited_role=None
             if not RELEVANT.search(passage) or len(passage)<12:
                 continue
+            if re.search(r'\b(?:R/o|S/o|D/o)\b',passage,re.I) and not re.search(r'compensation|possession|award|khasra|reference',passage,re.I):
+                continue # Personal-address lists are not an officer order digest.
             if len(passage)>900:
                 # A paragraph cannot safely fit the bounded evidence contract.
                 raise ValueError('NeedsSourceReview: oversized source passage; no silent evidence truncation')
             actors=list(dict.fromkeys(m.group() for m in ACTORS.finditer(passage)))
             role=None
-            speech=r'\b(?:submits?|contends?|claims|alleges?|asserts?|argues?|prays?|seeks?|states?|explains?)\b'
-            if re.search(r'\bpetitioner(?:[’\x27]s)?\b.{0,100}'+speech,passage,re.I): role='PETITIONER_SUBMISSION'
+            speech=r'\b(?:submits?|submitted|contends?|contended|claims|claimed|alleges?|alleged|asserts?|asserted|argues?|argued|prays?|seeks?|states?|stated|explains?|pointed out)\b'
+            if re.search(r'\bpetitioners?(?:[’\x27]s)?\b.{0,100}'+speech,passage,re.I) or re.search(r'the case of the petitioners? is that',passage,re.I): role='PETITIONER_SUBMISSION'
             elif re.search(r'\b(?:LAC|Land Acquisition Collector|respondent)\b.{0,100}'+speech,passage,re.I): role='LAC_OR_RESPONDENT_SUBMISSION'
+            elif re.search(r'\b(?:DDA|MCD|Union of India|other party)\b.{0,100}'+speech,passage,re.I): role='OTHER_PARTY_SUBMISSION'
+            elif re.search(r'submission of.{0,100}\brespondents?\b',passage,re.I): role='LAC_OR_RESPONDENT_SUBMISSION'
+            elif re.search(r'submission of.{0,100}\bpetitioners?\b',passage,re.I): role='PETITIONER_SUBMISSION'
             speaker=re.search(r'\b(?:Mr\.?|Ms\.?)\s+([A-Z][A-Za-z.]+(?:\s+[A-Z][A-Za-z.]+){0,3})\s+(?:states?|submits?|contends?|argues?)\b',passage)
             if speaker and len(parties)==2:
                 name=speaker[1].lower()
@@ -118,6 +133,8 @@ def expand(payload, anchors, pages):
             raise ValueError(f"Anchor {anchor['anchorId']} is inside a source quotation")
         if anchor.get('speechRole') and selection['category']!=anchor['speechRole']:
             raise ValueError(f"Anchor {anchor['anchorId']} speaker is explicitly mapped in the source caption")
+        if selection['category'] in SUBMISSION_ROLES and not anchor.get('speechRole') and selection['scope']!='Uncertain':
+            raise ValueError('Party attribution is not independently confirmed in source context')
         subjects=[actor for actor in anchor['actors'] if re.search(
             re.escape(actor)+r'\s*(?:(?:is|are)\s+directed|shall)\b|\blet\s+(?:the\s+)?'
             +re.escape(actor)+r'\s+(?:file|place|furnish|forward|produce)',anchor['text'],re.I)]
@@ -155,7 +172,7 @@ def schema_for(anchors,pages):
     for anchor in anchors:
         allowed=[]
         for category in CATEGORIES:
-            probe={'category':category,'field':'direction' if category=='COURT_DIRECTION' else 'finding',
+            probe={'category':category,'field':ROLE_FIELDS.get(category,'direction' if category=='COURT_DIRECTION' else 'finding'),
                    'scope':'Uncertain','value':anchor['text'],'evidence':anchor['text'],
                    'page':anchor['page'],'actor':None,'deadlineText':None,
                    'targetOrderDate':None,'targetActionText':None}
@@ -167,16 +184,24 @@ def schema_for(anchors,pages):
             # an operative/procedural statement, not a party claim or land fact.
             allowed=[category for category in allowed if category in ('COURT_DIRECTION','PROCEDURAL_EVENT')]
         if anchor.get('speechRole'): allowed=[anchor['speechRole']]
+        else:
+            # The model cannot arbitrarily invent a petitioner/LAC speaker for
+            # neutral Court narrative. Unknown speech remains Uncertain only.
+            allowed=[category for category in allowed if category not in SUBMISSION_ROLES or party_speech(anchor['text'])]
+            if not re.search(r'\bCourt\b|\bwe\b|\bI (?:find|hold|note)\b|it is (?:clear|evident|observed|noted)|it becomes clear|accordingly|in view of',anchor['text'],re.I):
+                allowed=[category for category in allowed if category not in ('COURT_FINDING','COURT_OBSERVATION')]
         for category in allowed:
             choice=copy.deepcopy(ANCHOR_SCHEMA['properties']['facts']['items'])
             choice['properties']['anchorId']={'const':anchor['anchorId']}
             choice['properties']['category']={'const':category}
-            if anchor.get('quoted'):
+            if category in SUBMISSION_ROLES and not anchor.get('speechRole'):
+                scopes=['Uncertain']
+            elif anchor.get('quoted'):
                 scopes=['Quoted']
             elif category=='COURT_DIRECTION':
                 past=re.search(r'(?:order|judgment) dated|Supreme Court|as under|reads as',anchor['text']+' '+anchor['precedingContext'],re.I)
                 scopes=['Historical','Quoted','Uncertain'] if past else ['Current','Uncertain']
-            elif category=='HISTORICAL_LAND_FACT':
+            elif category in ('HISTORICAL_LAND_FACT','LAND_FACT'):
                 scopes=['Historical']
             elif party_speech(anchor['text']) and not anchor.get('speechRole'):
                 scopes=['Uncertain']
@@ -186,7 +211,8 @@ def schema_for(anchors,pages):
             if category=='COURT_DIRECTION':
                 fields=['direction','filing','documents','referenceToAdj','compensation','possession','nextHearing']
             else:
-                fields=[field for field in FIELDS if field!='direction' and (category in ('COURT_FINDING','PROCEDURAL_EVENT') or field not in ('compliance','supersession'))]
+                fields=[field for field in FIELDS if field!='direction' and (category in ('COURT_FINDING','PROCEDURAL_EVENT','RECORDED_COMPLIANCE') or field not in ('compliance','supersession'))]
+            if category in ROLE_FIELDS: fields=[ROLE_FIELDS[category]]
             patterns={'compensation':r'compensation|payment|paid|deposit|release|disburse',
                       'possession':r'possession|vacate|evict|demolit', 'village':r'village|gaon',
                       'khasra':r'khasra','award':r'award','section18':r'section\s*18',
@@ -201,6 +227,7 @@ def schema_for(anchors,pages):
                 fields.remove('compliance')
             if category in ('COURT_DIRECTION','PROCEDURAL_EVENT') and re.match(r'^(?:\d+\.\s*)?(?:renotify|list (?:on|for)|be listed)\b',anchor['text'],re.I):
                 fields=['nextHearing']
+            if not fields: continue
             choice['properties']['field']={'type':'string','enum':fields}
             choices.append(choice)
     schema['properties']['facts']['items']={'oneOf':choices}

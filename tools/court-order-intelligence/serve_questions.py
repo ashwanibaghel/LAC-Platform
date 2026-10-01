@@ -5,7 +5,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from provider import LlamaCppProvider
-from questions import answer
+from questions import answer, INSUFFICIENT
 
 def main():
     parser=argparse.ArgumentParser()
@@ -24,7 +24,7 @@ def main():
             if not args.demo:
                 self.send_error(404); return
             import re
-            match=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-00000000000[1-6])/intelligence',self.path)
+            match=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-0000000000(?:0[1-9]|10))/intelligence',self.path)
             if not match:
                 self.send_error(404); return
             path=root/'court-intelligence'/'v1'/match[1]/'current.json'
@@ -37,7 +37,7 @@ def main():
             self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
         def do_POST(self):
             import re
-            demo_route=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-00000000000[1-6])/intelligence/ask',self.path) if args.demo else None
+            demo_route=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-0000000000(?:0[1-9]|10))/intelligence/ask',self.path) if args.demo else None
             if self.path != '/ask' and not demo_route: self.send_error(404); return
             try:
                 length=int(self.headers.get('Content-Length','0'))
@@ -48,7 +48,7 @@ def main():
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
                 path=root/'court-intelligence'/'v1'/case_id/'current.json'
                 if not path.is_file() or path.stat().st_size>2*1024*1024:
-                    result={'answer':'Available Court orders do not establish this fact.','claims':[],'insufficientEvidence':True}
+                    result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
                 else:
                     artifact=json.loads(path.read_text(encoding='utf-8'))
                     result=answer(artifact,case_id,question,provider)

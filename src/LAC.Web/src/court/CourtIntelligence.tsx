@@ -1,127 +1,76 @@
 import React, { useEffect, useState } from "react";
 import "./court-intelligence.css";
-
 type Source = { orderDate: string | null; page: number; evidence: string; officialUrl: string };
 type Fact = { category: string; field: string; value: string; page: number; evidence: string; scope: string };
-type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null };
-type Action = { id: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
-type Intelligence = { status: string; processingComplete: boolean; currentPosition: { text: string; source: Source }[];
-  beforeNextHearing: Action[]; latestOrder: Order | null; orders: Order[] };
+type Proposition = { id?: string; role: string; attribution: string; scope: string; text: string; source: Source };
+type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null; court?: string | null; digest?: Proposition[]; officeActionCount?: number };
+type Action = { id: string; type?: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
+type Intelligence = { caseNumber?: string; status: string; processingComplete: boolean; currentPosition: { text: string; source: Source; attribution?: string; role?: string; scope?: string }[]; beforeNextHearing: Action[]; latestOrder: Order | null; orders: Order[] };
 type Answer = { answer: string; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean };
-
-const officialLink = (url: string) => {
-  try { const parsed = new URL(url); return parsed.protocol === "https:" && parsed.hostname === "delhihighcourt.nic.in" ? url : null; }
-  catch { return null; }
-};
+const officialLink = (url: string) => { try { const parsed = new URL(url); return parsed.protocol === "https:" && parsed.hostname === "delhihighcourt.nic.in" ? url : null; } catch { return null; } };
 const officerText = (text: string) => text.replace(/^\s*(?:\d+[.)]|\(\d+\)|\([a-z]\))\s+/i, "");
 const safeOrderFacts = (order: Order) => order.summaryFacts ?? (order.status === "Validated" ? order.facts : []);
-const confirmedNextHearing = (order: Order | null) => !!order?.nextHearingDate
-  && /^\d{4}-\d{2}-\d{2}$/.test(order.nextHearingDate)
-  && safeOrderFacts(order).some(fact => fact.field === "nextHearing" && fact.scope === "Current");
-const reviewWarning = "Some orders still need verification. Actions shown below are based only on verified evidence.";
-const officeToday = () => {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
-  return ["year", "month", "day"].map(type => parts.find(part => part.type === type)!.value).join("-");
-};
-const actionPeriod = (action: Action, today = officeToday()) => {
-  const preferred = /\bpreferably\b/i.test(action.deadlineText ?? "");
-  if (!action.dueDate) return `${action.deadlineText ?? "No deadline stated"} · completion not confirmed`;
-  const date = new Date(`${action.dueDate}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return `${action.deadlineText ?? "Period needs verification"} · completion not confirmed`;
-  const shown = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
-  if (preferred) return `Preferred period ${action.dueDate < today ? "ended" : "ends"} ${shown} · completion not confirmed`;
-  return `${action.deadlineText ?? "No deadline stated"} · Due ${shown} · completion not confirmed`;
-};
-const Evidence: React.FC<{ source: Source }> = ({ source }) => <details className="court-intelligence-evidence">
-  <summary>Review source evidence →</summary>
-  <p>Order {source.orderDate ?? "date needs checking"} · Page {source.page}</p>
-  <blockquote>{source.evidence}</blockquote>
-  {officialLink(source.officialUrl) && <a href={officialLink(source.officialUrl)!} target="_blank" rel="noreferrer">Open official order ↗</a>}
-</details>;
-
+const currentFacts = (order: Order) => safeOrderFacts(order).filter(fact => fact.scope === "Current" && ["COURT_DIRECTION", "COURT_FINDING", "PROCEDURAL_EVENT"].includes(fact.category));
+const roleLabels: Record<string, string> = { PETITIONER_SUBMISSION: "Petitioner submission", LAC_OR_RESPONDENT_SUBMISSION: "LAC/respondent submission", OTHER_PARTY_SUBMISSION: "Other party submission", COURT_DIRECTION: "Court direction", COURT_OBSERVATION: "Court observation", COURT_FINDING: "Court finding", CASE_CONTEXT: "Case context", ISSUE_BEFORE_COURT: "Issue before Court", PROCEDURAL_EVENT: "Procedural event", DISPOSITION: "Disposition", RECORDED_COMPLIANCE: "Recorded compliance", NEXT_HEARING: "Next date", COMPENSATION_FACT: "Compensation record", POSSESSION_FACT: "Possession record", REFERENCE_FACT: "Reference record", AWARD_FACT: "Award record", KHASRA_FACT: "Khasra record", DOCUMENT_OR_FILING_FACT: "Filing record", DEADLINE: "Recorded period" };
+const roleLabel = (role: string) => roleLabels[role] ?? "Recorded factual reference";
+const orderDigest = (order: Order): Proposition[] => order.digest ?? safeOrderFacts(order).filter(fact => !["Uncertain", "Quoted"].includes(fact.scope)).slice(0, 6).map(fact => ({ role: fact.category, attribution: roleLabel(fact.category), scope: fact.scope, text: fact.value, source: { orderDate: order.orderDate, page: fact.page, evidence: fact.evidence, officialUrl: order.officialUrl } }));
+const timelineLabel = (order: Order) => { const digest = orderDigest(order); if (!digest.length) return "Source check needed"; if (digest.some(entry => entry.role === "COURT_DIRECTION")) return "Court direction recorded"; if (digest.some(entry => entry.role === "COURT_OBSERVATION")) return "Court observation recorded"; if (digest.some(entry => entry.role.includes("SUBMISSION"))) return "Party positions considered"; return "Case development recorded"; };
+const confirmedNextHearing = (order: Order | null) => !!order?.nextHearingDate && /^\d{4}-\d{2}-\d{2}$/.test(order.nextHearingDate) && safeOrderFacts(order).some(fact => fact.field === "nextHearing" && fact.scope === "Current" && ["COURT_DIRECTION", "PROCEDURAL_EVENT", "NEXT_HEARING"].includes(fact.category));
+const shownDate = (value: string | null) => { if (!value) return "Date not confirmed"; const date = new Date(`${value}T00:00:00Z`); return Number.isNaN(date.getTime()) ? "Date needs verification" : new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date); };
+const officeToday = () => { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); return ["year", "month", "day"].map(type => parts.find(part => part.type === type)!.value).join("-"); };
+const actionPeriod = (action: Action, today = officeToday()) => { if (!action.dueDate) return `${action.deadlineText ?? "No deadline stated"} · completion not confirmed`; if (/\bpreferably\b/i.test(action.deadlineText ?? "")) return `Preferred period ${action.dueDate < today ? "ended" : "ends"} ${shownDate(action.dueDate)} · completion not confirmed`; return `${action.deadlineText ?? "No deadline stated"} · Due ${shownDate(action.dueDate)} · completion not confirmed`; };
+const Evidence: React.FC<{ source: Source }> = ({ source }) => <details className="court-intelligence-evidence"><summary>View evidence</summary><p>{shownDate(source.orderDate)} · Page {source.page}</p><blockquote>{source.evidence}</blockquote>{officialLink(source.officialUrl) && <a href={officialLink(source.officialUrl)!} target="_blank" rel="noreferrer">Open official order ↗</a>}</details>;
+const actionTitle = (action: Action) => /status report/i.test(action.text) ? "Status report" : /affidavit/i.test(action.text) ? "Status affidavit" : action.type === "Reference" ? "Court reference" : action.type === "Compensation" ? "Compensation action" : "Outstanding LAC action";
+const ActionRow: React.FC<{ action: Action }> = ({ action }) => <div className="court-intelligence-action"><h5>{actionTitle(action)}</h5><p>{officerText(action.text)}</p><small>{actionPeriod(action)}</small><Evidence source={action.source} /></div>;
 const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
-  const safeFacts = safeOrderFacts(order);
-  const facts = safeFacts.filter(fact => fact.scope === "Current" && ["COURT_DIRECTION", "COURT_FINDING", "PROCEDURAL_EVENT"].includes(fact.category));
-  return <>
-    <p className="court-intelligence-order-date">{order.orderDate ?? "Order date needs checking"}</p>
-    {order.status !== "Validated" && <p className="court-intelligence-review">{reviewWarning}</p>}
-    {facts.length ? facts.slice(0, 4).map((fact, index) => <div key={index} className="court-intelligence-fact">
-      <p>{officerText(fact.value)}</p><Evidence source={{ orderDate: order.orderDate, page: fact.page, evidence: fact.evidence, officialUrl: order.officialUrl }} />
-    </div>) : <p>No confirmed operative summary is available for this order.</p>}
-    <p>Next hearing: {officerText(safeFacts.find(f => f.field === "nextHearing" && f.scope === "Current")?.value ?? "Not confirmed in this order")}</p>
-    {officialLink(order.officialUrl) && <a href={officialLink(order.officialUrl)!} target="_blank" rel="noreferrer">Review official order ↗</a>}
-  </>;
+  const digest = orderDigest(order);
+  return <>{!digest.length ? <p className="court-intelligence-muted">This order needs source verification before its contents can be summarized.</p> : <><p className="court-intelligence-label">What happened in this order</p><ul className="court-intelligence-order-points">{digest.slice(0, 6).map((entry, index) => <li key={entry.id ?? index}><small>{roleLabel(entry.role)}{entry.scope === "Historical" ? " · historical reference" : ""}</small><p>{officerText(entry.text)}</p><Evidence source={entry.source} /></li>)}</ul>{order.officeActionCount === 0 && <small>No direct LAC action was identified in this order.</small>}</>}{confirmedNextHearing(order) && <p className="court-intelligence-hearing">Next hearing <strong>{shownDate(order.nextHearingDate!)}</strong></p>}{officialLink(order.officialUrl) && <a href={officialLink(order.officialUrl)!} target="_blank" rel="noreferrer">Open official order ↗</a>}</>;
 };
-
-export const CourtIntelligence: React.FC<{ caseId: string }> = ({ caseId }) => {
+export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: boolean }> = ({ caseId, showMatterHeader = false }) => {
   const [data, setData] = useState<Intelligence | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState("");
-  const activeCase = React.useRef(caseId);
-  activeCase.current = caseId;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const activeCase = React.useRef(caseId); activeCase.current = caseId;
   useEffect(() => {
     const controller = new AbortController();
-    setData(null); setUnavailable(false); setQuestion(""); setAnswer(null); setAskError("");
-    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" })
-      .then(async response => {
-        if (response.status === 204) return null;
-        if (!response.ok) throw new Error("Unavailable");
-        return response.json() as Promise<Intelligence>;
-      }).then(result => { if (!controller.signal.aborted) setData(result); })
-      .catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
+    setData(null); setUnavailable(false); setQuestion(""); setAnswer(null); setAskError(""); setHistoryOpen(false);
+    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }).then(async response => { if (response.status === 204) return null; if (!response.ok) throw new Error("Unavailable"); return response.json() as Promise<Intelligence>; }).then(result => { if (!controller.signal.aborted) setData(result); }).catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
     return () => controller.abort();
   }, [caseId]);
   const ask = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (asking || !question.trim()) return;
-    const requestedCase = caseId;
-    setAsking(true); setAnswer(null); setAskError("");
-    try {
-      const response = await fetch(`/api/court-cases/${caseId}/intelligence/ask`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Unavailable");
-      const result = await response.json() as Answer;
-      if (activeCase.current === requestedCase) setAnswer(result);
-    } catch {
-      if (activeCase.current === requestedCase) setAskError("Question answering is temporarily unavailable. Case intelligence remains available.");
-    } finally { setAsking(false); }
+    event.preventDefault(); if (asking || !question.trim()) return;
+    const requestedCase = caseId; setAsking(true); setAnswer(null); setAskError("");
+    try { const response = await fetch(`/api/court-cases/${caseId}/intelligence/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), cache: "no-store" }); if (!response.ok) throw new Error("Unavailable"); const result = await response.json() as Answer; if (activeCase.current === requestedCase) setAnswer(result); }
+    catch { if (activeCase.current === requestedCase) setAskError("Question answering is temporarily unavailable. Case intelligence remains available."); }
+    finally { setAsking(false); }
   };
+  const reviewCount = data?.orders.filter(order => order.status !== "Validated").length ?? 0;
+  const verifiedFacts = data?.orders.flatMap(safeOrderFacts) ?? [];
   const suggestions = data ? [
-    ...(data.latestOrder?.facts.some(fact => fact.category === "COURT_DIRECTION" && fact.scope === "Current") ? ["What did the latest order direct?"] : []),
-    ...(data.beforeNextHearing.length ? [confirmedNextHearing(data.latestOrder) ? "What does LAC need to do before the next hearing?" : "What is still pending from LAC?"] : []),
-    ...(data.orders.some(order => order.facts.some(fact => fact.field === "compensation")) ? ["What has happened regarding compensation?"] : []),
+    ...(data.latestOrder && currentFacts(data.latestOrder).some(fact => fact.category === "COURT_DIRECTION") ? [{ label: "Latest direction", question: "What did the latest order direct?" }] : []),
+    ...(data.beforeNextHearing.length ? [{ label: "What is pending from LAC?", question: "What is still pending from LAC?" }] : []),
+    ...(verifiedFacts.some(fact => fact.field === "compensation") ? [{ label: "Compensation position", question: "What has happened regarding compensation?" }] : []),
+    ...(verifiedFacts.some(fact => fact.field === "possession") ? [{ label: "Possession position", question: "What is the possession position?" }] : []),
+    ...(data.orders.some(order => order.orderDate?.startsWith("2025") && safeOrderFacts(order).length) ? [{ label: "What happened in 2025?", question: "What happened in this case during 2025?" }] : []),
+    ...(confirmedNextHearing(data.latestOrder) && data.beforeNextHearing.length ? [{ label: "Next hearing preparation", question: "What does LAC need to do before the next hearing?" }] : []),
   ] : [];
-
   return <section className="court-intelligence" aria-label="Court Intelligence">
-    <header><span className="court-intelligence-eyebrow">COURT INTELLIGENCE</span><h3>Your matter, at a glance</h3>
-      <p>AI-assisted summary. Verify source evidence before official action.</p></header>
+    <header className="court-intelligence-header"><h3>Court Intelligence</h3><span>Evidence-backed office brief</span></header>
     {!data ? <p className="court-intelligence-empty">{unavailable ? "Court intelligence is temporarily unavailable. Your Court records remain available." : "No reviewed intelligence is available yet. Court records and official order links remain unchanged."}</p> : <>
-      {(data.status !== "Validated" || !data.processingComplete) && <p className="court-intelligence-review">{reviewWarning}</p>}
-      <div className="court-intelligence-grid"><article><h4>Current position</h4>
-        {data.currentPosition.length ? data.currentPosition.map((line, index) => <div key={index}><p>{officerText(line.text)}</p><Evidence source={line.source} /></div>) : <p>Current position is not yet confirmed from the available orders.</p>}
-      </article><article className="court-intelligence-actions"><h4>{confirmedNextHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</h4>
-        {data.beforeNextHearing.length ? data.beforeNextHearing.map(action => <div key={action.id} className="court-intelligence-action">
-          <p>{officerText(action.text)}</p><small>{action.actor} · {actionPeriod(action)}</small>
-          <p className="court-intelligence-unconfirmed">Completion not confirmed by a later order.</p><Evidence source={action.source} />
-        </div>) : <p>No source-confirmed outstanding LAC action identified. This does not certify that all obligations are complete.</p>}
-      </article></div>
-      <article className="court-intelligence-latest"><h4>Latest order</h4>{data.latestOrder && <OrderSummary order={data.latestOrder} />}</article>
-      <article className="court-intelligence-ask"><h4>Ask this case</h4>
-        <form onSubmit={ask}><label className="court-intelligence-question-label" htmlFor={`case-question-${caseId}`}>Ask about this case</label>
-          <div className="court-intelligence-question-row"><input id={`case-question-${caseId}`} value={question} maxLength={600} onChange={event => setQuestion(event.target.value)} placeholder="What would you like to understand?" />
-            <button type="submit" disabled={asking || !question.trim()}>{asking ? "Checking evidence…" : "Ask"}</button></div></form>
-        {!!suggestions.length && <div className="court-intelligence-suggestions">{suggestions.map(suggestion => <button key={suggestion} type="button" onClick={() => setQuestion(suggestion)}>{suggestion}</button>)}</div>}
-        {askError && <p role="status">{askError}</p>}
-        {answer && <div className="court-intelligence-answer" aria-live="polite">{answer.claims.length ? answer.claims.map((claim, index) => <div key={index}>
-          <small>{claim.attribution} · {claim.source.orderDate}</small><p>{officerText(claim.text)}</p><Evidence source={claim.source} /></div>) : <p>{answer.answer}</p>}</div>}
-      </article>
-      <details className="court-intelligence-history"><summary>Order history · Timeline ({data.orders.length})</summary>
-        {data.orders.map((order, index) => <details key={`${order.officialUrl}-${index}`}><summary>{order.orderDate ?? "Date not confirmed"} · {order.status === "Validated" ? "Source-backed summary" : "Source review needed"}</summary><OrderSummary order={order} /></details>)}
-      </details>
+      {showMatterHeader && <div className="court-intelligence-matter"><h2>{data.caseNumber ?? "Court matter"}</h2><div>{data.latestOrder?.court && <span>{data.latestOrder.court}</span>}{confirmedNextHearing(data.latestOrder) && <span>Next hearing: {shownDate(data.latestOrder!.nextHearingDate!)}</span>}</div></div>}
+      {(reviewCount > 0 || !data.processingComplete) && <details className="court-intelligence-verification"><summary>Some source material still needs verification.{reviewCount > 0 ? ` · ${reviewCount} order${reviewCount === 1 ? "" : "s"}` : ""}</summary><p>Actions and summaries shown here use only verified evidence.</p></details>}
+      <article className={`court-intelligence-attention${data.beforeNextHearing.length ? "" : " court-intelligence-attention-empty"}`}><div className="court-intelligence-region-heading"><h4>{data.beforeNextHearing.length ? "Needs your attention" : "Office action check"}</h4>{data.beforeNextHearing.length > 0 && <span>{confirmedNextHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>}</div>{data.beforeNextHearing.length ? <>{data.beforeNextHearing.slice(0, 3).map(action => <ActionRow key={action.id} action={action} />)}{data.beforeNextHearing.length > 3 && <details className="court-intelligence-all-actions"><summary>View all actions ({data.beforeNextHearing.length})</summary>{data.beforeNextHearing.slice(3).map(action => <ActionRow key={action.id} action={action} />)}</details>}</> : <p>No direct LAC action was identified in the processed orders. This does not establish that all office duties are complete.</p>}</article>
+      <article className="court-intelligence-position"><h4>Current position</h4>{data.currentPosition.length ? <>{data.currentPosition.slice(0, 3).map((line, index) => <div key={index}><p>{line.role && <small>{roleLabel(line.role)}{line.scope === "Historical" ? " · historical reference" : ""} · </small>}{officerText(line.text)}</p><Evidence source={line.source} /></div>)}{data.currentPosition.length > 3 && <details><summary>More case context</summary>{data.currentPosition.slice(3, 6).map((line, index) => <div key={index}><small>{line.role ? roleLabel(line.role) : line.attribution}</small><p>{officerText(line.text)}</p><Evidence source={line.source} /></div>)}</details>}</> : <p className="court-intelligence-muted">Current position is not yet confirmed from the available orders.</p>}</article>
+      <div className="court-intelligence-working-grid"><article className="court-intelligence-latest"><div className="court-intelligence-region-heading"><h4>Latest order</h4>{data.latestOrder && <time>{shownDate(data.latestOrder.orderDate)}</time>}</div>{data.latestOrder ? <OrderSummary order={data.latestOrder} /> : <p className="court-intelligence-muted">No processed order is available yet.</p>}</article>
+        <article className="court-intelligence-ask"><h4>Ask Court Intelligence</h4><p className="court-intelligence-muted">English, हिन्दी or Hinglish · this matter only</p><form onSubmit={ask}><label className="court-intelligence-question-label" htmlFor={`case-question-${caseId}`}>Your question</label><div className="court-intelligence-question-row"><input id={`case-question-${caseId}`} value={question} maxLength={600} onChange={event => setQuestion(event.target.value)} placeholder="Ask anything about this matter…" /><button type="submit" disabled={asking || !question.trim()}>{asking ? "Checking…" : "Ask"}</button></div></form>
+          {!!suggestions.length && <div className="court-intelligence-suggestions">{suggestions.map(suggestion => <button key={suggestion.label} type="button" onClick={() => setQuestion(suggestion.question)}>{suggestion.label}</button>)}</div>}{askError && <p role="status">{askError}</p>}
+          {answer && <div className="court-intelligence-answer" aria-live="polite">{answer.claims.length ? answer.claims.map((claim, index) => <div key={index}><small>{claim.attribution} · {shownDate(claim.source.orderDate)} · Page {claim.source.page}</small><p>{officerText(claim.text)}</p><Evidence source={claim.source} /></div>) : <><p>I could not confirm this from the orders processed for this matter.</p>{reviewCount > 0 && <small>{reviewCount} order{reviewCount === 1 ? "" : "s"} still need{reviewCount === 1 ? "s" : ""} source verification.</small>}<div className="court-intelligence-answer-actions"><button type="button" onClick={() => setHistoryOpen(true)}>Review available order history</button>{data.latestOrder && officialLink(data.latestOrder.officialUrl) && <a href={data.latestOrder.officialUrl} target="_blank" rel="noreferrer">Open latest official order ↗</a>}</div></>}</div>}
+        </article></div>
+      <details className="court-intelligence-history" open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}><summary><span>Order history</span><small>{data.orders.length} orders{data.orders.length > 0 ? ` · ${shownDate(data.orders[0].orderDate)} – ${shownDate(data.orders[data.orders.length - 1].orderDate)}` : ""}</small><span>View timeline</span></summary>{data.orders.map((order, index) => <details className="court-intelligence-history-row" key={`${order.officialUrl}-${index}`}><summary><time>{shownDate(order.orderDate)}</time><span>{timelineLabel(order)}</span><small>{order.status === "Validated" ? "Verified" : "Review"}</small></summary><OrderSummary order={order} /></details>)}</details>
     </>}
   </section>;
 };

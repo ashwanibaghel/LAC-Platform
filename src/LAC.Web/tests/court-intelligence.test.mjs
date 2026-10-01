@@ -12,13 +12,13 @@ const component=new Function('React',evaluated+'; return CourtIntelligence;')(Re
 
 test('Court intelligence renders calmly with AI off and makes no render-time action',()=>{
   const html=renderToStaticMarkup(React.createElement(component,{caseId:'case'}));
-  assert.match(html,/COURT INTELLIGENCE/);
-  assert.match(html,/AI-assisted summary/);
+  assert.match(html,/Court Intelligence/);
+  assert.match(html,/Evidence-backed office brief/);
   assert.match(html,/Court records and official order links remain unchanged/);
   assert.doesNotMatch(html,/tokens|RAM|latency|confidence|raw JSON|Qwen|llama/i);
 });
 test('officer headings and evidence are present without developer metrics',()=>{
-  for(const text of ['Current position','Before next hearing','Latest order','Order history','Timeline','Ask this case','Review source evidence'])assert.ok(source.includes(text));
+  for(const text of ['Current position','Before next hearing','Latest order','Order history','View timeline','Ask Court Intelligence','View evidence','What happened in this order'])assert.ok(source.includes(text));
   assert.doesNotMatch(source,/modelVersion|inferenceTime|confidencePercent|JSON\.stringify\(data/);
   assert.match(source,/source\.orderDate/);assert.match(source,/source\.page/);assert.match(source,/source\.evidence/);
 });
@@ -30,8 +30,7 @@ test('questions require explicit submit and AI failure leaves intelligence avail
 });
 test('review-marked orders display only independently usable summary facts',()=>{
   assert.match(source,/order\.summaryFacts \?\? \(order\.status === "Validated" \? order\.facts : \[\]\)/);
-  assert.match(source,/const facts = safeFacts\.filter/);
-  assert.match(source,/safeFacts\.find/);
+  assert.match(source,/order\.digest \?\? safeOrderFacts\(order\)/);
 });
 const presentation=new Function('React',evaluated+'; return {officerText, actionPeriod, confirmedNextHearing};')(React);
 const evidence={orderDate:'2025-01-30',page:6,evidence:'2. The LAC shall forward the reference preferably within four weeks.',officialUrl:'https://delhihighcourt.nic.in/app/test.pdf'};
@@ -45,15 +44,20 @@ function officerMarkup(artifact){
 }
 test('no confirmed hearing uses outstanding action, not next-hearing language',()=>{
   const html=officerMarkup(data);
-  assert.match(html,/<h4>Outstanding LAC action<\/h4>/);
-  assert.doesNotMatch(html,/<h4>Before next hearing<\/h4>/);
-  assert.match(html,/What is still pending from LAC/);
+  assert.match(html,/<span>Outstanding LAC action<\/span>/);
+  assert.doesNotMatch(html,/<span>Before next hearing<\/span>/);
+  assert.match(html,/What is pending from LAC\?/);
   assert.equal(false,presentation.confirmedNextHearing({...data.latestOrder,nextHearingDate:'2026-10-05'}));
 });
 test('source-confirmed next hearing enables the before-next-hearing heading',()=>{
   const latest={...data.latestOrder,nextHearingDate:'2026-10-05',summaryFacts:[direction,{...direction,field:'nextHearing',value:'Renotify on 05.10.2026.'}]};
-  assert.match(officerMarkup({...data,latestOrder:latest}),/<h4>Before next hearing<\/h4>/);
+  assert.match(officerMarkup({...data,latestOrder:latest}),/<span>Before next hearing<\/span>/);
   assert.equal(false,presentation.confirmedNextHearing({...latest,summaryFacts:[]}));
+});
+test('a party-requested date cannot enable a confirmed next hearing',()=>{
+  const latest={...data.latestOrder,nextHearingDate:'2026-10-05',summaryFacts:[{...direction,category:'PETITIONER_SUBMISSION',field:'nextHearing',value:'The petitioner seeks listing on 05.10.2026.'}]};
+  assert.equal(false,presentation.confirmedNextHearing(latest));
+  assert.doesNotMatch(officerMarkup({...data,latestOrder:latest}),/<span>Before next hearing<\/span>/);
 });
 test('preferred periods are qualified, never displayed as unconditional Due dates',()=>{
   const action=data.beforeNextHearing[0];
@@ -73,6 +77,28 @@ test('officer summaries strip paragraph prefixes but evidence stays verbatim',()
   assert.equal(presentation.officerText('A. Gupta appeared.'),'A. Gupta appeared.');
 });
 test('review warning uses officer wording without altering verified evidence',()=>{
-  assert.match(officerMarkup(data),/Some orders still need verification\. Actions shown below are based only on verified evidence\./);
+  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/Some source material still needs verification\./);
+  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/Actions and summaries shown here use only verified evidence/);
   assert.doesNotMatch(officerMarkup(data),/Some source orders need checking|Do not rely on an older summary/);
+});
+test('zero-action order still renders rich attributed facts, not an empty action detector',()=>{
+  const facts=[{...direction,category:'PETITIONER_SUBMISSION',field:'compensation',value:'Petitioner claims compensation remains unpaid.'},{...direction,category:'LAC_OR_RESPONDENT_SUBMISSION',field:'compensation',value:'LAC submits compensation was deposited.'},{...direction,category:'COURT_OBSERVATION',field:'observation',value:'The Court observed that the record was incomplete.'}];
+  const latest={...data.latestOrder,summaryFacts:facts,officeActionCount:0};
+  const html=officerMarkup({...data,beforeNextHearing:[],latestOrder:latest,currentPosition:[],orders:[latest]});
+  assert.match(html,/What happened in this order/);
+  assert.match(html,/Petitioner submission/);
+  assert.match(html,/LAC\/respondent submission/);
+  assert.match(html,/Court observation/);
+  assert.match(html,/No direct LAC action was identified in this order/);
+  assert.match(html,/<h4>Office action check<\/h4>/);
+  assert.doesNotMatch(html,/<span>Outstanding LAC action<\/span>/);
+  assert.doesNotMatch(html,/No useful intelligence|No confirmed operative summary/);
+  assert.match(html,/Party positions considered|Court observation recorded/);
+  assert.doesNotMatch(html,/<details class="court-intelligence-history" open/);
+});
+test('current position retains role distinctions and review warning appears only once',()=>{
+  const html=officerMarkup({...data,orders:[data.latestOrder],currentPosition:[{role:'COURT_FINDING',text:'The reference was in time.',source:evidence},{role:'PETITIONER_SUBMISSION',text:'The petitioner disputes payment.',source:evidence}]});
+  assert.match(html,/Court finding/);assert.match(html,/Petitioner submission/);
+  assert.equal((html.match(/Some source material still needs verification/g)||[]).length,1);
+  assert.match(html,/English, हिन्दी or Hinglish/);
 });

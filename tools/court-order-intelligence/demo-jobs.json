@@ -23,6 +23,18 @@
     {"orderDate":"2015-08-04","officialUrl":"https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/7363/2015/04-08-2015"},
     {"orderDate":"2015-12-14","officialUrl":"https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/7363/2015/14-12-2015"}
   ]},
+  {"caseId":"a1000000-0000-4000-8000-000000000007","caseNumber":"W.P.(C) 568/2024","orders":[
+    {"orderDate":"2026-04-23","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/75523042026CW5682024_194313.pdf"}
+  ]},
+  {"caseId":"a1000000-0000-4000-8000-000000000008","caseNumber":"W.P.(C) 17415/2024","orders":[
+    {"orderDate":"2024-12-18","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/PMS18122024CW174152024_210235.pdf"}
+  ]},
+  {"caseId":"a1000000-0000-4000-8000-000000000009","caseNumber":"W.P.(C) 2687/2018","orders":[
+    {"orderDate":"2026-04-23","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/PMS23042026CW26872018_173405.pdf"}
+  ]},
+  {"caseId":"a1000000-0000-4000-8000-000000000010","caseNumber":"W.P.(C) 120/2026","orders":[
+    {"orderDate":"2026-01-07","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/PMS07012026CW1202026_140739.pdf"}
+  ]},
   {"caseId":"a1000000-0000-4000-8000-000000000006","caseNumber":"W.P.(C) 8664/2021","orders":[
     {"orderDate":"2025-01-30","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/VIB30012025CW86642021_112417.pdf"}
   ]}

@@ -14,7 +14,7 @@ import fitz
 import requests
 import jsonschema
 from provider import LlamaCppProvider
-from semantics import VERSION, identity, normalized, dates_in, synthesize
+from semantics import VERSION, identity, normalized, dates_in, synthesize, confirmed_hearing_date
 from anchors import anchors_for, expand, schema_for, source_header, CASE_REFERENCES, INSTRUCTIONS as ANCHOR_INSTRUCTIONS
 
 class StopRequested(BaseException):
@@ -69,7 +69,7 @@ def native_pages(path):
 def process_order(source, case_number, provider, temporary_root=None, downloader=download, stop_file=None):
     record = {'officialUrl': source['officialUrl'], 'orderDate': source.get('orderDate'),
               'caseNumber': case_number, 'sha256': None, 'status': 'NeedsReview', 'facts': [],
-              'versions': {'extraction': VERSION, 'rulebook': '1', 'model': provider.version},
+              'versions': {'extraction': VERSION, 'rulebook': '2', 'model': provider.version},
               'processedAt': datetime.now(timezone.utc).isoformat(), 'coverage': {}}
     try:
         with tempfile.TemporaryDirectory(prefix='lac-court-order-', dir=temporary_root) as temporary:
@@ -136,9 +136,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                 collected.extend(payload['facts'])
             record['coverage']['allSelectedChunksProcessed'] = True
             record['facts'] = list({json.dumps(f, sort_keys=True): f for f in collected}.values())
-            hearing_dates = {day for fact in record['facts'] if fact['field'] == 'nextHearing' and fact['scope'] == 'Current'
-                             for day in dates_in(fact['value'])}
-            record['nextHearingDate'] = next(iter(hearing_dates)) if len(hearing_dates) == 1 else None
+            record['nextHearingDate'] = confirmed_hearing_date(record['facts'])
             record['status'] = 'NeedsReview' if needs_review else 'Validated'
     except Exception as error:
         record['facts'] = [] # partial chunks cannot masquerade as a complete order

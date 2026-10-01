@@ -78,8 +78,9 @@ readable. No question/answer conversation is persisted in Phase 1.
 
 ## Grounded “Ask this case”
 
-Natural question → deterministic field/year/latest-order retrieval within that
-single case artifact → bounded evidence → local model selects/composes concise
+English/Hindi/Hinglish question → deterministic multilingual aliases → bounded
+local strict-JSON intent planner only when needed → deterministic role/topic/year/
+latest-order retrieval within that single case artifact → bounded evidence → local model selects/composes concise
 extractive claims → independent exact-text/citation validation → attributed
 answer/evidence. Every answer citation is built from its retrieved order/page,
 not a model-provided URL/page. Negations/conditions cannot be removed. Party
@@ -87,10 +88,13 @@ submissions are labeled as submissions, never established Court facts. Model
 memory, other cases, internet search and unsupported facts are prohibited.
 Insufficient evidence returns exactly:
 
-“Available Court orders do not establish this fact.”
+“I could not confirm this from the orders processed for this matter.”
 
-Extractive answers intentionally trade fluency for auditability. Broad semantic
-questions not supported by current field retrieval may return insufficient
+Extractive answers intentionally trade fluency for auditability. Facts and office
+actions are separate: every usable order has an attributed proposition digest,
+including submissions, observations, land facts and procedural events without
+a direct LAC obligation. Invalid model claim selection falls back to the exact
+retrieved evidence, never invented text. Unsupported questions may return insufficient
 evidence. Context is bounded; this is not complete legal coverage or a substitute
 for source review. Compliance linkage is deliberately conservative: absent an
 explicit later action/date linkage, completion remains unconfirmed.
@@ -103,7 +107,8 @@ unsupported paraphrases impossible at the answer boundary.
 
 ## Isolated public-order demo (no registered records changed)
 
-`demo-jobs.json` has five multi-order matters plus one reference-direction example,
+`demo-jobs.json` has five fact-first showcases (8664/2021, 568/2024, 17415/2024,
+2687/2018 and 120/2026), plus five earlier review/history test matters,
 all with synthetic demo GUIDs and real public URLs. Those GUIDs are NOT Court register records. Do not copy demo files
 onto real case IDs. PDFs stay temporary; outputs stay in a separate local root.
 

@@ -80,13 +80,16 @@ class QuestionTests(unittest.TestCase):
         class WrongCitation:
             def extract(self,*args):return {'claims':[{'factId':99,'text':'invented'}]}
         result=answer(artifact(),'case-a','What did latest order direct?',WrongCitation())
-        self.assertEqual(INSUFFICIENT,result['answer'])
+        self.assertTrue(result['claims'])
+        self.assertNotIn('invented',result['answer'])
+        self.assertEqual('2026-01-01',result['claims'][0]['source']['orderDate'])
 
     def test_removed_negation_rejected(self):
         class FalseFact:
             def extract(self,*args):return {'claims':[{'factId':1,'text':'compensation is paid'}]}
         result=answer(artifact(),'case-a','What has happened regarding compensation?',FalseFact())
-        self.assertEqual([],result['claims'])
+        self.assertTrue(any('unpaid' in claim['text'] for claim in result['claims']))
+        self.assertNotIn('compensation is paid',result['answer'])
 
     def test_ai_service_failure_propagates_to_calm_runtime_boundary(self):
         class Offline:
