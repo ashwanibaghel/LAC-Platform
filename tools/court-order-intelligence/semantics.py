@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 import jsonschema
 
-VERSION = 'court-native-v2-propositions'
+VERSION = 'court-native-v3-chronology'
 CATEGORIES = ['COURT_DIRECTION', 'COURT_FINDING', 'LAC_OR_RESPONDENT_SUBMISSION',
               'PETITIONER_SUBMISSION', 'OTHER_PARTY_SUBMISSION', 'PROCEDURAL_EVENT', 'HISTORICAL_LAND_FACT',
               'CASE_CONTEXT','ISSUE_BEFORE_COURT','COURT_OBSERVATION','DISPOSITION','LAND_FACT',
@@ -35,6 +35,9 @@ FACT = {'type': 'object', 'additionalProperties': False,
                        'targetOrderDate': NULL_STRING, 'targetActionText': NULL_STRING},
         'required': ['category', 'field', 'value', 'actor', 'deadlineText', 'scope',
                      'page', 'evidence', 'targetOrderDate', 'targetActionText']}
+FACT['properties']['evidenceParts']={'type':'array','minItems':2,'maxItems':2,'items':{
+    'type':'object','additionalProperties':False,'properties':{'page':{'type':'integer','minimum':1},
+    'evidence':{'type':'string','minLength':1,'maxLength':900}},'required':['page','evidence']}}
 SCHEMA = {'type': 'object', 'additionalProperties': False,
           'properties': {'facts': {'type': 'array', 'items': FACT, 'maxItems': 6},
                          'needsReview': {'type': 'boolean'}}, 'required': ['facts', 'needsReview']}
@@ -83,13 +86,17 @@ def due_date(order_date, deadline, next_hearing=None):
     return (start + timedelta(days=amount * (7 if match[2].startswith('week') else 1))).isoformat()
 
 def confirmed_hearing_date(facts):
+    court_dates={day for fact in facts if fact['field']=='nextHearing' and fact['scope']=='Current'
+        and fact['category'] in ('COURT_DIRECTION','PROCEDURAL_EVENT','NEXT_HEARING')
+        and re.search(r'\blist (?:the matter |matter )?before (?:the )?(?:Hon[’\x27]ble )?Court\b',fact['value'],re.I) for day in dates_in(fact['value'])}
+    if len(court_dates)==1: return next(iter(court_dates))
     dates={day for fact in facts if fact['field']=='nextHearing' and fact['scope']=='Current'
            and fact['category'] in ('COURT_DIRECTION','PROCEDURAL_EVENT','NEXT_HEARING')
            for day in dates_in(fact['value'])}
     return next(iter(dates)) if len(dates)==1 else None
 
-SUBMISSION = re.compile(r'\b(?:submits?|submitted|contends?|contended|alleges?|alleged|claims|claimed|asserts?|asserted|argues?|argued|prays?|seeks?|averred|undertakes?|prayer|counter.affidavit|according to|pointed out|it is stated)\b', re.I)
-IMPERATIVE = re.compile(r'\b(?:is directed|are directed|shall|let .*?(?:file|place|furnish)|it is directed|be filed|be listed|list (?:on|for|before)|renotify|issue notice|we direct|Court directs)\b', re.I)
+SUBMISSION = re.compile(r'\b(?:submits?|submitted|contends?|contended|alleges?|alleged|claims|claimed|asserts?|asserted|argues?|argued|prays?|seeks?|averred|undertakes?|prayer|according to|pointed out|it is stated)\b', re.I)
+IMPERATIVE = re.compile(r'\b(?:is directed|are directed|shall|let .*?(?:file|place|furnish|stated)|it is directed|be filed|be placed on record|be listed|list (?:the matter |matter )?(?:on|for|before)|renotify|issue notice|we direct|Court directs|time is granted.{0,100}to file)\b', re.I)
 OFFICE = re.compile(r'\b(?:LAC|Land Acquisition Collector|ADM[/ -]LAC|Collector)\b', re.I)
 
 def party_speech(text):
@@ -97,14 +104,21 @@ def party_speech(text):
     # verbs are never erased by this narrowly scoped judicial reset.
     if re.search(r'\bis (?:set aside|allowed|dismissed)\b',text,re.I) and not re.search(r'\b(?:submits?|submitted|contends?|contended|claims|claimed|alleges?|alleged|asserts?|asserted|argues?|argued|prays?|seeks?|states?|stated|according to|pointed out)\b',text,re.I):
         text=re.sub(r'\bprayer\b','',text,flags=re.I)
-    return bool(SUBMISSION.search(text) or re.search(
+    affidavit_statement=re.search(r'counter.affidavit',text,re.I) and not re.search(r'\bbe filed\b|\bshall file\b|\bis directed to file\b|\btime is granted.{0,100}to file\b',text,re.I)
+    return bool(affidavit_statement or re.search(r'made the following submissions',text,re.I) or SUBMISSION.search(text) or re.search(
         r'\b(?:counsel|petitioner|respondent|LAC|Mr\.?|Ms\.?)\b[^.!?]{0,120}\b(?:states?|stated|reports?\s+that|reported\s+that)\b|\bsubmission of\b|\b(?:case|stand|contention) of the (?:petitioners?|respondents?|LAC) is that\b',text,re.I))
 
 def validate(payload, pages):
     jsonschema.validate(payload, SCHEMA)
     for fact in payload['facts']:
         evidence = normalized(fact['evidence'])
-        if fact['page'] not in pages or evidence not in normalized(pages[fact['page']]):
+        parts=fact.get('evidenceParts')
+        if parts:
+            if (parts[0]['page']!=fact['page'] or parts[1]['page']!=parts[0]['page']+1
+                or normalized(' '.join(part['evidence'] for part in parts))!=evidence
+                or any(part['page'] not in pages or normalized(part['evidence']) not in normalized(pages[part['page']]) for part in parts)):
+                raise ValueError('Cross-page evidence is not on the exact adjacent supplied source pages')
+        elif fact['page'] not in pages or evidence not in normalized(pages[fact['page']]):
             raise ValueError('Evidence is not on cited supplied source page')
         if normalized(fact['value']) not in evidence:
             raise ValueError('Fact value must be a verbatim part of its evidence')
@@ -113,8 +127,8 @@ def validate(payload, pages):
         if fact['category'] not in SUBMISSION_ROLES and party_speech(evidence):
             raise ValueError('Party submission must retain party attribution, not become an established fact')
         role_patterns={'DEADLINE':r'\bwithin\b|\bbefore\b|\bby\s+\d',
-                       'DISPOSITION':r'set aside|allowed|dismiss|disposed|disposal',
-                       'NEXT_HEARING':r'list (?:on|for)|be listed|renotify|next (?:date|hearing)|adjourn'}
+                       'DISPOSITION':r'set aside|allowed|dismiss|disposed|disposal|closed',
+                       'NEXT_HEARING':r'\blist\b|be listed|renotify|next (?:date|hearing)|adjourn'}
         if fact['category'] in role_patterns and not re.search(role_patterns[fact['category']],evidence,re.I):
             raise ValueError('Semantic role lacks explicit source support')
         if fact['field'] in ('direction', 'finding', 'compensation', 'possession', 'compliance'):
@@ -130,14 +144,14 @@ def validate(payload, pages):
             if fact['category']=='COURT_DIRECTION' and not IMPERATIVE.search(evidence):
                 raise ValueError('Submission or nonoperative text cannot authorize a Court direction')
             page = normalized(pages[fact['page']])
-            start = page.index(evidence)
+            start = page.index(normalized(parts[0]['evidence']) if parts else evidence)
             prefix = page[max(0,start-240):start]
             # An operative setting-aside/allowing decision can mention the
             # petitioner's "prayer" without being a party submission. Do not
             # drop genuine speech verbs; this reset is judicial, not a claim.
             if re.search(r'\bis (?:set aside|allowed|dismissed)\b',prefix,re.I) and not re.search(r'\b(?:submits?|submitted|contends?|claims|claimed|alleges?|asserts?|argues?|prays?|seeks?|states?|stated)\b',prefix,re.I):
                 prefix=re.sub(r'\bprayer\b','',prefix,flags=re.I)
-            fresh_procedure=re.match(r'^(?:\d+\.\s*)?(?:renotify|list (?:on|for)|issue notice)\b',evidence,re.I)
+            fresh_procedure=re.match(r'^(?:\d+\.\s*)?(?:(?:Accordingly,\s*)?let\b|renotify|list (?:the matter |matter )?(?:on|for|before)|issue notice)\b',evidence,re.I)
             if party_speech(prefix) and not fresh_procedure and not re.search(r'(?:Court|we) (?:direct|order|hold|observe|find|note)|it is directed', prefix, re.I):
                 raise ValueError('Direction excerpt drops nearby party-submission attribution')
         if fact['field'] in ('compliance', 'supersession'):
@@ -217,6 +231,7 @@ def propositions(order):
     result=[]
     for fact in usable_facts(order):
         source={'orderDate':order.get('orderDate'),'page':fact['page'],'evidence':fact['evidence'],'officialUrl':order['officialUrl']}
+        if fact.get('evidenceParts'): source['evidenceParts']=fact['evidenceParts']
         role=fact['category']
         # Compatibility with validated V1 facts: an explicit present judicial
         # disposal is a disposition, not a generic background finding. No new
@@ -247,6 +262,7 @@ def order_digest(order):
 
 
 def synthesize(case_id, case_number, orders):
+    from chronology import factual_events, source_coverage
     ordered = [dict(order,summaryFacts=usable_facts(order),propositions=propositions(order),digest=order_digest(order)) for order in sorted(orders, key=lambda x: x.get('orderDate') or '')]
     actions = []
     for order in ordered:
@@ -298,12 +314,32 @@ def synthesize(case_id, case_number, orders):
     for entry in reversed(representatives):
         if len(selected)==6: break
         if entry not in selected: selected.append(entry)
-    current=sorted(selected,key=lambda entry:entry['source']['orderDate'] or '')
+    # A stale adjournment/submission must not lead today's case brief. Keep the
+    # core dispute, then newest developments; history retains every old fact.
+    current=[]
+    recent_directions=[entry for entry in latest['propositions']
+        if entry['role']=='COURT_DIRECTION' and entry['scope']=='Current' and entry['field']!='nextHearing'] if latest else []
+    selected=recent_directions[:2]+selected
+    selected.sort(key=lambda entry:(entry['role'] in ('CASE_CONTEXT','ISSUE_BEFORE_COURT'),
+                                    entry['source']['orderDate'] or ''),reverse=True)
+    for entry in selected:
+        if any(normalized(previous['text'])==normalized(entry['text']) for previous in current): continue
+        if (latest and entry['source']['orderDate']!=latest['orderDate']
+                and entry['role'] in ('PETITIONER_SUBMISSION','PROCEDURAL_EVENT')
+                and re.search(r'passover|adjourn|bench.*assemble',entry['text'],re.I)): continue
+        current.append(entry)
     # If the newest source failed, do not present older sources as current.
     if latest and not latest['summaryFacts']: current=[]
     incomplete = any(o['status'] != 'Validated' for o in ordered)
+    final = latest if latest and any(entry['role']=='DISPOSITION' and entry['scope']=='Current'
+        and re.search(r'\b(?:petition|appeal|suit)\b.{0,100}\b(?:allowed|dismissed|disposed)\b',entry['text'],re.I)
+        for entry in latest['propositions']) else None
     return {'version': 1, 'semanticVersion':VERSION, 'caseId': case_id, 'caseNumber': case_number,
             'status': 'NeedsReview' if incomplete else 'Validated',
-            'currentPosition': current[-6:], 'beforeNextHearing': [a for a in actions if a['state'] == 'Not confirmed complete'],
-            'latestOrder': latest, 'orders': ordered, 'actions': actions,
+            'currentPosition': current[:6], 'beforeNextHearing': [a for a in actions if a['state'] == 'Not confirmed complete'],
+            'latestOrder': latest, 'finalOrder': final, 'caption': latest.get('caption',{}) if latest else {},
+            'lacCaptionAppearances': [order['caption']['respondentAdvocates'] for order in ordered
+                if re.search(r'\bLAC\b|Land Acquisition Collector',order.get('caption',{}).get('respondentAdvocates',{}).get('text',''),re.I)],
+            'factualChronology': factual_events(ordered), 'sourceCoverage':source_coverage(ordered),
+            'orders': ordered, 'actions': actions,
             'notice': 'AI-assisted summary. Verify source evidence before official action.'}

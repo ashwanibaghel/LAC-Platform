@@ -2,8 +2,8 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CourtIntelligence } from "./CourtIntelligence";
-const cases = ["W.P.(C) 1784/2026", "W.P.(C) 7689/2000", "CO.PET. 39/2009", "W.P.(C) 8611/2019", "W.P.(C) 7363/2015", "W.P.(C) 8664/2021", "W.P.(C) 568/2024", "W.P.(C) 17415/2024", "W.P.(C) 2687/2018", "W.P.(C) 120/2026"];
-const showcase = ["Section 18 reference direction", "Compensation dispute", "Possession and acquisition history", "Reference limitation", "Section 30/31 reference"];
+const cases = ["W.P.(C) 1784/2026", "W.P.(C) 7689/2000", "CO.PET. 39/2009", "W.P.(C) 8611/2019", "W.P.(C) 7363/2015", "W.P.(C) 8664/2021", "W.P.(C) 568/2024", "W.P.(C) 17415/2024", "W.P.(C) 2687/2018", "W.P.(C) 120/2026", "W.P.(C) 7003/2026", "W.P.(C) 14604/2025"];
+const showcase = ["Section 18 reference direction", "Compensation dispute", "Possession and acquisition history", "Reference limitation", "Section 30/31 reference", "Pending register matter · compensation / possession / filings", "Pending · six verified order dates"];
 function Demo() {
   const [selected, setSelected] = useState(5);
   return <main style={{ maxWidth: 1160, margin: "32px auto", padding: "0 24px" }}>

@@ -134,6 +134,14 @@ Orders without a reliable caption/body boundary fail closed. Ambiguous actors
 cannot create office actions. `--case-id <listed GUID>` can process just one
 explicitly listed job; it never discovers or searches other cases.
 
+## Pending-first full-source quality loop
+
+The isolated demo now also includes W.P.(C) 14604/2025 with six actual orders
+and W.P.(C) 7003/2026 from the Pending register. See
+`gold/QUALITY-CHECKPOINT.md` and the reviewed JSON checklists for exact coverage,
+misses, remaining limitations and read-only evaluation commands. These are not
+fine-tuning data or a claim that every available Court order has been discovered.
+
 ## Stop
 
 ```powershell

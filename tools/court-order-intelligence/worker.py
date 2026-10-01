@@ -16,6 +16,7 @@ import jsonschema
 from provider import LlamaCppProvider
 from semantics import VERSION, identity, normalized, dates_in, synthesize, confirmed_hearing_date
 from anchors import anchors_for, expand, schema_for, source_header, CASE_REFERENCES, INSTRUCTIONS as ANCHOR_INSTRUCTIONS
+from chronology import caption_context
 
 class StopRequested(BaseException):
     pass
@@ -95,13 +96,14 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             record['court']='Delhi High Court' if 'HIGH COURT OF DELHI' in pages[1].upper() else None
             bench=re.search(r'CORAM:\s*(.*)',list(headers.values())[-1],re.I)
             record['bench']=bench[1] if bench and len(bench[1])<=900 else None
+            record['caption'] = caption_context(headers, source['officialUrl'], record['orderDate'])
             anchors = anchors_for(pages)
             chunks=[]
             current=[]
             length=0
             for anchor in anchors:
                 size=len(json.dumps(anchor))
-                if length+size>5000 and current:
+                if current and (length+size>5000 or len(current)>=6):
                     chunks.append(current); current=[]; length=0
                 current.append(anchor); length+=size
             if current: chunks.append(current)
@@ -109,7 +111,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             if not chunks:
                 raise ValueError('NeedsSourceReview: no usable relevant paragraphs')
             record['coverage'] = {'pageCount': len(pages), 'selectedPages': sorted({a['page'] for c in chunks for a in c}),
-                                  'chunkCount': len(chunks), 'allSelectedChunksProcessed': False}
+                                  'chunkCount': len(chunks), 'anchorCount':len(anchors), 'allSelectedChunksProcessed': False}
             needs_review = False
             collected = []
             for chunk in chunks:
@@ -136,6 +138,11 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                 collected.extend(payload['facts'])
             record['coverage']['allSelectedChunksProcessed'] = True
             record['facts'] = list({json.dumps(f, sort_keys=True): f for f in collected}.values())
+            record['coverage']['representedAnchorCount'] = len({(f['page'],f['evidence']) for f in record['facts']})
+            nonquoted={(anchor['page'],anchor['text']) for anchor in anchors if not anchor.get('quoted')}
+            represented={(fact['page'],fact['evidence']) for fact in record['facts']}
+            record['coverage']['unrepresentedNonquotedAnchors']=len(nonquoted-represented)
+            needs_review |= bool(nonquoted-represented)
             record['nextHearingDate'] = confirmed_hearing_date(record['facts'])
             record['status'] = 'NeedsReview' if needs_review else 'Validated'
     except Exception as error:

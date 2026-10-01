@@ -33,9 +33,31 @@ test('review-marked orders display only independently usable summary facts',()=>
   assert.match(source,/order\.digest \?\? safeOrderFacts\(order\)/);
 });
 const presentation=new Function('React',evaluated+'; return {officerText, actionPeriod, confirmedNextHearing};')(React);
+test('past source-listed hearing is not presented as an upcoming hearing',()=>{
+  const dates=new Function('React',evaluated+'; return {upcomingHearing};')(React);
+  const order={status:'Validated',facts:[{category:'COURT_DIRECTION',field:'nextHearing',scope:'Current'}],nextHearingDate:'2026-10-01'};
+  assert.equal(false,dates.upcomingHearing(order,'2026-10-02'));
+  assert.equal(true,dates.upcomingHearing(order,'2026-09-30'));
+  assert.match(source,/Last source-listed date/);
+  assert.match(source,/subsequent order or new hearing date is not established/);
+});
 const evidence={orderDate:'2025-01-30',page:6,evidence:'2. The LAC shall forward the reference preferably within four weeks.',officialUrl:'https://delhihighcourt.nic.in/app/test.pdf'};
 const direction={category:'COURT_DIRECTION',field:'direction',scope:'Current',value:evidence.evidence,page:6,evidence:evidence.evidence};
 const data={status:'NeedsReview',processingComplete:true,currentPosition:[{text:'2. Reference was declined.',source:{...evidence,evidence:'2. Reference was declined.'}}],beforeNextHearing:[{id:'a',text:direction.value,actor:'LAC',deadlineText:'preferably within four weeks',dueDate:'2025-02-27',source:evidence}],latestOrder:{orderDate:'2025-01-30',officialUrl:evidence.officialUrl,status:'NeedsReview',facts:[direction],summaryFacts:[direction]},orders:[]};
+test('final outcome preserves history, caption evidence, factual date separation and source gaps',()=>{
+  const html=officerMarkup({...data,finalOrder:data.latestOrder,orders:[data.latestOrder],caption:{title:'A vs GNCTD',respondentAdvocates:{text:'Mr. A, Advocate for LAC',source:evidence}},factualChronology:[{dates:['2012-08-01'],text:'Compensation was received.',role:'COMPENSATION_FACT',source:evidence}],sourceCoverage:{knownSources:2,checkedSources:1,gaps:[{orderDate:'2024-01-01',officialUrl:evidence.officialUrl,reason:'Unavailable source'}]}});
+  assert.match(html,/Final judicial outcome/);
+  assert.match(html,/Mr\. A, Advocate for LAC/);
+  assert.match(html,/Factual dates mentioned in orders · not Court hearing dates/);
+  assert.match(html,/Chronology gaps \(1\)/);
+  assert.match(html,/not a claim that every Court order is available/);
+});
+test('multi-page evidence displays original fragments and both page numbers',()=>{
+  const src={...evidence,evidenceParts:[{page:6,evidence:'The Respondents shall file details of'},{page:7,evidence:'the compensation deposited.'}]};
+  const html=officerMarkup({...data,currentPosition:[{text:'The Respondents shall file details of the compensation deposited.',source:src}]});
+  assert.match(html,/Page 6/); assert.match(html,/Page 7/);
+  assert.match(html,/<blockquote>The Respondents shall file details of<\/blockquote>/);
+});
 function officerMarkup(artifact){
   let stateIndex=0;
   const passiveReact={...React,useEffect:()=>{},useRef:value=>({current:value}),useState:initial=>[stateIndex++===0?artifact:initial,()=>{}]};
@@ -93,7 +115,7 @@ test('zero-action order still renders rich attributed facts, not an empty action
   assert.match(html,/<h4>Office action check<\/h4>/);
   assert.doesNotMatch(html,/<span>Outstanding LAC action<\/span>/);
   assert.doesNotMatch(html,/No useful intelligence|No confirmed operative summary/);
-  assert.match(html,/Party positions considered|Court observation recorded/);
+  assert.match(html,/court-intelligence-timeline-fact/);
   assert.doesNotMatch(html,/<details class="court-intelligence-history" open/);
 });
 test('current position retains role distinctions and review warning appears only once',()=>{
