@@ -49,6 +49,14 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddSingleton<LocalStoragePaths>();
+builder.Services.AddHttpClient("CourtCaseQuestions", client =>
+    {
+        client.BaseAddress = new Uri("http://127.0.0.1:8097/");
+        client.Timeout = TimeSpan.FromMinutes(5);
+        client.MaxResponseContentBufferSize = 128 * 1024;
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false })
+    .RemoveAllLoggers();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
 builder.Services.AddOptions<OnlyOfficeOptions>().BindConfiguration("OnlyOffice")
     .Validate(x => x.IsValid(), "Enabled ONLYOFFICE requires valid BrowserUrl, AppExternalUrl, optional AppBrowserUrl and DocumentServerUrl origins, and a JwtSecret of at least 32 UTF-8 bytes.")

@@ -300,6 +300,33 @@ public static class CourtEndpoints
             if (detail is null) return Results.NotFound(new { error = "Court case not found." });
             return Results.Ok(detail);
         });
+        group.MapPost("/{id:guid}/intelligence/ask", async (
+            Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients,
+            ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser,
+            HttpContext context, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            context.Response.Headers.CacheControl = "no-store";
+            return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct);
+        });
+        group.MapGet("/{id:guid}/intelligence", async (
+            Guid id, LocalStoragePaths paths, ICourtAuthorizationService courtAuth,
+            ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            context.Response.Headers.CacheControl = "no-store";
+            try
+            {
+                var artifact = await CourtIntelligenceArtifactReader.ReadAsync(paths.ExtractionRoot, id, ct);
+                return artifact.HasValue ? Results.Ok(artifact.Value) : Results.NoContent();
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                return Results.Problem("Court intelligence is unavailable. Canonical court records remain unchanged.", statusCode: 503);
+            }
+        });
         group.MapGet("/{id:guid}/import-provenance", async (
             Guid id, LacDbContext db, ICourtAuthorizationService courtAuth,
             ICurrentUserContext currentUser, CancellationToken ct) =>

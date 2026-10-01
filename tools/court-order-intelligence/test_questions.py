@@ -1,0 +1,73 @@
+import unittest
+from questions import answer, retrieve, INSUFFICIENT
+from test_worker import fact, order
+
+class SelectAll:
+    version='test'
+    def extract(self,instructions,source,schema,feedback=''):
+        import json
+        facts=json.loads(source)['availableEvidence']
+        return {'claims':[{'factId':f['factId']} for f in facts[:4]]}
+
+def artifact():
+    return {'caseId':'case-a','caseNumber':'W.P.(C) 1/2026','orders':[
+        order([fact('The LAC submits compensation was deposited.',field='compensation',category='LAC_OR_RESPONDENT_SUBMISSION',deadlineText=None)],orderDate='2025-01-01'),
+        order([fact('The petitioner claims compensation is unpaid.',field='compensation',category='PETITIONER_SUBMISSION',actor=None,deadlineText=None)],orderDate='2025-05-01'),
+        order([fact()],orderDate='2026-01-01')], 'beforeNextHearing':[]}
+
+class QuestionTests(unittest.TestCase):
+    def test_latest_direction_grounded(self):
+        result=answer(artifact(),'case-a','What did the latest order direct?',SelectAll())
+        self.assertEqual('2026-01-01',result['claims'][0]['source']['orderDate'])
+        self.assertEqual(1,result['claims'][0]['source']['page'])
+        self.assertEqual('Court direction',result['claims'][0]['attribution'])
+
+    def test_compensation_across_orders_attributed(self):
+        result=answer(artifact(),'case-a','What has happened regarding compensation?',SelectAll())
+        self.assertEqual(2,len(result['claims']))
+        self.assertIn('submission (not an established Court fact)',result['claims'][0]['attribution'])
+        self.assertIn('Petitioner submission',result['claims'][1]['attribution'])
+
+    def test_timeline_year_retrieval(self):
+        entries=retrieve(artifact(),'What happened in this case during 2025?')
+        self.assertEqual(2,len(entries))
+        self.assertTrue(all(x['source']['orderDate'].startswith('2025') for x in entries))
+
+    def test_timeline_year_range(self):
+        entries=retrieve(artifact(),'What happened between 2024 and 2026?')
+        self.assertEqual(3,len(entries))
+
+    def test_unsupported_fact_insufficient(self):
+        result=answer(artifact(),'case-a','What is the judge home address?',SelectAll())
+        self.assertEqual(INSUFFICIENT,result['answer'])
+
+    def test_wrong_case_artifact_rejected(self):
+        with self.assertRaises(ValueError):answer(artifact(),'case-b','What happened?',SelectAll())
+
+    def test_question_about_other_matter_does_not_use_current_facts(self):
+        for question in ['What compensation was paid in W.P.(C) 999/2025?', 'Compare compensation across cases']:
+            self.assertEqual(INSUFFICIENT,answer(artifact(),'case-a',question,SelectAll())['answer'])
+
+    def test_citation_is_derived_not_invented_by_model(self):
+        class WrongCitation:
+            def extract(self,*args):return {'claims':[{'factId':99,'text':'invented'}]}
+        result=answer(artifact(),'case-a','What did latest order direct?',WrongCitation())
+        self.assertEqual(INSUFFICIENT,result['answer'])
+
+    def test_removed_negation_rejected(self):
+        class FalseFact:
+            def extract(self,*args):return {'claims':[{'factId':1,'text':'compensation is paid'}]}
+        result=answer(artifact(),'case-a','What has happened regarding compensation?',FalseFact())
+        self.assertEqual([],result['claims'])
+
+    def test_ai_service_failure_propagates_to_calm_runtime_boundary(self):
+        class Offline:
+            def extract(self,*args):raise ConnectionError('local offline')
+        with self.assertRaises(ConnectionError):answer(artifact(),'case-a','What did latest order direct?',Offline())
+
+    def test_does_not_retrieve_another_case(self):
+        import inspect, questions
+        self.assertNotIn('glob(',inspect.getsource(questions))
+        self.assertNotIn('requests.',inspect.getsource(questions))
+
+if __name__=='__main__':unittest.main()
