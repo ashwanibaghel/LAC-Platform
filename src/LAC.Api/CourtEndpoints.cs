@@ -58,13 +58,29 @@ public static class CourtEndpoints
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); return Results.Ok(await imports.ListAsync(ct)); });
         group.MapGet("/imports/{batchId:guid}", async (Guid batchId, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
         { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); var batch=await imports.GetAsync(batchId,ct); return batch is null?Results.NotFound():Results.Ok(batch); });
-        group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? workState,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
-        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); if (await imports.GetAsync(batchId,ct) is null) return Results.NotFound(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct,workState); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
+        group.MapGet("/imports/urgent-summary", async (ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct)) return Results.Forbid(); return Results.Ok(await imports.UrgentSummaryAsync(ct: ct)); });
+        group.MapGet("/imports/urgent-entries", async (ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct)) return Results.Forbid(); return Results.Ok(new { summary = await imports.UrgentSummaryAsync(ct: ct), items = await imports.UrgentEntriesAsync(ct) }); });
+        group.MapGet("/imports/{batchId:guid}/urgent-summary", async (Guid batchId, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct)) return Results.Forbid(); if (await imports.GetAsync(batchId, ct) is null) return Results.NotFound(); return Results.Ok(await imports.UrgentSummaryAsync(batchId, ct)); });
+        group.MapGet("/imports/{batchId:guid}/rows", async (Guid batchId,string? rowStatus,string? workState,string? priority,string? search,int? sourceRowNumber,int? page,int? pageSize,ICourtImportService imports,ICourtAuthorizationService courtAuth,ICurrentUserContext currentUser,CancellationToken ct) =>
+        { if (!currentUser.UserId.HasValue) return Results.Unauthorized(); if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value,ct)) return Results.Forbid(); if (await imports.GetAsync(batchId,ct) is null) return Results.NotFound(); var (items,total)=await imports.RowsAsync(batchId,rowStatus,search,sourceRowNumber,page??1,pageSize??25,ct,workState,priority); return Results.Ok(new {items,totalCount=total,page=page??1,pageSize=pageSize??25}); });
         group.MapGet("/imports/{batchId:guid}/review-summary", async (Guid batchId, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             try { return Results.Ok(await review.SummaryAsync(batchId, currentUser.UserId.Value, ct)); }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }
+        });
+        group.MapGet("/imports/{batchId:guid}/rows/{rowId:guid}", async (Guid batchId, Guid rowId, LacDbContext db, ICourtImportService imports, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct)) return Results.Forbid();
+            var sourceRow = await db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == batchId && x.Id == rowId).Select(x => (int?)x.SourceRowNumber).SingleOrDefaultAsync(ct);
+            if (!sourceRow.HasValue) return Results.NotFound();
+            var (items, _) = await imports.RowsAsync(batchId, null, null, sourceRow, 1, 100, ct);
+            var row = items.FirstOrDefault(x => x.Id == rowId);
+            return row is null ? Results.NotFound() : Results.Ok(row);
         });
         group.MapPut("/imports/{batchId:guid}/rows/{rowId:guid}/decision", async (Guid batchId, Guid rowId, CourtImportDecisionRequest decision, ICourtImportReviewService review, ICurrentUserContext currentUser, CancellationToken ct) =>
         {

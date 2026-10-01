@@ -10,9 +10,11 @@ using Microsoft.EntityFrameworkCore;
 
 public sealed record CourtImportBatchDto(Guid Id, string Status, string SourceSheetName, int TotalRows, int ValidRows, int NeedsReviewRows, int ConflictRows, int InvalidRows, string? FailureMessage, DateTimeOffset CreatedAt);
 public sealed record CourtImportRowDto(Guid Id, int SourceRowNumber, string? SourceSerialNumberRaw, string? RawCaseNumber, string? RawCaseTitle, string? RawCourt, string? SuggestedCourtName, string? RawStatus, string? SuggestedStatusClass, string? RawNdoh, DateOnly? ParsedNdoh, string? RawAdvocate, string? RawVillage, string? RawAwardNumber, string? LastOrderLinkState, string RowStatus, string ValidationIssuesJson, string? RawDirections, string? RawBriefFacts, string? RawLastOrderLink, string? ResolutionAction, Guid? ResolvedCourtCaseId, string? ApprovedCaseNumber, string? ApprovedCaseTitle, string? ApprovedCourtName, string? ApprovedStatus, bool ApplyStatusToExisting, string? NdohAction, string? ReviewerNotes, string CommitStatus, Guid? CommittedCourtCaseId, Guid? CommittedProceedingId, string? CommitError);
-public interface ICourtImportService { Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default); Task<CourtImportBatchDto?> GetAsync(Guid id, CancellationToken ct = default); Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct = default); Task<(IReadOnlyList<CourtImportRowDto> Items,int Total)> RowsAsync(Guid id,string? status,string? search,int? sourceRow,int page,int pageSize,CancellationToken ct=default,string? workState=null); }
+public sealed record CourtImportUrgentSummary(int UrgentTotal, int UpcomingNext7Days, int OverduePending, Guid? TargetBatchId, DateOnly OfficeToday);
+public sealed record CourtImportUrgentEntry(Guid ImportBatchId, Guid ImportRowId, int SourceRowNumber, string? RawCaseNumber, string? RawCaseTitle, string? SuggestedCourtName, string? RawCourt, DateOnly ParsedNdoh, string? SuggestedStatusClass, string? RawStatus, string Classification, string Source = "Court Excel", bool ReviewPending = true);
+public interface ICourtImportService { Task<CourtImportBatchDto> StageAsync(Stream source, string fileName, string? contentType, Guid userId, CancellationToken ct = default); Task<CourtImportBatchDto?> GetAsync(Guid id, CancellationToken ct = default); Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct = default); Task<(IReadOnlyList<CourtImportRowDto> Items,int Total)> RowsAsync(Guid id,string? status,string? search,int? sourceRow,int page,int pageSize,CancellationToken ct=default,string? workState=null,string? priority=null); Task<IReadOnlyList<CourtImportUrgentEntry>> UrgentEntriesAsync(CancellationToken ct = default); Task<CourtImportUrgentSummary> UrgentSummaryAsync(Guid? batchId = null, CancellationToken ct = default); }
 
-public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage) : ICourtImportService
+public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage, IOfficeClock? clock = null) : ICourtImportService
 {
     public const string PrimarySheet = "Court case status pertains to L";
     private const long MaxBytes = 20 * 1024 * 1024;
@@ -115,12 +117,32 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
     private static string? CellText(IXLCell c)=>c.IsEmpty()?null:c.HasFormula?"="+c.FormulaA1:c.GetFormattedString(); private static string NormalizeHeader(string? s)=>new string((s??"").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant(); private static string Key(string? s)=>new string((s??"").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant(); private static string RawReferenceKey(string? s)=>(Clean(s)??"").ToUpperInvariant(); private static string? Clean(string? s)=>string.IsNullOrWhiteSpace(s)?null:string.Join(' ',s.Split((char[]?)null,StringSplitOptions.RemoveEmptyEntries));
     public async Task<CourtImportBatchDto?> GetAsync(Guid id,CancellationToken ct=default)=>await db.CourtImportBatches.AsNoTracking().Where(x=>x.Id==id).Select(x=>ToDto(x)).FirstOrDefaultAsync(ct);
     public async Task<IReadOnlyList<CourtImportBatchDto>> ListAsync(CancellationToken ct=default)=>await db.CourtImportBatches.AsNoTracking().OrderByDescending(x=>x.CreatedAt).Select(x=>ToDto(x)).ToListAsync(ct);
-    public async Task<(IReadOnlyList<CourtImportRowDto>, int)> RowsAsync(Guid id, string? status, string? search, int? sourceRow, int page, int pageSize, CancellationToken ct = default, string? workState = null)
+    public async Task<CourtImportUrgentSummary> UrgentSummaryAsync(Guid? batchId = null, CancellationToken ct = default)
+    {
+        var today = (clock ?? new OfficeClock()).GetCurrentDate();
+        var q = db.CourtImportRows.AsNoTracking();
+        if (batchId.HasValue) q = q.Where(x => x.BatchId == batchId);
+        var rows = await CourtImportPriorityQuery.Order(CourtImportPriorityQuery.Urgent(q, today), today)
+            .Select(x => new { x.BatchId, x.ParsedNdoh }).ToListAsync(ct);
+        var upcoming = rows.Count(x => x.ParsedNdoh >= today);
+        return new(rows.Count, upcoming, rows.Count - upcoming, rows.FirstOrDefault()?.BatchId, today);
+    }
+    public async Task<IReadOnlyList<CourtImportUrgentEntry>> UrgentEntriesAsync(CancellationToken ct = default)
+    {
+        var today = (clock ?? new OfficeClock()).GetCurrentDate();
+        return await CourtImportPriorityQuery.Order(CourtImportPriorityQuery.Urgent(db.CourtImportRows.AsNoTracking(), today), today)
+            .Select(x => new CourtImportUrgentEntry(x.BatchId, x.Id, x.SourceRowNumber, x.RawCaseNumber, x.RawCaseTitle,
+                x.SuggestedCourtName, x.RawCourt, x.ParsedNdoh!.Value, x.SuggestedStatusClass == null ? null : x.SuggestedStatusClass.ToString(),
+                x.RawStatus, x.RowStatus.ToString(), "Court Excel", true)).ToListAsync(ct);
+    }
+    public async Task<(IReadOnlyList<CourtImportRowDto>, int)> RowsAsync(Guid id, string? status, string? search, int? sourceRow, int page, int pageSize, CancellationToken ct = default, string? workState = null, string? priority = null)
     {
         var q = db.CourtImportRows.AsNoTracking().Where(x => x.BatchId == id);
         if (workState == "pending") q = q.Where(x => x.CommitStatus != CourtImportCommitStatus.Committed &&
             x.ResolutionAction != CourtImportResolutionAction.Skip);
         else if (workState == "committed") q = q.Where(x => x.CommitStatus == CourtImportCommitStatus.Committed);
+        var today = (clock ?? new OfficeClock()).GetCurrentDate();
+        if (priority == "urgent") q = CourtImportPriorityQuery.Urgent(q, today);
         if (Enum.TryParse<CourtImportRowStatus>(status, true, out var rs)) q = q.Where(x => x.RowStatus == rs);
         if (sourceRow.HasValue) q = q.Where(x => x.SourceRowNumber == sourceRow);
         if (!string.IsNullOrWhiteSpace(search))
@@ -131,7 +153,8 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
                              (x.RawCourt ?? "").ToLower().Contains(s));
         }
         var total = await q.CountAsync(ct);
-        var items = await q.OrderBy(x => x.SourceRowNumber)
+        var ordered = priority == "urgent" ? CourtImportPriorityQuery.Order(q, today) : q.OrderBy(x => x.SourceRowNumber).ThenBy(x => x.Id);
+        var items = await ordered
             .Skip((Math.Max(1, page) - 1) * Math.Clamp(pageSize, 1, 100))
             .Take(Math.Clamp(pageSize, 1, 100))
             .Select(x => new CourtImportRowDto(

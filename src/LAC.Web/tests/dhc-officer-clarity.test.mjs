@@ -178,7 +178,8 @@ test("status difference uses backend-validated update or keep actions with stand
 test("home derives a small next-seven-days Court card from the existing API", () => {
   assert.match(home, /hasPermission\("Court.View"\)/);
   assert.match(home, /\/api\/court-cases\?ndohFilter=Next7Days&page=1&pageSize=5/);
-  assert.match(home, /upcomingCourt\.items\.slice\(0, 5\)/);
+  assert.match(home, /hearingTimeline\.map/);
+  assert.match(home, /entry\.kind === "workbook"/);
   assert.match(home, /Verified from DHC cause list/);
   assert.match(home, /\/court-cases\?ndohFilter=Next7Days/);
 });

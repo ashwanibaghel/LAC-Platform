@@ -2184,3 +2184,6 @@
 .dhc-hub-watched li { display: grid; gap: 2px; padding: 6px 0; border-top: 1px solid #edf2f6; }
 .dhc-hub-watched li a { color: #175b92; font-weight: 700; text-decoration: none; }
 .dhc-hub-watched li span, .dhc-hub-watched li small { color: #60748a; }
+
+.court-import-priority { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 16px 20px; margin: 18px 0; border: 1px solid #f1d8a8; border-left: 4px solid #d89a28; border-radius: 8px; background: #fffaf0; color: #735020; }
+.court-import-priority p { margin: 6px 0 0; font-size: 13px; }

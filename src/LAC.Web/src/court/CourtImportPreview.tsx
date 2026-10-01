@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import type { UrgentImportSummary } from "../home/courtHearingTimeline";
 import { CourtImportRowReview } from "./CourtImportRowReview";
 import { courtImportReviewGuidance } from "./courtImportReviewGuidance";
 import "./court.css";
@@ -36,6 +37,10 @@ const decisionLabel = (value?: string) => value === "ImportAsNewCase" ? "Approve
 
 export function CourtImportPreview() {
   const { batchId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urgentView = searchParams.get("priority") === "urgent";
+  const reviewRowId = searchParams.get("reviewRow");
+  const [urgent, setUrgent] = useState<UrgentImportSummary | null>(null);
   const [batch, setBatch] = useState<Batch | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [totalRows, setTotalRows] = useState(0);
@@ -68,12 +73,34 @@ export function CourtImportPreview() {
     const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
     if (status) query.set("rowStatus", status);
     query.set("workState", workState);
+    if (urgentView) query.set("priority", "urgent");
     fetch(`/api/court-cases/imports/${batchId}/rows?${query}`, { credentials: "include", signal: controller.signal })
       .then(async r => { if (!r.ok) throw new Error("Import rows could not be loaded."); return r.json() as Promise<Page>; })
       .then(data => { setRows(data.items); setTotalRows(data.totalCount); })
       .catch(e => { if (e.name !== "AbortError") setError(e.message); });
     return () => controller.abort();
-  }, [batchId, page, status, workState, refresh]);
+  }, [batchId, page, status, workState, refresh, urgentView]);
+
+  useEffect(() => {
+    if (!batchId) return;
+    const controller = new AbortController();
+    fetch(`/api/court-cases/imports/${batchId}/urgent-summary`, { credentials: "include", signal: controller.signal })
+      .then(async r => { if (!r.ok) throw new Error(); return r.json(); }).then(setUrgent)
+      .catch(e => { if (e.name !== "AbortError") setError("Urgent review counts could not be loaded."); });
+    return () => controller.abort();
+  }, [batchId, refresh]);
+
+  useEffect(() => {
+    if (!batchId || !reviewRowId) return;
+    const controller = new AbortController();
+    fetch(`/api/court-cases/imports/${batchId}/rows/${reviewRowId}`, { credentials: "include", signal: controller.signal })
+      .then(async r => { if (!r.ok) throw new Error("Review row could not be loaded."); return r.json() as Promise<Row>; })
+      .then(row => { if (row.commitStatus !== "Committed" && row.resolutionAction !== "Skip") setSelected(row); else setNotice("This workbook row has already left pending work."); })
+      .catch(e => { if (e.name !== "AbortError") setError(e.message); });
+    return () => controller.abort();
+  }, [batchId, reviewRowId]);
+
+  const openUrgent = () => { setWorkState("pending"); setStatus(""); setPage(1); setSearchParams({ priority: "urgent" }); };
 
   useEffect(() => {
     if (!batchId) return;
@@ -205,25 +232,32 @@ export function CourtImportPreview() {
       </div>
     </section>}
     {batch?.failureMessage && <p className="court-import-error" role="alert">{batch.failureMessage}</p>}
+    {urgent && <section className="court-import-priority" aria-label="Urgent unresolved reviews">
+      <div><strong>{urgent.urgentTotal} urgent unresolved records</strong><p>Upcoming next 7 days: {urgent.upcomingNext7Days} · Overdue pending: {urgent.overduePending}</p>
+        {urgent.urgentTotal === 0 && <p>No unresolved workbook rows have an upcoming or overdue NDOH.</p>}</div>
+      {urgent.urgentTotal > 0 && <button className="secondary-button" onClick={openUrgent}>Review urgent cases first</button>}
+    </section>}
     {error && <p className="court-import-error" role="alert">{error}</p>}
     {notice && <div className="court-import-notice" role="status"><p>{notice}</p>
       <div><Link className="primary-button" to="/court-cases">Open Court Matters</Link>
         {summary && summary.unresolved > 0 && <button className="secondary-button" onClick={() => document.getElementById("court-import-rows")?.scrollIntoView({ behavior: "smooth" })}>Review remaining later</button>}</div>
     </div>}
-    <div className="court-import-review-toolbar" id="court-import-rows"><h2>{workState === "pending" ? "Pending work" : workState === "committed" ? "Imported history" : "All source rows"} <small>{totalRows.toLocaleString("en-IN")} in {classificationLabel(status).toLowerCase()}</small></h2>
+    <div className="court-import-review-toolbar" id="court-import-rows"><h2>{urgentView ? "Upcoming / urgent" : workState === "pending" ? "Pending work" : workState === "committed" ? "Imported history" : "All source rows"} <small>{totalRows.toLocaleString("en-IN")} in {classificationLabel(status).toLowerCase()}</small></h2>
       <span>{workState === "pending" ? "Added and skipped rows are hidden from this working queue." : "Original workbook rows are preserved for audit."}</span></div>
     <nav className="court-import-work-tabs" aria-label="Import work status">
+      <button type="button" className={urgentView ? "active" : ""} aria-current={urgentView ? "page" : undefined} onClick={openUrgent}>Upcoming / urgent ({urgent?.urgentTotal ?? "…"})</button>
       {([ ["pending", "Pending work"], ["committed", "Imported history"], ["all", "All source rows"] ] as const).map(([key, label]) =>
-        <button type="button" key={key} className={workState === key ? "active" : ""} aria-current={workState === key ? "page" : undefined}
-          onClick={() => { setWorkState(key); setPage(1); }}>{label}{key === "pending" && batch && summary ? ` (${batch.totalRows - summary.committed - summary.skipped})` : key === "committed" && summary ? ` (${summary.committed})` : ""}</button>)}
+        <button type="button" key={key} className={!urgentView && workState === key ? "active" : ""} aria-current={!urgentView && workState === key ? "page" : undefined}
+          onClick={() => { setSearchParams({}); setWorkState(key); setPage(1); }}>{label}{key === "pending" && batch && summary ? ` (${batch.totalRows - summary.committed - summary.skipped})` : key === "committed" && summary ? ` (${summary.committed})` : ""}</button>)}
     </nav>
     <nav className="court-import-classification-tabs" aria-label="Import row classifications">
       {classifications.map(([key, label]) => <button type="button" key={key || "all"} className={status === key ? "active" : ""}
         aria-current={status === key ? "page" : undefined} onClick={() => { setStatus(key); setPage(1); }}>{label}</button>)}
     </nav>
+    {urgentView && <p>Today and upcoming dates first; then nearest overdue Pending records. Workbook dates are not confirmed Court hearings.</p>}
     <div className="court-table-wrap court-import-table-wrap"><table className="court-import-review-table"><thead><tr>
       <th>No.</th><th>Case from workbook</th><th>Key details</th><th>Classification</th><th>Decision</th>
-    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">{workState === "pending" && !status ? "No pending rows. This import batch is complete." : "No rows in this view."}</td></tr> : rows.map((row, index) => {
+    </tr></thead><tbody>{rows.length === 0 ? <tr><td colSpan={5} className="court-import-no-rows">{urgentView ? status ? "No urgent rows in this classification." : "No unresolved workbook rows have an upcoming or overdue NDOH." : workState === "pending" && !status ? "No pending rows. This import batch is complete." : "No rows in this view."}</td></tr> : rows.map((row, index) => {
       const { reasons } = courtImportReviewGuidance(row);
       return <tr key={row.id}>
         <td className="court-import-row-number"><strong>#{(page - 1) * pageSize + index + 1}</strong>

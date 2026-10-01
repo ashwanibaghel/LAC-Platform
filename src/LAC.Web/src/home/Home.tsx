@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useCalculator } from "../calculator/CalculatorContext";
 import type { CourtCaseListResponse } from "../court/types";
+import { courtHearingTimeline, importReviewLink, workbookDateLabel, type UrgentImportResponse } from "./courtHearingTimeline";
 import {
   IconDesk,
   IconWorkItem,
@@ -32,6 +33,9 @@ export const Home: React.FC = () => {
   const { openCalculator } = useCalculator();
   const [counts, setCounts] = useState<OperationalCounts>({});
   const [upcomingCourt, setUpcomingCourt] = useState<CourtCaseListResponse | null>(null);
+  const [urgentImports, setUrgentImports] = useState<UrgentImportResponse | null>(null);
+  const officeToday = urgentImports?.summary.officeToday ?? new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Kolkata" });
+  const hearingTimeline = courtHearingTimeline(upcomingCourt?.items ?? [], urgentImports?.items ?? [], officeToday);
 
   const userDisplayName = user?.displayName || user?.username || "Officer";
   const designationName = user?.designation?.name || null;
@@ -128,6 +132,9 @@ export const Home: React.FC = () => {
     }
 
     if (hasPermission("Court.View")) {
+      fetch("/api/court-cases/imports/urgent-entries", { credentials: "include" })
+        .then(res => res.ok ? res.json() as Promise<UrgentImportResponse> : null)
+        .then(data => { if (active && data) setUrgentImports(data); }).catch(() => {});
       fetch("/api/court-cases?ndohFilter=Next7Days&page=1&pageSize=5", { credentials: "include" })
         .then(res => res.ok ? res.json() as Promise<CourtCaseListResponse> : null)
         .then(data => { if (active && data) setUpcomingCourt(data); })
@@ -252,7 +259,7 @@ export const Home: React.FC = () => {
       </section>
 
       {/* 3. Upcoming Court Hearings - Modern Scrollable Agenda Card */}
-      {hasPermission("Court.View") && upcomingCourt && upcomingCourt.totalCount > 0 && (
+      {hasPermission("Court.View") && hearingTimeline.length > 0 && (
         <section className="home-court-upcoming" aria-label="Upcoming court hearings">
           <div className="home-court-header">
             <div className="home-court-title-group">
@@ -262,19 +269,34 @@ export const Home: React.FC = () => {
               <div>
                 <h2>Court Hearings Coming Up</h2>
                 <p>
-                  {upcomingCourt.totalCount} {upcomingCourt.totalCount === 1 ? "hearing" : "hearings"} in the next 7 days
+                  {upcomingCourt?.totalCount ?? 0} confirmed · {urgentImports?.summary.urgentTotal ?? 0} need review
                 </p>
               </div>
             </div>
             <Link to="/court-cases?ndohFilter=Next7Days" className="home-court-viewall">
-              <span>View all ({upcomingCourt.totalCount})</span>
+              <span>View all ({upcomingCourt?.totalCount ?? 0})</span>
               <IconArrowRight size={14} />
             </Link>
           </div>
 
           <div className="home-court-scroll-container">
             <ul className="home-court-list">
-              {upcomingCourt.items.slice(0, 5).map((item) => (
+              {hearingTimeline.map(entry => {
+                if (entry.kind === "workbook") {
+                  const row = entry.item;
+                  return <li key={entry.key} className="home-court-card-row home-court-review-pending">
+                    <div className="home-court-main-info">
+                      <div className="home-court-numbers-line"><span className="home-court-case-num">{row.rawCaseNumber || "Case reference missing"}</span><span className="home-court-review-badge">Review pending</span></div>
+                      <div className="home-court-case-title" title={row.rawCaseTitle}>{row.rawCaseTitle || "Title not supplied"}</div>
+                      <small>From Court Excel · Not yet added to Court Matters · Excel row {row.sourceRowNumber}</small>
+                    </div>
+                    <div className="home-court-date-col"><span className="home-court-date-badge">{workbookDateLabel(row.parsedNdoh, officeToday)}</span>
+                      <span className="home-court-actual-date">{new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" }).format(new Date(row.parsedNdoh))}</span>
+                      <Link to={importReviewLink(row)}>Review →</Link></div>
+                  </li>;
+                }
+                const item = entry.item;
+                return (
                 <li key={item.id} className="home-court-card-row">
                   <div className="home-court-main-info">
                     <div className="home-court-numbers-line">
@@ -328,7 +350,7 @@ export const Home: React.FC = () => {
                     )}
                   </div>
                 </li>
-              ))}
+              ); })}
             </ul>
           </div>
         </section>
