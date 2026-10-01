@@ -3,7 +3,7 @@ import "./court-intelligence.css";
 
 type Source = { orderDate: string | null; page: number; evidence: string; officialUrl: string };
 type Fact = { category: string; field: string; value: string; page: number; evidence: string; scope: string };
-type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[] };
+type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[]; summaryFacts?: Fact[] };
 type Action = { id: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
 type Intelligence = { status: string; processingComplete: boolean; currentPosition: { text: string; source: Source }[];
   beforeNextHearing: Action[]; latestOrder: Order | null; orders: Order[] };
@@ -21,14 +21,15 @@ const Evidence: React.FC<{ source: Source }> = ({ source }) => <details classNam
 </details>;
 
 const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
-  const facts = order.facts.filter(fact => fact.scope === "Current" && ["COURT_DIRECTION", "COURT_FINDING", "PROCEDURAL_EVENT"].includes(fact.category));
+  const safeFacts = order.summaryFacts ?? (order.status === "Validated" ? order.facts : []);
+  const facts = safeFacts.filter(fact => fact.scope === "Current" && ["COURT_DIRECTION", "COURT_FINDING", "PROCEDURAL_EVENT"].includes(fact.category));
   return <>
     <p className="court-intelligence-order-date">{order.orderDate ?? "Order date needs checking"}</p>
     {order.status !== "Validated" && <p className="court-intelligence-review">This order needs source review. Do not rely on an older summary as a complete current position.</p>}
     {facts.length ? facts.slice(0, 4).map((fact, index) => <div key={index} className="court-intelligence-fact">
       <p>{fact.value}</p><Evidence source={{ orderDate: order.orderDate, page: fact.page, evidence: fact.evidence, officialUrl: order.officialUrl }} />
     </div>) : <p>No confirmed operative summary is available for this order.</p>}
-    <p>Next hearing: {order.facts.find(f => f.field === "nextHearing" && f.scope === "Current")?.value ?? "Not confirmed in this order"}</p>
+    <p>Next hearing: {safeFacts.find(f => f.field === "nextHearing" && f.scope === "Current")?.value ?? "Not confirmed in this order"}</p>
     {officialLink(order.officialUrl) && <a href={officialLink(order.officialUrl)!} target="_blank" rel="noreferrer">Review official order ↗</a>}
   </>;
 };

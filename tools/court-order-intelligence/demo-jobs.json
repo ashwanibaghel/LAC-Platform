@@ -22,5 +22,8 @@
   {"caseId":"a1000000-0000-4000-8000-000000000005","caseNumber":"W.P.(C) 7363/2015","orders":[
     {"orderDate":"2015-08-04","officialUrl":"https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/7363/2015/04-08-2015"},
     {"orderDate":"2015-12-14","officialUrl":"https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/7363/2015/14-12-2015"}
+  ]},
+  {"caseId":"a1000000-0000-4000-8000-000000000006","caseNumber":"W.P.(C) 8664/2021","orders":[
+    {"orderDate":"2025-01-30","officialUrl":"https://delhihighcourt.nic.in/app/showFileJudgment/VIB30012025CW86642021_112417.pdf"}
   ]}
 ]

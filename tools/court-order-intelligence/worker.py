@@ -15,7 +15,7 @@ import requests
 import jsonschema
 from provider import LlamaCppProvider
 from semantics import VERSION, identity, normalized, dates_in, synthesize
-from anchors import anchors_for, expand, schema_for, INSTRUCTIONS as ANCHOR_INSTRUCTIONS
+from anchors import anchors_for, expand, schema_for, source_header, CASE_REFERENCES, INSTRUCTIONS as ANCHOR_INSTRUCTIONS
 
 class StopRequested(BaseException):
     pass
@@ -77,12 +77,24 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             path, record['sha256'] = downloader(source['officialUrl'], temporary)
             check_stop(stop_file)
             pages = native_pages(path)
+            headers,bodies=source_header(pages)
+            if bodies is None:
+                raise ValueError('NeedsSourceReview: no reliable Court caption/body boundary')
             date_context = pages[1][:1800] + ' ' + pages[len(pages)][-1800:]
             if not record['orderDate'] or record['orderDate'] not in dates_in(date_context):
                 raise ValueError('Source-confirmed order date required')
             expected = identity(case_number)
-            if not any(expected in identity(text[:1200]) for text in pages.values()):
-                raise ValueError('Exact requested case identity absent from source')
+            matches=[(page,match.group()) for page,text in headers.items() for match in CASE_REFERENCES.finditer(text)]
+            exact=[(page,raw) for page,raw in matches if identity(raw)==expected]
+            if not exact:
+                raise ValueError('Exact requested case identity absent from Court caption')
+            record['rawIdentity']=exact[0][1]
+            record['identityPage']=exact[0][0]
+            if len({identity(raw) for page,raw in matches})>1:
+                raise ValueError('NeedsSourceReview: connected-case PDF needs case-specific attribution; no cross-case facts inferred')
+            record['court']='Delhi High Court' if 'HIGH COURT OF DELHI' in pages[1].upper() else None
+            bench=re.search(r'CORAM:\s*(.*)',list(headers.values())[-1],re.I)
+            record['bench']=bench[1] if bench and len(bench[1])<=900 else None
             anchors = anchors_for(pages)
             chunks=[]
             current=[]
@@ -102,7 +114,11 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             collected = []
             for chunk in chunks:
                 check_stop(stop_file)
-                prompt = json.dumps({'anchors':chunk},ensure_ascii=False)
+                # Bounded selection must prioritize current operative language,
+                # without promoting quoted directions or changing source text.
+                chunk = sorted(chunk, key=lambda a: (bool(a.get('quoted')), not bool(re.search(r'\b(?:is directed|are directed|shall|renotify|issue notice)\b', a['text'], re.I)), a['anchorId']))
+                prompt = json.dumps({'documentOrderDate':record['orderDate'],'caseNumber':case_number,
+                                     'sourceRoleContext':pages[1][:1800],'anchors':chunk},ensure_ascii=False)
                 schema = schema_for(chunk,pages)
                 feedback = ''
                 for attempt in range(2):
@@ -148,6 +164,7 @@ def main():
     parser.add_argument('--extraction-root', required=True, help='Existing absolute Storage:ExtractionRoot')
     parser.add_argument('--endpoint', default='http://127.0.0.1:8096')
     parser.add_argument('--model-version', required=True)
+    parser.add_argument('--case-id', help='Optionally process one explicitly listed matter from the local jobs file')
     parser.add_argument('--stop-file', help='Runtime-only cooperative stop marker; checked between bounded operations')
     args = parser.parse_args()
     root = Path(args.extraction_root)
@@ -168,6 +185,10 @@ def main():
         raise SystemExit('Another Court intelligence worker already owns this extraction root')
     provider = LlamaCppProvider(args.endpoint, args.model_version)
     jobs = json.loads(Path(args.jobs).read_text(encoding='utf-8'))
+    if args.case_id:
+        selected_id=str(uuid.UUID(args.case_id))
+        jobs=[job for job in jobs if str(uuid.UUID(job['caseId']))==selected_id]
+        if not jobs: raise SystemExit('Requested matter is not in the explicit local jobs file')
     try:
         for job in jobs:
             case_id = str(uuid.UUID(job['caseId']))

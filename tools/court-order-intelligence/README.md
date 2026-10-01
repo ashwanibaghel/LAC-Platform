@@ -6,6 +6,12 @@ Those sites are used only to obtain the runtime/model. No OCR, database schema,
 canonical status/NDOH/proceeding mutation or live assisted-CAPTCHA action exists
 in this pipeline.
 
+Final local acceptance results and explicit coverage limitations are recorded in
+`docs/court-order-intelligence-phase1-acceptance.md`. A review-marked order may
+show independently verified facts after complete successful chunk validation;
+uncertain/conflicting facts remain withheld and the incomplete-account warning
+stays visible. Failed/partial extraction never supplies obligations or Q&A facts.
+
 ## Prerequisites and exact local setup
 
 Windows x64, Python 3.11+, llama.cpp Windows CPU server, local
@@ -97,8 +103,8 @@ unsupported paraphrases impossible at the answer boundary.
 
 ## Isolated public-order demo (no registered records changed)
 
-`demo-jobs.json` has five synthetic demo GUIDs and real public multi-order
-matter URLs. Those GUIDs are NOT Court register records. Do not copy demo files
+`demo-jobs.json` has five multi-order matters plus one reference-direction example,
+all with synthetic demo GUIDs and real public URLs. Those GUIDs are NOT Court register records. Do not copy demo files
 onto real case IDs. PDFs stay temporary; outputs stay in a separate local root.
 
 ```powershell
@@ -117,6 +123,11 @@ API/database. The normal application route/proxy and premium DHC modal are
 unchanged. This demo page is not a production application route/build entry.
 Some real orders have scanned annexes and correctly produce NeedsSourceReview;
 some older direct links may be unavailable. Neither is a successful extraction.
+Connected captions with multiple different matters are also source-review work:
+Phase 1 will not infer which common-PDF paragraphs apply to an individual case.
+Orders without a reliable caption/body boundary fail closed. Ambiguous actors
+cannot create office actions. `--case-id <listed GUID>` can process just one
+explicitly listed job; it never discovers or searches other cases.
 
 ## Stop
 

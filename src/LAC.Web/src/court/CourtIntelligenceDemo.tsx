@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CourtIntelligence } from "./CourtIntelligence";
-const cases = ["W.P.(C) 1784/2026", "W.P.(C) 7689/2000", "CO.PET. 39/2009", "W.P.(C) 8611/2019", "W.P.(C) 7363/2015"];
+const cases = ["W.P.(C) 1784/2026", "W.P.(C) 7689/2000", "CO.PET. 39/2009", "W.P.(C) 8611/2019", "W.P.(C) 7363/2015", "W.P.(C) 8664/2021"];
 function Demo() {
   const [selected, setSelected] = useState(0);
   return <main style={{ maxWidth: 1160, margin: "32px auto", padding: "0 24px" }}>

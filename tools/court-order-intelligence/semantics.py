@@ -11,7 +11,7 @@ CATEGORIES = ['COURT_DIRECTION', 'COURT_FINDING', 'LAC_OR_RESPONDENT_SUBMISSION'
 FIELDS = ['direction', 'finding', 'compliance', 'supersession', 'village', 'khasra',
           'award', 'compensation', 'possession', 'section18', 'section30_31',
           'referenceToAdj', 'acquisitionSection', 'filing', 'documents', 'bench', 'nextHearing']
-NULL_STRING = {'type': ['string', 'null'], 'maxLength': 400}
+NULL_STRING = {'type': ['string', 'null'], 'maxLength': 900}
 FACT = {'type': 'object', 'additionalProperties': False,
         'properties': {'category': {'type': 'string', 'enum': CATEGORIES},
                        'field': {'type': 'string', 'enum': FIELDS},
@@ -70,9 +70,13 @@ def due_date(order_date, deadline, next_hearing=None):
         return date(year, month0+1, min(start.day, calendar.monthrange(year, month0+1)[1])).isoformat()
     return (start + timedelta(days=amount * (7 if match[2].startswith('week') else 1))).isoformat()
 
-SUBMISSION = re.compile(r'\b(?:submits?|submitted|contends?|alleges?|prays?|seeks?|averred|undertakes?|prayer|counter.affidavit|according to)\b', re.I)
+SUBMISSION = re.compile(r'\b(?:submits?|submitted|contends?|alleges?|claims|claimed|asserts?|argues?|prays?|seeks?|averred|undertakes?|prayer|counter.affidavit|according to)\b', re.I)
 IMPERATIVE = re.compile(r'\b(?:is directed|are directed|shall|let .*?(?:file|place|furnish)|it is directed|be filed|be listed|list (?:on|for|before)|renotify|issue notice|we direct|Court directs)\b', re.I)
 OFFICE = re.compile(r'\b(?:LAC|Land Acquisition Collector|ADM[/ -]LAC|Collector)\b', re.I)
+
+def party_speech(text):
+    return bool(SUBMISSION.search(text) or re.search(
+        r'\b(?:counsel|petitioner|respondent|LAC|Mr\.?|Ms\.?)\b[^.!?]{0,120}\b(?:states?|stated|reports?\s+that|reported\s+that)\b',text,re.I))
 
 def validate(payload, pages):
     jsonschema.validate(payload, SCHEMA)
@@ -90,18 +94,26 @@ def validate(payload, pages):
             if fact[field] and normalized(fact[field]) not in evidence:
                 raise ValueError(field + ' is not supported by cited evidence')
         if fact['category'] in ('COURT_DIRECTION','COURT_FINDING'):
-            if SUBMISSION.search(evidence):
+            if party_speech(evidence):
                 raise ValueError('Party submission cannot become a Court finding or direction')
             if fact['category']=='COURT_DIRECTION' and not IMPERATIVE.search(evidence):
                 raise ValueError('Submission or nonoperative text cannot authorize a Court direction')
             page = normalized(pages[fact['page']])
             start = page.index(evidence)
             prefix = page[max(0,start-240):start]
-            if SUBMISSION.search(prefix) and not re.search(r'(?:Court|we) (?:direct|order|hold|observe|find|note)|it is directed', prefix, re.I):
+            # An operative setting-aside/allowing decision can mention the
+            # petitioner's "prayer" without being a party submission. Do not
+            # drop genuine speech verbs; this reset is judicial, not a claim.
+            if re.search(r'\bis (?:set aside|allowed|dismissed)\b',prefix,re.I) and not re.search(r'\b(?:submits?|submitted|contends?|claims|claimed|alleges?|asserts?|argues?|prays?|seeks?|states?|stated)\b',prefix,re.I):
+                prefix=re.sub(r'\bprayer\b','',prefix,flags=re.I)
+            fresh_procedure=re.match(r'^(?:\d+\.\s*)?(?:renotify|list (?:on|for)|issue notice)\b',evidence,re.I)
+            if party_speech(prefix) and not fresh_procedure and not re.search(r'(?:Court|we) (?:direct|order|hold|observe|find|note)|it is directed', prefix, re.I):
                 raise ValueError('Direction excerpt drops nearby party-submission attribution')
         if fact['field'] in ('compliance', 'supersession'):
-            if fact['category'] not in ('COURT_FINDING', 'PROCEDURAL_EVENT') or SUBMISSION.search(evidence):
+            if fact['category'] not in ('COURT_FINDING', 'PROCEDURAL_EVENT') or party_speech(evidence):
                 raise ValueError('Party claim cannot close an office direction')
+            if fact['field'] == 'compliance' and not (re.search(r'\b(?:complied|compliance|direction|directed)\b', evidence, re.I) and re.search(r'\b(?:filed|complied|completed|done|placed on record|compliance)\b', evidence, re.I)):
+                raise ValueError('Compliance requires an explicit obligation and recorded performance')
         if fact['scope'] == 'Uncertain':
             payload['needsReview'] = True
     # Opposed assertions on the same land dimension are review work, never a chosen fact.
@@ -137,13 +149,29 @@ def office_action(fact, order):
             'state': 'Not confirmed complete', 'orderDate': order['orderDate'],
             'source': {'orderDate': order['orderDate'], 'page': fact['page'], 'evidence': evidence, 'officialUrl': order['officialUrl']}}
 
+def usable_facts(order):
+    """Retain independently validated facts; uncertainty is not contagious.
+
+    Failed/partial extraction is never admitted. Conflicting land dimensions
+    remain withheld, including when conflict spans separate inference chunks.
+    """
+    if order.get('status') != 'Validated' and not (order.get('status') == 'NeedsReview' and order.get('coverage',{}).get('allSelectedChunksProcessed') and not order.get('failureMessage')):
+        return []
+    facts=order.get('facts',[])
+    conflicts=set()
+    for field in ('compensation','possession'):
+        values=[fact['value'].lower() for fact in facts if fact['field']==field]
+        if any(re.search(r'\b(?:not|no|never|unpaid)\b',value) for value in values) and any(not re.search(r'\b(?:not|no|never|unpaid)\b',value) for value in values):
+            conflicts.add(field)
+    return [fact for fact in facts if fact['scope']!='Uncertain' and fact['field'] not in conflicts
+            and (fact['field']!='compliance' or re.search(r'\b(?:complied|compliance|direction|directed)\b',fact['evidence'],re.I))]
+
+
 def synthesize(case_id, case_number, orders):
-    ordered = sorted(orders, key=lambda x: x.get('orderDate') or '')
+    ordered = [dict(order,summaryFacts=usable_facts(order)) for order in sorted(orders, key=lambda x: x.get('orderDate') or '')]
     actions = []
     for order in ordered:
-        if order['status'] != 'Validated':
-            continue
-        for fact in order['facts']:
+        for fact in order['summaryFacts']:
             if fact['scope'] == 'Current' and fact['field'] in ('compliance', 'supersession'):
                 marker = r'filed|complied|completed|done|placed on record' if fact['field'] == 'compliance' else r'modified|replaced|superseded|set aside'
                 # Deliberately strict: later evidence must explicitly cite both the original
@@ -163,8 +191,8 @@ def synthesize(case_id, case_number, orders):
                 actions.append(action)
     latest = ordered[-1] if ordered else None
     current = []
-    if latest and latest['status'] == 'Validated':
-        for fact in latest['facts']:
+    if latest:
+        for fact in latest['summaryFacts']:
             if fact['scope'] == 'Current' and fact['category'] in ('COURT_FINDING', 'PROCEDURAL_EVENT'):
                 current.append({'text': fact['value'], 'source': {'orderDate': latest['orderDate'], 'page': fact['page'], 'evidence': fact['evidence'], 'officialUrl': latest['officialUrl']}})
     incomplete = any(o['status'] != 'Validated' for o in ordered)

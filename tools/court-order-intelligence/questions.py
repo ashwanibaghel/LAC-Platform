@@ -2,6 +2,8 @@
 import re
 import json
 import jsonschema
+from anchors import CASE_REFERENCES
+from semantics import identity, usable_facts
 
 INSUFFICIENT = 'Available Court orders do not establish this fact.'
 LABELS = {'COURT_DIRECTION':'Court direction', 'COURT_FINDING':'Court finding',
@@ -23,6 +25,7 @@ def retrieve(artifact, question):
         first,last=sorted(map(int,year_range.groups()))
         years={str(year) for year in range(first,last+1)}
     fields = set()
+    topic_pattern=None
     for pattern, selected in [
         (r'compensation|payment|paid|deposit', ['compensation']),
         (r'possession', ['possession']), (r'award|khasra|village', ['award','khasra','village']),
@@ -31,6 +34,8 @@ def retrieve(artifact, question):
         (r'pending|need to do|must do|next hearing|direction|direct', ['direction']),
         (r'what happened|history|timeline|during|between', ['*'])]:
         if re.search(pattern,text): fields.update(selected)
+    if 'possession' in text: topic_pattern=r'possession|status quo|vacate|evict'
+    elif re.search(r'compensation|payment|paid|deposit',text): topic_pattern=r'compensation|payment|paid|deposit|disburse'
     if not fields:
         return []
     orders = artifact.get('orders',[])
@@ -38,16 +43,21 @@ def retrieve(artifact, question):
         orders = [orders[-1]] if orders else []
     found = []
     for order in orders:
-        if order.get('status') != 'Validated' or years and str(order.get('orderDate',''))[:4] not in years:
+        if years and str(order.get('orderDate',''))[:4] not in years:
             continue
-        for fact in order.get('facts',[]):
-            if fact.get('scope') == 'Uncertain' or '*' not in fields and fact['field'] not in fields:
+        for fact in usable_facts(order):
+            matches_direction='direction' in fields and fact['category']=='COURT_DIRECTION'
+            matches_topic=topic_pattern and re.search(topic_pattern,fact['value'],re.I)
+            if fact.get('scope') in ('Uncertain','Quoted') or '*' not in fields and fact['field'] not in fields and not matches_direction and not matches_topic:
+                continue
+            if any(identity(reference.group())!=identity(artifact.get('caseNumber','')) for reference in CASE_REFERENCES.finditer(fact['value'])):
                 continue
             if 'status report' in text and not re.search('status report',fact['value'],re.I):
                 continue
             found.append({'text':fact['value'], 'category':fact['category'], 'scope':fact['scope'],
                           'source':{'orderDate':order['orderDate'],'page':fact['page'],
                                     'evidence':fact['evidence'],'officialUrl':order['officialUrl']}})
+    found=list({json.dumps(entry,sort_keys=True):entry for entry in found}.values())
     # Explicit lifecycle evidence is authoritative; absence never means completed.
     if re.search(r'pending|next hearing|need to do|must do',text):
         active = {action['text'] for action in artifact.get('beforeNextHearing',[])}
@@ -65,7 +75,6 @@ def answer(artifact, case_id, question, provider):
         raise ValueError('Current-matter artifact identity mismatch')
     if re.search(r'other case|another case|across cases|all cases|compare cases',question,re.I):
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
-    from semantics import identity
     references=re.findall(r'(?:W\.?\s*P\.?\s*\(?C\)?|LA\.?\s*APP\.?|CO\.?\s*PET\.?|SLP\s*\(?C\)?)\s*[-.:]*\s*\d+\s*/\s*\d{4}',question,re.I)
     if any(identity(reference)!=identity(artifact.get('caseNumber','')) for reference in references):
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}

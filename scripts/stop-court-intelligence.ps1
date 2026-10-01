@@ -7,7 +7,7 @@ $taskRecord=Join-Path ([IO.Path]::GetFullPath($RuntimeDirectory)) "$Role.pid.jso
 $taskState=Get-Content -LiteralPath $taskRecord -Raw | ConvertFrom-Json
 $taskProcess=Get-Process -Id $taskState.pid -ErrorAction SilentlyContinue
 if (!$taskProcess) { Write-Output "$Role already stopped."; return }
-if ($taskProcess.Path -ne $taskState.executable -or $taskProcess.StartTime.ToUniversalTime().ToString('O') -ne $taskState.startedAt) { throw 'PID identity changed; refusing to stop an unrelated process.' }
+if ($taskProcess.Path -ne $taskState.executable -or $taskProcess.StartTime.ToUniversalTime().Ticks -ne ([datetime]$taskState.startedAt).ToUniversalTime().Ticks) { throw 'PID identity changed; refusing to stop an unrelated process.' }
 if ($Role -eq 'court-intelligence-worker') {
     $taskRuntime=[IO.Path]::GetFullPath($RuntimeDirectory).TrimEnd('\')+'\'
     if (!$taskState.stopFile -or ![IO.Path]::GetFullPath($taskState.stopFile).StartsWith($taskRuntime,[StringComparison]::OrdinalIgnoreCase)) { throw 'Missing or unsafe cooperative-stop marker; refusing force-stop.' }

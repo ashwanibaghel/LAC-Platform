@@ -28,3 +28,8 @@ test('questions require explicit submit and AI failure leaves intelligence avail
   assert.match(source,/activeCase\.current === requestedCase/);
   assert.doesNotMatch(source,/\/resume|captcha|dhc-assisted\/runs|sync-now|review-decision/);
 });
+test('review-marked orders display only independently usable summary facts',()=>{
+  assert.match(source,/order\.summaryFacts \?\? \(order\.status === "Validated" \? order\.facts : \[\]\)/);
+  assert.match(source,/const facts = safeFacts\.filter/);
+  assert.match(source,/safeFacts\.find/);
+});

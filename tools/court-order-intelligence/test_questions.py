@@ -16,11 +16,39 @@ def artifact():
         order([fact()],orderDate='2026-01-01')], 'beforeNextHearing':[]}
 
 class QuestionTests(unittest.TestCase):
+    def test_verified_direction_remains_grounded_when_other_passage_uncertain(self):
+        data=artifact()
+        data['orders'][-1].update(status='NeedsReview',coverage={'allSelectedChunksProcessed':True})
+        data['orders'][-1]['facts'].append(fact('Uncertain claim.',category='PETITIONER_SUBMISSION',scope='Uncertain'))
+        result=answer(data,'case-a','What did the latest order direct?',SelectAll())
+        self.assertEqual(1,len(result['claims']))
+        self.assertEqual('Court direction',result['claims'][0]['attribution'])
+
     def test_latest_direction_grounded(self):
         result=answer(artifact(),'case-a','What did the latest order direct?',SelectAll())
         self.assertEqual('2026-01-01',result['claims'][0]['source']['orderDate'])
         self.assertEqual(1,result['claims'][0]['source']['page'])
         self.assertEqual('Court direction',result['claims'][0]['attribution'])
+
+    def test_direction_retrieval_includes_operative_filing_and_listing_fields(self):
+        data=artifact()
+        data['orders'][-1]['facts']=[fact(field='filing'),fact('Renotify on 01.03.2026.',field='nextHearing',actor=None,deadlineText=None)]
+        self.assertEqual(2,len(answer(data,'case-a','What did the latest order direct?',SelectAll())['claims']))
+
+    def test_possession_direction_is_not_lost_under_direction_field(self):
+        data=artifact()
+        text='The parties shall maintain status quo regarding possession.'
+        data['orders'][-1]['facts']=[fact(text,actor=None,deadlineText=None)]
+        result=answer(data,'case-a','What is the possession position?',SelectAll())
+        self.assertEqual(text,result['claims'][0]['text'])
+        self.assertEqual('Court direction',result['claims'][0]['attribution'])
+
+    def test_quoted_precedent_cannot_answer_current_case_compensation(self):
+        data=artifact()
+        data['orders']=[order([fact('Compensation was paid in W.P.(C) 99/2019.',category='COURT_FINDING',field='compensation',scope='Quoted',actor=None,deadlineText=None)])]
+        self.assertEqual(INSUFFICIENT,answer(data,'case-a','What compensation was paid?',SelectAll())['answer'])
+        data['orders'][0]['facts'][0]['scope']='Historical'
+        self.assertEqual(INSUFFICIENT,answer(data,'case-a','What compensation was paid?',SelectAll())['answer'])
 
     def test_compensation_across_orders_attributed(self):
         result=answer(artifact(),'case-a','What has happened regarding compensation?',SelectAll())

@@ -22,6 +22,61 @@ def order(facts=None, **overrides):
     return value
 
 class SafetyTests(unittest.TestCase):
+    def test_complete_review_order_retains_only_verified_obligation(self):
+        unclear=fact('An uncertain submission.',category='PETITIONER_SUBMISSION',scope='Uncertain',actor=None,deadlineText=None)
+        output=synthesize('id','case',[order([fact(),unclear],status='NeedsReview',coverage={'allSelectedChunksProcessed':True})])
+        self.assertEqual('NeedsReview',output['status'])
+        self.assertEqual(1,len(output['beforeNextHearing']))
+        self.assertEqual(1,len(output['latestOrder']['summaryFacts']))
+
+    def test_partial_or_failed_review_order_creates_no_obligation(self):
+        for extra in [{'coverage':{'allSelectedChunksProcessed':False}}, {'coverage':{'allSelectedChunksProcessed':True},'failureMessage':'Extraction failed'}]:
+            output=synthesize('id','case',[order([fact()],status='NeedsReview',**extra)])
+            self.assertEqual([],output['beforeNextHearing'])
+
+    def run_native_fixture(self,caption,provider):
+        with tempfile.TemporaryDirectory() as root:
+            def downloaded(url,directory):
+                path=Path(directory)/'order.pdf'
+                with fitz.open() as document:
+                    page=document.new_page()
+                    page.insert_textbox(fitz.Rect(40,40,550,700),caption+' January 1, 2026 O R D E R '+('The LAC shall file a status report within four weeks from today. '*4))
+                    document.save(path)
+                return path,'a'*64
+            result=process_order({'officialUrl':'url','orderDate':'2026-01-01'},'W.P.(C) 1/2026',provider,root,downloaded)
+            self.assertEqual([],list(Path(root).iterdir()))
+            return result
+
+    def test_connected_case_pdf_does_not_leak_other_matter_facts(self):
+        class Never:
+            version='test'
+            def extract(self,*args): raise AssertionError('Mixed case evidence reached inference')
+        result=self.run_native_fixture('W.P.(C) 1/2026 and W.P.(C) 99/2026',Never())
+        self.assertEqual('NeedsSourceReview',result['status'])
+        self.assertEqual([],result['facts'])
+        self.assertIn('case-specific attribution',result['failureMessage'])
+
+    def test_case_mentioned_only_in_body_is_not_caption_identity(self):
+        class Never:
+            version='test'
+            def extract(self,*args): raise AssertionError('Wrong case source reached inference')
+        result=self.run_native_fixture('W.P.(C) 99/2026 O R D E R Referring to W.P.(C) 1/2026:',Never())
+        self.assertEqual('NeedsReview',result['status'])
+        self.assertIn('absent from Court caption',result['failureMessage'])
+
+    def test_successful_native_processing_keeps_identity_and_cleans_pdf(self):
+        class Selected:
+            version='test'
+            def extract(self,instructions,source,schema,feedback=''):
+                anchor=json.loads(source)['anchors'][0]
+                return {'facts':[{'anchorId':anchor['anchorId'],'category':'COURT_DIRECTION','field':'direction','scope':'Current'}],'needsReview':False}
+        result=self.run_native_fixture('IN THE HIGH COURT OF DELHI W.P.(C) 1/2026 CORAM: JUSTICE EXAMPLE',Selected())
+        self.assertEqual('Validated',result['status'])
+        self.assertEqual('W.P.(C) 1/2026',result['rawIdentity'])
+        self.assertEqual(1,result['identityPage'])
+        self.assertEqual('Delhi High Court',result['court'])
+        self.assertIn('JUSTICE EXAMPLE',result['bench'])
+
     def test_submission_cannot_be_direction(self):
         for actor in ['The petitioner', 'Counsel for LAC']:
             text = actor + ' submits that the LAC shall file a report.'
@@ -130,6 +185,12 @@ class SafetyTests(unittest.TestCase):
         facts = [fact(text,category='LAC_OR_RESPONDENT_SUBMISSION',field='compensation',actor=None,deadlineText=None) for text in texts]
         self.assertTrue(validate({'facts':facts,'needsReview':False},{1:' '.join(texts)})['needsReview'])
 
+    def test_petition_filing_is_not_recorded_compliance(self):
+        text='The petitioner filed this petition under Article 226.'
+        candidate=fact(text,category='PROCEDURAL_EVENT',field='compliance',actor=None,deadlineText=None)
+        with self.assertRaisesRegex(ValueError,'explicit obligation'):
+            validate({'facts':[candidate],'needsReview':False},{1:text})
+
     def test_loopback_only(self):
         for endpoint in ['https://example.org','http://localhost:8096','http://127.0.0.1.evil:8096','http://user:pass@127.0.0.1:8096','http://127.0.0.1:8096/path']:
             with self.assertRaises(ValueError): LlamaCppProvider(endpoint)
@@ -153,7 +214,7 @@ class SafetyTests(unittest.TestCase):
                 path=Path(directory)/'order.pdf'
                 with fitz.open() as document:
                     page=document.new_page()
-                    page.insert_textbox(fitz.Rect(40,40,550,700),'W.P.(C) 1/2026 January 1, 2026 '+('The LAC shall file a status report. '*8))
+                    page.insert_textbox(fitz.Rect(40,40,550,700),'W.P.(C) 1/2026 January 1, 2026 O R D E R '+('The LAC shall file a status report. '*8))
                     document.save(path)
                 return path,'a'*64
             result=process_order({'officialUrl':'https://delhihighcourt.nic.in/test.pdf','orderDate':'2026-01-01'},'W.P.(C) 1/2026',provider,root,downloader)

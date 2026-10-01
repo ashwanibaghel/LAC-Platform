@@ -7,6 +7,22 @@ Each entry identifies an independently fetched order, date, SHA, relevant pages
 and a manually recorded office lesson. Connected cases in one PDF count once.
 No downloaded PDFs or full extracted texts belong in Git.
 
+## Real-demo boundary refinements
+
+- Current is relative to the individual order date, not today's calendar date.
+  A 2015 direction is operative in its 2015 order until explicitly resolved.
+- Caption/advocate-list pages provide identity and speaker context, not findings.
+  Locate the actual order/judgment body even when connected captions span pages.
+- Quotation state crosses pages. Reproduced old directions cannot restart a
+  deadline from the later document date.
+- If the caption names several different Court matters, Phase 1 requires source
+  review rather than assigning another matter's directions/facts to this one.
+  Shared-PDF section attribution is not guessed by the small model.
+- Grammar excludes independently inadmissible categories/fields. Review flags
+  are derived from explicit uncertainty and conflicting evidence, not AI confidence.
+- An exact counsel name may be mapped to a single petitioner/respondent caption;
+  ambiguous counsel/actor mapping remains unknown. No implicit office task.
+
 ## Lessons from the corpus
 
 1. **Who said it matters.** In 568/2024 (23 April 2026, pp.3–4), the LAC
