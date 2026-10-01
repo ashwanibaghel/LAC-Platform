@@ -20,6 +20,8 @@ tools/document-intelligence-benchmark/artifacts/
 tools/document-intelligence-benchmark/real-output/
 tools/document-intelligence-benchmark/*.local.json
 tools/document-intelligence-benchmark/**/__pycache__/
+tools/court-order-intelligence/**/__pycache__/
+tools/court-order-intelligence/*.local.json
 dotnet-sdk-*.exe
 supabase/.temp/
 
