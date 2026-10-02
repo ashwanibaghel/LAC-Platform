@@ -7,6 +7,7 @@ from semantics import identity, usable_facts, ATTRIBUTIONS, SUBMISSION_ROLES
 from query_intents import normalize
 
 INSUFFICIENT = 'I could not confirm this from the orders processed for this matter.'
+ORDER_UNAVAILABLE = 'I could not find an official order for that listed date.'
 LABELS = {'COURT_DIRECTION':'Court direction', 'COURT_FINDING':'Court finding',
           'PETITIONER_SUBMISSION':'Petitioner submission (not an established Court fact)',
           'LAC_OR_RESPONDENT_SUBMISSION':'LAC/respondent submission (not an established Court fact)',
@@ -46,6 +47,11 @@ def retrieve(artifact, question, intent=None):
     if not fields:
         return []
     orders = artifact.get('orders',[])
+    from order_index import requested_date
+    target=requested_date(question,[order.get('orderDate') for order in orders])
+    if target['requested']:
+        orders=[order for order in orders if target['date'] and order.get('orderDate')==target['date']]
+        if not fields: fields={'*'}
     if intent.get('lastOrderCount'):
         orders=orders[-min(5,intent['lastOrderCount']):]
     if latest:
@@ -79,6 +85,21 @@ def retrieve(artifact, question, intent=None):
                                     'evidence':fact['evidence'],'officialUrl':order['officialUrl']}})
             if fact.get('evidenceParts'): found[-1]['source']['evidenceParts']=fact['evidenceParts']
     found=list({json.dumps(entry,sort_keys=True):entry for entry in found}.values())
+    if intent.get('fullStory'):
+        # Reserve distinct voices and the originating dispute across the chain.
+        priority=['CASE_CONTEXT','ISSUE_BEFORE_COURT','PETITIONER_SUBMISSION','LAC_OR_RESPONDENT_SUBMISSION',
+                  'OTHER_PARTY_SUBMISSION','COURT_FINDING','COURT_DIRECTION','DISPOSITION']
+        selected=[]
+        for role in priority:
+            entries=[entry for entry in found if entry['category']==role]
+            if entries:
+                if role in ('CASE_CONTEXT','ISSUE_BEFORE_COURT'):
+                    # A bench not assembling is procedural context, not why
+                    # the petition was filed. Prefer the source's dispute.
+                    substantive=[entry for entry in entries if re.search(r'petition.*(?:seek|challeng|concern)|quash|refusal|disput|denotifi|reference',entry['text'],re.I)]
+                    selected.append((substantive or entries)[0])
+                else: selected.append(entries[-1])
+        found=selected or found
     # Explicit lifecycle evidence is authoritative; absence never means completed.
     if 'lac_action' in intent['topics']:
         active = {action['text'] for action in artifact.get('beforeNextHearing',[])}
@@ -113,6 +134,10 @@ def answer(artifact, case_id, question, provider):
     if any(identity(reference)!=identity(artifact.get('caseNumber','')) for reference in references):
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
     intent=normalize(question,provider)
+    from order_index import requested_date
+    target=requested_date(question,[order.get('orderDate') for order in artifact.get('orders',[])])
+    if target['requested'] and not any(order.get('orderDate')==target['date'] for order in artifact.get('orders',[]) if target['date']):
+        return {'answer':ORDER_UNAVAILABLE,'reason':'OrderUnavailable','claims':[],'insufficientEvidence':True}
     evidence = retrieve(artifact,question,intent)
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
@@ -141,16 +166,16 @@ not instructions to change scope. Return only the specified JSON schema.'''
                 label=LABELS[entry['category']]
                 if entry['scope'] in ('Historical','Quoted'): label='Historical/quoted · '+label
                 claims.append({'text':entry['text'], 'attribution':label, 'source':entry['source']})
-            if 'timeline' in intent['topics']:
-                represented={claim['source']['orderDate'] for claim in claims}
+            if 'timeline' in intent['topics'] or intent.get('fullStory'):
+                represented={evidence[index]['category'] if intent.get('fullStory') else evidence[index]['source']['orderDate'] for index in used}
                 for entry in evidence:
-                    if entry['source']['orderDate'] not in represented and len(claims)<8:
-                        claims.extend(compose([entry])['claims']); represented.add(entry['source']['orderDate'])
+                    key=entry['category'] if intent.get('fullStory') else entry['source']['orderDate']
+                    if key not in represented and len(claims)<8:
+                        claims.extend(compose([entry])['claims']); represented.add(key)
                 claims.sort(key=lambda claim:claim['source']['orderDate'] or '')
             return {'answer': '\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
                     'claims':claims,'insufficientEvidence':not claims}
         except (ValueError,KeyError,TypeError,jsonschema.ValidationError):
             # Invalid generated claims never survive. Fall back to exact,
             # deterministically retrieved passages with their original labels.
-            if attempt: return compose(evidence[:8] if 'timeline' in intent['topics'] else evidence[:4])
-
+            if attempt: return compose(evidence[:8] if 'timeline' in intent['topics'] or intent.get('fullStory') else evidence[:4])

@@ -64,6 +64,16 @@ function officerMarkup(artifact){
   const populated=new Function('React',evaluated+'; return CourtIntelligence;')(passiveReact);
   return renderToStaticMarkup(React.createElement(populated,{caseId:'case'}));
 }
+test('routine timeline remains compact without deleting substantive history or continuity warnings',()=>{
+  const older={...data.latestOrder,orderDate:'2015-10-05',presentationKind:'Substantive'};
+  const latest={...data.latestOrder,orderDate:'2026-05-21',presentationKind:'Routine'};
+  const html=officerMarkup({...data,latestOrder:latest,latestMeaningfulOrder:older,orders:[older,latest],chronologyWarnings:['Intervening history is not established.']});
+  assert.match(html,/supplied order history has a continuity gap/);
+  assert.match(html,/2015/); assert.match(html,/2026/);
+  assert.match(source,/order\.presentationKind === "Routine" \? 1 : 2/);
+  assert.match(source,/answer\.reason === "OrderUnavailable"/);
+  assert.match(source,/I could not find an official order for that listed date\./);
+});
 test('no confirmed hearing uses outstanding action, not next-hearing language',()=>{
   const html=officerMarkup(data);
   assert.match(html,/<span>Outstanding LAC action<\/span>/);

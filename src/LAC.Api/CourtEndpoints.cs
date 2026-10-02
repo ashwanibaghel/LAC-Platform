@@ -301,14 +301,22 @@ public static class CourtEndpoints
             return Results.Ok(detail);
         });
         group.MapPost("/{id:guid}/intelligence/ask", async (
-            Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients,
+            Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients, LacDbContext db,
             ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser,
             HttpContext context, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
             context.Response.Headers.CacheControl = "no-store";
-            return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct);
+            var caseNumber = await db.CourtCases.AsNoTracking().Where(x => x.Id == id)
+                .Select(x => x.CaseNumber).SingleOrDefaultAsync(ct);
+            if (caseNumber is null) return Results.NotFound();
+            // Reuse durable official observation metadata. Read-only; no PDF fetch on GET/render.
+            var orderIndex = await db.CourtExternalOrderObservations.AsNoTracking()
+                .Where(x => x.CourtCaseId == id).OrderBy(x => x.OrderDate).ThenBy(x => x.Id)
+                .Select(x => new CourtIntelligenceKnownOrder(x.CourtCaseId, x.NormalizedCaseIdentity,
+                    x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id)).Take(1000).ToListAsync(ct);
+            return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct, caseNumber, orderIndex);
         });
         group.MapGet("/{id:guid}/intelligence", async (
             Guid id, LocalStoragePaths paths, ICourtAuthorizationService courtAuth,

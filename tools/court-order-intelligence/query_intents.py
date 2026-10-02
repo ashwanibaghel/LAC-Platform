@@ -52,6 +52,11 @@ def normalize(question, provider=None):
         intent['topics']=['timeline']
     if re.search(r'kab start|when.*(?:start|begin)|kis date|which date|किस तारीख|कब शुरू',text):
         intent['factualDates']=True
+    if re.search(r'poori kahani|puri kahani|poore matter|pure matter|full (?:story|case)|actual demand|case.*(?:start|shuru)|version.*(?:difference|farq)|पूरी कहानी',text):
+        intent['topics']=['general_case']; intent['latest']=False; intent['party']=None
+        intent['fullStory']=True
+        return intent
+    if party and re.search(r'stand|version|पक्ष',text): return intent
     if topics or count or provider is None or re.search(r'home address|password|salary|birthday|घर का पता|पासवर्ड',text): return intent
     # One classifier request, question only: no evidence, HTML, identity, or tool capability.
     try:

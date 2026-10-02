@@ -4,10 +4,13 @@ using System.Text.Json;
 namespace LAC.Api;
 
 public sealed record AskCourtIntelligenceRequest(string Question);
+public sealed record CourtIntelligenceKnownOrder(Guid CourtCaseId, string NormalizedCaseIdentity,
+    DateOnly? OrderDate, string? OfficialUrl, string? CorrigendumUrl, DateOnly? UploadDate, Guid SourceObservationId);
 
 public static class CourtIntelligenceQuestions
 {
-    public static async Task<IResult> AskAsync(Guid caseId, string question, IHttpClientFactory clients, CancellationToken ct)
+    public static async Task<IResult> AskAsync(Guid caseId, string question, IHttpClientFactory clients, CancellationToken ct,
+        string? caseNumber = null, IReadOnlyList<CourtIntelligenceKnownOrder>? orderIndex = null)
     {
         if (string.IsNullOrWhiteSpace(question) || question.Length > 600)
             return Results.BadRequest(new { error = "Please ask a question of up to 600 characters." });
@@ -15,7 +18,7 @@ public static class CourtIntelligenceQuestions
         {
             // Fixed literal loopback origin; the Python service retrieves only this GUID.
             using var response = await clients.CreateClient("CourtCaseQuestions")
-                .PostAsJsonAsync("ask", new { caseId, question }, ct);
+                .PostAsJsonAsync("ask", new { caseId, question, caseNumber, orderIndex }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             await using var body = await response.Content.ReadAsStreamAsync(ct);

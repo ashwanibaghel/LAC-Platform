@@ -1,4 +1,4 @@
-"""Out-of-process Q&A runtime. Loopback-only, sequential, no outbound PDF traffic."""
+"""Loopback Q&A; exact known date may lazily fetch one official temporary PDF."""
 import argparse
 import json
 import uuid
@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from provider import LlamaCppProvider
 from questions import answer, INSUFFICIENT
+from order_index import merge_known_orders,prepare_question
 
 def main():
     parser=argparse.ArgumentParser()
@@ -41,16 +42,28 @@ def main():
             if self.path != '/ask' and not demo_route: self.send_error(404); return
             try:
                 length=int(self.headers.get('Content-Length','0'))
-                if not 0<length<=8192: raise ValueError('Request size')
+                if not 0<length<=512*1024: raise ValueError('Request size') # bounded trusted known-order metadata
                 request=json.loads(self.rfile.read(length))
                 case_id=demo_route[1] if demo_route else str(uuid.UUID(request['caseId']))
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
                 path=root/'court-intelligence'/'v1'/case_id/'current.json'
-                if not path.is_file() or path.stat().st_size>2*1024*1024:
+                if path.is_file() and path.stat().st_size>2*1024*1024: raise ValueError('Artifact size limit')
+                artifact=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
+                if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
+                    artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000])
+                    from order_index import pdf_lock
+                    from worker import atomic_json
+                    with pdf_lock(root/'court-intelligence'/'v1'):
+                        # Merge again under the writer lock; never overwrite a
+                        # concurrent worker's newer intelligence with stale metadata.
+                        latest=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
+                        artifact=merge_known_orders(latest,case_id,request['caseNumber'],request['orderIndex'][:1000])
+                        atomic_json(path,artifact)
+                if artifact is None:
                     result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
                 else:
-                    artifact=json.loads(path.read_text(encoding='utf-8'))
+                    artifact=prepare_question(root,artifact,case_id,question,provider)
                     result=answer(artifact,case_id,question,provider)
                 body=json.dumps(result,ensure_ascii=False).encode()
                 self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')

@@ -65,3 +65,11 @@ def source_coverage(orders):
             'gaps': [{'orderDate': order.get('orderDate'), 'officialUrl': order['officialUrl'],
                       'reason': order.get('failureMessage') or 'No verified facts available'}
                      for order in orders if not order.get('summaryFacts')]}
+
+def presentation_kind(order):
+    """Content-based display only; never changes extraction or discards orders."""
+    entries=[entry for entry in order.get('propositions',[]) if entry['scope'] not in ('Quoted','Uncertain')]
+    if not entries: return 'Unverified'
+    routine=re.compile(r'\blist\b|renotify|adjourn|passover|bench.*assemble|hybrid mode|time.*(?:grant|file)|within.*weeks|be filed within',re.I)
+    return 'Routine' if all(entry['role'] in ('COURT_DIRECTION','PROCEDURAL_EVENT','CASE_CONTEXT','PETITIONER_SUBMISSION','LAC_OR_RESPONDENT_SUBMISSION')
+                           and routine.search(entry['text']) for entry in entries) else 'Substantive'

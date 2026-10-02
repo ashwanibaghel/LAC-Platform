@@ -262,8 +262,10 @@ def order_digest(order):
 
 
 def synthesize(case_id, case_number, orders):
-    from chronology import factual_events, source_coverage
+    from chronology import factual_events, source_coverage, presentation_kind
+    from order_index import index_entries
     ordered = [dict(order,summaryFacts=usable_facts(order),propositions=propositions(order),digest=order_digest(order)) for order in sorted(orders, key=lambda x: x.get('orderDate') or '')]
+    for order in ordered: order['presentationKind']=presentation_kind(order)
     actions = []
     for order in ordered:
         for fact in order['summaryFacts']:
@@ -338,8 +340,14 @@ def synthesize(case_id, case_number, orders):
             'status': 'NeedsReview' if incomplete else 'Validated',
             'currentPosition': current[:6], 'beforeNextHearing': [a for a in actions if a['state'] == 'Not confirmed complete'],
             'latestOrder': latest, 'finalOrder': final, 'caption': latest.get('caption',{}) if latest else {},
+            'latestMeaningfulOrder':next((order for order in reversed(ordered) if order['presentationKind']=='Substantive'),None),
+            'chronologyWarnings': ['An earlier source contains a final disposition but later orders also exist. Intervening restoration/appeal history is not established by these supplied sources.']
+                if any(order['orderDate']!=latest['orderDate'] and any(entry['role']=='DISPOSITION'
+                    and re.search(r'\b(?:petition|appeal|suit)\b.{0,100}\b(?:allowed|dismissed|disposed)\b',entry['text'],re.I)
+                    for entry in order['propositions']) for order in ordered) else [],
             'lacCaptionAppearances': [order['caption']['respondentAdvocates'] for order in ordered
                 if re.search(r'\bLAC\b|Land Acquisition Collector',order.get('caption',{}).get('respondentAdvocates',{}).get('text',''),re.I)],
             'factualChronology': factual_events(ordered), 'sourceCoverage':source_coverage(ordered),
+            'orderIndex':index_entries(case_id,case_number,ordered),
             'orders': ordered, 'actions': actions,
             'notice': 'AI-assisted summary. Verify source evidence before official action.'}
