@@ -61,3 +61,29 @@ V3-C/D are NOT complete: no fresh V3 train/validation/blind is frozen yet.
 No V3 GPU training or evaluation has been launched. Capacity remains rank 8,
 alpha 16, q/k/v/o, pinned Qwen3-4B-Instruct-2507 revision unchanged.
 No Court database, backend/domain/schema/migration, Award or canonical action change.
+
+## V3-C discovery in progress — not VERIFIED_GOLD
+
+Candidate reservations: 13 train identities, 5 validation, 5 blind, all absent
+from previously used V1/V2 gold and known protected connections. These are
+candidates, NOT proven independent matter counts or a frozen evaluation set.
+Private workbook stays local, used only for discovery of public official URLs.
+Acquisition is append-only, bounded GET of direct public PDFs, temporary PDF
+cleanup, no CAPTCHA/search POST or model. Acquired native text stays ignored.
+
+First train batch acquired four source records, not four independent matters:
+
+- 10338/2015 and 10341/2015 return the same joint 13 July 2026 order, with
+  10337/10338/10339/10340/10341 captions. Dynamic download footer changes bytes;
+  different SHA does NOT establish independent evidence. Treat as one group.
+  This source contains only no-time-left adjournment/listing, no positive action.
+- 1069/2025: 18 February 2026 routine adjournment/listing; no positive LAC action.
+- 5997/2024: 29 April 2024 contains quoted petitioner prayers, exemption application
+  disposal while the writ continues, notice, affidavit/service timelines and an
+  interim direction. A filing requirement is NOT completed filing. ADM caption
+  is not automatically a source-supported LAC identity. Needs actor/chain audit.
+- 10340/2015 discovery URL is missing/ambiguous; no guessed download or gold.
+
+No fresh example has yet been promoted to VERIFIED_GOLD. Full page/relationship,
+native overlap, source-only actor/lifecycle and production-extractor checks remain.
+No V3 training launch; positive action and multi-order coverage gates not met yet.
