@@ -1,0 +1,73 @@
+{
+  "assignments": {
+    "14604-position": "development",
+    "14604-timeline": "development",
+    "940-digest": "development",
+    "940-extract": "development",
+    "940-no-action": "development",
+    "jan-action": "development",
+    "jan-attribute": "development",
+    "jan-compliance-absent": "development",
+    "jan-digest": "development",
+    "jan-important": "development",
+    "jan-not-complete": "development",
+    "jul-compensation-absent": "development",
+    "jul-date-en": "development",
+    "jul-date-hi": "development",
+    "jul-date-hinglish": "development",
+    "jul-date-roman": "development",
+    "jul-digest": "development",
+    "jul-extract": "development",
+    "jul-important": "development",
+    "jul-no-lac-action": "development",
+    "jul-not-complete": "development",
+    "may-attribute": "development"
+  },
+  "leakage_groups": {
+    "14604-position": "group-8c419695baa695cf",
+    "14604-timeline": "group-8c419695baa695cf",
+    "940-digest": "group-5a29514319a9b78b",
+    "940-extract": "group-5a29514319a9b78b",
+    "940-no-action": "group-5a29514319a9b78b",
+    "jan-action": "group-18f8c972a17d5a80",
+    "jan-attribute": "group-18f8c972a17d5a80",
+    "jan-compliance-absent": "group-18f8c972a17d5a80",
+    "jan-digest": "group-18f8c972a17d5a80",
+    "jan-important": "group-18f8c972a17d5a80",
+    "jan-not-complete": "group-18f8c972a17d5a80",
+    "jul-compensation-absent": "group-8c419695baa695cf",
+    "jul-date-en": "group-8c419695baa695cf",
+    "jul-date-hi": "group-8c419695baa695cf",
+    "jul-date-hinglish": "group-8c419695baa695cf",
+    "jul-date-roman": "group-8c419695baa695cf",
+    "jul-digest": "group-8c419695baa695cf",
+    "jul-extract": "group-8c419695baa695cf",
+    "jul-important": "group-8c419695baa695cf",
+    "jul-no-lac-action": "group-8c419695baa695cf",
+    "jul-not-complete": "group-8c419695baa695cf",
+    "may-attribute": "group-8c419695baa695cf"
+  },
+  "matter_inventory": {
+    "matters": {
+      "W.P.(C) 14604/2025": {
+        "frozen": false,
+        "inspected_after_freeze": false,
+        "split": "development"
+      },
+      "W.P.(C) 8664/2021": {
+        "frozen": false,
+        "inspected_after_freeze": false,
+        "split": "development"
+      },
+      "W.P.(C) 940/2015": {
+        "frozen": false,
+        "inspected_after_freeze": false,
+        "split": "development"
+      }
+    },
+    "notes": "No pristine validation/blind matters yet. Workbook candidates remain private acquisition inventory, not annotated split membership. Freeze future untouched groups before pilot training. Inspecting a protected matter requires explicit demotion and a new reviewed split version.",
+    "version": "t1-splits-1"
+  },
+  "protected_evaluation_ready": false,
+  "schema_version": 1
+}

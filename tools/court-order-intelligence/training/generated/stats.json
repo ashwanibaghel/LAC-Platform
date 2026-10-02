@@ -1,0 +1,49 @@
+{
+  "by_language": {
+    "English": 19,
+    "Hindi": 1,
+    "Hinglish": 1,
+    "RomanHindi": 1
+  },
+  "by_semantic_role_unique_passages": {
+    "COURT_DIRECTION": 10,
+    "COURT_FINDING": 1,
+    "DISPOSITION": 2,
+    "LAC_OR_RESPONDENT_SUBMISSION": 3
+  },
+  "by_task": {
+    "attribution_classification": 2,
+    "compliance_state": 2,
+    "date_specific_retrieval_or_QA": 7,
+    "important_fact_selection": 2,
+    "multi_order_current_position": 1,
+    "office_action_detection": 3,
+    "order_digest": 3,
+    "semantic_proposition_extraction": 2
+  },
+  "compliance_state": {
+    "NOT_CONFIRMED_COMPLETE": 2
+  },
+  "evaluation_ready": false,
+  "leakage_groups": 3,
+  "matter_source_status": {
+    "Disposed": 1,
+    "Pending": 2
+  },
+  "matters": 3,
+  "office_action": {
+    "NONE": 2,
+    "SUPPORTED": 1
+  },
+  "orders": 4,
+  "quarantined_examples": 1,
+  "source_sha_count": 4,
+  "splits": {
+    "blind": 0,
+    "development": 22,
+    "train": 0,
+    "validation": 0
+  },
+  "training_started": false,
+  "verified_examples": 22
+}

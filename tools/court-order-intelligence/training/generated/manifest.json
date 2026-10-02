@@ -1,0 +1,53 @@
+{
+  "annotation_version": "t1-source-review-1",
+  "excluded": [
+    "office workbook/private inventory",
+    "PDF binaries",
+    "inference artifacts",
+    "unreviewed/quarantined/rejected examples",
+    "weights",
+    "secrets"
+  ],
+  "files": {
+    "blind.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "development.jsonl": "dc27481a297f90061a8a343fb4f542755c19dac54fc874442fdc66b3720553f7",
+    "example.schema.json": "10f01bb347300c30031cc96afd86e1567e52886de34aab94be0f29808f4395d8",
+    "quarantined.json": "3df8b48eebb73bec138570d9f1098ffe8f575a1e3aa8efba14c5e356f63f4745",
+    "source_versions.json": "6d2c2a8692cbae930ee1389669ff3f5f344969e17fcba71fb16e19d1afefd2a2",
+    "splits.json": "371f8bfc62c81396160e6e934acd1f9f7dee0aed041069c065b919556e23d4ba",
+    "stats.json": "a268df01ac3d7d28d26f8ba9ca73151fcceb9d82befee874bb2aa32c6e4edb8a",
+    "target.schemas.json": "38d0e2d9582a63d999d00730b112e73dc4e13b185663f5af323e23fe54c6ea7f",
+    "train.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "validation.jsonl": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "model": {
+    "architecture": "Qwen3ForCausalLM",
+    "behavior": "non-thinking only",
+    "chat_template": "Pinned tokenizer_config.json apply_chat_template; im_start/im_end role framing; assistant generation prompt; no manually fabricated think tokens.",
+    "kaggle_visibility": "private",
+    "license": "Apache-2.0",
+    "metadata_text_sha256": {
+      "LICENSE": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e",
+      "README.md": "8e3dd0c3b5b11897cc71092ccfe517bb7a9783479baa3665aad73c8d1a2041cd",
+      "config.json": "5beea1a4a34c62782bfb2f911c606741a3bab8f92d80a118fa053c28af12e8ba",
+      "encoding": "UTF-8 of decoded official HTTP response text",
+      "tokenizer_config.json": "a62ff0a2472a0fa1b8eaabcb57c59b58afa42a22831dc141400b6e0cf2b65ce3"
+    },
+    "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+    "official_repository": "https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507",
+    "parameter_class": "4.0B",
+    "product_baseline": "0cea02e9b3c1d0fa7623ffb1f69e9681fa71279e",
+    "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+    "tokenizer_class": "Qwen2Tokenizer",
+    "training_started": false,
+    "verification": "Official HF API immutable revision plus raw config.json, tokenizer_config.json, LICENSE and README.md at that revision; no weights downloaded.",
+    "verified_on": "2026-10-02"
+  },
+  "no_pristine_evaluation_yet": true,
+  "private_dataset_default": true,
+  "product_baseline": "0cea02e9b3c1d0fa7623ffb1f69e9681fa71279e",
+  "reviewed_annotations_sha256": "d00cacb80be1c968f8b2227bdcc03dc5d0e51e718735574f9102b4803c897ca1",
+  "schema_version": 1,
+  "source_branch": "codex/court-intelligence-training-v1",
+  "source_reproduction": "Each bounded passage belongs to exact audited binary SHA; a changed download is a new version and cannot substitute for this version."
+}

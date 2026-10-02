@@ -1,0 +1,278 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "input": {
+      "type": "object"
+    },
+    "language": {
+      "enum": [
+        "English",
+        "Hindi",
+        "Hinglish",
+        "RomanHindi"
+      ]
+    },
+    "matter_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "SUPPORTED",
+        "NONE",
+        "INSUFFICIENT_EVIDENCE",
+        "NOT_CONFIRMED_COMPLETE"
+      ]
+    },
+    "provenance": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "matter_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "order_date": {
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "type": "string"
+          },
+          "page": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "passage_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "source_version_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 900,
+            "minLength": 8,
+            "type": "string"
+          },
+          "text_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "type": "string"
+          },
+          "url": {
+            "pattern": "^https://delhihighcourt\\.nic\\.in/",
+            "type": "string"
+          }
+        },
+        "required": [
+          "passage_id",
+          "source_version_id",
+          "matter_id",
+          "sha256",
+          "url",
+          "order_date",
+          "page",
+          "text",
+          "text_sha256"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "type": "array"
+    },
+    "review": {
+      "additionalProperties": false,
+      "properties": {
+        "annotation_version": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "method": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "reviewed_on": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "reviewer": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reviewer",
+        "method",
+        "reviewed_on",
+        "annotation_version"
+      ],
+      "type": "object"
+    },
+    "state": {
+      "enum": [
+        "VERIFIED_GOLD",
+        "QUARANTINED",
+        "UNREVIEWED",
+        "REJECTED"
+      ]
+    },
+    "target": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "facts": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "anchorId": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "category": {
+                    "enum": [
+                      "COURT_DIRECTION",
+                      "COURT_FINDING",
+                      "LAC_OR_RESPONDENT_SUBMISSION",
+                      "PETITIONER_SUBMISSION",
+                      "OTHER_PARTY_SUBMISSION",
+                      "PROCEDURAL_EVENT",
+                      "HISTORICAL_LAND_FACT",
+                      "CASE_CONTEXT",
+                      "ISSUE_BEFORE_COURT",
+                      "COURT_OBSERVATION",
+                      "DISPOSITION",
+                      "LAND_FACT",
+                      "COMPENSATION_FACT",
+                      "POSSESSION_FACT",
+                      "REFERENCE_FACT",
+                      "AWARD_FACT",
+                      "KHASRA_FACT",
+                      "DOCUMENT_OR_FILING_FACT",
+                      "RECORDED_COMPLIANCE",
+                      "NEXT_HEARING",
+                      "DEADLINE"
+                    ],
+                    "type": "string"
+                  },
+                  "field": {
+                    "enum": [
+                      "direction",
+                      "finding",
+                      "compliance",
+                      "supersession",
+                      "village",
+                      "khasra",
+                      "award",
+                      "compensation",
+                      "possession",
+                      "section18",
+                      "section30_31",
+                      "referenceToAdj",
+                      "acquisitionSection",
+                      "filing",
+                      "documents",
+                      "bench",
+                      "nextHearing",
+                      "context",
+                      "issue",
+                      "observation",
+                      "disposition",
+                      "land",
+                      "deadline"
+                    ],
+                    "type": "string"
+                  },
+                  "scope": {
+                    "enum": [
+                      "Current",
+                      "Historical",
+                      "Quoted",
+                      "Uncertain"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "anchorId",
+                  "category",
+                  "field",
+                  "scope"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "type": "array"
+            },
+            "needsReview": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "facts",
+            "needsReview"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "claims": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "factId": {
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "factId"
+                ],
+                "type": "object"
+              },
+              "maxItems": 8,
+              "type": "array"
+            }
+          },
+          "required": [
+            "claims"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "task": {
+      "enum": [
+        "semantic_proposition_extraction",
+        "attribution_classification",
+        "important_fact_selection",
+        "office_action_detection",
+        "compliance_state",
+        "date_specific_retrieval_or_QA",
+        "order_digest",
+        "multi_order_current_position"
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "task",
+    "matter_id",
+    "state",
+    "language",
+    "review",
+    "outcome",
+    "provenance",
+    "input",
+    "target"
+  ],
+  "type": "object"
+}

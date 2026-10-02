@@ -1,0 +1,7 @@
+local-private/
+__pycache__/
+*.pdf
+*.safetensors
+*.gguf
+*.bin
+.env*

@@ -1,0 +1,9 @@
+{
+  "version": "t1-splits-1",
+  "matters": {
+    "W.P.(C) 14604/2025": {"split": "development", "frozen": false, "inspected_after_freeze": false},
+    "W.P.(C) 8664/2021": {"split": "development", "frozen": false, "inspected_after_freeze": false},
+    "W.P.(C) 940/2015": {"split": "development", "frozen": false, "inspected_after_freeze": false}
+  },
+  "notes": "No pristine validation/blind matters yet. Workbook candidates remain private acquisition inventory, not annotated split membership. Freeze future untouched groups before pilot training. Inspecting a protected matter requires explicit demotion and a new reviewed split version."
+}

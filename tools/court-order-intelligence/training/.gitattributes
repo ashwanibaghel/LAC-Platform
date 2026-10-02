@@ -1,0 +1,2 @@
+# Checksummed audit/export payloads must survive Windows/Linux checkouts intact.
+* text eol=lf

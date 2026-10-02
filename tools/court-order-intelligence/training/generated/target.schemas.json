@@ -1,0 +1,134 @@
+{
+  "anchors": {
+    "additionalProperties": false,
+    "properties": {
+      "facts": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "anchorId": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "category": {
+              "enum": [
+                "COURT_DIRECTION",
+                "COURT_FINDING",
+                "LAC_OR_RESPONDENT_SUBMISSION",
+                "PETITIONER_SUBMISSION",
+                "OTHER_PARTY_SUBMISSION",
+                "PROCEDURAL_EVENT",
+                "HISTORICAL_LAND_FACT",
+                "CASE_CONTEXT",
+                "ISSUE_BEFORE_COURT",
+                "COURT_OBSERVATION",
+                "DISPOSITION",
+                "LAND_FACT",
+                "COMPENSATION_FACT",
+                "POSSESSION_FACT",
+                "REFERENCE_FACT",
+                "AWARD_FACT",
+                "KHASRA_FACT",
+                "DOCUMENT_OR_FILING_FACT",
+                "RECORDED_COMPLIANCE",
+                "NEXT_HEARING",
+                "DEADLINE"
+              ],
+              "type": "string"
+            },
+            "field": {
+              "enum": [
+                "direction",
+                "finding",
+                "compliance",
+                "supersession",
+                "village",
+                "khasra",
+                "award",
+                "compensation",
+                "possession",
+                "section18",
+                "section30_31",
+                "referenceToAdj",
+                "acquisitionSection",
+                "filing",
+                "documents",
+                "bench",
+                "nextHearing",
+                "context",
+                "issue",
+                "observation",
+                "disposition",
+                "land",
+                "deadline"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "enum": [
+                "Current",
+                "Historical",
+                "Quoted",
+                "Uncertain"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "anchorId",
+            "category",
+            "field",
+            "scope"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "type": "array"
+      },
+      "needsReview": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "facts",
+      "needsReview"
+    ],
+    "type": "object"
+  },
+  "claims": {
+    "additionalProperties": false,
+    "properties": {
+      "claims": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "factId": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "factId"
+          ],
+          "type": "object"
+        },
+        "maxItems": 8,
+        "type": "array"
+      }
+    },
+    "required": [
+      "claims"
+    ],
+    "type": "object"
+  },
+  "tasks": {
+    "attribution_classification": "anchors",
+    "compliance_state": "claims",
+    "date_specific_retrieval_or_QA": "claims",
+    "important_fact_selection": "claims",
+    "multi_order_current_position": "claims",
+    "office_action_detection": "claims",
+    "order_digest": "claims",
+    "semantic_proposition_extraction": "anchors"
+  }
+}
