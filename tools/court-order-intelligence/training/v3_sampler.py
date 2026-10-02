@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 
-VERSION = 'task-matter-polarity-sha256-v3.1'
+VERSION = 'task-leakage-group-polarity-sha256-v3.2'
 WEIGHTS = {
     'attribution_classification': 6,
     'multi_order_current_position': 6,
@@ -52,7 +52,11 @@ class Curriculum:
             if not isinstance(selected, list):
                 raise ValueError('Invalid original selection target')
             polarity = 'positive' if selected else 'empty'
-            self.buckets[(row['task'], polarity)][row['matter_id']].append(row['id'])
+            # Connected matters share one diversity bucket, not fake independence.
+            group = row.get('leakage_group', row['matter_id'])
+            if not isinstance(group, str) or not group:
+                raise ValueError('Nonempty leakage-group identity required')
+            self.buckets[(row['task'], polarity)][group].append(row['id'])
         tasks = {r['task'] for r in rows}
         if tasks != set(self.weights):
             raise ValueError('Every declared weighted task must have audited examples')
@@ -162,7 +166,7 @@ def exposure_report(rows, seed, sample_count, weights=None):
     if not isinstance(sample_count, int) or not 1 <= sample_count <= 100000:
         raise ValueError('Bounded positive exposure count required')
     stream = Curriculum(rows, seed, weights)
-    tasks, pools, matters, seen = Counter(), Counter(), Counter(), set()
+    tasks, pools, matters, groups, seen = Counter(), Counter(), Counter(), Counter(), set()
     repeats = 0
     previous = None
     for _ in range(sample_count):
@@ -173,15 +177,18 @@ def exposure_report(rows, seed, sample_count, weights=None):
         polarity = 'positive' if target.get('claims', target.get('facts')) else 'empty'
         pools[row['task'] + '|' + polarity] += 1
         matters[row['matter_id']] += 1
-        repeats += previous == row['matter_id']
-        previous = row['matter_id']
+        group = row.get('leakage_group', row['matter_id'])
+        groups[group] += 1
+        repeats += previous == group
+        previous = group
         seen.add(key)
     return {'sampler_version': VERSION, 'seed': seed, 'dataset_sha256': stream.fingerprint,
             'weights': stream.weights, 'original_record_count': len(rows),
             'logical_exposures': sample_count, 'equivalent_dataset_passes': sample_count / len(rows),
             'unique_records_exposed': len(seen), 'task_exposures': dict(tasks),
             'positive_empty_exposures': dict(pools), 'matter_exposures': dict(matters),
-            'consecutive_same_matter': repeats}
+            'leakage_group_exposures': dict(groups),
+            'consecutive_same_matter': repeats, 'repeat_basis': 'leakage_group_if_available'}
 
 
 def calculate_budget(example_count, gradient_accumulation, equivalent_passes, max_updates=240):

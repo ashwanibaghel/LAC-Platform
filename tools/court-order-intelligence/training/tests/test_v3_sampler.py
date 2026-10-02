@@ -16,6 +16,15 @@ def fixtures():
 
 
 class V3SamplerTests(unittest.TestCase):
+    def test_connected_cases_share_one_diversity_bucket(self):
+        rows = fixtures()
+        for row in rows:
+            row['leakage_group'] = 'connected-a' if row['matter_id'] in ('matter-0', 'matter-1') else row['matter_id']
+        report = exposure_report(rows, 73, sum(WEIGHTS.values()) * 40)
+        self.assertEqual(len(report['leakage_group_exposures']), 3)
+        self.assertEqual(report['consecutive_same_matter'], 0)
+        self.assertEqual(report['repeat_basis'], 'leakage_group_if_available')
+
     def test_seeded_shuffle_reproducible_and_different_seeds_differ(self):
         rows = fixtures()
         a, b, c = (Curriculum(rows, seed) for seed in (73, 73, 74))

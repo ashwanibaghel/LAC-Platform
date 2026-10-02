@@ -69,6 +69,8 @@ def validate_claims(payload, entries, task, *, intent=None):
         entry = entries[index]
         evidence = _source(entry)
         role, scope = entry['category'], entry['scope']
+        if role in ('COURT_FINDING', 'COURT_OBSERVATION', 'COURT_DIRECTION', 'RECORDED_COMPLIANCE') and party_speech(evidence):
+            raise ValueError('Semantic gate: party assertion cannot become judicial fact')
         if task == 'compliance_state':
             # Existing claims contract answers proof of performance, not an
             # unconstrained generated OPEN/COMPLETED state. Other state queries

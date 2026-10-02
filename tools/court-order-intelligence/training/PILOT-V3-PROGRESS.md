@@ -87,3 +87,54 @@ First train batch acquired four source records, not four independent matters:
 No fresh example has yet been promoted to VERIFIED_GOLD. Full page/relationship,
 native overlap, source-only actor/lifecycle and production-extractor checks remain.
 No V3 training launch; positive action and multi-order coverage gates not met yet.
+
+## Final-mission runtime proof checkpoint — 3 October 2026 (India)
+
+Actual Transformers 4.56.2 / Accelerate 1.10.1 CPU Trainer now consumes an
+immutable, finite Curriculum-selected map dataset through a SequentialSampler.
+Trainer alone skips consumed microbatches on resume; no generator cursor or
+double-skipping. Curriculum state saves at completed accumulation boundaries.
+Checkpoint state is verified against the original dataset fingerprint and index.
+
+Connected-case diversity uses leakage_group, not separate case numbers.
+Two actual CPU proof reports are retained; the v3.2 report is authoritative for
+the new group-aware curriculum. Both are SOFTWARE fixtures, not Court training.
+Continuous 80 steps/320 consumed samples match step-10 checkpoint/resume exactly.
+Simulated skipped update: 80 attempts/79 applied, accounting preserved on resume.
+Real CUDA GradScaler behavior and QLoRA fitting are NOT proven by this CPU test.
+Torch CPU 2.10.0 differs from Kaggle's pinned CUDA Torch 2.6.0; report this openly.
+No base model weights, network inference, GPU or real gold used in this proof.
+
+Proof exposure (320 software samples, NOT final V3 training budget):
+attribution 61, current-position 62, action 60, compliance 32, extraction 30,
+important-facts 33, date-QA 22, digest 20. Action positive/empty 45/15;
+date-QA 17/5. Three fixture leakage groups, zero consecutive group repeats.
+Final V3 exposure and budget remain unavailable until trustworthy gold is frozen.
+
+Semantic gate also rejects party assertions mislabeled judicial facts across
+digest/current-position/important-fact claims. Existing source/structural checks
+remain first; no gate weakening and no office runtime deployment.
+
+Acquired records now: 19 (9 train, 5 validation, 5 blind reservations), not 19
+independent verified groups. No acquired record is automatically gold.
+Holdout source review found 12473/2025 and 17094/2025 share petitioners and
+Award 02/2024/SW; possible related acquisition chain requires explicit review.
+Do not freeze them across validation/blind without resolving that relationship.
+Neither source may be moved to training. A new unrelated replacement may be
+reserved before freeze if necessary. Existing V1/V2 protected sets remain intact.
+
+**Pre-GPU decision: NO-GO.** Actual VERIFIED_GOLD counts remain zero:
+attribution shortfall 30 examples/10 groups; current-position shortfall 25/8;
+positive LAC-action shortfall 25. Fresh holdouts not frozen, positive blind
+coverage not yet proven, source-derived runtime lifecycle not bound, context
+audit and final budget not complete. No synthetic padding and no GPU launch.
+The new launch checklist refuses missing/under-threshold evidence, including a
+blind set with zero positive office actions. It is not by itself an independent
+gold audit or a claim that the future Kaggle launcher has already been wired.
+
+Remaining work: richer independent source chains; source-bound gold, lifecycle
+and attribution review; production-compatible context and semantic-gate proof;
+full protected native overlap; holdout positive coverage/freeze; token audit;
+final exposure/budget; allowlisted V3 Kaggle runner using CurriculumTrainer and
+launch gate. Then ONE run, four-system split-separated and Level-2 evaluation.
+Product integration waits until the authorized GPU fit is actually launched.

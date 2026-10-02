@@ -23,6 +23,14 @@ class V3SemanticGateTests(unittest.TestCase):
     def check(self, fact, task, **kwargs):
         return validate_claims({'claims': [{'factId': 0}]}, [fact], task, **kwargs)
 
+    def test_real_citation_party_assertion_not_judicial_fact_for_any_claim_task(self):
+        for task in ('order_digest', 'multi_order_current_position', 'important_fact_selection'):
+            for role in ('COURT_FINDING', 'COURT_DIRECTION', 'COURT_OBSERVATION'):
+                with self.subTest(task=task, role=role), self.assertRaises(ValueError):
+                    self.check(entry('The petitioner submits that compensation has not been paid.', role), task)
+        self.check(entry('The petitioner submits that compensation has not been paid.',
+                         'PETITIONER_SUBMISSION', 'compensation'), 'order_digest')
+
     def test_direction_time_promise_expiry_silence_not_completion(self):
         for text in ('LAC is directed to forward the reference within one month.',
                      'Time is granted to LAC to file the affidavit.',
