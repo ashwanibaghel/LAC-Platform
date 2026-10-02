@@ -1,0 +1,92 @@
+[
+  {
+    "id": "wpc5084-2018-attribute-0",
+    "reason": "Anchor 0 (COURT_DIRECTION/direction): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "cont418-2025-attribute-6",
+    "reason": "Anchor 0 (COURT_DIRECTION/direction): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc5645-2022-attribute-0",
+    "reason": "Anchor 2 (PROCEDURAL_EVENT/filing): Party submission must retain party attribution, not become an established fact",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-nov2025-attribute-0",
+    "reason": "Anchor 0 (COURT_DIRECTION/filing): Party submission must retain party attribution, not become an established fact",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-feb25-attribute-0",
+    "reason": "Anchor 1 (RECORDED_COMPLIANCE/compliance): Compliance requires an explicit obligation and recorded performance",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc13932-2025-feb03-attribute-0",
+    "reason": "Anchor 1 (RECORDED_COMPLIANCE/compliance): Compliance requires an explicit obligation and recorded performance",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc13932-2025-attribute-0",
+    "reason": "Anchor 3 (PROCEDURAL_EVENT/context): Party submission must retain party attribution, not become an established fact",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-feb2020-attribute-0",
+    "reason": "Anchor 2 (COURT_DIRECTION/filing): Direction excerpt drops nearby party-submission attribution",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-apr2022-attribute-0",
+    "reason": "Anchor 1 (COURT_DIRECTION/filing): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-attribute-0",
+    "reason": "Anchor 1 (COURT_OBSERVATION/observation): Direction excerpt drops nearby party-submission attribution",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-attribute-0",
+    "reason": "Anchor 1 (COURT_DIRECTION/filing): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4255-2016-attribute-0",
+    "reason": "Anchor 1 (COURT_DIRECTION/filing): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc9093-2022-feb09-attribute-0",
+    "reason": "Anchor 2 (COURT_DIRECTION/direction): Submission or nonoperative text cannot authorize a Court direction",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc14785-2023-attribute-0",
+    "reason": "Anchor 1 (COURT_DIRECTION/filing): Party submission must retain party attribution, not become an established fact",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4644-2024-attribute-0",
+    "reason": "Anchor 1 (COURT_DIRECTION/filing): Party submission must retain party attribution, not become an established fact",
+    "state": "QUARANTINED",
+    "truthful_labels_changed": false
+  }
+]

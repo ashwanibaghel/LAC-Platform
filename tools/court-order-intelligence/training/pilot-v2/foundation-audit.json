@@ -1,0 +1,1669 @@
+{
+  "acquired_matters": 28,
+  "acquired_sources": 48,
+  "final_training_examples": 0,
+  "gates_remaining": [
+    "independent question/target annotation",
+    "additional substantive order chains",
+    "complete fresh validation/blind source review",
+    "full leakage-group freeze",
+    "runtime-gold compatibility",
+    "pinned tokenizer context audit"
+  ],
+  "ledger": {
+    "cont1094-2026": {
+      "all_pages_read": true,
+      "case": "CONT.CAS(C) 1094/2026",
+      "native_pages_sha256": "3ebfd1441b373c25caf09fa2d55f7b9f160857f94e7790ce269609c7b88c3852",
+      "order_date": "2026-07-03",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 10546/2023"
+      ],
+      "sha256": "0d8f552e83b97958feacb3f4245eb6aad3954fdc6d9a48db720f52a1990e0e02",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1783165046_1a3ff4ffd7f6d48f_592_10942026.pdf/2026"
+    },
+    "cont418-2025": {
+      "all_pages_read": true,
+      "case": "CONT.CAS(C) 418/2025",
+      "native_pages_sha256": "f56c7c7172f653f511ce86629b272514f814f8f8de0302b3298e6a15e74179fc",
+      "order_date": "2026-07-13",
+      "pages": 4,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 5437/2019"
+      ],
+      "sha256": "45202727b324628641dc437743dec745308d8d2440f37a43fd01a36da251f90d",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1784191545_3e4f55daf06c51cb_592_4182025.pdf/2026"
+    },
+    "wpc13932-2025": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 13932/2025",
+      "native_pages_sha256": "377c60931f335b3d729fa0172b722b355ec91a2d6893e29f90d50827254feeed",
+      "order_date": "2026-08-21",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 13932/2025"
+      ],
+      "sha256": "01882f9865a5d47299c692abd70f779d2737d3e86b91171738f2313c0e818bbb",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1787567200_6d1a0db3d55c9639_593_139322025.pdf/2026"
+    },
+    "wpc13932-2025-feb03": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 13932/2025",
+      "native_pages_sha256": "603c01f4135c2b84e82d38e55fb622689834480194325543eeedad6d832e94eb",
+      "order_date": "2026-02-03",
+      "pages": 3,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 13932/2025"
+      ],
+      "sha256": "708f26719c8eed9f8f7098ee3bf7693c7acd69e0233f701c0d4da2940db6cb75",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/13932/2025/03-02-2026"
+    },
+    "wpc13932-2025-sep2025": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 13932/2025",
+      "native_pages_sha256": "b29f61f4a114337769734fcf48975a595ebfc07b25b9c4ec8dd7f00948660b7b",
+      "order_date": "2025-09-10",
+      "pages": 3,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 13932/2025",
+        "W.P.(C) 8415/2014"
+      ],
+      "sha256": "8e7f311d2aeb7c40570a2dd232a9c82e5211e4d3b6a7c5d51f925287b26ebe53",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/13932/2025/10-09-2025"
+    },
+    "wpc14785-2023": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 14785/2023",
+      "native_pages_sha256": "9144e8dd2219de12b767a6ad6a631a2fa1d2296afba940ab9ffc95af2d8d43a4",
+      "order_date": "2026-09-01",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 14785/2023"
+      ],
+      "sha256": "ab21f8592832a3a6c5c6e3f898c08b845cd682640ca630043916fc1d58897524",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1788349036_3b3f88343fe81b6a_593_147852023.pdf/2026"
+    },
+    "wpc4255-2016": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 4255/2016",
+      "native_pages_sha256": "dfda8f53b02832de8b5bbb51c02f5b09fb9a44e8686c7a928824f59350c7b022",
+      "order_date": "2026-04-06",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 4255/2016"
+      ],
+      "sha256": "c3e7ea9b6e19ac12b041706b9976bb6052b1201e0deb81b3ae540878eb6ecca6",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1775818888_71d2234172a3ccc0_670_42552016.pdf/2026"
+    },
+    "wpc4644-2024": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 4644/2024",
+      "native_pages_sha256": "6c95f5a21522913165527afa1b4965f8c2782cc4a4ae2444052aa1d2b36eb946",
+      "order_date": "2026-02-23",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 4644/2024"
+      ],
+      "sha256": "4d3571272873d86d04dc7397551139e9f3bda4bfcd013b632f56945712f7827e",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1771934314_d5773198fb29b5a7_pms_46442024.pdf/2026"
+    },
+    "wpc4806-2014": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 4806/2014",
+      "native_pages_sha256": "2cb6ec303d1d120b481c3f61bde5e1ac6e5cdd55c0c04c3bdfa64799d7a09cba",
+      "order_date": "2026-02-07",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "sha256": "2072b287075f94daa88a2470f6b15f8156a39c9c26932a25eeb5f67873976487",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1770647202_0b3b6337f7d44c3b_755_48062014.pdf/2026"
+    },
+    "wpc4806-2014-apr2022": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 4806/2014",
+      "native_pages_sha256": "90f9b2c0d0c32f7c862ccda5f0ba66ccb0a9ca503614a177f2dd19fe9b6a44f7",
+      "order_date": "2022-04-11",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "sha256": "9859e4853944e89a270c8952f57bb49734896190188813e323e1d8c03a4cb0ad",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/4806/2014/11-04-2022"
+    },
+    "wpc4806-2014-feb2020": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 4806/2014",
+      "native_pages_sha256": "48d3788c89b037a3bbaf210f710d45d88a0400af6dfa60f770abfc4393b14085",
+      "order_date": "2020-02-04",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "sha256": "ee08cc854ebee6281091f54dd3bae528ef7ded425065a87b062ddaac9fd227f6",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/4806/2014/04-02-2020"
+    },
+    "wpc5084-2018": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 5084/2018",
+      "native_pages_sha256": "c3eee3690b8f20e913ba0a86103f1c725779f25bffc30a714f1fd861f699cac1",
+      "order_date": "2026-08-25",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ],
+      "sha256": "8d238a4d01f08cb6bebdb1ee7bc45f55cc4ca2693c31662e5591c972476fb733",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1787837833_bdd90bd4752e7cba_pms_50842018.pdf/2026"
+    },
+    "wpc5084-2018-nov2020": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 5084/2018",
+      "native_pages_sha256": "2c4af3b228a445f74a612199cb543c2a3d5b10a3a43e7d330a8b4c276ae8903a",
+      "order_date": "2020-11-24",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ],
+      "sha256": "9dc9b3ef2d0838a7d715b9190fa59cbd59c9c41c7a8cb7c694c275deb94d464e",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/5084/2018/24-11-2020"
+    },
+    "wpc5645-2022": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 5645/2022",
+      "native_pages_sha256": "3585e5f8d9844784694ff01c8bcf019026006f77c754a5a15a811f0789c708a8",
+      "order_date": "2026-05-07",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 5645/2022"
+      ],
+      "sha256": "c3025a658aa40db9b4c3d1a228b7d80c9e3587c3f2859bc10d034a596de973e1",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1778234502_f72aa58932693dbf_755_56452022.pdf/2026"
+    },
+    "wpc6108-2015": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 6108/2015",
+      "native_pages_sha256": "3aca37b99698096eb74c5493ce73b7445f53f0b4a5aba5987af0869a37b948a7",
+      "order_date": "2026-03-20",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 6108/2015"
+      ],
+      "sha256": "0135056ad01f47d3685d49126fd3a11090ddcef67f8054680ef3df7a3accfc16",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1774612415_ac4e049598da08ce_670_61082015.pdf/2026"
+    },
+    "wpc6108-2015-feb25": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 6108/2015",
+      "native_pages_sha256": "63b4658368b77d94039e85f150692f07d6729fc29f19e8a6d50ae1f1548fb169",
+      "order_date": "2026-02-25",
+      "pages": 44,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1032/2016",
+        "W.P.(C) 10648/2015",
+        "W.P.(C) 10671/2016",
+        "W.P.(C) 11/2015",
+        "W.P.(C) 11178/2016",
+        "W.P.(C) 11355/2017",
+        "W.P.(C) 11462/2015",
+        "W.P.(C) 11469/2016",
+        "W.P.(C) 11625/2015",
+        "W.P.(C) 1174/2017",
+        "W.P.(C) 1199/2017",
+        "W.P.(C) 12002/2015",
+        "W.P.(C) 1203/2017",
+        "W.P.(C) 12040/2015",
+        "W.P.(C) 12042/2016",
+        "W.P.(C) 12124/2015",
+        "W.P.(C) 12131/2015",
+        "W.P.(C) 12180/2016",
+        "W.P.(C) 1390/2017",
+        "W.P.(C) 1391/2017",
+        "W.P.(C) 1393/2017",
+        "W.P.(C) 1454/2015",
+        "W.P.(C) 147/2015",
+        "W.P.(C) 15411/2025",
+        "W.P.(C) 1543/2018",
+        "W.P.(C) 177/2015",
+        "W.P.(C) 1934/2017",
+        "W.P.(C) 195/2015",
+        "W.P.(C) 1980/2015",
+        "W.P.(C) 1985/2015",
+        "W.P.(C) 1987/2015",
+        "W.P.(C) 2051/2015",
+        "W.P.(C) 2121/2002",
+        "W.P.(C) 2204/2015",
+        "W.P.(C) 2297/2016",
+        "W.P.(C) 2465/2015",
+        "W.P.(C) 2472/2015",
+        "W.P.(C) 2481/2016",
+        "W.P.(C) 26/2018",
+        "W.P.(C) 2611/2015",
+        "W.P.(C) 2656/2015",
+        "W.P.(C) 2674/2017",
+        "W.P.(C) 2680/2015",
+        "W.P.(C) 2723/2015",
+        "W.P.(C) 2804/2015",
+        "W.P.(C) 2827/2014",
+        "W.P.(C) 2840/2015",
+        "W.P.(C) 2867/2015",
+        "W.P.(C) 2869/2015",
+        "W.P.(C) 2913/2016",
+        "W.P.(C) 2921/2016",
+        "W.P.(C) 2949/2015",
+        "W.P.(C) 2988/2016",
+        "W.P.(C) 2994/2016",
+        "W.P.(C) 2995/2016",
+        "W.P.(C) 2996/2016",
+        "W.P.(C) 3030/2015",
+        "W.P.(C) 3304/2016",
+        "W.P.(C) 3431/2015",
+        "W.P.(C) 3659/2016",
+        "W.P.(C) 3699/2016",
+        "W.P.(C) 3714/2015",
+        "W.P.(C) 3734/2016",
+        "W.P.(C) 3859/2015",
+        "W.P.(C) 3903/2015",
+        "W.P.(C) 3911/2017",
+        "W.P.(C) 4060/2013",
+        "W.P.(C) 4082/2017",
+        "W.P.(C) 4192/2015",
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015",
+        "W.P.(C) 4324/2016",
+        "W.P.(C) 4330/2015",
+        "W.P.(C) 4427/2016",
+        "W.P.(C) 4552/2015",
+        "W.P.(C) 4566/2015",
+        "W.P.(C) 4621/2014",
+        "W.P.(C) 4771/2016",
+        "W.P.(C) 484/2016",
+        "W.P.(C) 49/2015",
+        "W.P.(C) 4989/2015",
+        "W.P.(C) 5162/2016",
+        "W.P.(C) 5225/2015",
+        "W.P.(C) 5260/2015",
+        "W.P.(C) 5270/2015",
+        "W.P.(C) 5565/2014",
+        "W.P.(C) 5679/2014",
+        "W.P.(C) 5768/2014",
+        "W.P.(C) 5877/2017",
+        "W.P.(C) 6036/2016",
+        "W.P.(C) 6104/2016",
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 6316/2014",
+        "W.P.(C) 6350/2014",
+        "W.P.(C) 6374/2014",
+        "W.P.(C) 6380/2014",
+        "W.P.(C) 6405/2014",
+        "W.P.(C) 6551/2014",
+        "W.P.(C) 6565/2015",
+        "W.P.(C) 6604/2014",
+        "W.P.(C) 6617/2014",
+        "W.P.(C) 67/2015",
+        "W.P.(C) 6714/2014",
+        "W.P.(C) 6766/2015",
+        "W.P.(C) 6798/2017",
+        "W.P.(C) 6801/2014",
+        "W.P.(C) 6932/2015",
+        "W.P.(C) 6954/2015",
+        "W.P.(C) 7296/2016",
+        "W.P.(C) 7356/2016",
+        "W.P.(C) 7364/2015",
+        "W.P.(C) 7391/2016",
+        "W.P.(C) 7442/2015",
+        "W.P.(C) 7470/2014",
+        "W.P.(C) 7524/2014",
+        "W.P.(C) 7668/2014",
+        "W.P.(C) 7678/2015",
+        "W.P.(C) 7699/2014",
+        "W.P.(C) 7701/2015",
+        "W.P.(C) 7731/2015",
+        "W.P.(C) 7801/2014",
+        "W.P.(C) 7807/2014",
+        "W.P.(C) 7830/2015",
+        "W.P.(C) 7851/2014",
+        "W.P.(C) 7887/2014",
+        "W.P.(C) 7893/2014",
+        "W.P.(C) 7901/2014",
+        "W.P.(C) 7911/2014",
+        "W.P.(C) 7925/2014",
+        "W.P.(C) 7963/2015",
+        "W.P.(C) 8058/2017",
+        "W.P.(C) 8075/2017",
+        "W.P.(C) 8100/2014",
+        "W.P.(C) 8122/2014",
+        "W.P.(C) 8130/2016",
+        "W.P.(C) 8138/2016",
+        "W.P.(C) 8140/2017",
+        "W.P.(C) 8194/2017",
+        "W.P.(C) 8265/2014",
+        "W.P.(C) 8406/2015",
+        "W.P.(C) 8469/2014",
+        "W.P.(C) 8475/2014",
+        "W.P.(C) 8478/2017",
+        "W.P.(C) 8479/2014",
+        "W.P.(C) 8517/2015",
+        "W.P.(C) 8526/2014",
+        "W.P.(C) 8540/2014",
+        "W.P.(C) 857/2015",
+        "W.P.(C) 8593/2014",
+        "W.P.(C) 8649/2015",
+        "W.P.(C) 8657/2014",
+        "W.P.(C) 8674/2014",
+        "W.P.(C) 8713/2014",
+        "W.P.(C) 8758/2017",
+        "W.P.(C) 8867/2014",
+        "W.P.(C) 9011/2015",
+        "W.P.(C) 9023/2015",
+        "W.P.(C) 9247/2017",
+        "W.P.(C) 9319/2014",
+        "W.P.(C) 9428/2017",
+        "W.P.(C) 9452/2015",
+        "W.P.(C) 9548/2015",
+        "W.P.(C) 9549/2015",
+        "W.P.(C) 960/2015",
+        "W.P.(C) 9912/2017"
+      ],
+      "sha256": "7fcd86b9d84ee4f82779b29c512aed55a4d3a3d055bdbcb5c64cd83751db73ee",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6108/2015/25-02-2026"
+    },
+    "wpc6108-2015-nov2025": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 6108/2015",
+      "native_pages_sha256": "8dddc2207b9a0782370a37d97a0b5ed7417325128969cb2544a2f4027f498505",
+      "order_date": "2025-11-11",
+      "pages": 45,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 10648/2015",
+        "W.P.(C) 10671/2016",
+        "W.P.(C) 11/2015",
+        "W.P.(C) 11462/2015",
+        "W.P.(C) 11469/2016",
+        "W.P.(C) 11625/2015",
+        "W.P.(C) 1174/2017",
+        "W.P.(C) 1199/2017",
+        "W.P.(C) 12002/2015",
+        "W.P.(C) 1203/2017",
+        "W.P.(C) 12040/2015",
+        "W.P.(C) 12042/2016",
+        "W.P.(C) 12131/2015",
+        "W.P.(C) 12180/2016",
+        "W.P.(C) 1390/2017",
+        "W.P.(C) 1391/2017",
+        "W.P.(C) 147/2015",
+        "W.P.(C) 15411/2025",
+        "W.P.(C) 1543/2018",
+        "W.P.(C) 1934/2017",
+        "W.P.(C) 1980/2015",
+        "W.P.(C) 1985/2015",
+        "W.P.(C) 1987/2015",
+        "W.P.(C) 2051/2015",
+        "W.P.(C) 2121/2002",
+        "W.P.(C) 2204/2015",
+        "W.P.(C) 2297/2016",
+        "W.P.(C) 2472/2015",
+        "W.P.(C) 2481/2016",
+        "W.P.(C) 26/2018",
+        "W.P.(C) 2611/2015",
+        "W.P.(C) 2656/2015",
+        "W.P.(C) 2674/2017",
+        "W.P.(C) 2680/2015",
+        "W.P.(C) 2723/2015",
+        "W.P.(C) 2804/2015",
+        "W.P.(C) 2840/2015",
+        "W.P.(C) 2869/2015",
+        "W.P.(C) 2913/2016",
+        "W.P.(C) 2921/2016",
+        "W.P.(C) 2949/2015",
+        "W.P.(C) 2988/2016",
+        "W.P.(C) 2994/2016",
+        "W.P.(C) 2995/2016",
+        "W.P.(C) 2996/2016",
+        "W.P.(C) 3030/2015",
+        "W.P.(C) 316/2017",
+        "W.P.(C) 3304/2016",
+        "W.P.(C) 3431/2015",
+        "W.P.(C) 3659/2016",
+        "W.P.(C) 3699/2016",
+        "W.P.(C) 3714/2015",
+        "W.P.(C) 3734/2016",
+        "W.P.(C) 3859/2015",
+        "W.P.(C) 3903/2015",
+        "W.P.(C) 3911/2017",
+        "W.P.(C) 4060/2013",
+        "W.P.(C) 4082/2017",
+        "W.P.(C) 4192/2015",
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015",
+        "W.P.(C) 4324/2016",
+        "W.P.(C) 4330/2015",
+        "W.P.(C) 4427/2016",
+        "W.P.(C) 4552/2015",
+        "W.P.(C) 4566/2015",
+        "W.P.(C) 4621/2014",
+        "W.P.(C) 4771/2016",
+        "W.P.(C) 484/2016",
+        "W.P.(C) 49/2015",
+        "W.P.(C) 4989/2015",
+        "W.P.(C) 5225/2015",
+        "W.P.(C) 5260/2015",
+        "W.P.(C) 5270/2015",
+        "W.P.(C) 5679/2014",
+        "W.P.(C) 5768/2014",
+        "W.P.(C) 5877/2017",
+        "W.P.(C) 6036/2016",
+        "W.P.(C) 6104/2016",
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 6316/2014",
+        "W.P.(C) 6350/2014",
+        "W.P.(C) 6374/2014",
+        "W.P.(C) 6380/2014",
+        "W.P.(C) 6405/2014",
+        "W.P.(C) 6551/2014",
+        "W.P.(C) 6565/2015",
+        "W.P.(C) 6604/2014",
+        "W.P.(C) 6617/2014",
+        "W.P.(C) 67/2015",
+        "W.P.(C) 6714/2014",
+        "W.P.(C) 6766/2015",
+        "W.P.(C) 6798/2017",
+        "W.P.(C) 6801/2014",
+        "W.P.(C) 6932/2015",
+        "W.P.(C) 6954/2015",
+        "W.P.(C) 7296/2016",
+        "W.P.(C) 7356/2016",
+        "W.P.(C) 7364/2015",
+        "W.P.(C) 7391/2016",
+        "W.P.(C) 7442/2015",
+        "W.P.(C) 7470/2014",
+        "W.P.(C) 7668/2014",
+        "W.P.(C) 7678/2015",
+        "W.P.(C) 7699/2014",
+        "W.P.(C) 7701/2015",
+        "W.P.(C) 7731/2015",
+        "W.P.(C) 7801/2014",
+        "W.P.(C) 7807/2014",
+        "W.P.(C) 7851/2014",
+        "W.P.(C) 7887/2014",
+        "W.P.(C) 7893/2014",
+        "W.P.(C) 7901/2014",
+        "W.P.(C) 7911/2014",
+        "W.P.(C) 7925/2014",
+        "W.P.(C) 7963/2015",
+        "W.P.(C) 8058/2017",
+        "W.P.(C) 8075/2017",
+        "W.P.(C) 8100/2014",
+        "W.P.(C) 8122/2014",
+        "W.P.(C) 8130/2016",
+        "W.P.(C) 8138/2016",
+        "W.P.(C) 8140/2017",
+        "W.P.(C) 8194/2017",
+        "W.P.(C) 8265/2014",
+        "W.P.(C) 8406/2015",
+        "W.P.(C) 8469/2014",
+        "W.P.(C) 8478/2017",
+        "W.P.(C) 8479/2014",
+        "W.P.(C) 8517/2015",
+        "W.P.(C) 8526/2014",
+        "W.P.(C) 8540/2014",
+        "W.P.(C) 857/2015",
+        "W.P.(C) 8593/2014",
+        "W.P.(C) 8649/2015",
+        "W.P.(C) 8657/2014",
+        "W.P.(C) 8674/2014",
+        "W.P.(C) 8713/2014",
+        "W.P.(C) 8758/2017",
+        "W.P.(C) 9011/2015",
+        "W.P.(C) 9023/2015",
+        "W.P.(C) 9247/2017",
+        "W.P.(C) 9428/2017",
+        "W.P.(C) 9452/2015",
+        "W.P.(C) 9548/2015",
+        "W.P.(C) 9549/2015",
+        "W.P.(C) 960/2015",
+        "W.P.(C) 9912/2017"
+      ],
+      "sha256": "d446fefccfd1952d67039a469132ae35b18f6e0b6187d8b958d2c08f8053838c",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6108/2015/11-11-2025"
+    },
+    "wpc9093-2022": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 9093/2022",
+      "native_pages_sha256": "887a0b4cfd82c4a2c7a976dbdd5063fb78e07d4f31695dd8a2e42e5aeffb1747",
+      "order_date": "2026-08-24",
+      "pages": 4,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "sha256": "b7dffc38aa54111bcf9d8079f32096cfed7f0ee6d4cb5d8e99ac96233c7918f5",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1787665216_627ab2f60ed25c6e_pms_90932022.pdf/2026"
+    },
+    "wpc9093-2022-apr2024": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 9093/2022",
+      "native_pages_sha256": "4bf1b0d17b68fc07144d5c2d19f9d8c1f692910609d49753114e9cfbbd8e3c85",
+      "order_date": "2024-04-08",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "sha256": "f16a76a6c7dd46704dd83f3d2dc845a74313eb737537f9a022ca0b59ad7e4652",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/9093/2022/08-04-2024"
+    },
+    "wpc9093-2022-feb09": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 9093/2022",
+      "native_pages_sha256": "32e1c7530cb921c6de49839a8f010d16399d69ffca38ea1e23160fca80aefbaf",
+      "order_date": "2026-02-09",
+      "pages": 2,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "sha256": "b2322d562c8ef17184d457f63af210af917c7254b2f08112f0b4bbac0801ba97",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/9093/2022/09-02-2026"
+    },
+    "wpc9889-2024": {
+      "all_pages_read": true,
+      "case": "W.P.(C) 9889/2024",
+      "native_pages_sha256": "ed16043cf885c4a7bf4ee97d22749b511cb39fcd840d43df032e1a75033ea11a",
+      "order_date": "2025-12-12",
+      "pages": 1,
+      "pdf_retained": false,
+      "related_identities": [
+        "W.P.(C) 9889/2024"
+      ],
+      "sha256": "df973992c8acbf1c23a836a3cae42f24a8ec82547bddddc023d214952ca97542",
+      "split": "train",
+      "state": "SOURCE_PASSAGES_REVIEWED_NOT_FINAL_TRAINING_GOLD",
+      "url": "https://delhihighcourt.nic.in/app/showlogo/1765800083_5aae0144a82b657e_597_98892024.pdf/2025"
+    }
+  },
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "phase": "V2_SOURCE_FOUNDATION_IN_PROGRESS",
+  "positive_lac_passages": 13,
+  "protected_matters": [
+    "W.P.(C) 10105/2023",
+    "W.P.(C) 11284/2026",
+    "W.P.(C) 14604/2025",
+    "W.P.(C) 16215/2023",
+    "W.P.(C) 2686/2018",
+    "W.P.(C) 3238/2023",
+    "W.P.(C) 3282/2024",
+    "W.P.(C) 5796/2026",
+    "W.P.(C) 5993/2024",
+    "W.P.(C) 6203/2026",
+    "W.P.(C) 6384/2024",
+    "W.P.(C) 6504/2023",
+    "W.P.(C) 7817/2017",
+    "W.P.(C) 8404/2024",
+    "W.P.(C) 847/2025",
+    "W.P.(C) 8664/2021",
+    "W.P.(C) 940/2015"
+  ],
+  "quarantined": [
+    {
+      "id": "wpc12994-2023-deadline",
+      "reason": "January 2026 order twice says February 2025; do not silently repair deadline."
+    },
+    {
+      "id": "wpc10105-2023-blind-gold",
+      "reason": "Four official source versions acquired; reserved blind gold annotation and leakage audit remain pending. Never promote to training."
+    }
+  ],
+  "reviewed_matters": 12,
+  "reviewed_passages": 94,
+  "reviewed_sources": 21,
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "roles": {
+    "CASE_CONTEXT": 4,
+    "COURT_DIRECTION": 48,
+    "COURT_FINDING": 1,
+    "COURT_OBSERVATION": 4,
+    "DOCUMENT_OR_FILING_FACT": 3,
+    "LAC_OR_RESPONDENT_SUBMISSION": 8,
+    "OTHER_PARTY_SUBMISSION": 3,
+    "PETITIONER_SUBMISSION": 12,
+    "PROCEDURAL_EVENT": 9,
+    "RECORDED_COMPLIANCE": 2
+  },
+  "scopes": {
+    "Current": 88,
+    "Historical": 5,
+    "Quoted": 1
+  },
+  "source_relationships": [
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023",
+        "wpc10105-2023-dec2024"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023",
+        "wpc10105-2023-jul2025"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023",
+        "wpc10105-2023-may2025"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023-dec2024",
+        "wpc10105-2023-jul2025"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023-dec2024",
+        "wpc10105-2023-may2025"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10105/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc10105-2023-jul2025",
+        "wpc10105-2023-may2025"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 13932/2025"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc13932-2025",
+        "wpc13932-2025-feb03"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 13932/2025"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc13932-2025",
+        "wpc13932-2025-sep2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 13932/2025"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc13932-2025-feb03",
+        "wpc13932-2025-sep2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 2085/2024"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc2085-2024",
+        "wpc2085-2024-dec2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 3282/2024"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc3282-2024",
+        "wpc3282-2024-sep2026"
+      ],
+      "split": "blind"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4255/2016"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016",
+        "wpc4255-2016-feb25"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [],
+      "near_duplicate_body": true,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016",
+        "wpc6108-2015"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4255/2016"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016",
+        "wpc6108-2015-feb25"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4255/2016"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016",
+        "wpc6108-2015-nov2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6108/2015"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016-feb25",
+        "wpc6108-2015"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1032/2016",
+        "W.P.(C) 10648/2015",
+        "W.P.(C) 10671/2016",
+        "W.P.(C) 11/2015",
+        "W.P.(C) 11178/2016",
+        "W.P.(C) 11355/2017",
+        "W.P.(C) 11462/2015",
+        "W.P.(C) 11469/2016",
+        "W.P.(C) 11625/2015",
+        "W.P.(C) 1174/2017",
+        "W.P.(C) 1199/2017",
+        "W.P.(C) 12002/2015",
+        "W.P.(C) 1203/2017",
+        "W.P.(C) 12040/2015",
+        "W.P.(C) 12042/2016",
+        "W.P.(C) 12124/2015",
+        "W.P.(C) 12131/2015",
+        "W.P.(C) 12180/2016",
+        "W.P.(C) 1390/2017",
+        "W.P.(C) 1391/2017",
+        "W.P.(C) 1393/2017",
+        "W.P.(C) 1454/2015",
+        "W.P.(C) 147/2015",
+        "W.P.(C) 15411/2025",
+        "W.P.(C) 1543/2018",
+        "W.P.(C) 177/2015",
+        "W.P.(C) 1934/2017",
+        "W.P.(C) 195/2015",
+        "W.P.(C) 1980/2015",
+        "W.P.(C) 1985/2015",
+        "W.P.(C) 1987/2015",
+        "W.P.(C) 2051/2015",
+        "W.P.(C) 2121/2002",
+        "W.P.(C) 2204/2015",
+        "W.P.(C) 2297/2016",
+        "W.P.(C) 2465/2015",
+        "W.P.(C) 2472/2015",
+        "W.P.(C) 2481/2016",
+        "W.P.(C) 26/2018",
+        "W.P.(C) 2611/2015",
+        "W.P.(C) 2656/2015",
+        "W.P.(C) 2674/2017",
+        "W.P.(C) 2680/2015",
+        "W.P.(C) 2723/2015",
+        "W.P.(C) 2804/2015",
+        "W.P.(C) 2827/2014",
+        "W.P.(C) 2840/2015",
+        "W.P.(C) 2867/2015",
+        "W.P.(C) 2869/2015",
+        "W.P.(C) 2913/2016",
+        "W.P.(C) 2921/2016",
+        "W.P.(C) 2949/2015",
+        "W.P.(C) 2988/2016",
+        "W.P.(C) 2994/2016",
+        "W.P.(C) 2995/2016",
+        "W.P.(C) 2996/2016",
+        "W.P.(C) 3030/2015",
+        "W.P.(C) 3304/2016",
+        "W.P.(C) 3431/2015",
+        "W.P.(C) 3659/2016",
+        "W.P.(C) 3699/2016",
+        "W.P.(C) 3714/2015",
+        "W.P.(C) 3734/2016",
+        "W.P.(C) 3859/2015",
+        "W.P.(C) 3903/2015",
+        "W.P.(C) 3911/2017",
+        "W.P.(C) 4060/2013",
+        "W.P.(C) 4082/2017",
+        "W.P.(C) 4192/2015",
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015",
+        "W.P.(C) 4324/2016",
+        "W.P.(C) 4330/2015",
+        "W.P.(C) 4427/2016",
+        "W.P.(C) 4552/2015",
+        "W.P.(C) 4566/2015",
+        "W.P.(C) 4621/2014",
+        "W.P.(C) 4771/2016",
+        "W.P.(C) 484/2016",
+        "W.P.(C) 49/2015",
+        "W.P.(C) 4989/2015",
+        "W.P.(C) 5162/2016",
+        "W.P.(C) 5225/2015",
+        "W.P.(C) 5260/2015",
+        "W.P.(C) 5270/2015",
+        "W.P.(C) 5565/2014",
+        "W.P.(C) 5679/2014",
+        "W.P.(C) 5768/2014",
+        "W.P.(C) 5877/2017",
+        "W.P.(C) 6036/2016",
+        "W.P.(C) 6104/2016",
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 6316/2014",
+        "W.P.(C) 6350/2014",
+        "W.P.(C) 6374/2014",
+        "W.P.(C) 6380/2014",
+        "W.P.(C) 6405/2014",
+        "W.P.(C) 6551/2014",
+        "W.P.(C) 6565/2015",
+        "W.P.(C) 6604/2014",
+        "W.P.(C) 6617/2014",
+        "W.P.(C) 67/2015",
+        "W.P.(C) 6714/2014",
+        "W.P.(C) 6766/2015",
+        "W.P.(C) 6798/2017",
+        "W.P.(C) 6801/2014",
+        "W.P.(C) 6932/2015",
+        "W.P.(C) 6954/2015",
+        "W.P.(C) 7296/2016",
+        "W.P.(C) 7356/2016",
+        "W.P.(C) 7364/2015",
+        "W.P.(C) 7391/2016",
+        "W.P.(C) 7442/2015",
+        "W.P.(C) 7470/2014",
+        "W.P.(C) 7524/2014",
+        "W.P.(C) 7668/2014",
+        "W.P.(C) 7678/2015",
+        "W.P.(C) 7699/2014",
+        "W.P.(C) 7701/2015",
+        "W.P.(C) 7731/2015",
+        "W.P.(C) 7801/2014",
+        "W.P.(C) 7807/2014",
+        "W.P.(C) 7830/2015",
+        "W.P.(C) 7851/2014",
+        "W.P.(C) 7887/2014",
+        "W.P.(C) 7893/2014",
+        "W.P.(C) 7901/2014",
+        "W.P.(C) 7911/2014",
+        "W.P.(C) 7925/2014",
+        "W.P.(C) 7963/2015",
+        "W.P.(C) 8058/2017",
+        "W.P.(C) 8075/2017",
+        "W.P.(C) 8100/2014",
+        "W.P.(C) 8122/2014",
+        "W.P.(C) 8130/2016",
+        "W.P.(C) 8138/2016",
+        "W.P.(C) 8140/2017",
+        "W.P.(C) 8194/2017",
+        "W.P.(C) 8265/2014",
+        "W.P.(C) 8406/2015",
+        "W.P.(C) 8469/2014",
+        "W.P.(C) 8475/2014",
+        "W.P.(C) 8478/2017",
+        "W.P.(C) 8479/2014",
+        "W.P.(C) 8517/2015",
+        "W.P.(C) 8526/2014",
+        "W.P.(C) 8540/2014",
+        "W.P.(C) 857/2015",
+        "W.P.(C) 8593/2014",
+        "W.P.(C) 8649/2015",
+        "W.P.(C) 8657/2014",
+        "W.P.(C) 8674/2014",
+        "W.P.(C) 8713/2014",
+        "W.P.(C) 8758/2017",
+        "W.P.(C) 8867/2014",
+        "W.P.(C) 9011/2015",
+        "W.P.(C) 9023/2015",
+        "W.P.(C) 9247/2017",
+        "W.P.(C) 9319/2014",
+        "W.P.(C) 9428/2017",
+        "W.P.(C) 9452/2015",
+        "W.P.(C) 9548/2015",
+        "W.P.(C) 9549/2015",
+        "W.P.(C) 960/2015",
+        "W.P.(C) 9912/2017"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016-feb25",
+        "wpc6108-2015-feb25"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 10648/2015",
+        "W.P.(C) 10671/2016",
+        "W.P.(C) 11/2015",
+        "W.P.(C) 11462/2015",
+        "W.P.(C) 11469/2016",
+        "W.P.(C) 11625/2015",
+        "W.P.(C) 1174/2017",
+        "W.P.(C) 1199/2017",
+        "W.P.(C) 12002/2015",
+        "W.P.(C) 1203/2017",
+        "W.P.(C) 12040/2015",
+        "W.P.(C) 12042/2016",
+        "W.P.(C) 12131/2015",
+        "W.P.(C) 12180/2016",
+        "W.P.(C) 1390/2017",
+        "W.P.(C) 1391/2017",
+        "W.P.(C) 147/2015",
+        "W.P.(C) 15411/2025",
+        "W.P.(C) 1543/2018",
+        "W.P.(C) 1934/2017",
+        "W.P.(C) 1980/2015",
+        "W.P.(C) 1985/2015",
+        "W.P.(C) 1987/2015",
+        "W.P.(C) 2051/2015",
+        "W.P.(C) 2121/2002",
+        "W.P.(C) 2204/2015",
+        "W.P.(C) 2297/2016",
+        "W.P.(C) 2472/2015",
+        "W.P.(C) 2481/2016",
+        "W.P.(C) 26/2018",
+        "W.P.(C) 2611/2015",
+        "W.P.(C) 2656/2015",
+        "W.P.(C) 2674/2017",
+        "W.P.(C) 2680/2015",
+        "W.P.(C) 2723/2015",
+        "W.P.(C) 2804/2015",
+        "W.P.(C) 2840/2015",
+        "W.P.(C) 2869/2015",
+        "W.P.(C) 2913/2016",
+        "W.P.(C) 2921/2016",
+        "W.P.(C) 2949/2015",
+        "W.P.(C) 2988/2016",
+        "W.P.(C) 2994/2016",
+        "W.P.(C) 2995/2016",
+        "W.P.(C) 2996/2016",
+        "W.P.(C) 3030/2015",
+        "W.P.(C) 3304/2016",
+        "W.P.(C) 3431/2015",
+        "W.P.(C) 3659/2016",
+        "W.P.(C) 3699/2016",
+        "W.P.(C) 3714/2015",
+        "W.P.(C) 3734/2016",
+        "W.P.(C) 3859/2015",
+        "W.P.(C) 3903/2015",
+        "W.P.(C) 3911/2017",
+        "W.P.(C) 4060/2013",
+        "W.P.(C) 4082/2017",
+        "W.P.(C) 4192/2015",
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015",
+        "W.P.(C) 4324/2016",
+        "W.P.(C) 4330/2015",
+        "W.P.(C) 4427/2016",
+        "W.P.(C) 4552/2015",
+        "W.P.(C) 4566/2015",
+        "W.P.(C) 4621/2014",
+        "W.P.(C) 4771/2016",
+        "W.P.(C) 484/2016",
+        "W.P.(C) 49/2015",
+        "W.P.(C) 4989/2015",
+        "W.P.(C) 5225/2015",
+        "W.P.(C) 5260/2015",
+        "W.P.(C) 5270/2015",
+        "W.P.(C) 5679/2014",
+        "W.P.(C) 5768/2014",
+        "W.P.(C) 5877/2017",
+        "W.P.(C) 6036/2016",
+        "W.P.(C) 6104/2016",
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 6316/2014",
+        "W.P.(C) 6350/2014",
+        "W.P.(C) 6374/2014",
+        "W.P.(C) 6380/2014",
+        "W.P.(C) 6405/2014",
+        "W.P.(C) 6551/2014",
+        "W.P.(C) 6565/2015",
+        "W.P.(C) 6604/2014",
+        "W.P.(C) 6617/2014",
+        "W.P.(C) 67/2015",
+        "W.P.(C) 6714/2014",
+        "W.P.(C) 6766/2015",
+        "W.P.(C) 6798/2017",
+        "W.P.(C) 6801/2014",
+        "W.P.(C) 6932/2015",
+        "W.P.(C) 6954/2015",
+        "W.P.(C) 7296/2016",
+        "W.P.(C) 7356/2016",
+        "W.P.(C) 7364/2015",
+        "W.P.(C) 7391/2016",
+        "W.P.(C) 7442/2015",
+        "W.P.(C) 7470/2014",
+        "W.P.(C) 7668/2014",
+        "W.P.(C) 7678/2015",
+        "W.P.(C) 7699/2014",
+        "W.P.(C) 7701/2015",
+        "W.P.(C) 7731/2015",
+        "W.P.(C) 7801/2014",
+        "W.P.(C) 7807/2014",
+        "W.P.(C) 7851/2014",
+        "W.P.(C) 7887/2014",
+        "W.P.(C) 7893/2014",
+        "W.P.(C) 7901/2014",
+        "W.P.(C) 7911/2014",
+        "W.P.(C) 7925/2014",
+        "W.P.(C) 7963/2015",
+        "W.P.(C) 8058/2017",
+        "W.P.(C) 8075/2017",
+        "W.P.(C) 8100/2014",
+        "W.P.(C) 8122/2014",
+        "W.P.(C) 8130/2016",
+        "W.P.(C) 8138/2016",
+        "W.P.(C) 8140/2017",
+        "W.P.(C) 8194/2017",
+        "W.P.(C) 8265/2014",
+        "W.P.(C) 8406/2015",
+        "W.P.(C) 8469/2014",
+        "W.P.(C) 8478/2017",
+        "W.P.(C) 8479/2014",
+        "W.P.(C) 8517/2015",
+        "W.P.(C) 8526/2014",
+        "W.P.(C) 8540/2014",
+        "W.P.(C) 857/2015",
+        "W.P.(C) 8593/2014",
+        "W.P.(C) 8649/2015",
+        "W.P.(C) 8657/2014",
+        "W.P.(C) 8674/2014",
+        "W.P.(C) 8713/2014",
+        "W.P.(C) 8758/2017",
+        "W.P.(C) 9011/2015",
+        "W.P.(C) 9023/2015",
+        "W.P.(C) 9247/2017",
+        "W.P.(C) 9428/2017",
+        "W.P.(C) 9452/2015",
+        "W.P.(C) 9548/2015",
+        "W.P.(C) 9549/2015",
+        "W.P.(C) 960/2015",
+        "W.P.(C) 9912/2017"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": false,
+      "same_sha": false,
+      "sources": [
+        "wpc4255-2016-feb25",
+        "wpc6108-2015-nov2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc4806-2014",
+        "wpc4806-2014-apr2022"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc4806-2014",
+        "wpc4806-2014-feb2020"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 4806/2014"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc4806-2014-apr2022",
+        "wpc4806-2014-feb2020"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc5084-2018",
+        "wpc5084-2018-jan2021"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc5084-2018",
+        "wpc5084-2018-nov2020"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc5084-2018-jan2021",
+        "wpc5084-2018-nov2020"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6108/2015"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6108-2015",
+        "wpc6108-2015-feb25"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6108/2015"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6108-2015",
+        "wpc6108-2015-nov2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 10648/2015",
+        "W.P.(C) 10671/2016",
+        "W.P.(C) 11/2015",
+        "W.P.(C) 11462/2015",
+        "W.P.(C) 11469/2016",
+        "W.P.(C) 11625/2015",
+        "W.P.(C) 1174/2017",
+        "W.P.(C) 1199/2017",
+        "W.P.(C) 12002/2015",
+        "W.P.(C) 1203/2017",
+        "W.P.(C) 12040/2015",
+        "W.P.(C) 12042/2016",
+        "W.P.(C) 12131/2015",
+        "W.P.(C) 12180/2016",
+        "W.P.(C) 1390/2017",
+        "W.P.(C) 1391/2017",
+        "W.P.(C) 147/2015",
+        "W.P.(C) 15411/2025",
+        "W.P.(C) 1543/2018",
+        "W.P.(C) 1934/2017",
+        "W.P.(C) 1980/2015",
+        "W.P.(C) 1985/2015",
+        "W.P.(C) 1987/2015",
+        "W.P.(C) 2051/2015",
+        "W.P.(C) 2121/2002",
+        "W.P.(C) 2204/2015",
+        "W.P.(C) 2297/2016",
+        "W.P.(C) 2472/2015",
+        "W.P.(C) 2481/2016",
+        "W.P.(C) 26/2018",
+        "W.P.(C) 2611/2015",
+        "W.P.(C) 2656/2015",
+        "W.P.(C) 2674/2017",
+        "W.P.(C) 2680/2015",
+        "W.P.(C) 2723/2015",
+        "W.P.(C) 2804/2015",
+        "W.P.(C) 2840/2015",
+        "W.P.(C) 2869/2015",
+        "W.P.(C) 2913/2016",
+        "W.P.(C) 2921/2016",
+        "W.P.(C) 2949/2015",
+        "W.P.(C) 2988/2016",
+        "W.P.(C) 2994/2016",
+        "W.P.(C) 2995/2016",
+        "W.P.(C) 2996/2016",
+        "W.P.(C) 3030/2015",
+        "W.P.(C) 3304/2016",
+        "W.P.(C) 3431/2015",
+        "W.P.(C) 3659/2016",
+        "W.P.(C) 3699/2016",
+        "W.P.(C) 3714/2015",
+        "W.P.(C) 3734/2016",
+        "W.P.(C) 3859/2015",
+        "W.P.(C) 3903/2015",
+        "W.P.(C) 3911/2017",
+        "W.P.(C) 4060/2013",
+        "W.P.(C) 4082/2017",
+        "W.P.(C) 4192/2015",
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015",
+        "W.P.(C) 4324/2016",
+        "W.P.(C) 4330/2015",
+        "W.P.(C) 4427/2016",
+        "W.P.(C) 4552/2015",
+        "W.P.(C) 4566/2015",
+        "W.P.(C) 4621/2014",
+        "W.P.(C) 4771/2016",
+        "W.P.(C) 484/2016",
+        "W.P.(C) 49/2015",
+        "W.P.(C) 4989/2015",
+        "W.P.(C) 5225/2015",
+        "W.P.(C) 5260/2015",
+        "W.P.(C) 5270/2015",
+        "W.P.(C) 5679/2014",
+        "W.P.(C) 5768/2014",
+        "W.P.(C) 5877/2017",
+        "W.P.(C) 6036/2016",
+        "W.P.(C) 6104/2016",
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 6316/2014",
+        "W.P.(C) 6350/2014",
+        "W.P.(C) 6374/2014",
+        "W.P.(C) 6380/2014",
+        "W.P.(C) 6405/2014",
+        "W.P.(C) 6551/2014",
+        "W.P.(C) 6565/2015",
+        "W.P.(C) 6604/2014",
+        "W.P.(C) 6617/2014",
+        "W.P.(C) 67/2015",
+        "W.P.(C) 6714/2014",
+        "W.P.(C) 6766/2015",
+        "W.P.(C) 6798/2017",
+        "W.P.(C) 6801/2014",
+        "W.P.(C) 6932/2015",
+        "W.P.(C) 6954/2015",
+        "W.P.(C) 7296/2016",
+        "W.P.(C) 7356/2016",
+        "W.P.(C) 7364/2015",
+        "W.P.(C) 7391/2016",
+        "W.P.(C) 7442/2015",
+        "W.P.(C) 7470/2014",
+        "W.P.(C) 7668/2014",
+        "W.P.(C) 7678/2015",
+        "W.P.(C) 7699/2014",
+        "W.P.(C) 7701/2015",
+        "W.P.(C) 7731/2015",
+        "W.P.(C) 7801/2014",
+        "W.P.(C) 7807/2014",
+        "W.P.(C) 7851/2014",
+        "W.P.(C) 7887/2014",
+        "W.P.(C) 7893/2014",
+        "W.P.(C) 7901/2014",
+        "W.P.(C) 7911/2014",
+        "W.P.(C) 7925/2014",
+        "W.P.(C) 7963/2015",
+        "W.P.(C) 8058/2017",
+        "W.P.(C) 8075/2017",
+        "W.P.(C) 8100/2014",
+        "W.P.(C) 8122/2014",
+        "W.P.(C) 8130/2016",
+        "W.P.(C) 8138/2016",
+        "W.P.(C) 8140/2017",
+        "W.P.(C) 8194/2017",
+        "W.P.(C) 8265/2014",
+        "W.P.(C) 8406/2015",
+        "W.P.(C) 8469/2014",
+        "W.P.(C) 8478/2017",
+        "W.P.(C) 8479/2014",
+        "W.P.(C) 8517/2015",
+        "W.P.(C) 8526/2014",
+        "W.P.(C) 8540/2014",
+        "W.P.(C) 857/2015",
+        "W.P.(C) 8593/2014",
+        "W.P.(C) 8649/2015",
+        "W.P.(C) 8657/2014",
+        "W.P.(C) 8674/2014",
+        "W.P.(C) 8713/2014",
+        "W.P.(C) 8758/2017",
+        "W.P.(C) 9011/2015",
+        "W.P.(C) 9023/2015",
+        "W.P.(C) 9247/2017",
+        "W.P.(C) 9428/2017",
+        "W.P.(C) 9452/2015",
+        "W.P.(C) 9548/2015",
+        "W.P.(C) 9549/2015",
+        "W.P.(C) 960/2015",
+        "W.P.(C) 9912/2017"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6108-2015-feb25",
+        "wpc6108-2015-nov2025"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023",
+        "wpc6504-2023-dec2024"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023",
+        "wpc6504-2023-may2026"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023",
+        "wpc6504-2023-oct2024"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023-dec2024",
+        "wpc6504-2023-may2026"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023-dec2024",
+        "wpc6504-2023-oct2024"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 6504/2023"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc6504-2023-may2026",
+        "wpc6504-2023-oct2024"
+      ],
+      "split": "validation"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022",
+        "wpc9093-2022-apr2024"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022",
+        "wpc9093-2022-feb09"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022",
+        "wpc9093-2022-jul2024"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022-apr2024",
+        "wpc9093-2022-feb09"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022-apr2024",
+        "wpc9093-2022-jul2024"
+      ],
+      "split": "train"
+    },
+    {
+      "common_identities": [
+        "W.P.(C) 9093/2022"
+      ],
+      "near_duplicate_body": null,
+      "same_matter": true,
+      "same_sha": false,
+      "sources": [
+        "wpc9093-2022-feb09",
+        "wpc9093-2022-jul2024"
+      ],
+      "split": "train"
+    }
+  ],
+  "training_started": false
+}
