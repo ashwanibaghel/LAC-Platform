@@ -6,11 +6,17 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v3_gpu_preflight import verify_bundle, PURPOSE
+from v3_gpu_preflight import verify_bundle, PURPOSE, peak_live_headroom
 from run_v3_preflight import stage_bundle
 
 
 class PreflightBundleTests(unittest.TestCase):
+    def test_allocator_cache_is_not_confused_with_peak_live_tensors(self):
+        self.assertEqual(peak_live_headroom(16, 2, 13, 11), 4)
+        # No cache can mask a genuinely inadequate peak-live margin.
+        self.assertEqual(peak_live_headroom(16, 1, 14, 14), 1)
+        self.assertEqual(peak_live_headroom(16, 1, 12, 14), 0)
+
     def bundle(self, root):
         rows = [dict(id='fixture-only')]
         (root / 'train.jsonl').write_text(json.dumps(rows[0]) + '\n')

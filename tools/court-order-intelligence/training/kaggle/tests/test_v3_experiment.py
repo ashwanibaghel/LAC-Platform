@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v3_experiment_train import verify_experiment, PURPOSE, make_training_data
+from v3_experiment_train import verify_experiment, PURPOSE, PENDING_PURPOSE, make_training_data
 from prepare_v3_experiment import prepare_experiment
 
 
@@ -37,6 +37,21 @@ class ExperimentTests(unittest.TestCase):
             rows, manifest, proof = verify_experiment(root)
             self.assertEqual(len(rows), 1)
             self.assertFalse(manifest['quality_acceptance_passed'])
+
+    def test_pending_bundle_cannot_start_fit_before_real_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _, manifest = self.fixture(root)
+            manifest.update(purpose=PENDING_PURPOSE, requires_gpu_proof=True)
+            (root / 'dataset-manifest.json').write_text(json.dumps(manifest))
+            verify_experiment(root, pending_gate=True)
+            with self.assertRaises(ValueError):
+                verify_experiment(root)
+        code = (Path(__file__).resolve().parents[1] / 'run_v3_experiment.py').read_text()
+        self.assertLess(code.index("str(preflight / 'v3_gpu_preflight.py')"),
+                        code.index("str(bundle / 'v3_experiment_train.py')"))
+        self.assertIn('str(proof_dir)], env=environment, check=True)', code)
+        self.assertIn('verify_experiment(bundle)', code)
 
     def test_failed_truncated_or_unsafe_proof_refused_even_when_checksum_updated(self):
         for change in ({'result': 'FAIL'}, {'evidence_truncated': True}, {'resume_ids_exact': False},

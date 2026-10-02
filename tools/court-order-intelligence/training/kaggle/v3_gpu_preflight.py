@@ -14,6 +14,13 @@ import sys
 PURPOSE = 'V3_T4_PREFLIGHT_NOT_TRAINING_NOT_QUALITY'
 
 
+def peak_live_headroom(total, free, reserved, peak_allocated):
+    # CUDA free excludes PyTorch's reusable allocator cache. Subtract peak
+    # live tensors and non-PyTorch usage, not the allocator's cached blocks.
+    non_torch = max(0, total - free - reserved)
+    return max(0, total - non_torch - peak_allocated)
+
+
 def verify_bundle(root):
     manifest = json.loads((root / 'dataset-manifest.json').read_text())
     if (manifest['purpose'] != PURPOSE or manifest['private'] is not True
@@ -139,10 +146,13 @@ def main(bundle, output):
                 if not torch.isfinite(loss):
                     raise ValueError('Nonfinite memory probe')
                 loss.backward()
-                free, _ = torch.cuda.mem_get_info()
+                free, total = torch.cuda.mem_get_info()
+                headroom = peak_live_headroom(total, free, torch.cuda.memory_reserved(),
+                                              torch.cuda.max_memory_allocated())
                 probe.update(forward_backward=True, peak_allocated=torch.cuda.max_memory_allocated(),
                              peak_reserved=torch.cuda.max_memory_reserved(), free_bytes=free,
-                             safe_headroom=free >= 2 * 1024**3)
+                             peak_live_headroom_bytes=headroom,
+                             safe_headroom=headroom >= 2 * 1024**3)
             except torch.cuda.OutOfMemoryError:
                 probe.update(forward_backward=False, safe_headroom=False, failure='CUDA_OOM')
             finally:

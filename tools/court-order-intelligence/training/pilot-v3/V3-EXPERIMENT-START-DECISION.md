@@ -69,3 +69,18 @@ stream: continuous vs checkpoint/resume sample IDs and skipped-update accounting
 Latest software rerun: 137 training tests and 48 Kaggle/integration tests pass,
 including actual full-coverage CPU Trainer checkpoint 10 -> 80 with all 320
 consumed IDs matching the continuous run and the simulated skip preserved.
+
+Preflight v4 (801a6b7) confirms complete 3707 forward/backward without OOM,
+peak live allocation 12,301,516,800 bytes; CUDA free 2,014,117,888 bytes,
+peak allocator reservation 13,472,104,448 bytes. The old free-only gate still
+rejects it because reusable PyTorch cache is treated as unavailable. Corrected
+gate subtracts peak live tensors and observed non-PyTorch usage from total
+VRAM; it keeps the 2 GiB safety requirement. External free and peak reserved
+remain separate diagnostics. Reference: https://docs.pytorch.org/docs/2.14/notes/cuda.html#memory-management
+
+The full experiment can now be submitted as one proof-gated pipeline: pinned
+stack/memory/real six-step CUDA scaler + resume proof first, separate process
+exit, then pristine-base 183-step fit. A pending proof bundle cannot enter the
+fit directly. Any failed proof stops the kernel before full training; no proof
+is synthesized and no preflight-trained adapter is continued. This removes
+another manual launch handoff, not any truth/memory/resume safety condition.

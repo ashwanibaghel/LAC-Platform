@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 
 PURPOSE = 'V3_EXPERIMENT_VERIFIED_POOL_NOT_QUALITY_ACCEPTANCE'
+PENDING_PURPOSE = 'V3_FULL_FIT_PENDING_MANDATORY_GPU_GATE'
 
 
 def make_training_data(rows, encoded, budget):
@@ -50,9 +51,10 @@ def make_training_data(rows, encoded, budget):
     return data
 
 
-def verify_experiment(root):
+def verify_experiment(root, pending_gate=False):
     manifest = json.loads((root / 'dataset-manifest.json').read_text())
-    if (manifest['purpose'] != PURPOSE or manifest['private'] is not True
+    expected_purpose = PENDING_PURPOSE if pending_gate else PURPOSE
+    if (manifest['purpose'] != expected_purpose or manifest['private'] is not True
             or manifest['pdfs_included'] or manifest['private_workbook_included']
             or manifest['weights_included'] or manifest['quality_acceptance_passed']):
         raise ValueError('Verified public-only experimental bundle required')
@@ -63,6 +65,13 @@ def verify_experiment(root):
     actual = {p.relative_to(root).as_posix() for p in root.rglob('*') if p.is_file()}
     if actual != set(manifest['files']) | {'dataset-manifest.json'}:
         raise ValueError('Unlisted experiment files')
+    if pending_gate:
+        if manifest.get('requires_gpu_proof') is not True:
+            raise ValueError('Pending experiment must require real GPU proof')
+        rows = [json.loads(line) for line in (root / 'train.jsonl').read_text().splitlines()]
+        if len(rows) != manifest['candidate_count'] or len({r['id'] for r in rows}) != len(rows):
+            raise ValueError('Pending candidate inventory differs')
+        return rows, manifest, None
     proof = json.loads((root / 'gpu-preflight-proof.json').read_text())
     original_bytes = (root / 'preflight-manifest.json').read_bytes()
     original = json.loads(original_bytes)
