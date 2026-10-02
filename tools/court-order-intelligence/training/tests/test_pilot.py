@@ -79,6 +79,25 @@ class PilotSafety(unittest.TestCase):
                 acquire("case", "url")
         self.assertFalse(observed[0].exists())
 
+    def test_frozen_officer_questions_are_public_bounded_and_not_training(self):
+        from annotations.pilot_officer_review import records
+        from redact_public_dataset import violations
+        from jsonschema import validate
+        from schema.contracts import ANSWER_SCHEMA
+        rows = records()
+        self.assertEqual(len(rows), 26)
+        for record in rows:
+            self.assertFalse(record["training_eligible"])
+            self.assertTrue(record["frozen_before_model_output_inspection"])
+            validate(record["expected"], ANSWER_SCHEMA)
+            entries = record["input"]["availableEvidence"]
+            self.assertLessEqual(len(entries), 8)
+            for entry in entries:
+                self.assertFalse(violations(entry["text"]))
+                self.assertEqual(entry["text"], entry["source"]["evidence"])
+            for claim in record["expected"]["claims"]:
+                self.assertLess(claim["factId"], len(entries))
+
 
 if __name__ == "__main__":
     unittest.main()
