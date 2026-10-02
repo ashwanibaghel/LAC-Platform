@@ -113,7 +113,9 @@ def main(bundle, output):
         # 3072 memory fixture is explicitly NOT shortened judicial evidence.
         # At 4096 use the complete largest real record plus non-evidence padding.
         chosen = None
-        for cap in (3072, 4096):
+        # Prove the exact full-input + inference-reserve requirement before
+        # optional 4096 padding. Padding is not evidence; never truncate gold.
+        for cap in dict.fromkeys((3072, max(3072, required), 4096)):
             torch.cuda.reset_peak_memory_stats()
             if cap == 3072 and required > cap:
                 sample = dict(input_ids=[tokenizer.eos_token_id] * cap, attention_mask=[1] * cap,

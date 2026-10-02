@@ -40,3 +40,21 @@ microbatches, one simulated skip, no double skip. Real CUDA proof pending.
 No model weights, credentials, private workbook or raw PDFs are committed.
 No office production runtime, backend/domain/schema/migration or main merge
 changes. Do not describe experimental training as accepted production quality.
+
+Masked-SFT hardware preflight v3 (08d33bf) encoded all 244 candidates; exact
+loss/gradient proof passed with max loss error 0. 3072 forward/backward has
+4,660,723,712 free bytes but does not fit every candidate/reserve. Artificially
+padding the full record to 4096 now runs without OOM, but only 365,756,416
+bytes remain, so it correctly fails the unchanged 2 GiB headroom gate. No
+full fit was started. The next probe tests the exact required 3707-token
+complete-context cap, not shortened evidence, before optional 4096 padding.
+
+The new experimental fit entry point requires a successful matching hardware
+artifact and identical checksummed TRAIN/runtime files. It loads a fresh base
+and derives 183 logical steps / 732 weighted microbatches from 244 original
+examples and three equivalent passes; it is not another six-step smoke.
+Actual Trainer checkpoint at 10 is resumed with exact consumed-stream checking.
+There is no forced gradient overflow in production fit. Applied optimizer
+updates/scaler skips and actual weighted exposure are reported, not assumed.
+Adapter save/reload and eight task-representative inference/parser checks follow
+the fit. These TRAIN integration checks are explicitly not fresh-blind accuracy.

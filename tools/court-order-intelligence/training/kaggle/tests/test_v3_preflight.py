@@ -81,7 +81,7 @@ class PreflightBundleTests(unittest.TestCase):
         trainer = (source / 'v3_gpu_preflight.py').read_text()
         self.assertIn('CurriculumDataset(rows, encoded, 20261003, 6, 4)', trainer)
         self.assertIn('max_steps=6', trainer)
-        self.assertIn('for cap in (3072, 4096)', trainer)
+        self.assertIn('max(3072, required), 4096', trainer)
         self.assertIn('consumed != list(data.ids)', trainer)
         self.assertIn('grad.fill_(float(\'inf\'))', trainer)
         for forbidden in ('kaggle.json', 'KAGGLE_API_TOKEN', 'delhihighcourt.nic.in', '/resume', 'MigrateAsync'):
