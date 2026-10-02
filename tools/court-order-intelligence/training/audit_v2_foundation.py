@@ -62,10 +62,12 @@ def protected_matters():
     return protected
 
 
-def audit_record(record, expected_case, date, passages, protected):
+def audit_record(record, expected_case, date, passages, protected, required_split='train'):
     """Pure fail-closed source binding, usable with synthetic records in CI."""
     protected_ids = {identity(m) for m in protected}
-    if record['case'] != expected_case or record['reserved_split'] != 'train':
+    if required_split not in {'train', 'validation', 'blind'}:
+        raise ValueError('Unknown reserved split')
+    if record['case'] != expected_case or record['reserved_split'] != required_split:
         raise ValueError('Source identity/reserved split mismatch')
     if identity(record['case']) in protected_ids:
         raise ValueError('Protected source cannot enter training')

@@ -1,7 +1,52 @@
-# Pilot V2 source foundation — in progress
+# Pilot V2 — frozen targeted pilot data
 
-This is **not V2-DATA complete**, a training-ready bundle, an adapter, or a
-quality-improvement claim. No V2 GPU training has started. Pilot V1 is immutable.
+The 2 October pre-GPU gates below are complete. This is not an adapter or a
+quality-improvement claim. Pilot V1 remains immutable. The older checkpoint
+notes below document the state before freeze, not current readiness.
+
+## Final pre-GPU freeze (2 October 2026)
+
+`manifest.json` freezes 132 training, 27 validation and 37 blind examples,
+their reviewed-source bindings, annotation versions and matter/leakage groups.
+No matter/group crosses splits. Full native-source and bounded-passage overlap
+checks exclude V1 protected data from V2 training and all V1 data from V2
+evaluation. Protected gold was authored before any model outputs. It must not
+be used for another tuning loop after evaluation.
+
+Training includes 12 different current-position decisions over **four real
+three-order matter chains**, not 12 independent chains. These ask different
+chronology, active-action, unresolved-dispute and completion questions using
+existing training sources; no synthetic order or extra source collection.
+Positive LAC-action questions remain 11. Only eight raw attribution examples
+survive the strict full-source runtime gate, a real limitation of this pilot.
+The pre-freeze source review corrected the 9093 training position target to
+select the actual SDM-report passage rather than the petitioner's prayer.
+No protected prediction or gold was used to make that correction.
+
+All 196 prompt/target records fit the unchanged 2048 training-token cap.
+All 196 constrained-inference **prompts** fit the existing Pilot cap of 2048;
+generation remains at most 512 tokens. The eight earlier flags came from an
+additional conservative *prompt plus full output reservation* check, which
+the existing `pilot_train.py` never imposed. The pinned base config has
+262144 max-position embeddings. No cap, evidence, schema or output policy was
+changed to resolve these flags. `all-splits-context-audit.json` retains both
+measurements and records the actual existing cap transparently.
+
+Fifteen training extraction chunks remain quarantined. Additional protected
+runtime-incompatible chunks and cross-page qualified propositions are listed
+in `pre-freeze-audit.json`; no labels were weakened to make them fit. Claims
+tasks are oracle reviewed-evidence selection, not end-to-end PDF extraction.
+Gold is a Codex source-review pass, **not independent human legal certification**.
+
+The one-run pipeline uses the exact pinned base and unchanged safety parser,
+80 optimizer steps with checkpoint/resume and adapter reload proof. No
+shorter-context fallback or silent example dropping is allowed. Stock, V1 and
+V2 receive identical separate frozen V1 regression / V2 validation / V2 blind
+sets, constrained decoding and output bounds. V1 regression is 44 validation
+plus 37 blind examples, **not 81 truly blind matters**. A checksummed existing
+V1 kernel artifact mount supplies the comparison adapter; it is never modified.
+Weights, workbook, PDFs, complete native pages and secrets are excluded from Git
+and the public-passage upload bundle. No deployment or main merge is authorized.
 
 Base: `Qwen/Qwen3-4B-Instruct-2507`, revision
 `cdbee75f17c01a7cc42f958dc650907174af0554`.

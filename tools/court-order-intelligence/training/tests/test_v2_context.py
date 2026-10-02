@@ -55,6 +55,12 @@ class ContextSafety(unittest.TestCase):
         result = check(tokenizer, self.example, self.schemas, cap=100000, output_allowance=100000)
         self.assertTrue(result['training_fits'])
         self.assertFalse(result['inference_with_output_reserve_fits'])
+        self.assertTrue(result['existing_pilot_inference_prompt_fits'])
+
+    def test_actual_pilot_cap_checks_prompt_not_prompt_plus_reserve(self):
+        source = (ROOT / 'kaggle/pilot_train.py').read_text()
+        self.assertIn('if prompt.shape[1] > config["max_sequence_length"]:', source)
+        self.assertIn('max_new_tokens=512', source)
 
     def test_broken_assistant_prefix_fails_closed(self):
         class Broken(RecordingTokenizer):

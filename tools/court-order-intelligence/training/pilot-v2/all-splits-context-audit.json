@@ -1,11 +1,17 @@
 {
+  "all_splits_checked": true,
   "context_resolution": "Existing Pilot checks PROMPT <=2048, not prompt+512 <=2048. All three modes retain identical prompt/output limits; no evidence/schema/runtime rule changes.",
   "evidence_truncated": false,
-  "examples_checked": 132,
-  "existing_pilot_inference_fit": 132,
+  "examples_checked": 196,
+  "existing_pilot_inference_fit": 196,
   "gpu_launch_allowed": false,
   "inference_output_reserve": 512,
-  "inference_reserve_fit": 124,
+  "inference_reserve_fit": 183,
+  "input_sha256": {
+    "blind-candidate.jsonl": "c7d0e6a924a52dfc7a2b5d98978c8e2d055920baa34b027d74164f30fd4b4aa8",
+    "train-candidate.jsonl": "27e1236b86d05de3dc68115de8c8f4306103db94a21337213017d6dc4d3e8192",
+    "validation-candidate.jsonl": "0ebb9a5a643236fcc90b33f3fca0d670af25cce0d8b6fbd86553f7086ab09671"
+  },
   "local_files_only": true,
   "model": "Qwen/Qwen3-4B-Instruct-2507",
   "model_weights_loaded": false,
@@ -1199,6 +1205,582 @@
       "task": "multi_order_current_position",
       "training_fits": true,
       "training_tokens": 994
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-oct2024-eval-date",
+      "inference_prompt_tokens": 978,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 941
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-oct2024-eval-action",
+      "inference_prompt_tokens": 965,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 918
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-oct2024-eval-no-compliance",
+      "inference_prompt_tokens": 970,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 913
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-oct2024-eval-unsupported",
+      "inference_prompt_tokens": 965,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 908
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-may2026-eval-date",
+      "inference_prompt_tokens": 1039,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1007
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-may2026-eval-no-compliance",
+      "inference_prompt_tokens": 1031,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 974
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-may2026-eval-unsupported",
+      "inference_prompt_tokens": 1026,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 969
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-eval-date",
+      "inference_prompt_tokens": 1232,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1205
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-eval-action",
+      "inference_prompt_tokens": 1219,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1167
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-eval-no-compliance",
+      "inference_prompt_tokens": 1224,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1167
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6504-2023-eval-unsupported",
+      "inference_prompt_tokens": 1219,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1162
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5993-2024-eval-attribute-0",
+      "inference_prompt_tokens": 864,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 623
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5993-2024-eval-date",
+      "inference_prompt_tokens": 584,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 537
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5993-2024-eval-action",
+      "inference_prompt_tokens": 571,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 514
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5993-2024-eval-no-compliance",
+      "inference_prompt_tokens": 576,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 519
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5993-2024-eval-unsupported",
+      "inference_prompt_tokens": 571,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 514
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16215-2023-eval-date",
+      "inference_prompt_tokens": 574,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 527
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16215-2023-eval-action",
+      "inference_prompt_tokens": 561,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 504
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16215-2023-eval-no-compliance",
+      "inference_prompt_tokens": 566,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 509
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16215-2023-eval-unsupported",
+      "inference_prompt_tokens": 561,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 504
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3238-2023-eval-attribute-0",
+      "inference_prompt_tokens": 778,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 537
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3238-2023-eval-date",
+      "inference_prompt_tokens": 502,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 455
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3238-2023-eval-action",
+      "inference_prompt_tokens": 489,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 432
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3238-2023-eval-no-compliance",
+      "inference_prompt_tokens": 494,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 437
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3238-2023-eval-unsupported",
+      "inference_prompt_tokens": 489,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 432
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "6504-eval-position",
+      "inference_prompt_tokens": 1712,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1690
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "6504-eval-noncompletion",
+      "inference_prompt_tokens": 823,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 771
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc847-2025-eval-date",
+      "inference_prompt_tokens": 703,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 661
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc847-2025-eval-action",
+      "inference_prompt_tokens": 690,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 633
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc847-2025-eval-no-compliance",
+      "inference_prompt_tokens": 695,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 638
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc847-2025-eval-unsupported",
+      "inference_prompt_tokens": 690,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 633
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-eval-attribute-0",
+      "inference_prompt_tokens": 724,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 463
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-eval-date",
+      "inference_prompt_tokens": 378,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 326
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-eval-action",
+      "inference_prompt_tokens": 365,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 308
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-eval-no-compliance",
+      "inference_prompt_tokens": 370,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 313
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-eval-unsupported",
+      "inference_prompt_tokens": 365,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 308
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-sep2026-eval-attribute-0",
+      "inference_prompt_tokens": 724,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 463
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-sep2026-eval-date",
+      "inference_prompt_tokens": 369,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 317
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-sep2026-eval-action",
+      "inference_prompt_tokens": 356,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 299
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-sep2026-eval-no-compliance",
+      "inference_prompt_tokens": 361,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 304
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc3282-2024-sep2026-eval-unsupported",
+      "inference_prompt_tokens": 356,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 299
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-dec2024-eval-attribute-0",
+      "inference_prompt_tokens": 919,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 701
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-dec2024-eval-date",
+      "inference_prompt_tokens": 654,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 612
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-dec2024-eval-action",
+      "inference_prompt_tokens": 641,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 584
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-dec2024-eval-no-compliance",
+      "inference_prompt_tokens": 646,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 589
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-dec2024-eval-unsupported",
+      "inference_prompt_tokens": 641,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 584
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-may2025-eval-attribute-0",
+      "inference_prompt_tokens": 918,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 700
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-may2025-eval-date",
+      "inference_prompt_tokens": 674,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 632
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-may2025-eval-action",
+      "inference_prompt_tokens": 661,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 604
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-may2025-eval-no-compliance",
+      "inference_prompt_tokens": 666,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 609
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-may2025-eval-unsupported",
+      "inference_prompt_tokens": 661,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 604
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-jul2025-eval-attribute-6",
+      "inference_prompt_tokens": 788,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 548
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-jul2025-eval-date",
+      "inference_prompt_tokens": 1554,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1537
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-jul2025-eval-action",
+      "inference_prompt_tokens": 1541,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1484
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-jul2025-eval-no-compliance",
+      "inference_prompt_tokens": 1546,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1489
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-jul2025-eval-unsupported",
+      "inference_prompt_tokens": 1541,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1484
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-eval-attribute-0",
+      "inference_prompt_tokens": 851,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 610
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-eval-date",
+      "inference_prompt_tokens": 573,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 526
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-eval-action",
+      "inference_prompt_tokens": 560,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 503
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-eval-no-compliance",
+      "inference_prompt_tokens": 565,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 508
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10105-2023-eval-unsupported",
+      "inference_prompt_tokens": 560,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 503
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "10105-eval-position",
+      "inference_prompt_tokens": 1390,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1363
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "10105-eval-compensation",
+      "inference_prompt_tokens": 977,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 935
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "10105-eval-filing-position",
+      "inference_prompt_tokens": 1009,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 962
     }
   ],
   "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
@@ -1215,5 +1797,5 @@
     "adapter/vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
   },
   "tokenizer_version": "4.56.2",
-  "training_fit": 132
+  "training_fit": 196
 }

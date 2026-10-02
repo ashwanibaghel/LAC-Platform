@@ -1,22 +1,30 @@
 {
   "gpu_launch_allowed": false,
   "languages": {
-    "English": 55,
-    "Hindi": 23,
-    "Hinglish": 22,
-    "RomanHindi": 24
+    "English": 58,
+    "Hindi": 25,
+    "Hinglish": 23,
+    "RomanHindi": 26
   },
   "leakage_groups": {
     "13932-current-obligation": "group-e95758e0c1284725",
+    "13932-impleadment-lifecycle": "group-e95758e0c1284725",
+    "13932-land-dispute-position": "group-e95758e0c1284725",
     "13932-position": "group-e95758e0c1284725",
     "4806-active-action": "group-e55f15f3b74cda29",
     "4806-compliance": "group-e55f15f3b74cda29",
+    "4806-latest-development": "group-e55f15f3b74cda29",
     "4806-position": "group-e55f15f3b74cda29",
+    "4806-unresolved-dispute": "group-e55f15f3b74cda29",
     "6108-active-action": "group-8dae21c62136d3b6",
     "6108-compliance": "group-8dae21c62136d3b6",
+    "6108-latest-listing": "group-8dae21c62136d3b6",
     "6108-position": "group-8dae21c62136d3b6",
+    "6108-template-lifecycle": "group-8dae21c62136d3b6",
     "9093-active-action": "group-6168fbfa53fe3f82",
     "9093-compensation": "group-6168fbfa53fe3f82",
+    "9093-disputed-possession-position": "group-6168fbfa53fe3f82",
+    "9093-meeting-vs-hearing": "group-6168fbfa53fe3f82",
     "9093-position": "group-6168fbfa53fe3f82",
     "cont1094-2026-action": "group-18d83edb843c07aa",
     "cont1094-2026-attribute-0": "group-18d83edb843c07aa",
@@ -133,7 +141,7 @@
     "wpc9889-2024-unsupported-completion": "group-f1da917261a6fe7c"
   },
   "model": "Qwen/Qwen3-4B-Instruct-2507",
-  "multi_order_position_examples": 4,
+  "multi_order_position_examples": 12,
   "positive_office_action_examples": 11,
   "protected_splits_frozen": false,
   "quarantined_task_examples": 15,
@@ -144,11 +152,11 @@
     "attribution_classification": 8,
     "compliance_state": 23,
     "date_specific_retrieval_or_QA": 43,
-    "multi_order_current_position": 4,
+    "multi_order_current_position": 12,
     "office_action_detection": 25,
     "order_digest": 21
   },
   "training_started": false,
-  "verified_training_foundation_examples": 124,
+  "verified_training_foundation_examples": 132,
   "workbook_uploaded": false
 }

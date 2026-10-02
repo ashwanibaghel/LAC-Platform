@@ -4,6 +4,7 @@ Checks unchanged training and constrained-inference templates. Oversized
 evidence is reported, never truncated or silently removed from gold.
 """
 import ast
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -44,10 +45,14 @@ def check(tokenizer, example, schemas, cap=2048, output_allowance=512):
     prompt = tokenizer.apply_chat_template(inference, tokenize=True, add_generation_prompt=True)
     return {'id': example['id'], 'task': example['task'], 'training_tokens': len(full),
             'inference_prompt_tokens': len(prompt), 'training_fits': len(full) <= cap,
+            'existing_pilot_inference_prompt_fits': len(prompt) <= cap,
             'inference_with_output_reserve_fits': len(prompt) + output_allowance <= cap}
 
 
 def main():
+    cli = argparse.ArgumentParser()
+    cli.add_argument('--all-splits', action='store_true')
+    args = cli.parse_args()
     from transformers import AutoTokenizer
     import transformers
     if transformers.__version__ != '4.56.2':
@@ -66,15 +71,23 @@ def main():
             checked[relative] = actual
     tokenizer = AutoTokenizer.from_pretrained(frozen / 'adapter', local_files_only=True, trust_remote_code=False)
     schemas = json.loads((ROOT / 'pilot-v1/target.schemas.json').read_text(encoding='utf-8'))
-    examples = [json.loads(line) for line in (ROOT / 'pilot-v2/train-foundation.jsonl').read_text(encoding='utf-8').splitlines()]
+    names = [s + '-candidate.jsonl' for s in ('train', 'validation', 'blind')] if args.all_splits else ['train-foundation.jsonl']
+    examples = [json.loads(line) for name in names for line in (ROOT / 'pilot-v2' / name).read_text(encoding='utf-8').splitlines()]
     results = [check(tokenizer, e, schemas) for e in examples]
     report = {'model': MODEL, 'revision': REVISION, 'tokenizer_version': transformers.__version__,
               'tokenizer_artifacts': checked, 'local_files_only': True, 'model_weights_loaded': False,
               'sequence_cap': 2048, 'inference_output_reserve': 512,
               'examples_checked': len(results), 'training_fit': sum(r['training_fits'] for r in results),
+              'existing_pilot_inference_fit': sum(r['existing_pilot_inference_prompt_fits'] for r in results),
               'inference_reserve_fit': sum(r['inference_with_output_reserve_fits'] for r in results),
+              'context_resolution': 'Existing Pilot checks PROMPT <=2048, not prompt+512 <=2048. All three modes retain identical prompt/output limits; no evidence/schema/runtime rule changes.',
+              'pinned_base_max_position_embeddings': 262144,
+              'pinned_config_url': 'https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/resolve/cdbee75f17c01a7cc42f958dc650907174af0554/config.json',
               'evidence_truncated': False, 'gpu_launch_allowed': False, 'results': results}
-    (ROOT / 'pilot-v2/context-audit.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+    report['input_sha256'] = {name: hashlib.sha256((ROOT / 'pilot-v2' / name).read_bytes()).hexdigest() for name in names}
+    report['all_splits_checked'] = args.all_splits
+    name = 'all-splits-context-audit.json' if args.all_splits else 'context-audit.json'
+    (ROOT / 'pilot-v2' / name).write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     print(json.dumps({k: v for k, v in report.items() if k not in {'results', 'tokenizer_artifacts'}}, indent=2))
 
 

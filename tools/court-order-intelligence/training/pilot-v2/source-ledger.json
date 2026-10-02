@@ -1,0 +1,666 @@
+{
+  "cont1094-2026": {
+    "case": "CONT.CAS(C) 1094/2026",
+    "native_source_record_sha256": "e7dcebc0ef85f87fb81a9e16d64baed06a6c48de2a75fead534cf8351338e681",
+    "related_identities": [
+      "W.P.(C) 10546/2023"
+    ],
+    "reserved_split": "train",
+    "sha256": "0d8f552e83b97958feacb3f4245eb6aad3954fdc6d9a48db720f52a1990e0e02",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1783165046_1a3ff4ffd7f6d48f_592_10942026.pdf/2026"
+  },
+  "cont418-2025": {
+    "case": "CONT.CAS(C) 418/2025",
+    "native_source_record_sha256": "7c44103c4c3a7756d0a405d06b03292cb67648256885b88175282e21beb1b156",
+    "related_identities": [
+      "W.P.(C) 5437/2019"
+    ],
+    "reserved_split": "train",
+    "sha256": "45202727b324628641dc437743dec745308d8d2440f37a43fd01a36da251f90d",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1784191545_3e4f55daf06c51cb_592_4182025.pdf/2026"
+  },
+  "wpc10105-2023": {
+    "case": "W.P.(C) 10105/2023",
+    "native_source_record_sha256": "24ed9a0e780540cc2825d9587a30b8211da5b025c8f34f6c364ed56755ac8250",
+    "related_identities": [
+      "W.P.(C) 10030/2023",
+      "W.P.(C) 10053/2023",
+      "W.P.(C) 10101/2023",
+      "W.P.(C) 10105/2023",
+      "W.P.(C) 10132/2023",
+      "W.P.(C) 10278/2023"
+    ],
+    "reserved_split": "blind",
+    "sha256": "c06c26a9ba929578726a246fc9872a54eb6059c2949a760d07655d7baad2666e",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1788259742_ff30d8d1bd699375_pms_101052023.pdf/2026"
+  },
+  "wpc10105-2023-dec2024": {
+    "case": "W.P.(C) 10105/2023",
+    "native_source_record_sha256": "3d03e1755ad9390035440ea56b9992b411623188b39d257e633c883dfb87c9af",
+    "related_identities": [
+      "W.P.(C) 10105/2023"
+    ],
+    "reserved_split": "blind",
+    "sha256": "ad13bdc07e0221a325df771e0db5a08bf1f7e2f2edb94ae81e3f37fcd4333efd",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/10105/2023/06-12-2024"
+  },
+  "wpc10105-2023-jul2025": {
+    "case": "W.P.(C) 10105/2023",
+    "native_source_record_sha256": "90d3b8cbef370878303483fda0c2fb95c8d83e0f1916ada1546eb5a4405f417a",
+    "related_identities": [
+      "W.P.(C) 10105/2023",
+      "W.P.(C) 1692/2006",
+      "W.P.(C) 7696/2014"
+    ],
+    "reserved_split": "blind",
+    "sha256": "a7a11a2ceacda47dfc9a63f6efa4039389a87f0bfd2288eb280dc84064ed1fb5",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/10105/2023/11-07-2025"
+  },
+  "wpc10105-2023-may2025": {
+    "case": "W.P.(C) 10105/2023",
+    "native_source_record_sha256": "356f9f39db9d3370ff1e97be01001b93091e01caa5ae89b3f8f0a0f411408d9a",
+    "related_identities": [
+      "W.P.(C) 10105/2023"
+    ],
+    "reserved_split": "blind",
+    "sha256": "e4d952cf22bcc9a93ccbaa7e96289e01f62192b29d94663eff537c216e680a00",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/70903455_1747909777_670_101052023.pdf/2025"
+  },
+  "wpc13932-2025": {
+    "case": "W.P.(C) 13932/2025",
+    "native_source_record_sha256": "548473700ac8a5c2b4021416d410dcb56b09ab3aeefdbf423f93ff4e688a1b8f",
+    "related_identities": [
+      "W.P.(C) 13932/2025"
+    ],
+    "reserved_split": "train",
+    "sha256": "01882f9865a5d47299c692abd70f779d2737d3e86b91171738f2313c0e818bbb",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1787567200_6d1a0db3d55c9639_593_139322025.pdf/2026"
+  },
+  "wpc13932-2025-feb03": {
+    "case": "W.P.(C) 13932/2025",
+    "native_source_record_sha256": "42850f18cd105771b43d004ebaf4cc9a45d4571ab527eb7823b377c71bb7533c",
+    "related_identities": [
+      "W.P.(C) 13932/2025"
+    ],
+    "reserved_split": "train",
+    "sha256": "708f26719c8eed9f8f7098ee3bf7693c7acd69e0233f701c0d4da2940db6cb75",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/13932/2025/03-02-2026"
+  },
+  "wpc13932-2025-sep2025": {
+    "case": "W.P.(C) 13932/2025",
+    "native_source_record_sha256": "c766484953f0d868a9c1c904b9c5080e4d4d46b2aafaec3d9e292feb41159fde",
+    "related_identities": [
+      "W.P.(C) 13932/2025",
+      "W.P.(C) 8415/2014"
+    ],
+    "reserved_split": "train",
+    "sha256": "8e7f311d2aeb7c40570a2dd232a9c82e5211e4d3b6a7c5d51f925287b26ebe53",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/13932/2025/10-09-2025"
+  },
+  "wpc14785-2023": {
+    "case": "W.P.(C) 14785/2023",
+    "native_source_record_sha256": "59701af5d81676ef889bf1bf4be375c14d87babbf5aac27e66bfb650d5db3b5b",
+    "related_identities": [
+      "W.P.(C) 14785/2023"
+    ],
+    "reserved_split": "train",
+    "sha256": "ab21f8592832a3a6c5c6e3f898c08b845cd682640ca630043916fc1d58897524",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1788349036_3b3f88343fe81b6a_593_147852023.pdf/2026"
+  },
+  "wpc16215-2023": {
+    "case": "W.P.(C) 16215/2023",
+    "native_source_record_sha256": "19fa3e2ceb52b5e39001d64d4c7290a419d6b15fb13212f028c35f977cb9fe02",
+    "related_identities": [
+      "W.P.(C) 16215/2023"
+    ],
+    "reserved_split": "validation",
+    "sha256": "40d99676c94793c5abfd3aeb377b35066b9a5e7f99e595c11caa6703e694c074",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1787402499_b853653b4908d29a_svn_162152023.pdf/2026"
+  },
+  "wpc3238-2023": {
+    "case": "W.P.(C) 3238/2023",
+    "native_source_record_sha256": "1e7aab980b08d4025821ee5ba6ddc1a7a8084f08ce7895c00b0ff5e95a4357ef",
+    "related_identities": [
+      "W.P.(C) 3238/2023"
+    ],
+    "reserved_split": "validation",
+    "sha256": "e5fbb89a00e2732f071cb29308ba4be6f05de189e0b0c4b11f6ce33af2832f74",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1762855093_63d95fc6469039b0_748_32382023.pdf/2025"
+  },
+  "wpc3282-2024": {
+    "case": "W.P.(C) 3282/2024",
+    "native_source_record_sha256": "c55f7ad2cf918fbafb4482d9a038d3b13263a3c202c765d6530bb1498a3162ed",
+    "related_identities": [
+      "W.P.(C) 3282/2024"
+    ],
+    "reserved_split": "blind",
+    "sha256": "5f67aa64e6b4efc9b64ce69650e81c8965d370e11ff178d757ed1d97a1839195",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1771069350_d3ae9c9f70d9ee00_jsm_32822024.pdf/2026"
+  },
+  "wpc3282-2024-sep2026": {
+    "case": "W.P.(C) 3282/2024",
+    "native_source_record_sha256": "11a2d0256817c54c7367b324438f4f700dd63600b8553982dc58113564118bf8",
+    "related_identities": [
+      "W.P.(C) 3282/2024"
+    ],
+    "reserved_split": "blind",
+    "sha256": "ac9e3ff04fbdbd9646b2c4ca71703f4579ae269517848931344369e0bbdf2f69",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/3282/2024/07-09-2026"
+  },
+  "wpc4255-2016": {
+    "case": "W.P.(C) 4255/2016",
+    "native_source_record_sha256": "1bcc207ffc5e2d79d631097f12585e7f49909d35819a1a1f1e67c1ff3b8cdc52",
+    "related_identities": [
+      "W.P.(C) 4255/2016"
+    ],
+    "reserved_split": "train",
+    "sha256": "c3e7ea9b6e19ac12b041706b9976bb6052b1201e0deb81b3ae540878eb6ecca6",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1775818888_71d2234172a3ccc0_670_42552016.pdf/2026"
+  },
+  "wpc4644-2024": {
+    "case": "W.P.(C) 4644/2024",
+    "native_source_record_sha256": "ca470cec04908f17b8f6c19faa06037c7d5468be9c1426daf495cc1b64f102cb",
+    "related_identities": [
+      "W.P.(C) 4644/2024"
+    ],
+    "reserved_split": "train",
+    "sha256": "4d3571272873d86d04dc7397551139e9f3bda4bfcd013b632f56945712f7827e",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1771934314_d5773198fb29b5a7_pms_46442024.pdf/2026"
+  },
+  "wpc4806-2014": {
+    "case": "W.P.(C) 4806/2014",
+    "native_source_record_sha256": "76b5297777d99ddf44c9a16c2e743763d6def4f66cdbf1adb7d38f8ecb17db7d",
+    "related_identities": [
+      "W.P.(C) 4806/2014"
+    ],
+    "reserved_split": "train",
+    "sha256": "2072b287075f94daa88a2470f6b15f8156a39c9c26932a25eeb5f67873976487",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1770647202_0b3b6337f7d44c3b_755_48062014.pdf/2026"
+  },
+  "wpc4806-2014-apr2022": {
+    "case": "W.P.(C) 4806/2014",
+    "native_source_record_sha256": "5ce0d2bf11c04e8c5012dc1171702e7ea94a55de178f0c81257dc339b5353043",
+    "related_identities": [
+      "W.P.(C) 4806/2014"
+    ],
+    "reserved_split": "train",
+    "sha256": "9859e4853944e89a270c8952f57bb49734896190188813e323e1d8c03a4cb0ad",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/4806/2014/11-04-2022"
+  },
+  "wpc4806-2014-feb2020": {
+    "case": "W.P.(C) 4806/2014",
+    "native_source_record_sha256": "235ebc1dfe712910527a749be12ed4bc9b5fb1065929a90d5e662b577d967172",
+    "related_identities": [
+      "W.P.(C) 4806/2014"
+    ],
+    "reserved_split": "train",
+    "sha256": "ee08cc854ebee6281091f54dd3bae528ef7ded425065a87b062ddaac9fd227f6",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/4806/2014/04-02-2020"
+  },
+  "wpc5084-2018": {
+    "case": "W.P.(C) 5084/2018",
+    "native_source_record_sha256": "77171896e9b1553e465c237882ab557273477b5d3538b282a89cedb222057976",
+    "related_identities": [
+      "W.P.(C) 5084/2018",
+      "W.P.(C) 86/2020"
+    ],
+    "reserved_split": "train",
+    "sha256": "8d238a4d01f08cb6bebdb1ee7bc45f55cc4ca2693c31662e5591c972476fb733",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1787837833_bdd90bd4752e7cba_pms_50842018.pdf/2026"
+  },
+  "wpc5084-2018-nov2020": {
+    "case": "W.P.(C) 5084/2018",
+    "native_source_record_sha256": "69db67fc584598a202890b8b58efd9ff8afaa34430d729a28a5f98d245a3242f",
+    "related_identities": [
+      "W.P.(C) 5084/2018",
+      "W.P.(C) 86/2020"
+    ],
+    "reserved_split": "train",
+    "sha256": "9dc9b3ef2d0838a7d715b9190fa59cbd59c9c41c7a8cb7c694c275deb94d464e",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/5084/2018/24-11-2020"
+  },
+  "wpc5645-2022": {
+    "case": "W.P.(C) 5645/2022",
+    "native_source_record_sha256": "2f6f1a252c26de502fa9966a3512b2741a0d31005059df4f986e17c1b0b2bd7a",
+    "related_identities": [
+      "W.P.(C) 5645/2022"
+    ],
+    "reserved_split": "train",
+    "sha256": "c3025a658aa40db9b4c3d1a228b7d80c9e3587c3f2859bc10d034a596de973e1",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1778234502_f72aa58932693dbf_755_56452022.pdf/2026"
+  },
+  "wpc5993-2024": {
+    "case": "W.P.(C) 5993/2024",
+    "native_source_record_sha256": "0185ec9131816d16bf3f7e44ab7ac704fddc96ea529c63a3b5463e1a30c1ea1b",
+    "related_identities": [
+      "W.P.(C) 5993/2024",
+      "W.P.(C) 5996/2024"
+    ],
+    "reserved_split": "validation",
+    "sha256": "d75d4c18667956e795e009f688af97062305e39b5e579202ae61ac29f743a6cc",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1780317428_1904f033bba4f6c6_pms_59932024.pdf/2026"
+  },
+  "wpc6108-2015": {
+    "case": "W.P.(C) 6108/2015",
+    "native_source_record_sha256": "eea8dcabe2275ef6997059953ad94cb4f5f8a896b847647d8579866cf28a627b",
+    "related_identities": [
+      "W.P.(C) 6108/2015"
+    ],
+    "reserved_split": "train",
+    "sha256": "0135056ad01f47d3685d49126fd3a11090ddcef67f8054680ef3df7a3accfc16",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1774612415_ac4e049598da08ce_670_61082015.pdf/2026"
+  },
+  "wpc6108-2015-feb25": {
+    "case": "W.P.(C) 6108/2015",
+    "native_source_record_sha256": "94f4e55a440dd17d1d96ea9a2943aa5b6189e8244ec20dade403dbfcc6cc738b",
+    "related_identities": [
+      "W.P.(C) 10159/2015",
+      "W.P.(C) 1032/2016",
+      "W.P.(C) 10648/2015",
+      "W.P.(C) 10671/2016",
+      "W.P.(C) 11/2015",
+      "W.P.(C) 11178/2016",
+      "W.P.(C) 11355/2017",
+      "W.P.(C) 11462/2015",
+      "W.P.(C) 11469/2016",
+      "W.P.(C) 11625/2015",
+      "W.P.(C) 1174/2017",
+      "W.P.(C) 1199/2017",
+      "W.P.(C) 12002/2015",
+      "W.P.(C) 1203/2017",
+      "W.P.(C) 12040/2015",
+      "W.P.(C) 12042/2016",
+      "W.P.(C) 12124/2015",
+      "W.P.(C) 12131/2015",
+      "W.P.(C) 12180/2016",
+      "W.P.(C) 1390/2017",
+      "W.P.(C) 1391/2017",
+      "W.P.(C) 1393/2017",
+      "W.P.(C) 1454/2015",
+      "W.P.(C) 147/2015",
+      "W.P.(C) 15411/2025",
+      "W.P.(C) 1543/2018",
+      "W.P.(C) 177/2015",
+      "W.P.(C) 1934/2017",
+      "W.P.(C) 195/2015",
+      "W.P.(C) 1980/2015",
+      "W.P.(C) 1985/2015",
+      "W.P.(C) 1987/2015",
+      "W.P.(C) 2051/2015",
+      "W.P.(C) 2121/2002",
+      "W.P.(C) 2204/2015",
+      "W.P.(C) 2297/2016",
+      "W.P.(C) 2465/2015",
+      "W.P.(C) 2472/2015",
+      "W.P.(C) 2481/2016",
+      "W.P.(C) 26/2018",
+      "W.P.(C) 2611/2015",
+      "W.P.(C) 2656/2015",
+      "W.P.(C) 2674/2017",
+      "W.P.(C) 2680/2015",
+      "W.P.(C) 2723/2015",
+      "W.P.(C) 2804/2015",
+      "W.P.(C) 2827/2014",
+      "W.P.(C) 2840/2015",
+      "W.P.(C) 2867/2015",
+      "W.P.(C) 2869/2015",
+      "W.P.(C) 2913/2016",
+      "W.P.(C) 2921/2016",
+      "W.P.(C) 2949/2015",
+      "W.P.(C) 2988/2016",
+      "W.P.(C) 2994/2016",
+      "W.P.(C) 2995/2016",
+      "W.P.(C) 2996/2016",
+      "W.P.(C) 3030/2015",
+      "W.P.(C) 3304/2016",
+      "W.P.(C) 3431/2015",
+      "W.P.(C) 3659/2016",
+      "W.P.(C) 3699/2016",
+      "W.P.(C) 3714/2015",
+      "W.P.(C) 3734/2016",
+      "W.P.(C) 3859/2015",
+      "W.P.(C) 3903/2015",
+      "W.P.(C) 3911/2017",
+      "W.P.(C) 4060/2013",
+      "W.P.(C) 4082/2017",
+      "W.P.(C) 4192/2015",
+      "W.P.(C) 4255/2016",
+      "W.P.(C) 4274/2015",
+      "W.P.(C) 4324/2016",
+      "W.P.(C) 4330/2015",
+      "W.P.(C) 4427/2016",
+      "W.P.(C) 4552/2015",
+      "W.P.(C) 4566/2015",
+      "W.P.(C) 4621/2014",
+      "W.P.(C) 4771/2016",
+      "W.P.(C) 484/2016",
+      "W.P.(C) 49/2015",
+      "W.P.(C) 4989/2015",
+      "W.P.(C) 5162/2016",
+      "W.P.(C) 5225/2015",
+      "W.P.(C) 5260/2015",
+      "W.P.(C) 5270/2015",
+      "W.P.(C) 5565/2014",
+      "W.P.(C) 5679/2014",
+      "W.P.(C) 5768/2014",
+      "W.P.(C) 5877/2017",
+      "W.P.(C) 6036/2016",
+      "W.P.(C) 6104/2016",
+      "W.P.(C) 6108/2015",
+      "W.P.(C) 6316/2014",
+      "W.P.(C) 6350/2014",
+      "W.P.(C) 6374/2014",
+      "W.P.(C) 6380/2014",
+      "W.P.(C) 6405/2014",
+      "W.P.(C) 6551/2014",
+      "W.P.(C) 6565/2015",
+      "W.P.(C) 6604/2014",
+      "W.P.(C) 6617/2014",
+      "W.P.(C) 67/2015",
+      "W.P.(C) 6714/2014",
+      "W.P.(C) 6766/2015",
+      "W.P.(C) 6798/2017",
+      "W.P.(C) 6801/2014",
+      "W.P.(C) 6932/2015",
+      "W.P.(C) 6954/2015",
+      "W.P.(C) 7296/2016",
+      "W.P.(C) 7356/2016",
+      "W.P.(C) 7364/2015",
+      "W.P.(C) 7391/2016",
+      "W.P.(C) 7442/2015",
+      "W.P.(C) 7470/2014",
+      "W.P.(C) 7524/2014",
+      "W.P.(C) 7668/2014",
+      "W.P.(C) 7678/2015",
+      "W.P.(C) 7699/2014",
+      "W.P.(C) 7701/2015",
+      "W.P.(C) 7731/2015",
+      "W.P.(C) 7801/2014",
+      "W.P.(C) 7807/2014",
+      "W.P.(C) 7830/2015",
+      "W.P.(C) 7851/2014",
+      "W.P.(C) 7887/2014",
+      "W.P.(C) 7893/2014",
+      "W.P.(C) 7901/2014",
+      "W.P.(C) 7911/2014",
+      "W.P.(C) 7925/2014",
+      "W.P.(C) 7963/2015",
+      "W.P.(C) 8058/2017",
+      "W.P.(C) 8075/2017",
+      "W.P.(C) 8100/2014",
+      "W.P.(C) 8122/2014",
+      "W.P.(C) 8130/2016",
+      "W.P.(C) 8138/2016",
+      "W.P.(C) 8140/2017",
+      "W.P.(C) 8194/2017",
+      "W.P.(C) 8265/2014",
+      "W.P.(C) 8406/2015",
+      "W.P.(C) 8469/2014",
+      "W.P.(C) 8475/2014",
+      "W.P.(C) 8478/2017",
+      "W.P.(C) 8479/2014",
+      "W.P.(C) 8517/2015",
+      "W.P.(C) 8526/2014",
+      "W.P.(C) 8540/2014",
+      "W.P.(C) 857/2015",
+      "W.P.(C) 8593/2014",
+      "W.P.(C) 8649/2015",
+      "W.P.(C) 8657/2014",
+      "W.P.(C) 8674/2014",
+      "W.P.(C) 8713/2014",
+      "W.P.(C) 8758/2017",
+      "W.P.(C) 8867/2014",
+      "W.P.(C) 9011/2015",
+      "W.P.(C) 9023/2015",
+      "W.P.(C) 9247/2017",
+      "W.P.(C) 9319/2014",
+      "W.P.(C) 9428/2017",
+      "W.P.(C) 9452/2015",
+      "W.P.(C) 9548/2015",
+      "W.P.(C) 9549/2015",
+      "W.P.(C) 960/2015",
+      "W.P.(C) 9912/2017"
+    ],
+    "reserved_split": "train",
+    "sha256": "7fcd86b9d84ee4f82779b29c512aed55a4d3a3d055bdbcb5c64cd83751db73ee",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6108/2015/25-02-2026"
+  },
+  "wpc6108-2015-nov2025": {
+    "case": "W.P.(C) 6108/2015",
+    "native_source_record_sha256": "8e35ca42836ab127432311c250a5f9a1d182ce9385c2528cbddaf288cd4d2b19",
+    "related_identities": [
+      "W.P.(C) 10159/2015",
+      "W.P.(C) 10648/2015",
+      "W.P.(C) 10671/2016",
+      "W.P.(C) 11/2015",
+      "W.P.(C) 11462/2015",
+      "W.P.(C) 11469/2016",
+      "W.P.(C) 11625/2015",
+      "W.P.(C) 1174/2017",
+      "W.P.(C) 1199/2017",
+      "W.P.(C) 12002/2015",
+      "W.P.(C) 1203/2017",
+      "W.P.(C) 12040/2015",
+      "W.P.(C) 12042/2016",
+      "W.P.(C) 12131/2015",
+      "W.P.(C) 12180/2016",
+      "W.P.(C) 1390/2017",
+      "W.P.(C) 1391/2017",
+      "W.P.(C) 147/2015",
+      "W.P.(C) 15411/2025",
+      "W.P.(C) 1543/2018",
+      "W.P.(C) 1934/2017",
+      "W.P.(C) 1980/2015",
+      "W.P.(C) 1985/2015",
+      "W.P.(C) 1987/2015",
+      "W.P.(C) 2051/2015",
+      "W.P.(C) 2121/2002",
+      "W.P.(C) 2204/2015",
+      "W.P.(C) 2297/2016",
+      "W.P.(C) 2472/2015",
+      "W.P.(C) 2481/2016",
+      "W.P.(C) 26/2018",
+      "W.P.(C) 2611/2015",
+      "W.P.(C) 2656/2015",
+      "W.P.(C) 2674/2017",
+      "W.P.(C) 2680/2015",
+      "W.P.(C) 2723/2015",
+      "W.P.(C) 2804/2015",
+      "W.P.(C) 2840/2015",
+      "W.P.(C) 2869/2015",
+      "W.P.(C) 2913/2016",
+      "W.P.(C) 2921/2016",
+      "W.P.(C) 2949/2015",
+      "W.P.(C) 2988/2016",
+      "W.P.(C) 2994/2016",
+      "W.P.(C) 2995/2016",
+      "W.P.(C) 2996/2016",
+      "W.P.(C) 3030/2015",
+      "W.P.(C) 316/2017",
+      "W.P.(C) 3304/2016",
+      "W.P.(C) 3431/2015",
+      "W.P.(C) 3659/2016",
+      "W.P.(C) 3699/2016",
+      "W.P.(C) 3714/2015",
+      "W.P.(C) 3734/2016",
+      "W.P.(C) 3859/2015",
+      "W.P.(C) 3903/2015",
+      "W.P.(C) 3911/2017",
+      "W.P.(C) 4060/2013",
+      "W.P.(C) 4082/2017",
+      "W.P.(C) 4192/2015",
+      "W.P.(C) 4255/2016",
+      "W.P.(C) 4274/2015",
+      "W.P.(C) 4324/2016",
+      "W.P.(C) 4330/2015",
+      "W.P.(C) 4427/2016",
+      "W.P.(C) 4552/2015",
+      "W.P.(C) 4566/2015",
+      "W.P.(C) 4621/2014",
+      "W.P.(C) 4771/2016",
+      "W.P.(C) 484/2016",
+      "W.P.(C) 49/2015",
+      "W.P.(C) 4989/2015",
+      "W.P.(C) 5225/2015",
+      "W.P.(C) 5260/2015",
+      "W.P.(C) 5270/2015",
+      "W.P.(C) 5679/2014",
+      "W.P.(C) 5768/2014",
+      "W.P.(C) 5877/2017",
+      "W.P.(C) 6036/2016",
+      "W.P.(C) 6104/2016",
+      "W.P.(C) 6108/2015",
+      "W.P.(C) 6316/2014",
+      "W.P.(C) 6350/2014",
+      "W.P.(C) 6374/2014",
+      "W.P.(C) 6380/2014",
+      "W.P.(C) 6405/2014",
+      "W.P.(C) 6551/2014",
+      "W.P.(C) 6565/2015",
+      "W.P.(C) 6604/2014",
+      "W.P.(C) 6617/2014",
+      "W.P.(C) 67/2015",
+      "W.P.(C) 6714/2014",
+      "W.P.(C) 6766/2015",
+      "W.P.(C) 6798/2017",
+      "W.P.(C) 6801/2014",
+      "W.P.(C) 6932/2015",
+      "W.P.(C) 6954/2015",
+      "W.P.(C) 7296/2016",
+      "W.P.(C) 7356/2016",
+      "W.P.(C) 7364/2015",
+      "W.P.(C) 7391/2016",
+      "W.P.(C) 7442/2015",
+      "W.P.(C) 7470/2014",
+      "W.P.(C) 7668/2014",
+      "W.P.(C) 7678/2015",
+      "W.P.(C) 7699/2014",
+      "W.P.(C) 7701/2015",
+      "W.P.(C) 7731/2015",
+      "W.P.(C) 7801/2014",
+      "W.P.(C) 7807/2014",
+      "W.P.(C) 7851/2014",
+      "W.P.(C) 7887/2014",
+      "W.P.(C) 7893/2014",
+      "W.P.(C) 7901/2014",
+      "W.P.(C) 7911/2014",
+      "W.P.(C) 7925/2014",
+      "W.P.(C) 7963/2015",
+      "W.P.(C) 8058/2017",
+      "W.P.(C) 8075/2017",
+      "W.P.(C) 8100/2014",
+      "W.P.(C) 8122/2014",
+      "W.P.(C) 8130/2016",
+      "W.P.(C) 8138/2016",
+      "W.P.(C) 8140/2017",
+      "W.P.(C) 8194/2017",
+      "W.P.(C) 8265/2014",
+      "W.P.(C) 8406/2015",
+      "W.P.(C) 8469/2014",
+      "W.P.(C) 8478/2017",
+      "W.P.(C) 8479/2014",
+      "W.P.(C) 8517/2015",
+      "W.P.(C) 8526/2014",
+      "W.P.(C) 8540/2014",
+      "W.P.(C) 857/2015",
+      "W.P.(C) 8593/2014",
+      "W.P.(C) 8649/2015",
+      "W.P.(C) 8657/2014",
+      "W.P.(C) 8674/2014",
+      "W.P.(C) 8713/2014",
+      "W.P.(C) 8758/2017",
+      "W.P.(C) 9011/2015",
+      "W.P.(C) 9023/2015",
+      "W.P.(C) 9247/2017",
+      "W.P.(C) 9428/2017",
+      "W.P.(C) 9452/2015",
+      "W.P.(C) 9548/2015",
+      "W.P.(C) 9549/2015",
+      "W.P.(C) 960/2015",
+      "W.P.(C) 9912/2017"
+    ],
+    "reserved_split": "train",
+    "sha256": "d446fefccfd1952d67039a469132ae35b18f6e0b6187d8b958d2c08f8053838c",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6108/2015/11-11-2025"
+  },
+  "wpc6504-2023": {
+    "case": "W.P.(C) 6504/2023",
+    "native_source_record_sha256": "fdcc5fd404f0aecc788cd7265e8bff7930d1a35ae5ade2d9d2f1119006a20a47",
+    "related_identities": [
+      "W.P.(C) 6504/2023"
+    ],
+    "reserved_split": "validation",
+    "sha256": "17092fb0f615bdb08edfef33e83a8465ffb0a5134950f6a89703c93f5dbab3d6",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1783346164_fccae4e9aa03da20_593_65042023.pdf/2026"
+  },
+  "wpc6504-2023-may2026": {
+    "case": "W.P.(C) 6504/2023",
+    "native_source_record_sha256": "fdb8e82d3b5f28f6a31e60cf729333f21e5ccb7ea4c88b476bb786ea8609142d",
+    "related_identities": [
+      "W.P.(C) 6504/2023"
+    ],
+    "reserved_split": "validation",
+    "sha256": "991b8a5ce538762b8f16961f71d2a8902215077b8c0caa459c32c7e82b056459",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6504/2023/07-05-2026"
+  },
+  "wpc6504-2023-oct2024": {
+    "case": "W.P.(C) 6504/2023",
+    "native_source_record_sha256": "7644eabf5c867d255a0df0f74dc90992e944d45e96d4d5c145a5aa05aed77cb0",
+    "related_identities": [
+      "W.P.(C) 6504/2023"
+    ],
+    "reserved_split": "validation",
+    "sha256": "4b927e7052a3c29ef3080d9bd8e6da5f852b9359535012aeb5ce6bfed3985284",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/6504/2023/23-10-2024"
+  },
+  "wpc847-2025": {
+    "case": "W.P.(C) 847/2025",
+    "native_source_record_sha256": "9628c39466d1f403d0c0ddb489e74220f445029263d9f4dff9b86625425edf54",
+    "related_identities": [
+      "W.P.(C) 847/2025"
+    ],
+    "reserved_split": "blind",
+    "sha256": "39f17b4ce73bb7156feaadff463558172596f6cf931bb314db51a41f2143eb8a",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1774699458_87b57142fbc5a6be_596_8472025.pdf/2026"
+  },
+  "wpc9093-2022": {
+    "case": "W.P.(C) 9093/2022",
+    "native_source_record_sha256": "e0d04d226fd70882dc9a0de97b46712b84bfd5a5d94d32e4e848f865d8e28a95",
+    "related_identities": [
+      "W.P.(C) 9093/2022"
+    ],
+    "reserved_split": "train",
+    "sha256": "b7dffc38aa54111bcf9d8079f32096cfed7f0ee6d4cb5d8e99ac96233c7918f5",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1787665216_627ab2f60ed25c6e_pms_90932022.pdf/2026"
+  },
+  "wpc9093-2022-apr2024": {
+    "case": "W.P.(C) 9093/2022",
+    "native_source_record_sha256": "61c7d946e3909a03dbb9ad0af29b90ddd901b53f180283c5510b757ed7842afb",
+    "related_identities": [
+      "W.P.(C) 9093/2022"
+    ],
+    "reserved_split": "train",
+    "sha256": "f16a76a6c7dd46704dd83f3d2dc845a74313eb737537f9a022ca0b59ad7e4652",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/9093/2022/08-04-2024"
+  },
+  "wpc9093-2022-feb09": {
+    "case": "W.P.(C) 9093/2022",
+    "native_source_record_sha256": "bf45862f8563e4b3378ef99790f6359f2fbb6ca7745a1cc2088c4b269778f0d1",
+    "related_identities": [
+      "W.P.(C) 9093/2022"
+    ],
+    "reserved_split": "train",
+    "sha256": "b2322d562c8ef17184d457f63af210af917c7254b2f08112f0b4bbac0801ba97",
+    "url": "https://delhihighcourt.nic.in/app/downloadOrderbByDate/W.P.%28C%29/9093/2022/09-02-2026"
+  },
+  "wpc9889-2024": {
+    "case": "W.P.(C) 9889/2024",
+    "native_source_record_sha256": "d9a1f37d3241591fd0f3f23e496b39123772b0374ee05c465c495055fdb66839",
+    "related_identities": [
+      "W.P.(C) 9889/2024"
+    ],
+    "reserved_split": "train",
+    "sha256": "df973992c8acbf1c23a836a3cae42f24a8ec82547bddddc023d214952ca97542",
+    "url": "https://delhihighcourt.nic.in/app/showlogo/1765800083_5aae0144a82b657e_597_98892024.pdf/2025"
+  }
+}

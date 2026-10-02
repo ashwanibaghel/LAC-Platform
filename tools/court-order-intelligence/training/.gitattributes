@@ -1,2 +1,7 @@
-# Checksummed audit/export payloads must survive Windows/Linux checkouts intact.
-* text eol=lf
+# Preserve exact frozen review/data bytes across Git platforms. These files are
+# checksummed evidence artifacts, not files to normalize during checkout.
+annotations/v2_review.py -text
+annotations/v2_tasks.py -text
+annotations/v2_eval_review.py -text
+pilot-v2/*.json -text
+pilot-v2/*.jsonl -text

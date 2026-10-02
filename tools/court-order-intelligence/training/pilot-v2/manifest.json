@@ -1,0 +1,124 @@
+{
+  "claims_inputs": "Reviewed structured evidence, not end-to-end extraction evaluation",
+  "counts": {
+    "blind": 37,
+    "train": 132,
+    "validation": 27
+  },
+  "files": {
+    "all-splits-context-audit.json": "4e014a203ac7904d97eb6ee2588dd8a16458b84531a6fd3fbdaf02787d965016",
+    "blind.jsonl": "c7d0e6a924a52dfc7a2b5d98978c8e2d055920baa34b027d74164f30fd4b4aa8",
+    "pre-freeze-audit.json": "55d1abbc122ec5f764434bfb85fb629caac6fd152baa4f631e4949397f91d38f",
+    "source-ledger.json": "4b0f657ef7077bb8e33bac559da1c9184e350bed5bf4c51668c523048b3058ec",
+    "train.jsonl": "27e1236b86d05de3dc68115de8c8f4306103db94a21337213017d6dc4d3e8192",
+    "v1-native-overlap-audit.json": "181f855cfdfdb68bfd060e90c723b821f235e89abd6ec5d7d1ad5aecef5fc4a8",
+    "validation.jsonl": "0ebb9a5a643236fcc90b33f3fca0d670af25cce0d8b6fbd86553f7086ab09671"
+  },
+  "frozen_at_utc": "2026-10-02T16:26:32.333216+00:00",
+  "full_native_pages_included": false,
+  "gold_authored_before_model_outputs": true,
+  "gpu_launch_allowed": true,
+  "leakage_group_one_split": true,
+  "matter_inventory": {
+    "CONT.CAS(C) 1094/2026": {
+      "leakage_group": "group-18d83edb843c07aa",
+      "split": "train"
+    },
+    "CONT.CAS(C) 418/2025": {
+      "leakage_group": "group-bb6a9c15a01acc2c",
+      "split": "train"
+    },
+    "W.P.(C) 10105/2023": {
+      "leakage_group": "group-8ea5aeb70c449d9b",
+      "split": "blind"
+    },
+    "W.P.(C) 13932/2025": {
+      "leakage_group": "group-e95758e0c1284725",
+      "split": "train"
+    },
+    "W.P.(C) 14785/2023": {
+      "leakage_group": "group-8e663b959b5bf96e",
+      "split": "train"
+    },
+    "W.P.(C) 16215/2023": {
+      "leakage_group": "group-841b0fbc735e11b1",
+      "split": "validation"
+    },
+    "W.P.(C) 3238/2023": {
+      "leakage_group": "group-bf0bf6c8f6747162",
+      "split": "validation"
+    },
+    "W.P.(C) 3282/2024": {
+      "leakage_group": "group-84ee4a5cecba854a",
+      "split": "blind"
+    },
+    "W.P.(C) 4255/2016": {
+      "leakage_group": "group-8dae21c62136d3b6",
+      "split": "train"
+    },
+    "W.P.(C) 4644/2024": {
+      "leakage_group": "group-8914141f4dc8c7ed",
+      "split": "train"
+    },
+    "W.P.(C) 4806/2014": {
+      "leakage_group": "group-e55f15f3b74cda29",
+      "split": "train"
+    },
+    "W.P.(C) 5084/2018": {
+      "leakage_group": "group-ecc57b85bc48a499",
+      "split": "train"
+    },
+    "W.P.(C) 5645/2022": {
+      "leakage_group": "group-842212fc9ed5a75b",
+      "split": "train"
+    },
+    "W.P.(C) 5993/2024": {
+      "leakage_group": "group-b2206b9defe8e478",
+      "split": "validation"
+    },
+    "W.P.(C) 6108/2015": {
+      "leakage_group": "group-8dae21c62136d3b6",
+      "split": "train"
+    },
+    "W.P.(C) 6504/2023": {
+      "leakage_group": "group-a395b908cf929de5",
+      "split": "validation"
+    },
+    "W.P.(C) 847/2025": {
+      "leakage_group": "group-23735282758b4ede",
+      "split": "blind"
+    },
+    "W.P.(C) 9093/2022": {
+      "leakage_group": "group-6168fbfa53fe3f82",
+      "split": "train"
+    },
+    "W.P.(C) 9889/2024": {
+      "leakage_group": "group-f1da917261a6fe7c",
+      "split": "train"
+    }
+  },
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "post_blind_tuning_allowed": false,
+  "private_workbook_included": false,
+  "protected_splits_frozen": true,
+  "purpose": [
+    "PILOT_V2",
+    "BOUNDED_EVALUATION",
+    "NO_DEPLOYMENT"
+  ],
+  "review_files": {
+    "annotations/v2_eval_review.py": "eae84122bd85ce55319c03d3295c0658bfc62193ad335e7732de5098818dd3f6",
+    "annotations/v2_review.py": "036b347daa6d5f22f175892378d0cde4cdfe14fde6bc92aacf0cba1feac284b1",
+    "annotations/v2_tasks.py": "268afa83b18e020ed8956ea19cf35a752da719e0cef533c17ba69b503fef907a"
+  },
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "training_current_position_examples": 12,
+  "training_current_position_matters": [
+    "W.P.(C) 13932/2025",
+    "W.P.(C) 4806/2014",
+    "W.P.(C) 6108/2015",
+    "W.P.(C) 9093/2022"
+  ],
+  "training_started": false,
+  "v1_native_and_passage_overlap_pass": true
+}

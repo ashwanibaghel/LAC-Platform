@@ -7,7 +7,7 @@ from annotations.v2_review import REVIEWED
 
 REVIEW = {'reviewer': 'Codex source-review pass (not human legal certification)',
           'method': 'Full native-order read; exact page/passage binding; independently authored targets',
-          'reviewed_on': '2026-10-02', 'annotation_version': 'pilot-v2-source-task-review-1'}
+          'reviewed_on': '2026-10-02', 'annotation_version': 'pilot-v2-source-task-review-2'}
 
 PASSAGES = {f'{version}-p{i}': (version, *passage[:-1])
             for version, (_, passages) in REVIEWED.items()
@@ -66,7 +66,7 @@ CHAIN_DECISIONS = {
    'wpc9093-2022-feb09-p0', 'wpc9093-2022-feb09-p1',
    'wpc9093-2022-p2', 'wpc9093-2022-p3', 'wpc9093-2022-p4', 'wpc9093-2022-p6'],
   ['wpc9093-2022-apr2024-p0', 'wpc9093-2022-apr2024-p1',
-   'wpc9093-2022-feb09-p1', 'wpc9093-2022-p2', 'wpc9093-2022-p3',
+   'wpc9093-2022-feb09-p0', 'wpc9093-2022-p2', 'wpc9093-2022-p3',
    'wpc9093-2022-p4', 'wpc9093-2022-p6'],
   'तीन उपलब्ध आदेशों से विवाद और वर्तमान स्थिति बताएं। कब्जे और compensation की बात किसका दावा है? Latest LAC meeting/records duty और Court listing अलग रखें; meeting date को hearing न कहें।',
   'multi_order_current_position', 'Hindi', 'SUPPORTED',
@@ -145,6 +145,69 @@ CHAIN_DECISIONS = {
   'compliance_state', 'English', 'SUPPORTED',
   'Confirmed earlier undertaking is specifically the blank template; actor distinction is preserved.'),
 }
+
+# Distinct chain decisions, not paraphrases: each focuses on a different
+# lifecycle/dispute/schedule question and has a separately authored target.
+# Twelve questions still represent FOUR independent three-order families.
+CHAIN_DECISIONS.update({
+ '4806-latest-development': (
+  ['wpc4806-2014-feb2020-p0', 'wpc4806-2014-apr2022-p0',
+   'wpc4806-2014-p1', 'wpc4806-2014-p2', 'wpc4806-2014-p3'],
+  ['wpc4806-2014-p1', 'wpc4806-2014-p2', 'wpc4806-2014-p3'],
+  'What changed in the latest supplied order after the earlier promise and repeated extension? Include the uncorrected position and renewed conditional consequence, not obsolete opportunities.',
+  'multi_order_current_position', 'English', 'SUPPORTED',
+  'Current non-correction plus renewed four-week opportunity and conditional costs; never presume completion.'),
+ '4806-unresolved-dispute': (
+  ['wpc4806-2014-feb2020-p0', 'wpc4806-2014-apr2022-p0', 'wpc4806-2014-p1'],
+  ['wpc4806-2014-p1'],
+  'In teen orders ke baad corrected affidavit ka unresolved factual position kya hai? Promise aur time grant se correction hui maan mat lena.',
+  'multi_order_current_position', 'RomanHindi', 'SUPPORTED',
+  'Latest Court expressly says errors still not corrected; earlier counsel promises do not override it.'),
+ '13932-impleadment-lifecycle': (
+  ['wpc13932-2025-sep2025-p0', 'wpc13932-2025-feb03-p0',
+   'wpc13932-2025-feb03-p1', 'wpc13932-2025-p0', 'wpc13932-2025-p1'],
+  ['wpc13932-2025-feb03-p1', 'wpc13932-2025-p1'],
+  'Across these orders, distinguish the original-owner impleadment promise, completed service, and later Court impleadment. What has actually progressed?',
+  'multi_order_current_position', 'English', 'SUPPORTED',
+  'Service was recorded in February; operative impleadment is in August. Mere earlier promise is not completion.'),
+ '13932-land-dispute-position': (
+  ['wpc13932-2025-sep2025-p0', 'wpc13932-2025-sep2025-p1',
+   'wpc13932-2025-sep2025-p2', 'wpc13932-2025-feb03-p1', 'wpc13932-2025-p0'],
+  ['wpc13932-2025-sep2025-p0', 'wpc13932-2025-sep2025-p1',
+   'wpc13932-2025-sep2025-p2', 'wpc13932-2025-p0'],
+  'इन तीन आदेशों से क्या भूमि/title विवाद समाप्त हुआ? मूल मांग और historical Award अलग बताएं; बाद का application disposal writ disposal या ownership declaration नहीं है।',
+  'multi_order_current_position', 'Hindi', 'SUPPORTED',
+  'Original disputed relief remains a claim; historical acquisition Award and limited application disposal do not decide title.'),
+ '6108-template-lifecycle': (
+  ['wpc6108-2015-nov2025-p2', 'wpc6108-2015-feb25-p1',
+   'wpc6108-2015-feb25-p2', 'wpc6108-2015-feb25-p3',
+   'wpc6108-2015-p0', 'wpc6108-2015-p1'],
+  ['wpc6108-2015-feb25-p1', 'wpc6108-2015-feb25-p2', 'wpc6108-2015-p1'],
+  'Ab template work ki position kya hai: kaunsa stage Court ne completed record kiya aur kaunsa LAC stage abhi direction hai? R3 affidavit ko LAC completion na kaho.',
+  'multi_order_current_position', 'Hinglish', 'SUPPORTED',
+  'Prepared/finalized blank template is different from renewed populated-template filing; actor stays attributed.'),
+ '6108-latest-listing': (
+  ['wpc6108-2015-nov2025-p3', 'wpc6108-2015-feb25-p5', 'wpc6108-2015-p2'],
+  ['wpc6108-2015-p2'],
+  'Teen actual orders ki chronology ke baad latest supplied Court listing kya hai? November order ki purani February listing ab current nahi hai.',
+  'multi_order_current_position', 'RomanHindi', 'SUPPORTED',
+  'March confirms the existing May Court listing; no order on the listed May date is fabricated.'),
+ '9093-disputed-possession-position': (
+  ['wpc9093-2022-apr2024-p0', 'wpc9093-2022-apr2024-p1',
+   'wpc9093-2022-feb09-p0', 'wpc9093-2022-p1', 'wpc9093-2022-p4'],
+  ['wpc9093-2022-apr2024-p0', 'wpc9093-2022-apr2024-p1',
+   'wpc9093-2022-feb09-p0', 'wpc9093-2022-p1'],
+  'What possession/compensation dispute remains in the supplied chain? Separate petitioner demand, SDM report and the Court’s latest view of conflicting authorities; do not establish a handover or payment.',
+  'multi_order_current_position', 'English', 'SUPPORTED',
+  'The report location and petitioner assertions stay attributed; Court records disagreement rather than settling possession.'),
+ '9093-meeting-vs-hearing': (
+  ['wpc9093-2022-apr2024-p3', 'wpc9093-2022-feb09-p4',
+   'wpc9093-2022-p2', 'wpc9093-2022-p3', 'wpc9093-2022-p6'],
+  ['wpc9093-2022-p3', 'wpc9093-2022-p6'],
+  'इन तीन आदेशों के बाद कौन सी latest तारीख office meeting की है और कौन सी Court hearing की? पहले आदेशों की listings को current dates न कहें।',
+  'multi_order_current_position', 'Hindi', 'SUPPORTED',
+  'September interdepartmental meeting and December Court listing are separate; prior Court listings are superseded.'),
+})
 
 for key, (supplied, selected, question, task, language, outcome, _) in CHAIN_DECISIONS.items():
     EXAMPLES.append((key, task, supplied, selected, question, language, outcome))
