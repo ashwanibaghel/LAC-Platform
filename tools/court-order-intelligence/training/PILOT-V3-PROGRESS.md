@@ -24,6 +24,28 @@ V3 branch: `codex/court-intelligence-pilot-v3`. No main merge.
 
 ## Required before a GPU launch
 
+## V3-B: deterministic curriculum foundation
+
+- SHA-256 counter-seeded task shuffle; task weights 6 attribution/current-position/
+  office-action, 3 compliance/extraction/important-facts, 2 date-QA/digest.
+- Positive/empty pools separate; office-action/date-QA exposure 3:1 when both
+  pools exist. Original records are never duplicated or rewritten.
+- Matter and example shuffled decks; avoid consecutive same matter when another
+  matter exists in the selected bucket. Actual exposure report records repeats.
+- Persist version, seed, immutable dataset fingerprint, logical consumed index,
+  shuffle counter and task/polarity/matter/example decks. Resume replay verifies
+  all state rather than trusting a changed curriculum.
+- Eight sampler tests pass, including continuous 80 steps vs resumes at 1/10/37/79
+  with accumulation 4, changed dataset/state rejection and prefetch separation.
+- This proves logical CPU sample continuity, NOT actual Kaggle Trainer integration.
+  GPU runner must checkpoint consumed microbatches at accumulation boundaries,
+  avoid double-skipping on resume and prove identical Trainer sample IDs.
+- Budget calculator derives updates from final count, requested equivalent passes
+  and accumulation; ceiling violations fail rather than silently truncate.
+  No final V3 exposure/budget is claimed before V3-C/D data exists.
+
+## Required before a GPU launch (continued)
+
 Fresh source-reviewed lifecycle/actor relationships must be bound to exact pages;
 never infer them from target labels, silence or a generated model assertion.
 The current claims contract selects evidence IDs, not unrestricted generated
