@@ -83,6 +83,10 @@ class PilotV2Safety(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'frozen'):
                 verify_bundle(path)
 
+    def test_runtime_keeps_immutable_bundle_free_of_bytecode(self):
+        source = (HERE / 'run_pilot_v2.py').read_text()
+        self.assertIn("environment['PYTHONDONTWRITEBYTECODE'] = '1'", source)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -45,5 +45,8 @@ subprocess.run(['nvidia-smi', '--query-gpu=name,memory.total,driver_version', '-
 subprocess.run([sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check', '-r', str(bundle / 'requirements.txt')], check=True)
 environment = dict(os.environ)
 environment['CUDA_VISIBLE_DEVICES'] = '0'
+# Keep the immutable input bundle exact: importing the trainer must not create
+# unlisted __pycache__ files before the fail-closed bundle inventory check.
+environment['PYTHONDONTWRITEBYTECODE'] = '1'
 subprocess.run([sys.executable, str(bundle / 'pilot_v2_train.py'), '--bundle', str(bundle),
     '--output', '/kaggle/working/lac-court-qwen4b-pilot-v2', '--ack-private-notebook'], check=True, env=environment)
