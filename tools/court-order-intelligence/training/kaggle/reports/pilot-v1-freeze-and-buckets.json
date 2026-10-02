@@ -1,0 +1,91 @@
+{
+  "summary": {
+    "stock_4b": {
+      "validation": {
+        "examples": 44,
+        "exact_target": 25,
+        "failed_examples": 19,
+        "bucket:office_action_miss": 1,
+        "bucket:office_action": 4,
+        "bucket:compliance_state": 5,
+        "bucket:date_qa": 5,
+        "bucket:important_fact_selection": 1,
+        "bucket:parser_rejection": 6,
+        "bucket:office_action_extra": 3,
+        "category_mismatches": 6,
+        "field_mismatches": 4,
+        "scope_mismatches": 0,
+        "bucket:field": 2,
+        "bucket:role": 2,
+        "bucket:attribution_extraction": 2,
+        "bucket:multi_order_synthesis": 2
+      },
+      "blind": {
+        "examples": 37,
+        "exact_target": 19,
+        "failed_examples": 18,
+        "category_mismatches": 14,
+        "field_mismatches": 12,
+        "scope_mismatches": 6,
+        "bucket:parser_rejection": 7,
+        "bucket:scope": 2,
+        "bucket:field": 4,
+        "bucket:role": 4,
+        "bucket:attribution_extraction": 4,
+        "bucket:office_action_extra": 2,
+        "bucket:office_action": 2,
+        "bucket:compliance_state": 4,
+        "bucket:date_qa": 5,
+        "bucket:important_fact_selection": 1,
+        "bucket:order_digest": 1,
+        "bucket:multi_order_synthesis": 1
+      }
+    },
+    "fine_tuned_4b": {
+      "validation": {
+        "examples": 44,
+        "exact_target": 33,
+        "failed_examples": 11,
+        "bucket:office_action_miss": 1,
+        "bucket:office_action_extra": 1,
+        "bucket:office_action": 1,
+        "bucket:important_fact_selection": 1,
+        "bucket:parser_rejection": 7,
+        "bucket:order_digest": 1,
+        "bucket:date_qa": 3,
+        "bucket:compliance_state": 1,
+        "category_mismatches": 4,
+        "field_mismatches": 6,
+        "scope_mismatches": 0,
+        "bucket:field": 2,
+        "bucket:role": 2,
+        "bucket:attribution_extraction": 2,
+        "bucket:multi_order_synthesis": 2
+      },
+      "blind": {
+        "examples": 37,
+        "exact_target": 29,
+        "failed_examples": 8,
+        "category_mismatches": 14,
+        "field_mismatches": 12,
+        "scope_mismatches": 6,
+        "bucket:parser_rejection": 4,
+        "bucket:scope": 2,
+        "bucket:field": 4,
+        "bucket:role": 4,
+        "bucket:attribution_extraction": 4,
+        "bucket:office_action_extra": 2,
+        "bucket:office_action": 3,
+        "bucket:office_action_miss": 1,
+        "bucket:multi_order_synthesis": 1
+      }
+    }
+  },
+  "buckets_overlap": true,
+  "targets_modified": false,
+  "blind_policy": "Observed V1 blind remains excluded from training; fresh untouched V2 blind required.",
+  "verified_artifact_count": 44,
+  "adapter_sha256": "09ebbd176cbdf0390bee3e47343b351da7a2fe80c72a8837e7de7f6eb291fb67",
+  "source_artifact_manifest_sha256": "86cb5933597b6eafacc4c1c9f948a7c0e93c4cb865f8813bc48d8c69943b6271",
+  "evaluation_output_sha256": "5689be7e36e0303227ec6e614a0ea74ebe2d066e8085f87d2f6163468f9010fc"
+}
