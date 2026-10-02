@@ -9,6 +9,13 @@ from test_worker import fact, order
 
 
 class ChronologyTests(unittest.TestCase):
+    def test_low_quote_defined_term_does_not_quote_remaining_judgment(self):
+        pages={1:'1. The petition concerns the statute (hereinafter called „the 2013 Act‟). 2. The Award was made on 24.10.2002. 3. In that decision, this Court observed as under:- “8. The respondents submit possession was taken.” 4. As a consequence, compensation has not been paid. 5. The writ petition is allowed.'}
+        anchors=anchors_for(pages)
+        self.assertFalse(next(a for a in anchors if 'Award was' in a['text'])['quoted'])
+        self.assertTrue(next(a for a in anchors if 'respondents submit' in a['text'])['quoted'])
+        self.assertFalse(next(a for a in anchors if 'compensation has' in a['text'])['quoted'])
+        self.assertFalse(next(a for a in anchors if 'petition is allowed' in a['text'])['quoted'])
     def test_caption_keeps_exact_advocate_block_with_page(self):
         text='W.P.(C) 22/2025 SHAMSHER SINGH .....Petitioner Through: Mr. A. K. Singh, Adv. versus GOVT OF NCT AND ANR .....Respondents Through: Mr. Rajneesh Sharma and Mr. Anil Pandey, Advs. for LAC. CORAM: HON\'BLE MR. JUSTICE SOMEONE'
         result=caption_context({1:text},'https://delhihighcourt.nic.in/app/test.pdf','2025-01-30')

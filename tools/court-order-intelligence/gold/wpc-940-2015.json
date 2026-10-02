@@ -1,0 +1,34 @@
+{
+  "caseNumber":"W.P.(C) 940/2015",
+  "manuallyReadAllPages":true,
+  "registerStatus":"Pending; not independently resolved by these two sources",
+  "knownGap":"A 2015 petition-allowed judgment and a 2026 procedural order exist; intervening reopening/restoration/appeal history not established. Do not infer current disposal.",
+  "orders":[
+    {
+      "orderDate":"2015-10-05",
+      "officialUrl":"https://delhihighcourt.nic.in/app/case_number_pdf/2015:DHC:8336-DB/SAS05102015CW9402015.pdf",
+      "sha256":"f7e3e983a8ec0dcf672d2b2aa1b57d80766f221a39da327da60a9e915c73ac1f",
+      "checklist":[
+        {"id":"B","label":"Dayanand petitioner","captionField":"petitioner","contains":["DAYANAND"],"page":1},
+        {"id":"D1","label":"Award and Award date","contains":["28/02-03","24.10.2002"],"page":2},
+        {"id":"D2","label":"Khasra land and village","contains":["26/8/2","26/11/1","Bijwasan"],"page":2},
+        {"id":"E","label":"Section 24(2) lapse claim","contains":["deemed to have lapsed","24(2)"],"page":1},
+        {"id":"G","label":"Respondent stay explanation remains submission","role":"LAC_OR_RESPONDENT_SUBMISSION","contains":["respondents contend","stay order"],"page":2},
+        {"id":"I1","label":"Own case no physical possession","contains":["respondents did not take","physical possession"],"page":4},
+        {"id":"I2","label":"Own case compensation not paid","contains":["compensation has not been paid"],"page":4},
+        {"id":"K1","label":"Own case lapse declaration","contains":["acquisition proceedings","deemed to have lapsed"],"page":5},
+        {"id":"K2","label":"Petition allowed","contains":["writ petition is allowed"],"page":5}
+      ]
+    },
+    {
+      "orderDate":"2026-05-21",
+      "officialUrl":"https://delhihighcourt.nic.in/app/showlogo/1779521222_a5ac29297695be31_pms_9402015.pdf/2026",
+      "sha256":"e5f7437c533f01f3afbf1582cbe1dc68eae9156536ef41b17ea9ec3b75010002",
+      "checklist":[
+        {"id":"J","label":"DDA reply not LAC obligation","role":"COURT_DIRECTION","contains":["reply be filed by DDA","6 weeks"],"page":1},
+        {"id":"L1","label":"Registrar July date","contains":["Joint Registrar","28th July"],"page":1},
+        {"id":"L2","label":"Court September date","contains":["Court","28th September"],"page":1}
+      ]
+    }
+  ]
+}

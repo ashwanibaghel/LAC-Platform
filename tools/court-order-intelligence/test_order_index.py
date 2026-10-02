@@ -104,6 +104,16 @@ class OrderIndexTests(unittest.TestCase):
         self.assertIn('refusal letter',result['answer'])
         self.assertNotIn('did not assemble',result['answer'])
 
+    def test_full_story_retains_substantive_party_stand_and_operative_direction(self):
+        stand=fact('The LAC submits similar matters remain pending.',category='LAC_OR_RESPONDENT_SUBMISSION',field='context',actor=None,deadlineText=None)
+        routine=fact('Adjournment is sought by counsel for the Respondents.',category='LAC_OR_RESPONDENT_SUBMISSION',field='context',actor=None,deadlineText=None)
+        operative=fact('By way of last and final opportunity respondents shall file counter affidavit.',actor='Respondent',deadlineText=None)
+        listing=fact('List on 01.10.2026.',field='nextHearing',actor=None,deadlineText=None)
+        artifact=synthesize(CASE,NUMBER,[order([stand],orderDate='2026-04-16'),order([routine,operative,listing],orderDate='2026-07-29')])
+        result=answer(artifact,CASE,'Poore matter ka summary batao.',SelectAll())
+        self.assertIn('similar matters',result['answer']); self.assertIn('last and final',result['answer'])
+        self.assertNotIn('Adjournment',result['answer']); self.assertNotIn('List on',result['answer'])
+
     def test_routine_latest_order_does_not_erase_substantive_history(self):
         substantive=order([fact('The petition concerns disputed compensation.',category='CASE_CONTEXT',field='context',actor=None,deadlineText=None)],orderDate='2025-01-01')
         routine=order([fact('List the matter on 01.10.2026.',field='nextHearing',actor=None,deadlineText=None)],orderDate='2026-07-29')

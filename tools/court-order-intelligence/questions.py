@@ -98,6 +98,13 @@ def retrieve(artifact, question, intent=None):
                     # the petition was filed. Prefer the source's dispute.
                     substantive=[entry for entry in entries if re.search(r'petition.*(?:seek|challeng|concern)|quash|refusal|disput|denotifi|reference',entry['text'],re.I)]
                     selected.append((substantive or entries)[0])
+                elif role in SUBMISSION_ROLES:
+                    substantive=[entry for entry in entries if not re.search(r'passover|adjournment|short accommodation',entry['text'],re.I)]
+                    selected.append((substantive or entries)[-1])
+                elif role=='COURT_DIRECTION':
+                    operative=[entry for entry in entries if not re.match(r'\s*(?:\d+\.\s*)?(?:list|renotify)',entry['text'],re.I)]
+                    last_opportunity=[entry for entry in operative if re.search(r'last (?:and )?final opportunity',entry['text'],re.I)]
+                    selected.append((last_opportunity or operative or entries)[-1])
                 else: selected.append(entries[-1])
         found=selected or found
     # Explicit lifecycle evidence is authoritative; absence never means completed.

@@ -100,19 +100,19 @@ def anchors_for(pages):
                 number and int(number[1])==precedent_parent+1 or
                 re.search(r'[”�]\s*'+str(precedent_parent+1)+r'\.\s*$',body[max(0,start-80):start]))
             if returning:
-                precedent=False; quote_depth=0
+                precedent=False; quote_depth=0; inherited_role=None
             if number and not precedent and quote_depth==0: outer_paragraph=int(number[1])
-            if re.search(r'extract the following passages|following (?:passages|extract) from (?:the said|that|the) decision|Supreme Court.{0,180}observed as under',passage,re.I):
+            if re.search(r'extract the following passages|following (?:passages|extract) from (?:the said|that|the) decision|(?:Supreme Court|this Court).{0,180}observed as under',passage,re.I):
                 precedent=True
                 precedent_parent=outer_paragraph
             # Native PDFs sometimes expose quote glyphs as replacement characters.
             # An explicit precedent extract stays quoted until the current Court
             # resumes its own numbered conclusion. Never infer facts from precedent.
-            quoted=quote_depth>0 or passage.startswith(('“','‟'))
+            quoted=quote_depth>0 or passage.startswith(('“','„','‟'))
             quoted |= precedent
             for character in body[start:end]:
-                if character in ('“','‟'): quote_depth+=1
-                elif character=='”': quote_depth=max(0,quote_depth-1)
+                if character in ('“','„'): quote_depth+=1
+                elif character in ('”','‟'): quote_depth=max(0,quote_depth-1)
             if re.match(r'^\d{1,3}\.',passage) or re.match(r'^(?:In view of|We |The Court |Renotify|List (?:on|for))',passage,re.I): inherited_role=None
             if not RELEVANT.search(passage) or len(passage)<12:
                 continue

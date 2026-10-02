@@ -76,3 +76,11 @@ Checklist evaluation is read-only: no network, database or model request. The
 optional `benchmark_inventory.py` uses a read-only PostgreSQL session to inventory
 registered known sources; it needs psycopg separately, not in the worker runtime.
 Synthetic demo GUIDs must never be copied onto real registered Court IDs.
+
+## Bounded continuation
+
+See `FINAL-QUALITY-REPORT.md` for checkpoints B/C, exact-date local Q&A, permanent
+order metadata/lazy temporary PDF semantics and the additional Pending 940/2015
+benchmark. Its real-model gold recall improved from 4/12 to 11/12 after a general
+low/reversed quote-glyph correction. A respondent submission and missing intervening
+history remain explicitly review work; no blanket pre-training pass is claimed.
