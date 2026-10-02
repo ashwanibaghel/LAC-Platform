@@ -7,7 +7,7 @@ is a bounded contiguous exact passage on the SAME page, when expressly needed.
 Unknown chains stay UNKNOWN. No validation/blind targets or model output used.
 """
 REVIEW = {'reviewed_on': '2026-10-03', 'method': 'Existing native pages plus original independent source annotations',
-          'version': 'v3-reused-train-context-1', 'targets_changed': False}
+          'version': 'v3-reused-train-context-2', 'targets_changed': False}
 
 # Explicit new/renewed directions and listing instructions from supplied TRAIN
 # sources. No role/field changes: a filing direction remains field=filing.
@@ -43,6 +43,18 @@ ACTOR_CONTEXT = {
     'wpc9093-2022-p3': ('wpc9093-2022-p2', 'wpc9093-2022-p3'),
 }
 
+# Paragraphs 5-7 establish the service evidence and the Court's conclusion,
+# including the distinction between service affidavits and publication service.
+# Review is attached to the source passage, not any question/selected answer.
+# This is service completion only, never completed LAC filing or impleadment.
+NATIVE_CONTEXT = {
+    'wpc13932-2025-feb03-p1': (
+        'wpc13932-2025-feb03', 2,
+        '5. Affidavits of service were filed in respect of service of all the above Respondents except Respondent Nos.4, 7, 15, 16.',
+        '7. Thus, all the original owners stood served in terms of the amended memo parties attached with application CM APPL. 61807/2025.',
+    ),
+}
+
 
 def enrich(example, passages, source_records):
     """No target read. Bind explicit source-reviewed context to supplied facts."""
@@ -54,6 +66,20 @@ def enrich(example, passages, source_records):
     as_of = max(p['order_date'] for p in result['provenance'])
     for p, entry in zip(result['provenance'], result['input']['availableEvidence']):
         pid = p['passage_id']
+        if pid in NATIVE_CONTEXT:
+            version, page, first, last = NATIVE_CONTEXT[pid]
+            if version != p['source_version_id'] or page != p['page']:
+                raise ValueError('Native context must stay on the exact source/page')
+            native = re.sub(r'\s+', ' ', source_records[version]['pages'][str(page)]).strip()
+            start, end = native.find(first), native.find(last)
+            if start < 0 or end < start:
+                raise ValueError('Reviewed native context not found on exact source page')
+            excerpt = native[start:end + len(last)]
+            if len(excerpt) > 900 or p['text'] not in excerpt:
+                raise ValueError('Native context is not bounded/source-confirmed')
+            entry['source']['evidence'] = excerpt
+            entry['originalSourceEvidence'] = p['text']
+            entry['sourceContextReview'] = REVIEW['version']
         if pid in OPEN_AS_ISSUED:
             state = 'OPEN' if as_of == p['order_date'] else 'UNKNOWN'
             if pid in SUPERSEDED_AT and as_of >= SUPERSEDED_AT[pid]:

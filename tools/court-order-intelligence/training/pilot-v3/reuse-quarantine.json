@@ -119,13 +119,6 @@
     "truthful_labels_changed": false
   },
   {
-    "id": "wpc13932-2025-feb03-compliance",
-    "origin": "pilot-v2",
-    "reason": "Semantic gate: completion requires recorded performance",
-    "training_eligible": false,
-    "truthful_labels_changed": false
-  },
-  {
     "id": "wpc4806-2014-feb2020-action",
     "origin": "pilot-v2",
     "reason": "Semantic gate: action requires supported active LAC direction",

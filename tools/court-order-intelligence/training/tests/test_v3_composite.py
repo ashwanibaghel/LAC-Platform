@@ -156,6 +156,35 @@ class V3CompositeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 v3_reuse_context.enrich(a, ledger, native)
 
+    def test_native_performance_context_preserves_target_and_source_selection(self):
+        a = example(task='compliance_state')
+        original = deepcopy(a)
+        before = 'The affidavits of service were filed.'
+        last = a['provenance'][0]['text']
+        record = {'source': {'pages': {'1': before + ' ' + last}}}
+        with patch.object(v3_reuse_context, 'NATIVE_CONTEXT', {'passage': ('source', 1, before, last)}):
+            result = v3_reuse_context.enrich(a, {}, record)
+            self.assertEqual(result['input']['availableEvidence'][0]['source']['evidence'], before + ' ' + last)
+            self.assertEqual(result['input']['availableEvidence'][0]['text'], last)
+            self.assertEqual(result['target'], original['target'])
+            self.assertEqual(result['provenance'], original['provenance'])
+            self.assertEqual(a, original)
+            a.pop('target')
+            self.assertEqual(v3_reuse_context.enrich(a, {}, record)['input'], result['input'])
+            with self.assertRaises(ValueError):
+                v3_reuse_context.enrich(a, {}, {'source': {'pages': {'1': last}}})
+
+    def test_native_context_cannot_cross_page_or_overflow_bound(self):
+        a = example()
+        text = a['provenance'][0]['text']
+        for spec, record in (
+            (('source', 2, 'First.', text), {'source': {'pages': {'2': 'First. ' + text}}}),
+            (('source', 1, 'First.', text), {'source': {'pages': {'1': 'First. ' + 'x' * 901 + text}}}),
+        ):
+            with patch.object(v3_reuse_context, 'NATIVE_CONTEXT', {'passage': spec}):
+                with self.assertRaises(ValueError):
+                    v3_reuse_context.enrich(a, {}, record)
+
 
 if __name__ == '__main__':
     unittest.main()

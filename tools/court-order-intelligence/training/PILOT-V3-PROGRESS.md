@@ -154,3 +154,17 @@ all requested counts, source/lifecycle binding, newly discovered fresh-holdout
 connections, token/exposure checks and actual remaining gaps. Current decision
 is still NO-GO, but reuse—not an entirely fresh corpus—is the preparation basis.
 No live acquisition or GPU run occurred during this correction checkpoint.
+
+## Final-push Phase 1: reviewed all 33 legacy rejects (3 October 2026)
+
+One source-confirmed service-compliance candidate recovered using exact native
+adjacent paragraphs, preserving the original target/selection and unchanged
+semantic gate. Passing pool 187 (V1 76/V2 111), quarantine 32. Of the original
+33: one recovered, one genuine current-state support gap, 31 source-supported
+but still blocked by current parser/contract precision. No gate bypass or
+relabel-to-fit was implemented. All 18 frozen files verified unchanged.
+
+See `pilot-v3/LEGACY-RECOVERY-DECISION.md` for the individual 33-row decisions,
+strict coverage caveat, updated exposure/context audit, and the specific
+V3-only parser/gate precision decision needed. 275 offline tests passed.
+No Kaggle upload/GPU/live Court request. NO-GO; not a foundation-ready claim.

@@ -1,11 +1,11 @@
 {
-  "candidate_count": 186,
+  "candidate_count": 187,
   "evidence_truncated": false,
   "examples_dropped": false,
   "gpu_launch_allowed": false,
-  "inference_prompt_fit": 173,
-  "inference_with_output_reserve_fit": 136,
-  "input_sha256": "cb9a2c61818a2edc5535fbc7de4b81f654e845be659479c3ed8c844292f03432",
+  "inference_prompt_fit": 174,
+  "inference_with_output_reserve_fit": 137,
+  "input_sha256": "bcb2c7cb169a37ae2cdada5161202fc0ac6fb762be255c8e5f3312b819e4fb7b",
   "max_inference_prompt_tokens": 2685,
   "max_training_tokens": 2663,
   "model": "Qwen/Qwen3-4B-Instruct-2507",
@@ -1148,38 +1148,47 @@
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "wpc13932-2025-feb03-action",
-      "inference_prompt_tokens": 1004,
+      "inference_prompt_tokens": 1183,
       "inference_with_output_reserve_fits": true,
       "task": "office_action_detection",
       "training_fits": true,
-      "training_tokens": 947
+      "training_tokens": 1126
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-feb03-compliance",
+      "inference_prompt_tokens": 1177,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1125
     },
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "wpc13932-2025-feb03-digest",
-      "inference_prompt_tokens": 1064,
+      "inference_prompt_tokens": 1243,
       "inference_with_output_reserve_fits": true,
       "task": "order_digest",
       "training_fits": true,
-      "training_tokens": 1022
+      "training_tokens": 1201
     },
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "wpc13932-2025-feb03-date",
-      "inference_prompt_tokens": 1006,
+      "inference_prompt_tokens": 1185,
       "inference_with_output_reserve_fits": true,
       "task": "date_specific_retrieval_or_QA",
       "training_fits": true,
-      "training_tokens": 964
+      "training_tokens": 1143
     },
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "wpc13932-2025-feb03-unsupported-completion",
-      "inference_prompt_tokens": 989,
+      "inference_prompt_tokens": 1168,
       "inference_with_output_reserve_fits": true,
       "task": "date_specific_retrieval_or_QA",
       "training_fits": true,
-      "training_tokens": 932
+      "training_tokens": 1111
     },
     {
       "existing_pilot_inference_prompt_fits": true,
@@ -1598,20 +1607,20 @@
     {
       "existing_pilot_inference_prompt_fits": false,
       "id": "13932-position",
-      "inference_prompt_tokens": 2311,
+      "inference_prompt_tokens": 2490,
       "inference_with_output_reserve_fits": false,
       "task": "multi_order_current_position",
       "training_fits": false,
-      "training_tokens": 2289
+      "training_tokens": 2468
     },
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "13932-current-obligation",
-      "inference_prompt_tokens": 1817,
+      "inference_prompt_tokens": 1996,
       "inference_with_output_reserve_fits": false,
       "task": "office_action_detection",
       "training_fits": true,
-      "training_tokens": 1760
+      "training_tokens": 1939
     },
     {
       "existing_pilot_inference_prompt_fits": true,
@@ -1634,20 +1643,20 @@
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "13932-impleadment-lifecycle",
-      "inference_prompt_tokens": 1554,
+      "inference_prompt_tokens": 1733,
       "inference_with_output_reserve_fits": false,
       "task": "multi_order_current_position",
       "training_fits": true,
-      "training_tokens": 1507
+      "training_tokens": 1686
     },
     {
       "existing_pilot_inference_prompt_fits": true,
       "id": "13932-land-dispute-position",
-      "inference_prompt_tokens": 1666,
+      "inference_prompt_tokens": 1845,
       "inference_with_output_reserve_fits": false,
       "task": "multi_order_current_position",
       "training_fits": true,
-      "training_tokens": 1629
+      "training_tokens": 1808
     },
     {
       "existing_pilot_inference_prompt_fits": true,
@@ -1700,7 +1709,7 @@
     "adapter/tokenizer_config.json": "4b5f2f80f84faefe8420e1616671adb1dd3d7e632038d34b1f0e3a1363a51059",
     "adapter/vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
   },
-  "training_fit": 173,
+  "training_fit": 174,
   "transformers": "4.56.2",
   "weights_loaded": false
 }
