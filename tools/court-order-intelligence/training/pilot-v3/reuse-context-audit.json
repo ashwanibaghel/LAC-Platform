@@ -1,0 +1,1706 @@
+{
+  "candidate_count": 186,
+  "evidence_truncated": false,
+  "examples_dropped": false,
+  "gpu_launch_allowed": false,
+  "inference_prompt_fit": 173,
+  "inference_with_output_reserve_fit": 136,
+  "input_sha256": "cb9a2c61818a2edc5535fbc7de4b81f654e845be659479c3ed8c844292f03432",
+  "max_inference_prompt_tokens": 2685,
+  "max_training_tokens": 2663,
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "output_reserve": 512,
+  "results": [
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc7003-2026-action",
+      "inference_prompt_tokens": 1829,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1772
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc7003-2026-compliance",
+      "inference_prompt_tokens": 1835,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1778
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc7003-2026-unsupported",
+      "inference_prompt_tokens": 1833,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1776
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-important",
+      "inference_prompt_tokens": 772,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 725
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-action",
+      "inference_prompt_tokens": 778,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 721
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-compliance",
+      "inference_prompt_tokens": 784,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 727
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-digest",
+      "inference_prompt_tokens": 779,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 732
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-date-en",
+      "inference_prompt_tokens": 780,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 733
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont659-2018-unsupported",
+      "inference_prompt_tokens": 782,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 725
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-extract",
+      "inference_prompt_tokens": 825,
+      "inference_with_output_reserve_fits": true,
+      "task": "semantic_proposition_extraction",
+      "training_fits": true,
+      "training_tokens": 584
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-attribute",
+      "inference_prompt_tokens": 825,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 584
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-important",
+      "inference_prompt_tokens": 689,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 642
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-action",
+      "inference_prompt_tokens": 695,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 638
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-compliance",
+      "inference_prompt_tokens": 701,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 644
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-digest",
+      "inference_prompt_tokens": 696,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 649
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-date-en",
+      "inference_prompt_tokens": 697,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 650
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "lpa543-2026-unsupported",
+      "inference_prompt_tokens": 699,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 642
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-important",
+      "inference_prompt_tokens": 1602,
+      "inference_with_output_reserve_fits": false,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 1570
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-action",
+      "inference_prompt_tokens": 1608,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1551
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-compliance",
+      "inference_prompt_tokens": 1614,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1557
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-digest",
+      "inference_prompt_tokens": 1609,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1577
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-date-en",
+      "inference_prompt_tokens": 1610,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1578
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6328-2026-unsupported",
+      "inference_prompt_tokens": 1612,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1555
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-important",
+      "inference_prompt_tokens": 1087,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 1050
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-action",
+      "inference_prompt_tokens": 1093,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1036
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-compliance",
+      "inference_prompt_tokens": 1099,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1042
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-digest",
+      "inference_prompt_tokens": 1094,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1057
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-date-en",
+      "inference_prompt_tokens": 1095,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1058
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc8971-2025-unsupported",
+      "inference_prompt_tokens": 1097,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1040
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-important",
+      "inference_prompt_tokens": 904,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 862
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-action",
+      "inference_prompt_tokens": 910,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 853
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-compliance",
+      "inference_prompt_tokens": 916,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 859
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-digest",
+      "inference_prompt_tokens": 911,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 869
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-date-en",
+      "inference_prompt_tokens": 912,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 870
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont527-2018-unsupported",
+      "inference_prompt_tokens": 914,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 857
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-extract",
+      "inference_prompt_tokens": 923,
+      "inference_with_output_reserve_fits": true,
+      "task": "semantic_proposition_extraction",
+      "training_fits": true,
+      "training_tokens": 703
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-attribute",
+      "inference_prompt_tokens": 923,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 703
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-important",
+      "inference_prompt_tokens": 908,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 866
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-action",
+      "inference_prompt_tokens": 914,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 857
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-compliance",
+      "inference_prompt_tokens": 920,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 863
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-digest",
+      "inference_prompt_tokens": 915,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 873
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-date-en",
+      "inference_prompt_tokens": 916,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 874
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs147-2022-unsupported",
+      "inference_prompt_tokens": 918,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 861
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-important",
+      "inference_prompt_tokens": 1426,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 1394
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-action",
+      "inference_prompt_tokens": 1432,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1375
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-compliance",
+      "inference_prompt_tokens": 1438,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1381
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-digest",
+      "inference_prompt_tokens": 1433,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1401
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-date-en",
+      "inference_prompt_tokens": 1434,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1402
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cs23-2025-unsupported",
+      "inference_prompt_tokens": 1436,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1379
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-extract",
+      "inference_prompt_tokens": 738,
+      "inference_with_output_reserve_fits": true,
+      "task": "semantic_proposition_extraction",
+      "training_fits": true,
+      "training_tokens": 477
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-attribute",
+      "inference_prompt_tokens": 738,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 477
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-important",
+      "inference_prompt_tokens": 462,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 410
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-action",
+      "inference_prompt_tokens": 468,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 411
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-compliance",
+      "inference_prompt_tokens": 474,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 417
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-digest",
+      "inference_prompt_tokens": 469,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 417
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-date-en",
+      "inference_prompt_tokens": 470,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 418
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc16669-2024-unsupported",
+      "inference_prompt_tokens": 472,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 415
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-extract",
+      "inference_prompt_tokens": 1189,
+      "inference_with_output_reserve_fits": true,
+      "task": "semantic_proposition_extraction",
+      "training_fits": true,
+      "training_tokens": 990
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-attribute",
+      "inference_prompt_tokens": 1189,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 990
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-important",
+      "inference_prompt_tokens": 1441,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 1404
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-action",
+      "inference_prompt_tokens": 1447,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1390
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-compliance",
+      "inference_prompt_tokens": 1453,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1396
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-digest",
+      "inference_prompt_tokens": 1448,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1411
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-date-en",
+      "inference_prompt_tokens": 1449,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1412
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc2466-2026-unsupported",
+      "inference_prompt_tokens": 1451,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1394
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-action",
+      "inference_prompt_tokens": 1794,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1737
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-unsupported",
+      "inference_prompt_tokens": 1798,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1741
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-important",
+      "inference_prompt_tokens": 1385,
+      "inference_with_output_reserve_fits": true,
+      "task": "important_fact_selection",
+      "training_fits": true,
+      "training_tokens": 1353
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-action",
+      "inference_prompt_tokens": 1391,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1334
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-compliance",
+      "inference_prompt_tokens": 1397,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1340
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-digest",
+      "inference_prompt_tokens": 1392,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1360
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-date-en",
+      "inference_prompt_tokens": 1393,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1361
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-sep2025-unsupported",
+      "inference_prompt_tokens": 1395,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1338
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-feb2026-action",
+      "inference_prompt_tokens": 1240,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1183
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-feb2026-compliance",
+      "inference_prompt_tokens": 1246,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1189
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc10308-2024-feb2026-unsupported",
+      "inference_prompt_tokens": 1244,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1187
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-attribute-0",
+      "inference_prompt_tokens": 1126,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 927
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-action",
+      "inference_prompt_tokens": 1238,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1181
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-compliance",
+      "inference_prompt_tokens": 1232,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1175
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-digest",
+      "inference_prompt_tokens": 1298,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1261
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-date",
+      "inference_prompt_tokens": 1240,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1203
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-apr2024-unsupported-completion",
+      "inference_prompt_tokens": 1223,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1166
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-attribute-0",
+      "inference_prompt_tokens": 1126,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 930
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-action",
+      "inference_prompt_tokens": 1184,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1127
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-compliance",
+      "inference_prompt_tokens": 1178,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1121
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-digest",
+      "inference_prompt_tokens": 1244,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1207
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-date",
+      "inference_prompt_tokens": 1186,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1149
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-nov2020-unsupported-completion",
+      "inference_prompt_tokens": 1169,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1112
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-action",
+      "inference_prompt_tokens": 941,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 884
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-compliance",
+      "inference_prompt_tokens": 935,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 878
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-digest",
+      "inference_prompt_tokens": 1001,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 959
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-date",
+      "inference_prompt_tokens": 943,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 901
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5084-2018-unsupported-completion",
+      "inference_prompt_tokens": 926,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 869
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-attribute-0",
+      "inference_prompt_tokens": 922,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 705
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-action",
+      "inference_prompt_tokens": 927,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 870
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-compliance",
+      "inference_prompt_tokens": 921,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 864
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-digest",
+      "inference_prompt_tokens": 987,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 945
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-date",
+      "inference_prompt_tokens": 929,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 887
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9889-2024-unsupported-completion",
+      "inference_prompt_tokens": 912,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 855
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-attribute-0",
+      "inference_prompt_tokens": 1405,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 1252
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-action",
+      "inference_prompt_tokens": 1838,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1781
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-compliance",
+      "inference_prompt_tokens": 1832,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1775
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-digest",
+      "inference_prompt_tokens": 1898,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1871
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-date",
+      "inference_prompt_tokens": 1840,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1813
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "cont1094-2026-unsupported-completion",
+      "inference_prompt_tokens": 1823,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1766
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "cont418-2025-action",
+      "inference_prompt_tokens": 2427,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": false,
+      "training_tokens": 2370
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "cont418-2025-compliance",
+      "inference_prompt_tokens": 2421,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": false,
+      "training_tokens": 2364
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "cont418-2025-digest",
+      "inference_prompt_tokens": 2487,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": false,
+      "training_tokens": 2470
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "cont418-2025-date",
+      "inference_prompt_tokens": 2429,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": false,
+      "training_tokens": 2412
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "cont418-2025-unsupported-completion",
+      "inference_prompt_tokens": 2412,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": false,
+      "training_tokens": 2355
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5645-2022-action",
+      "inference_prompt_tokens": 1134,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1077
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5645-2022-compliance",
+      "inference_prompt_tokens": 1128,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1071
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5645-2022-digest",
+      "inference_prompt_tokens": 1194,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1157
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5645-2022-date",
+      "inference_prompt_tokens": 1136,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1099
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc5645-2022-unsupported-completion",
+      "inference_prompt_tokens": 1119,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1062
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-nov2025-compliance",
+      "inference_prompt_tokens": 1372,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1315
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-nov2025-unsupported-completion",
+      "inference_prompt_tokens": 1363,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1306
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-feb25-digest",
+      "inference_prompt_tokens": 1962,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1935
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-feb25-date",
+      "inference_prompt_tokens": 1904,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1877
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-feb25-unsupported-completion",
+      "inference_prompt_tokens": 1887,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1830
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-attribute-0",
+      "inference_prompt_tokens": 1244,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 1069
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-action",
+      "inference_prompt_tokens": 1500,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1443
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-compliance",
+      "inference_prompt_tokens": 1494,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1437
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-digest",
+      "inference_prompt_tokens": 1560,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1528
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-date",
+      "inference_prompt_tokens": 1502,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1470
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-sep2025-unsupported-completion",
+      "inference_prompt_tokens": 1485,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1428
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-feb03-action",
+      "inference_prompt_tokens": 1004,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 947
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-feb03-digest",
+      "inference_prompt_tokens": 1064,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1022
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-feb03-date",
+      "inference_prompt_tokens": 1006,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 964
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-feb03-unsupported-completion",
+      "inference_prompt_tokens": 989,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 932
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-action",
+      "inference_prompt_tokens": 1761,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1704
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-compliance",
+      "inference_prompt_tokens": 1755,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1698
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-digest",
+      "inference_prompt_tokens": 1821,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1794
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-date",
+      "inference_prompt_tokens": 1763,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1736
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc13932-2025-unsupported-completion",
+      "inference_prompt_tokens": 1746,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1689
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-feb2020-compliance",
+      "inference_prompt_tokens": 1134,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1077
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-feb2020-digest",
+      "inference_prompt_tokens": 1200,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1163
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-feb2020-date",
+      "inference_prompt_tokens": 1142,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1105
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-feb2020-unsupported-completion",
+      "inference_prompt_tokens": 1125,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1068
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-apr2022-compliance",
+      "inference_prompt_tokens": 986,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 929
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-apr2022-digest",
+      "inference_prompt_tokens": 1052,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1010
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-apr2022-date",
+      "inference_prompt_tokens": 994,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 952
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-apr2022-unsupported-completion",
+      "inference_prompt_tokens": 977,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 920
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-compliance",
+      "inference_prompt_tokens": 1721,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1664
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-digest",
+      "inference_prompt_tokens": 1787,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1755
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-date",
+      "inference_prompt_tokens": 1729,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1697
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4806-2014-unsupported-completion",
+      "inference_prompt_tokens": 1712,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1655
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-compliance",
+      "inference_prompt_tokens": 1068,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1011
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-digest",
+      "inference_prompt_tokens": 1134,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1092
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-date",
+      "inference_prompt_tokens": 1076,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1034
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc6108-2015-unsupported-completion",
+      "inference_prompt_tokens": 1059,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1002
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4255-2016-compliance",
+      "inference_prompt_tokens": 1052,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 995
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4255-2016-digest",
+      "inference_prompt_tokens": 1118,
+      "inference_with_output_reserve_fits": true,
+      "task": "order_digest",
+      "training_fits": true,
+      "training_tokens": 1076
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4255-2016-date",
+      "inference_prompt_tokens": 1060,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1018
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4255-2016-unsupported-completion",
+      "inference_prompt_tokens": 1043,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 986
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-feb09-action",
+      "inference_prompt_tokens": 1447,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1390
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-feb09-compliance",
+      "inference_prompt_tokens": 1441,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1384
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-feb09-unsupported-completion",
+      "inference_prompt_tokens": 1432,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1375
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-attribute-0",
+      "inference_prompt_tokens": 1319,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 1161
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc9093-2022-attribute-6",
+      "inference_prompt_tokens": 740,
+      "inference_with_output_reserve_fits": true,
+      "task": "attribution_classification",
+      "training_fits": true,
+      "training_tokens": 479
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "wpc9093-2022-action",
+      "inference_prompt_tokens": 2229,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": false,
+      "training_tokens": 2187
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "wpc9093-2022-compliance",
+      "inference_prompt_tokens": 2223,
+      "inference_with_output_reserve_fits": false,
+      "task": "compliance_state",
+      "training_fits": false,
+      "training_tokens": 2166
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "wpc9093-2022-digest",
+      "inference_prompt_tokens": 2289,
+      "inference_with_output_reserve_fits": false,
+      "task": "order_digest",
+      "training_fits": false,
+      "training_tokens": 2267
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "wpc9093-2022-date",
+      "inference_prompt_tokens": 2231,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": false,
+      "training_tokens": 2209
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "wpc9093-2022-unsupported-completion",
+      "inference_prompt_tokens": 2214,
+      "inference_with_output_reserve_fits": false,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": false,
+      "training_tokens": 2157
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc14785-2023-action",
+      "inference_prompt_tokens": 1213,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1156
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc14785-2023-compliance",
+      "inference_prompt_tokens": 1207,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1150
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc14785-2023-unsupported-completion",
+      "inference_prompt_tokens": 1198,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1141
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4644-2024-action",
+      "inference_prompt_tokens": 1158,
+      "inference_with_output_reserve_fits": true,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1101
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4644-2024-compliance",
+      "inference_prompt_tokens": 1152,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1095
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "wpc4644-2024-unsupported-completion",
+      "inference_prompt_tokens": 1143,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1086
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "9093-position",
+      "inference_prompt_tokens": 2685,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": false,
+      "training_tokens": 2663
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "9093-active-action",
+      "inference_prompt_tokens": 2015,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1973
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "9093-compensation",
+      "inference_prompt_tokens": 1371,
+      "inference_with_output_reserve_fits": true,
+      "task": "date_specific_retrieval_or_QA",
+      "training_fits": true,
+      "training_tokens": 1319
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "4806-position",
+      "inference_prompt_tokens": 2326,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": false,
+      "training_tokens": 2289
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "4806-compliance",
+      "inference_prompt_tokens": 1286,
+      "inference_with_output_reserve_fits": true,
+      "task": "compliance_state",
+      "training_fits": true,
+      "training_tokens": 1229
+    },
+    {
+      "existing_pilot_inference_prompt_fits": false,
+      "id": "13932-position",
+      "inference_prompt_tokens": 2311,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": false,
+      "training_tokens": 2289
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "13932-current-obligation",
+      "inference_prompt_tokens": 1817,
+      "inference_with_output_reserve_fits": false,
+      "task": "office_action_detection",
+      "training_fits": true,
+      "training_tokens": 1760
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "4806-latest-development",
+      "inference_prompt_tokens": 1692,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1650
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "4806-unresolved-dispute",
+      "inference_prompt_tokens": 997,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 945
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "13932-impleadment-lifecycle",
+      "inference_prompt_tokens": 1554,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1507
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "13932-land-dispute-position",
+      "inference_prompt_tokens": 1666,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1629
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "6108-template-lifecycle",
+      "inference_prompt_tokens": 1971,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1929
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "6108-latest-listing",
+      "inference_prompt_tokens": 927,
+      "inference_with_output_reserve_fits": true,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 875
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "9093-disputed-possession-position",
+      "inference_prompt_tokens": 1599,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1562
+    },
+    {
+      "existing_pilot_inference_prompt_fits": true,
+      "id": "9093-meeting-vs-hearing",
+      "inference_prompt_tokens": 1699,
+      "inference_with_output_reserve_fits": false,
+      "task": "multi_order_current_position",
+      "training_fits": true,
+      "training_tokens": 1652
+    }
+  ],
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "sequence_cap": 2048,
+  "state": "REUSE_CANDIDATE_ONLY_NOT_FINAL_FREEZE",
+  "tokenizer_artifacts": {
+    "adapter/README.md": "0565b8046c1656c1818cff338e6e61b6f3d9aad19d0bae4f14fe422ea98a024b",
+    "adapter/adapter_config.json": "a525330b10c373b772883d59d0d72f7647d7b95574b62f694a88fd11f8536c18",
+    "adapter/added_tokens.json": "c0284b582e14987fbd3d5a2cb2bd139084371ed9acbae488829a1c900833c680",
+    "adapter/chat_template.jinja": "64f85b198065d0fba2a81f37e10ed68161ce2c19a754c7100e67e0ca2ee9c326",
+    "adapter/merges.txt": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+    "adapter/special_tokens_map.json": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd",
+    "adapter/tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+    "adapter/tokenizer_config.json": "4b5f2f80f84faefe8420e1616671adb1dd3d7e632038d34b1f0e3a1363a51059",
+    "adapter/vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  "training_fit": 173,
+  "transformers": "4.56.2",
+  "weights_loaded": false
+}

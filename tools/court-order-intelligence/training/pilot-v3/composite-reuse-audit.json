@@ -1,0 +1,2411 @@
+{
+  "blind_frozen": false,
+  "context_token_audit_complete": false,
+  "cross_version_duplicate_count": 0,
+  "decision": "NO-GO",
+  "dedupe_policy": "Same task, ordered dated/page-bound source text, target and outcome; query/language variants canonicalized",
+  "deduplicated_overlap_count": 26,
+  "duplicates": [
+    {
+      "canonical_id": "wpc7003-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc7003-2026-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "44ac623d11c4c65394a4cc4bb4c25aa828d7e96c729716f4b48c9905dc710c5d"
+    },
+    {
+      "canonical_id": "wpc7003-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc7003-2026-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "44ac623d11c4c65394a4cc4bb4c25aa828d7e96c729716f4b48c9905dc710c5d"
+    },
+    {
+      "canonical_id": "cont659-2018-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cont659-2018-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "3ad926b99903a79389bbd3b9fd19e7e88bcdf8dcaa5f76772fd847b5b7b975f8"
+    },
+    {
+      "canonical_id": "cont659-2018-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cont659-2018-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "3ad926b99903a79389bbd3b9fd19e7e88bcdf8dcaa5f76772fd847b5b7b975f8"
+    },
+    {
+      "canonical_id": "lpa543-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "lpa543-2026-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "c5dea1b2e1cef23647e7234229028c41c7b661adc60b20d9d2f6281a6533f231"
+    },
+    {
+      "canonical_id": "lpa543-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "lpa543-2026-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "c5dea1b2e1cef23647e7234229028c41c7b661adc60b20d9d2f6281a6533f231"
+    },
+    {
+      "canonical_id": "wpc6328-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc6328-2026-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "8070c0fce26ca2a7b91e151d207848d56a84dcd12efd0052da980539ae60254a"
+    },
+    {
+      "canonical_id": "wpc6328-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc6328-2026-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "8070c0fce26ca2a7b91e151d207848d56a84dcd12efd0052da980539ae60254a"
+    },
+    {
+      "canonical_id": "wpc8971-2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc8971-2025-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "93fcdec5fe78a084393e35c143d82d8772b773d984e30949531e0e0823e8faf9"
+    },
+    {
+      "canonical_id": "wpc8971-2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc8971-2025-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "93fcdec5fe78a084393e35c143d82d8772b773d984e30949531e0e0823e8faf9"
+    },
+    {
+      "canonical_id": "cont527-2018-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cont527-2018-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "e3e1876ab0d1a96d6b2edb47978b4b5fb4f3ade09d29eeb43827d2d64654147e"
+    },
+    {
+      "canonical_id": "cont527-2018-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cont527-2018-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "e3e1876ab0d1a96d6b2edb47978b4b5fb4f3ade09d29eeb43827d2d64654147e"
+    },
+    {
+      "canonical_id": "cs147-2022-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cs147-2022-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "d2334c21ad86e1783930d54764b2c93a562e34f3e650b7faa9b7fac2ede6e2eb"
+    },
+    {
+      "canonical_id": "cs147-2022-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cs147-2022-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "d2334c21ad86e1783930d54764b2c93a562e34f3e650b7faa9b7fac2ede6e2eb"
+    },
+    {
+      "canonical_id": "cs23-2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cs23-2025-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "ccc624453d00744eb7b5027a4a4c47151478397906b77eb7e7af802578780fbf"
+    },
+    {
+      "canonical_id": "cs23-2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "cs23-2025-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "ccc624453d00744eb7b5027a4a4c47151478397906b77eb7e7af802578780fbf"
+    },
+    {
+      "canonical_id": "wpc16669-2024-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc16669-2024-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "963857b56d2d1ebeb1f0bf4b7bdb44dad6fa8f550a9fbb774e56869d133f39bb"
+    },
+    {
+      "canonical_id": "wpc16669-2024-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc16669-2024-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "963857b56d2d1ebeb1f0bf4b7bdb44dad6fa8f550a9fbb774e56869d133f39bb"
+    },
+    {
+      "canonical_id": "wpc2466-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc2466-2026-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "7a9e8ab3479ced96c95d2ba116d57d603e6a2a70c08bc6681402bf32edffc083"
+    },
+    {
+      "canonical_id": "wpc2466-2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc2466-2026-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "7a9e8ab3479ced96c95d2ba116d57d603e6a2a70c08bc6681402bf32edffc083"
+    },
+    {
+      "canonical_id": "wpc10308-2024-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "e7d308b606e33ed35dc49c749d9cef7273945cdf0c202603e711593a0d392c8d"
+    },
+    {
+      "canonical_id": "wpc10308-2024-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "e7d308b606e33ed35dc49c749d9cef7273945cdf0c202603e711593a0d392c8d"
+    },
+    {
+      "canonical_id": "wpc10308-2024-sep2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-sep2025-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "4ec6870a7dddd3678af6020c6667b823fefdb534fc3862506a775344418e407f"
+    },
+    {
+      "canonical_id": "wpc10308-2024-sep2025-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-sep2025-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "4ec6870a7dddd3678af6020c6667b823fefdb534fc3862506a775344418e407f"
+    },
+    {
+      "canonical_id": "wpc10308-2024-feb2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-feb2026-date-hi",
+      "origin": "pilot-v1",
+      "semantic_sha256": "23709469d63d0699f859992bbcd53599e14872aad191acdf76cdf925e14892fb"
+    },
+    {
+      "canonical_id": "wpc10308-2024-feb2026-date-en",
+      "canonical_origin": "pilot-v1",
+      "id": "wpc10308-2024-feb2026-date-roman",
+      "origin": "pilot-v1",
+      "semantic_sha256": "23709469d63d0699f859992bbcd53599e14872aad191acdf76cdf925e14892fb"
+    }
+  ],
+  "eligible_deduplicated_legacy_gold": {
+    "attribution": {
+      "examples": 12,
+      "groups": 10
+    },
+    "compliance": {
+      "examples": 36,
+      "groups": 21
+    },
+    "empty_date_qa": {
+      "examples": 34,
+      "groups": 21
+    },
+    "empty_lac_action": {
+      "examples": 27,
+      "groups": 20
+    },
+    "independent_leakage_groups": 21,
+    "languages": {
+      "English": 132,
+      "Hindi": 25,
+      "Hinglish": 36,
+      "RomanHindi": 26
+    },
+    "matters": 23,
+    "multi_order_current_position": {
+      "examples": 13,
+      "groups": 4
+    },
+    "positive_compliance": {
+      "examples": 4,
+      "groups": 2
+    },
+    "positive_date_qa": {
+      "examples": 35,
+      "groups": 21
+    },
+    "positive_lac_action": {
+      "examples": 11,
+      "groups": 3
+    },
+    "reused_by_origin": {
+      "pilot-v1": 87,
+      "pilot-v2": 132
+    },
+    "tasks": {
+      "attribution_classification": 12,
+      "compliance_state": 36,
+      "date_specific_retrieval_or_QA": 69,
+      "important_fact_selection": 13,
+      "multi_order_current_position": 13,
+      "office_action_detection": 38,
+      "order_digest": 34,
+      "semantic_proposition_extraction": 4
+    },
+    "total_examples": 219
+  },
+  "final_exposure_and_budget": null,
+  "fresh_holdout_candidate_conflicts": [
+    {
+      "action": "Replace or quarantine before fresh holdout freeze; never move holdout to train",
+      "candidate": "wpc17105-2025",
+      "case": "W.P.(C) 17105/2025",
+      "reserved_split": "validation",
+      "shared_prior_citations": [
+        "COMMON_AUTHORITY JEEVANTIKA_ORGANIC",
+        "COMMON_AUTHORITY OKAYA_INFOCOM",
+        "W.P.(C) 12083/2025",
+        "W.P.(C) 12122/2021"
+      ],
+      "used_or_protected_groups": [
+        "composite-6a1c75556d973f6d"
+      ]
+    },
+    {
+      "action": "Replace or quarantine before fresh holdout freeze; never move holdout to train",
+      "candidate": "wpc10546-2023",
+      "case": "W.P.(C) 10546/2023",
+      "reserved_split": "blind",
+      "shared_prior_citations": [
+        "W.P.(C) 10546/2023"
+      ],
+      "used_or_protected_groups": [
+        "composite-cd9d4c513cd3fa27"
+      ]
+    },
+    {
+      "action": "Replace or quarantine before fresh holdout freeze; never move holdout to train",
+      "candidate": "cont724-2021",
+      "case": "CONT.CAS(C) 724/2021",
+      "reserved_split": "blind",
+      "shared_prior_citations": [
+        "COMMON_AUTHORITY BSK_REALTORS",
+        "JUDGMENT 2024 7 scc 370"
+      ],
+      "used_or_protected_groups": []
+    }
+  ],
+  "fresh_holdout_cross_split_review": [
+    {
+      "action": "Treat as one conservative group; replace one candidate before freeze; neither enters training",
+      "basis": "Same petitioner caption HARENDER & ORS and Award 02/2024/SW dated 18 November 2024",
+      "cases": [
+        "W.P.(C) 12473/2025",
+        "W.P.(C) 17094/2025"
+      ]
+    }
+  ],
+  "group_members": {
+    "CIVIL_APPEAL 3565/2023": [
+      "CIVIL_APPEAL 3565/2023",
+      "CIVIL_APPEAL 8786/2013",
+      "W.P.(C) 10030/2023",
+      "W.P.(C) 10053/2023",
+      "W.P.(C) 10101/2023",
+      "W.P.(C) 10105/2023",
+      "W.P.(C) 10132/2023",
+      "W.P.(C) 10278/2023",
+      "W.P.(C) 1692/2006",
+      "W.P.(C) 7696/2014"
+    ],
+    "CIVIL_APPEAL 8632/2016": [
+      "CIVIL_APPEAL 8632/2016",
+      "W.P.(C) 6328/2026",
+      "W.P.(C) 8686/2014"
+    ],
+    "CONT.CAS(C) 1094/2026": [
+      "CONT.CAS(C) 1094/2026",
+      "W.P.(C) 10546/2023"
+    ],
+    "CONT.CAS(C) 1779/2025": [
+      "CONT.CAS(C) 1779/2025"
+    ],
+    "CONT.CAS(C) 418/2025": [
+      "CONT.CAS(C) 418/2025",
+      "W.P.(C) 5437/2019"
+    ],
+    "CONT.CAS(C) 490/2026": [
+      "CONT.CAS(C) 490/2026"
+    ],
+    "CONT.CAS(C) 527/2018": [
+      "CONT.CAS(C) 527/2018"
+    ],
+    "CONT.CAS(C) 615/2019": [
+      "CONT.CAS(C) 615/2019"
+    ],
+    "CONT.CAS(C) 659/2018": [
+      "CONT.CAS(C) 659/2018"
+    ],
+    "CS(OS) 147/2022": [
+      "CS(OS) 147/2022"
+    ],
+    "CS(OS) 23/2025": [
+      "CS(OS) 23/2025"
+    ],
+    "LPA 543/2026": [
+      "LPA 543/2026"
+    ],
+    "W.P.(C) 10159/2015": [
+      "W.P.(C) 10159/2015",
+      "W.P.(C) 1032/2016",
+      "W.P.(C) 10648/2015",
+      "W.P.(C) 10671/2016",
+      "W.P.(C) 11/2015",
+      "W.P.(C) 11178/2016",
+      "W.P.(C) 11355/2017",
+      "W.P.(C) 11462/2015",
+      "W.P.(C) 11469/2016",
+      "W.P.(C) 11625/2015",
+      "W.P.(C) 1174/2017",
+      "W.P.(C) 1199/2017",
+      "W.P.(C) 12002/2015",
+      "W.P.(C) 1203/2017",
+      "W.P.(C) 12040/2015",
+      "W.P.(C) 12042/2016",
+      "W.P.(C) 12124/2015",
+      "W.P.(C) 12131/2015",
+      "W.P.(C) 12180/2016",
+      "W.P.(C) 1390/2017",
+      "W.P.(C) 1391/2017",
+      "W.P.(C) 1393/2017",
+      "W.P.(C) 13932/2025",
+      "W.P.(C) 1454/2015",
+      "W.P.(C) 147/2015",
+      "W.P.(C) 15411/2025",
+      "W.P.(C) 1543/2018",
+      "W.P.(C) 177/2015",
+      "W.P.(C) 1934/2017",
+      "W.P.(C) 195/2015",
+      "W.P.(C) 1980/2015",
+      "W.P.(C) 1985/2015",
+      "W.P.(C) 1987/2015",
+      "W.P.(C) 2051/2015",
+      "W.P.(C) 2121/2002",
+      "W.P.(C) 2204/2015",
+      "W.P.(C) 2297/2016",
+      "W.P.(C) 2465/2015",
+      "W.P.(C) 2472/2015",
+      "W.P.(C) 2481/2016",
+      "W.P.(C) 26/2018",
+      "W.P.(C) 2611/2015",
+      "W.P.(C) 2656/2015",
+      "W.P.(C) 2674/2017",
+      "W.P.(C) 2680/2015",
+      "W.P.(C) 2723/2015",
+      "W.P.(C) 2804/2015",
+      "W.P.(C) 2827/2014",
+      "W.P.(C) 2840/2015",
+      "W.P.(C) 2867/2015",
+      "W.P.(C) 2869/2015",
+      "W.P.(C) 2913/2016",
+      "W.P.(C) 2921/2016",
+      "W.P.(C) 2949/2015",
+      "W.P.(C) 2988/2016",
+      "W.P.(C) 2994/2016",
+      "W.P.(C) 2995/2016",
+      "W.P.(C) 2996/2016",
+      "W.P.(C) 3030/2015",
+      "W.P.(C) 316/2017",
+      "W.P.(C) 3304/2016",
+      "W.P.(C) 3431/2015",
+      "W.P.(C) 3659/2016",
+      "W.P.(C) 3699/2016",
+      "W.P.(C) 3714/2015",
+      "W.P.(C) 3734/2016",
+      "W.P.(C) 3859/2015",
+      "W.P.(C) 3903/2015",
+      "W.P.(C) 3911/2017",
+      "W.P.(C) 4060/2013",
+      "W.P.(C) 4082/2017",
+      "W.P.(C) 4192/2015",
+      "W.P.(C) 4255/2016",
+      "W.P.(C) 4274/2015",
+      "W.P.(C) 4324/2016",
+      "W.P.(C) 4330/2015",
+      "W.P.(C) 4427/2016",
+      "W.P.(C) 4552/2015",
+      "W.P.(C) 4566/2015",
+      "W.P.(C) 4621/2014",
+      "W.P.(C) 4771/2016",
+      "W.P.(C) 484/2016",
+      "W.P.(C) 49/2015",
+      "W.P.(C) 4989/2015",
+      "W.P.(C) 5162/2016",
+      "W.P.(C) 5225/2015",
+      "W.P.(C) 5260/2015",
+      "W.P.(C) 5270/2015",
+      "W.P.(C) 5565/2014",
+      "W.P.(C) 5679/2014",
+      "W.P.(C) 5768/2014",
+      "W.P.(C) 5877/2017",
+      "W.P.(C) 6036/2016",
+      "W.P.(C) 6104/2016",
+      "W.P.(C) 6108/2015",
+      "W.P.(C) 6316/2014",
+      "W.P.(C) 6350/2014",
+      "W.P.(C) 6374/2014",
+      "W.P.(C) 6380/2014",
+      "W.P.(C) 6405/2014",
+      "W.P.(C) 6551/2014",
+      "W.P.(C) 6565/2015",
+      "W.P.(C) 6604/2014",
+      "W.P.(C) 6617/2014",
+      "W.P.(C) 67/2015",
+      "W.P.(C) 6714/2014",
+      "W.P.(C) 6766/2015",
+      "W.P.(C) 6798/2017",
+      "W.P.(C) 6801/2014",
+      "W.P.(C) 6932/2015",
+      "W.P.(C) 6954/2015",
+      "W.P.(C) 7296/2016",
+      "W.P.(C) 7356/2016",
+      "W.P.(C) 7364/2015",
+      "W.P.(C) 7391/2016",
+      "W.P.(C) 7442/2015",
+      "W.P.(C) 7470/2014",
+      "W.P.(C) 7524/2014",
+      "W.P.(C) 7668/2014",
+      "W.P.(C) 7678/2015",
+      "W.P.(C) 7699/2014",
+      "W.P.(C) 7701/2015",
+      "W.P.(C) 7731/2015",
+      "W.P.(C) 7801/2014",
+      "W.P.(C) 7807/2014",
+      "W.P.(C) 7830/2015",
+      "W.P.(C) 7851/2014",
+      "W.P.(C) 7887/2014",
+      "W.P.(C) 7893/2014",
+      "W.P.(C) 7901/2014",
+      "W.P.(C) 7911/2014",
+      "W.P.(C) 7925/2014",
+      "W.P.(C) 7963/2015",
+      "W.P.(C) 8058/2017",
+      "W.P.(C) 8075/2017",
+      "W.P.(C) 8100/2014",
+      "W.P.(C) 8122/2014",
+      "W.P.(C) 8130/2016",
+      "W.P.(C) 8138/2016",
+      "W.P.(C) 8140/2017",
+      "W.P.(C) 8194/2017",
+      "W.P.(C) 8265/2014",
+      "W.P.(C) 8406/2015",
+      "W.P.(C) 8415/2014",
+      "W.P.(C) 8469/2014",
+      "W.P.(C) 8475/2014",
+      "W.P.(C) 8478/2017",
+      "W.P.(C) 8479/2014",
+      "W.P.(C) 8517/2015",
+      "W.P.(C) 8526/2014",
+      "W.P.(C) 8540/2014",
+      "W.P.(C) 857/2015",
+      "W.P.(C) 8593/2014",
+      "W.P.(C) 8649/2015",
+      "W.P.(C) 8657/2014",
+      "W.P.(C) 8674/2014",
+      "W.P.(C) 8713/2014",
+      "W.P.(C) 8758/2017",
+      "W.P.(C) 8867/2014",
+      "W.P.(C) 9011/2015",
+      "W.P.(C) 9023/2015",
+      "W.P.(C) 9247/2017",
+      "W.P.(C) 9319/2014",
+      "W.P.(C) 9428/2017",
+      "W.P.(C) 9452/2015",
+      "W.P.(C) 9548/2015",
+      "W.P.(C) 9549/2015",
+      "W.P.(C) 960/2015",
+      "W.P.(C) 9912/2017"
+    ],
+    "W.P.(C) 10308/2024": [
+      "W.P.(C) 10308/2024",
+      "W.P.(C) 7687/2004"
+    ],
+    "W.P.(C) 11284/2026": [
+      "W.P.(C) 11284/2026"
+    ],
+    "W.P.(C) 1157/2026": [
+      "W.P.(C) 1157/2026"
+    ],
+    "W.P.(C) 12083/2025": [
+      "W.P.(C) 12083/2025",
+      "W.P.(C) 12122/2021",
+      "W.P.(C) 2466/2026"
+    ],
+    "W.P.(C) 12994/2023": [
+      "W.P.(C) 12994/2023"
+    ],
+    "W.P.(C) 14604/2025": [
+      "W.P.(C) 14604/2025"
+    ],
+    "W.P.(C) 14785/2023": [
+      "W.P.(C) 14785/2023"
+    ],
+    "W.P.(C) 14846/2024": [
+      "W.P.(C) 14846/2024"
+    ],
+    "W.P.(C) 15528/2025": [
+      "W.P.(C) 15528/2025",
+      "W.P.(C) 15556/2025",
+      "W.P.(C) 15557/2025"
+    ],
+    "W.P.(C) 16215/2023": [
+      "W.P.(C) 16215/2023"
+    ],
+    "W.P.(C) 16669/2024": [
+      "W.P.(C) 16669/2024"
+    ],
+    "W.P.(C) 2085/2024": [
+      "W.P.(C) 2085/2024"
+    ],
+    "W.P.(C) 2686/2018": [
+      "W.P.(C) 2686/2018",
+      "W.P.(C) 5796/2026",
+      "W.P.(C) 7817/2017",
+      "W.P.(C) 8404/2024"
+    ],
+    "W.P.(C) 3238/2023": [
+      "W.P.(C) 3238/2023"
+    ],
+    "W.P.(C) 3282/2024": [
+      "W.P.(C) 3282/2024"
+    ],
+    "W.P.(C) 4644/2024": [
+      "W.P.(C) 4644/2024"
+    ],
+    "W.P.(C) 4806/2014": [
+      "W.P.(C) 4806/2014"
+    ],
+    "W.P.(C) 5084/2018": [
+      "W.P.(C) 5084/2018",
+      "W.P.(C) 86/2020"
+    ],
+    "W.P.(C) 5645/2022": [
+      "W.P.(C) 5645/2022"
+    ],
+    "W.P.(C) 5951/2025": [
+      "W.P.(C) 5951/2025"
+    ],
+    "W.P.(C) 5993/2024": [
+      "W.P.(C) 5993/2024",
+      "W.P.(C) 5996/2024"
+    ],
+    "W.P.(C) 6203/2026": [
+      "W.P.(C) 6203/2026"
+    ],
+    "W.P.(C) 6384/2024": [
+      "W.P.(C) 6384/2024"
+    ],
+    "W.P.(C) 6504/2023": [
+      "W.P.(C) 6504/2023"
+    ],
+    "W.P.(C) 7003/2026": [
+      "W.P.(C) 7003/2026"
+    ],
+    "W.P.(C) 847/2025": [
+      "W.P.(C) 847/2025"
+    ],
+    "W.P.(C) 8664/2021": [
+      "W.P.(C) 8664/2021"
+    ],
+    "W.P.(C) 8971/2025": [
+      "W.P.(C) 8971/2025"
+    ],
+    "W.P.(C) 9093/2022": [
+      "W.P.(C) 9093/2022"
+    ],
+    "W.P.(C) 940/2015": [
+      "W.P.(C) 940/2015"
+    ],
+    "W.P.(C) 9889/2024": [
+      "W.P.(C) 9889/2024"
+    ]
+  },
+  "new_v3_gold_examples": 0,
+  "no_live_requests": true,
+  "protected_files_verified_unchanged": {
+    "annotations/v2_eval_review.py": "eae84122bd85ce55319c03d3295c0658bfc62193ad335e7732de5098818dd3f6",
+    "annotations/v2_review.py": "036b347daa6d5f22f175892378d0cde4cdfe14fde6bc92aacf0cba1feac284b1",
+    "annotations/v2_tasks.py": "268afa83b18e020ed8956ea19cf35a752da719e0cef533c17ba69b503fef907a",
+    "pilot-v1/README.md": "45a5df9cf5c63cddaa408963dce2eafb564166664083c1095cc38bddd9b34f39",
+    "pilot-v1/blind.jsonl": "86a98104414e6de30812dabf3d7b89bb6dc3a1b57aedfdba8eccfa9ee36e7c0f",
+    "pilot-v1/excluded.json": "10c1c33077c2e31467e552a8aaf7a25cde6b47f1985c58761beb08ec1eaa22b1",
+    "pilot-v1/splits.json": "944eb9ef4605d6806cf48cf82f855be30f07de0204e309d2530ee50293fc5370",
+    "pilot-v1/stats.json": "bbde775e740beed3336bd19c9856a92bcf48c36a4289a193ec564b7834a7a6ff",
+    "pilot-v1/target.schemas.json": "38d0e2d9582a63d999d00730b112e73dc4e13b185663f5af323e23fe54c6ea7f",
+    "pilot-v1/train.jsonl": "74e3c19b18d1d8945767f95751e0a280860e9d27c6494582466fa91ffdef788b",
+    "pilot-v1/validation.jsonl": "524d7b8d0991f0334ea1bb14d0a17c74bf73b43b8d71b361d17d6d7c1083c8a1",
+    "pilot-v2/all-splits-context-audit.json": "4e014a203ac7904d97eb6ee2588dd8a16458b84531a6fd3fbdaf02787d965016",
+    "pilot-v2/blind.jsonl": "c7d0e6a924a52dfc7a2b5d98978c8e2d055920baa34b027d74164f30fd4b4aa8",
+    "pilot-v2/pre-freeze-audit.json": "55d1abbc122ec5f764434bfb85fb629caac6fd152baa4f631e4949397f91d38f",
+    "pilot-v2/source-ledger.json": "4b0f657ef7077bb8e33bac559da1c9184e350bed5bf4c51668c523048b3058ec",
+    "pilot-v2/train.jsonl": "27e1236b86d05de3dc68115de8c8f4306103db94a21337213017d6dc4d3e8192",
+    "pilot-v2/v1-native-overlap-audit.json": "181f855cfdfdb68bfd060e90c723b821f235e89abd6ec5d7d1ad5aecef5fc4a8",
+    "pilot-v2/validation.jsonl": "0ebb9a5a643236fcc90b33f3fca0d670af25cce0d8b6fbd86553f7086ab09671"
+  },
+  "protected_group_exclusions": [],
+  "raw_train_candidates": {
+    "attribution": {
+      "examples": 12,
+      "groups": 10
+    },
+    "compliance": {
+      "examples": 36,
+      "groups": 21
+    },
+    "empty_date_qa": {
+      "examples": 34,
+      "groups": 21
+    },
+    "empty_lac_action": {
+      "examples": 27,
+      "groups": 20
+    },
+    "independent_leakage_groups": 21,
+    "languages": {
+      "English": 132,
+      "Hindi": 38,
+      "Hinglish": 36,
+      "RomanHindi": 39
+    },
+    "matters": 23,
+    "multi_order_current_position": {
+      "examples": 13,
+      "groups": 4
+    },
+    "positive_compliance": {
+      "examples": 4,
+      "groups": 2
+    },
+    "positive_date_qa": {
+      "examples": 61,
+      "groups": 21
+    },
+    "positive_lac_action": {
+      "examples": 11,
+      "groups": 3
+    },
+    "reused_by_origin": {
+      "pilot-v1": 113,
+      "pilot-v2": 132
+    },
+    "tasks": {
+      "attribution_classification": 12,
+      "compliance_state": 36,
+      "date_specific_retrieval_or_QA": 95,
+      "important_fact_selection": 13,
+      "multi_order_current_position": 13,
+      "office_action_detection": 38,
+      "order_digest": 34,
+      "semantic_proposition_extraction": 4
+    },
+    "total_examples": 245
+  },
+  "reused_contract_quarantine": [
+    {
+      "id": "wpc7003-2026-important",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc7003-2026-digest",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc7003-2026-date-en",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-important",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-compliance",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: completion requires recorded performance",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-digest",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-date-en",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-feb2026-important",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-feb2026-digest",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc10308-2024-feb2026-date-en",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "10308-position",
+      "origin": "pilot-v1",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "cont418-2025-attribute-0",
+      "origin": "pilot-v2",
+      "reason": "Anchor 4 (COURT_DIRECTION/direction): Direction excerpt drops nearby party-submission attribution",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-nov2025-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-nov2025-digest",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-nov2025-date",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-feb25-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-feb25-compliance",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: completion requires recorded performance",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc13932-2025-feb03-compliance",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: completion requires recorded performance",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4806-2014-feb2020-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4806-2014-apr2022-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4806-2014-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc6108-2015-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4255-2016-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc9093-2022-feb09-digest",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc9093-2022-feb09-date",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc14785-2023-digest",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc14785-2023-date",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4644-2024-digest",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "wpc4644-2024-date",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "4806-active-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "6108-position",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: party assertion cannot become judicial fact",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "6108-active-action",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: action requires supported active LAC direction",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    },
+    {
+      "id": "6108-compliance",
+      "origin": "pilot-v2",
+      "reason": "Semantic gate: completion requires recorded performance",
+      "training_eligible": false,
+      "truthful_labels_changed": false
+    }
+  ],
+  "source_record_sha256": {
+    "pilot-v1:cont527-2018": "2b62cafeb6c8f17b57f0721d8fae569bbfcaf34d2435704129e63736b5a72223",
+    "pilot-v1:cont659-2018": "87a3c29e59c1452cb4e801f2c8655bfddd57b09323d553b9cebc389456c59ec5",
+    "pilot-v1:cs147-2022": "6e4b8aea71c1ea42bc47aae8297e81a279efac502559e1198974d05b81e0f7da",
+    "pilot-v1:cs23-2025": "f70af8216d85a040b15cf1cce37b87acda8e5c1786320b3c35ab4170f3dc4c7e",
+    "pilot-v1:lpa543-2026": "0f8a5a79f17f2c411b419070fcf94de7634043d0273a3cb298dc43405c067579",
+    "pilot-v1:wpc10308-2024": "3a703d1bbfd170235927f7c2c1a166d1bf6c9bd390138fdb4cec81f832b1a5c9",
+    "pilot-v1:wpc10308-2024-feb2026": "55fe4fad1ac3814b9bc1069a02107d4659115eb3c3723fdab77ca1b681abc0ef",
+    "pilot-v1:wpc10308-2024-sep2025": "497eed5e5ff828ba5761489695f0e5e31889c3c3d942ec9197516adea114f824",
+    "pilot-v1:wpc11284-2026": "a91dcddcf0543cf1621d2bc54512050f68ee11a6e7b6cea09372ad8d45392aec",
+    "pilot-v1:wpc11284-2026-aug7": "da52459c6f43df696a6b265d8a6c721dcc945157e21491212ccb1bc500b8c996",
+    "pilot-v1:wpc16669-2024": "e62cd90cff4bfc295b9c1c2abd19de023f70e79a10a0b96c7bd85ff573e953a7",
+    "pilot-v1:wpc2466-2026": "a71b2909cdb0ecdcae6796c980a23973ca68650c1d2b03ad045cd56bd673f5fd",
+    "pilot-v1:wpc6203-2026": "e56c2a595be050c7b4400ef54630bd849efe733b8581a677ba19de088ae86598",
+    "pilot-v1:wpc6203-2026-may29": "7f454beed3fa532bf633245664a51eff136659960c04065278c00fbc69ae22a2",
+    "pilot-v1:wpc6203-2026-may6": "a1124714d7be760f9fa2fa268e3c69742f420286928602dc364f4780fd0e264e",
+    "pilot-v1:wpc6328-2026": "de2eda8c8f35da5909db62273bcdea8e6d7a59e19260ecab47d6b411143c9bcd",
+    "pilot-v1:wpc6384-2024": "4848200544e438ead94f1d824cb6771883ce4202bc6e8d19423c69d4e1d904ca",
+    "pilot-v1:wpc6384-2024-july2025": "d69b45c58104383bb30e3854df7e33bba13a49e01a44ed5e41ff0dccb2074d0b",
+    "pilot-v1:wpc6384-2024-march2025": "8d5a6fff2a1ab1b83775902321dcdb7d8acdf641352c1c12939b3ee9f92ae6af",
+    "pilot-v1:wpc7003-2026": "4489a9fa7b609b3d03aac7042affb66db3485b863e9c56ff4087c8f850fc6de5",
+    "pilot-v1:wpc8404-2024": "200796e8d833abcbfbed65238d9a075861f0c8fe48190fbf9ef7e888c62b79f6",
+    "pilot-v1:wpc8971-2025": "45d61b2ae7e903f13934ab1b2c0bcd2402fa09973d1d55c087083e1497ab8584",
+    "pilot-v2:cont1094-2026": "206b18b736cb414ee4f1335112be5a2613db23c39de19da907ae13960b084fe9",
+    "pilot-v2:cont1779-2025": "d7ba71b1af11d379fc8e1f2c9c4c96946f05abf91e1fecdd852909ac4206decf",
+    "pilot-v2:cont418-2025": "83e6c35bd6d2c14b28b4041073ebd3153e9db92b5329c374d2d67bcc3b973e7c",
+    "pilot-v2:cont490-2026": "b86eaed77ff50f60a528747336808549417013ac5b86701c2baa23c3687ede4e",
+    "pilot-v2:cont615-2019": "abfd1c8bafbb216a924f1f73138b4c5c3732318783ea00a1d7ac5d7a96a36641",
+    "pilot-v2:wpc10105-2023": "9466a198cf04b7b27c09378ddcf06af07abfdb96946f7e3ececdd4991db6e10e",
+    "pilot-v2:wpc10105-2023-dec2024": "5cdb8b4ca07dc33f25ab6e21f11025591f460ae8664ed0fbc0cb3d3fb620bd9c",
+    "pilot-v2:wpc10105-2023-jul2025": "426f17734baa93dc92afd7668cfbe6842f668e451f8fd17c44c2d94cd76e0a00",
+    "pilot-v2:wpc10105-2023-may2025": "2c36b4417f821327ff438443393efa0a60e2434f47deeaae57d505be87325590",
+    "pilot-v2:wpc1157-2026": "c7df9064f3af10b2148fbe6e8dbd1e8c95d2bc8a3c59267cd7de0bd377d7ff54",
+    "pilot-v2:wpc12994-2023": "83d2a488b3382b1dcc1b09f3646f1523c0a42312ab1318aeca70004d76f9ace3",
+    "pilot-v2:wpc13932-2025": "f6fc8c1c8a945d2f3ca395af79efa4ba4d1712d5fb6492f023c8de0e2a86b19e",
+    "pilot-v2:wpc13932-2025-feb03": "49c30ecb9a14c57e5f6043bd3f406fe5f00815a2721bb36b22074c76e0b7d409",
+    "pilot-v2:wpc13932-2025-sep2025": "7b589070cb9f7325a2313e5e0db3a7def83185f7d88bcfff7bbe3e2bd840d3da",
+    "pilot-v2:wpc14785-2023": "521119c277f180f72be0ba3c7a69ad9f0644db0c24e26124b5ac1167850e6fa8",
+    "pilot-v2:wpc14846-2024": "e96c6e88f99801a5683067fc4867c27f0034e655ccbb9e601f3ac8dc9e645339",
+    "pilot-v2:wpc15528-2025": "79bbaf1326b0588f981931a6415b5241cd7549f7c7da783e91781b625a293cec",
+    "pilot-v2:wpc16215-2023": "902d0e1ce7124db26d00b8a0c728e36da344368c309d1b58465f24c2b9fae852",
+    "pilot-v2:wpc2085-2024": "7abf7ec977ddbf27b60caa965b36faf414ece88933af46585bb986d881b192b5",
+    "pilot-v2:wpc2085-2024-dec2025": "ef6d459b65e7862210efc4ef00a86adba226236d8fdf6e658b0f45e68fd8a674",
+    "pilot-v2:wpc3238-2023": "557bf6a01ac21ae578b42912f1cc0534e66ba2061888fa4c1c5a0d5eaad04eaf",
+    "pilot-v2:wpc3282-2024": "1683921481a9a005b17632a998be8e4293f8ca78927c5834d981a2309bdc8f8b",
+    "pilot-v2:wpc3282-2024-sep2026": "24dec35af4f8b694d087bba641e74da56649636d3a6c8f76d5afdc1c1514ba56",
+    "pilot-v2:wpc4255-2016": "2d0899ff93b140f4efafca5ae28724b10a004daa36c649f2efc615f89e4629da",
+    "pilot-v2:wpc4255-2016-feb25": "12e9c0cc1095c3de6a7d6005864064141e980397db41497b668882eec1492e7c",
+    "pilot-v2:wpc4644-2024": "e7f2613a2362d54b5c39fd661fe3d67ab79b114cb05163aee2c197979b060b5b",
+    "pilot-v2:wpc4806-2014": "f199811975ea6d74c00fe16dfb09b9d66221a98a9eed6a4e85d3d14fb5f5a244",
+    "pilot-v2:wpc4806-2014-apr2022": "9cfbd3f3cec396d7b0f78ac06d24518df79cb764653110139a623cb3e1f3a9e0",
+    "pilot-v2:wpc4806-2014-feb2020": "0894bf762c9dc31554fffc946a4e0dda439b6ac24c4dac5199c304fdbff40568",
+    "pilot-v2:wpc5084-2018": "1fc13fa87dc0b88ae8f89a265f7bc6dab8c21e3bb450f51dea3b040cfe5c4db5",
+    "pilot-v2:wpc5084-2018-jan2021": "7b164d2ca4e229d8747d9f3d07236e33587d4f5b0da98b68131d5cc58e44fc24",
+    "pilot-v2:wpc5084-2018-nov2020": "46c9d6d7056bcb66fdea3dcf0a7e378cd4582042d9b38dfd388afaf828291fd8",
+    "pilot-v2:wpc5645-2022": "a58a078fe8c6e874631301a1f931f32762c2ce23de3da8c4c00c2609dd4afad0",
+    "pilot-v2:wpc5951-2025": "79f0f8edc5b75c215a0b5aad414a8f876ce7c1772ac718a492d050eca86b15fa",
+    "pilot-v2:wpc5993-2024": "8686e0867801251ed757c579739c5ffbfa0af4278df23b5d3850041baa3b6379",
+    "pilot-v2:wpc6108-2015": "0bbf555fb258e907494e2f78d5347a35c16c4fc5369cb863d5156e44bf681e64",
+    "pilot-v2:wpc6108-2015-feb25": "3936ae1baf886e91a18fa8f06feed8859ed8bd96d7e38e6d3afa323a3dfa06f1",
+    "pilot-v2:wpc6108-2015-nov2025": "dff5d900ad47aa2bb5d45f507d4d572a97971443608aaec0492d7d18dbd60324",
+    "pilot-v2:wpc6504-2023": "9c1dd2876895bab2004255c6cdec35c3406e4abb3885ba2c0fe53295cab49860",
+    "pilot-v2:wpc6504-2023-dec2024": "b634275d1428b7bc2324d7a93497f146ecde95d50bef09bbe8a188df8886157e",
+    "pilot-v2:wpc6504-2023-may2026": "22180e8d91edabae5588bd20e7bf150cc3115611d3be3b4843a8c1b5999c943d",
+    "pilot-v2:wpc6504-2023-oct2024": "535c0872605c0b3bf451f445384b29854efcb5917cb3d1e695568c82136d6752",
+    "pilot-v2:wpc847-2025": "3d8cce567ec9d01a161da8815d639f26b0fb06f022324beca69c967d880068e6",
+    "pilot-v2:wpc9093-2022": "3ef82b6ab744348e3786b34e9c825575044e0b9083fcc1c2c52215ccbb0be150",
+    "pilot-v2:wpc9093-2022-apr2024": "9e86c7959d7c516c0173e496f95eb331c77ef846e628bf49e9d806f7c4028fd2",
+    "pilot-v2:wpc9093-2022-feb09": "67f6e5b94b886a0600746340239a5b1b48ee638a79df12fbd4b4c54f929c92c5",
+    "pilot-v2:wpc9093-2022-jul2024": "901e092b033c004a4dc345ff953861f3472df170df8a20a8cc233d270aeb4004",
+    "pilot-v2:wpc9889-2024": "501f830422b8f3c4c0d641b46511096b427a3b9e346ae80c10acb5a834803d88"
+  },
+  "source_relationships": [
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6108/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10308/2024",
+        "W.P.(C) 7687/2004"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 5796/2026"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 7817/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 8404/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 2466/2026",
+        "W.P.(C) 12122/2021"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 2466/2026",
+        "W.P.(C) 12083/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 6328/2026",
+        "CIVIL_APPEAL 8632/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 6328/2026",
+        "W.P.(C) 8686/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 1094/2026",
+        "W.P.(C) 10546/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 418/2025",
+        "W.P.(C) 5437/2019"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 10053/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 10101/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 10132/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 10030/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 10278/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 7696/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "CIVIL_APPEAL 3565/2023"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "CIVIL_APPEAL 8786/2013"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10105/2023",
+        "W.P.(C) 1692/2006"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13932/2025",
+        "W.P.(C) 8415/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 15528/2025",
+        "W.P.(C) 15557/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 15528/2025",
+        "W.P.(C) 15556/2025"
+      ]
+    },
+    {
+      "kind": "identity_common_judgment_sha_or_url",
+      "link": "COMMON_AUTHORITY BSK_REALTORS",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 13932/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2921/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3714/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4192/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6104/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2994/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4566/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 10648/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5768/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8540/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1174/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7830/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8138/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1199/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7356/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7925/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8265/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2481/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2051/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3859/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2988/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1985/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8649/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7699/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8406/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6551/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2465/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2869/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1203/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9247/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7963/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2996/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2827/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7901/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8517/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1032/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11355/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8075/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3304/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8526/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11178/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7801/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 10671/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5679/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6798/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5877/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6316/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4621/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2840/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9428/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1980/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 177/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8478/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7364/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8475/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6801/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12002/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11625/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2121/2002"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2995/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 10159/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 147/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3903/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1393/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4427/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3659/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 195/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8657/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4082/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6036/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2611/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7701/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11469/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 484/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4552/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6617/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1390/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4330/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7442/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12042/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 857/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12131/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7911/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6604/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11462/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8058/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6350/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9452/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6714/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2472/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8758/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3699/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8674/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7668/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8122/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9549/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5565/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 67/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4274/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7731/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8713/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1934/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6374/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7887/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6405/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2674/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8194/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5162/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1543/2018"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1391/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9548/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2723/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 49/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8130/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9023/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2804/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 960/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3911/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8867/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9912/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7296/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6954/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7524/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4060/2013"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6932/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8100/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 26/2018"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8479/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5270/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4324/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3431/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6380/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5260/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8140/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7678/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7470/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9319/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 11/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 9011/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3030/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2204/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2656/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2949/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2867/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7807/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12180/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1987/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7893/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8593/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2680/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6766/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 5225/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7391/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2913/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12124/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 2297/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 7851/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 15411/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 6565/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 3734/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 12040/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 8469/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4989/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 4771/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 4255/2016",
+        "W.P.(C) 1454/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 5993/2024",
+        "W.P.(C) 5996/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 6108/2015",
+        "W.P.(C) 316/2017"
+      ]
+    }
+  ],
+  "state": "COMPOSITE_TRAIN_AUDITED_NOT_GPU_READY",
+  "training_started": false,
+  "truthful_labels_changed": false,
+  "v3_contract_compatible_train": {
+    "attribution": {
+      "examples": 11,
+      "groups": 9
+    },
+    "compliance": {
+      "examples": 32,
+      "groups": 21
+    },
+    "empty_date_qa": {
+      "examples": 34,
+      "groups": 21
+    },
+    "empty_lac_action": {
+      "examples": 27,
+      "groups": 20
+    },
+    "independent_leakage_groups": 21,
+    "languages": {
+      "English": 119,
+      "Hindi": 20,
+      "Hinglish": 26,
+      "RomanHindi": 21
+    },
+    "matters": 23,
+    "multi_order_current_position": {
+      "examples": 11,
+      "groups": 3
+    },
+    "positive_compliance": {
+      "examples": 0,
+      "groups": 0
+    },
+    "positive_date_qa": {
+      "examples": 28,
+      "groups": 18
+    },
+    "positive_lac_action": {
+      "examples": 2,
+      "groups": 1
+    },
+    "reused_by_origin": {
+      "pilot-v1": 76,
+      "pilot-v2": 110
+    },
+    "tasks": {
+      "attribution_classification": 11,
+      "compliance_state": 32,
+      "date_specific_retrieval_or_QA": 62,
+      "important_fact_selection": 10,
+      "multi_order_current_position": 11,
+      "office_action_detection": 29,
+      "order_digest": 27,
+      "semantic_proposition_extraction": 4
+    },
+    "total_examples": 186
+  },
+  "validation_frozen": false
+}

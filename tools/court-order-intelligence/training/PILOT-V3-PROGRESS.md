@@ -138,3 +138,19 @@ full protected native overlap; holdout positive coverage/freeze; token audit;
 final exposure/budget; allowlisted V3 Kaggle runner using CurriculumTrainer and
 launch gate. Then ONE run, four-system split-separated and Level-2 evaluation.
 Product integration waits until the authorized GPU fit is actually launched.
+
+## Course correction: reuse eligible V1/V2 TRAIN gold (3 October 2026)
+
+The fresh-only zero counts above are NOT the composite V3 starting point.
+Eligible old TRAIN may be reused; only validation/blind/protected connections
+remain forbidden. The new offline composite audit found 245 old TRAIN rows,
+219 after conservative semantic dedupe, and 186 V3-contract passing reuse
+candidates across 21 conservative groups. Thirty-three remain in a separate
+compatibility review queue; original labels and all frozen legacy files remain
+unchanged. No gate was weakened.
+
+See `pilot-v3/COMPOSITE-STARTING-POINT.md` and its machine-readable audit for
+all requested counts, source/lifecycle binding, newly discovered fresh-holdout
+connections, token/exposure checks and actual remaining gaps. Current decision
+is still NO-GO, but reuse—not an entirely fresh corpus—is the preparation basis.
+No live acquisition or GPU run occurred during this correction checkpoint.
