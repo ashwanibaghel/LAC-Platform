@@ -7,6 +7,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v3_gpu_preflight import verify_bundle, PURPOSE
+from run_v3_preflight import stage_bundle
 
 
 class PreflightBundleTests(unittest.TestCase):
@@ -52,6 +53,28 @@ class PreflightBundleTests(unittest.TestCase):
             (root / 'dataset-manifest.json').write_text(json.dumps(manifest))
             with self.assertRaises(ValueError):
                 verify_bundle(root)
+
+    def test_expanded_kaggle_dataset_is_staged_and_sha_verified(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = root / 'inputs'
+            inputs.mkdir()
+            self.bundle(inputs)
+            destination = root / 'working'
+            stage_bundle(inputs, destination)
+            rows, _ = verify_bundle(destination)
+            self.assertEqual(rows[0]['id'], 'fixture-only')
+
+    def test_expanded_manifest_escape_rejected_before_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = root / 'inputs'
+            inputs.mkdir()
+            manifest = self.bundle(inputs)
+            manifest['files']['../secret.txt'] = 'a' * 64
+            (inputs / 'dataset-manifest.json').write_text(json.dumps(manifest))
+            with self.assertRaises(RuntimeError):
+                stage_bundle(inputs, root / 'working')
 
     def test_runner_is_bounded_not_a_full_fit_or_office_action(self):
         source = Path(__file__).resolve().parents[1]
