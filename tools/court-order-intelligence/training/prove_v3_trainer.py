@@ -66,7 +66,7 @@ class Pause(TrainerCallback):
             control.should_training_stop = True
 
 
-def run(output):
+def run(output, dataset_factory=None):
     if transformers.__version__ != '4.56.2' or accelerate.__version__ != '1.10.1':
         raise ValueError('Use pinned production Trainer/Accelerate versions')
     if output.exists():
@@ -75,7 +75,8 @@ def run(output):
     rows = fixtures()
     original = json.dumps(rows, sort_keys=True)
     encoded = {r['id']: {'input_ids': [float(i % 5)], 'labels': [0.0]} for i, r in enumerate(rows)}
-    data = CurriculumDataset(rows, encoded, 20261003, 80, 4)
+    data = (CurriculumDataset(rows, encoded, 20261003, 80, 4) if dataset_factory is None
+            else dataset_factory(rows, encoded))
     def collate(samples):
         return {key: torch.tensor([s[key] for s in samples]) for key in samples[0]}
     def trainer(path):

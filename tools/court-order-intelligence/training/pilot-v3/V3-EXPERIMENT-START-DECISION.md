@@ -58,3 +58,14 @@ There is no forced gradient overflow in production fit. Applied optimizer
 updates/scaler skips and actual weighted exposure are reported, not assumed.
 Adapter save/reload and eight task-representative inference/parser checks follow
 the fit. These TRAIN integration checks are explicitly not fresh-blind accuracy.
+
+Full-fit stream starts with a seeded deterministic coverage pass over every
+original gold record, then uses the existing weighted curriculum for remaining
+exposures, within the same 732-microbatch budget. Pure weighted sampling at this
+budget would expose only 188/244 original IDs; that silent zero-exposure gap is
+not accepted. Immutable full-stream SHA and consumed-prefix SHA bind checkpoint
+resume. The actual pinned CPU Trainer proof also exercises this full-coverage
+stream: continuous vs checkpoint/resume sample IDs and skipped-update accounting.
+Latest software rerun: 137 training tests and 48 Kaggle/integration tests pass,
+including actual full-coverage CPU Trainer checkpoint 10 -> 80 with all 320
+consumed IDs matching the continuous run and the simulated skip preserved.

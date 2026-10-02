@@ -13,6 +13,43 @@ import sys
 PURPOSE = 'V3_EXPERIMENT_VERIFIED_POOL_NOT_QUALITY_ACCEPTANCE'
 
 
+def make_training_data(rows, encoded, budget):
+    """All gold once, then weighted repetitions, within the same finite budget.
+
+    Pure weighted sampling would expose only 188/244 at this budget. Never
+    silently leave the other 56 verified records untrained. The immutable map
+    stream still uses Trainer's sole skip mechanism; no moving dataset cursor.
+    """
+    from collections import Counter
+    from v3_trainer import CurriculumDataset
+    class CoverageDataset(CurriculumDataset):
+        def state_at(self, step):
+            if not 0 <= step <= self.steps:
+                raise ValueError('Coverage checkpoint step outside budget')
+            consumed = step * self.accumulation
+            return dict(version='v3-full-coverage-then-weighted-1', seed=self.seed,
+                        dataset_sha256=self.curriculum.fingerprint,
+                        stream_sha256=hashlib.sha256(json.dumps(self.ids).encode()).hexdigest(),
+                        weights=self.curriculum.weights, logical_sample_index=consumed,
+                        consumed_ids_sha256=hashlib.sha256(json.dumps(self.ids[:consumed]).encode()).hexdigest())
+    data = CoverageDataset(rows, encoded, 20261003, budget['trainer_steps'], 4)
+    coverage = sorted(encoded, key=lambda key: hashlib.sha256(f'20261003:{key}'.encode()).hexdigest())
+    if len(data.ids) < len(coverage):
+        raise ValueError('Budget cannot cover all gold')
+    data.ids = tuple(coverage) + data.ids[:len(data.ids)-len(coverage)]
+    by_id = {row['id']: row for row in rows}
+    selected = [by_id[key] for key in data.ids]
+    data.report = dict(strategy='all-originals-once-then-weighted', original_record_count=len(rows),
+        logical_exposures=len(data.ids), unique_records_exposed=len(set(data.ids)),
+        equivalent_dataset_passes=len(data.ids)/len(rows),
+        task_exposures=dict(Counter(row['task'] for row in selected)),
+        matter_exposures=dict(Counter(row['matter_id'] for row in selected)),
+        leakage_group_exposures=dict(Counter(row.get('leakage_group', row['matter_id']) for row in selected)),
+        positive_empty_exposures=dict(Counter(row['task'] + '|' + ('positive' if
+            row['expected'].get('claims', row['expected'].get('facts')) else 'empty') for row in selected)))
+    return data
+
+
 def verify_experiment(root):
     manifest = json.loads((root / 'dataset-manifest.json').read_text())
     if (manifest['purpose'] != PURPOSE or manifest['private'] is not True
@@ -70,7 +107,7 @@ def main(bundle, output):
         from smoke_contract import MODEL, REVISION, encode
         from reload_smoke import inference_messages, schema_prefix
         from v3_contract import parse_v3_output, target_schemas_v3
-        from v3_trainer import CurriculumDataset, CurriculumTrainer
+        from v3_trainer import CurriculumTrainer
         from v3_sampler import calculate_budget
         from v3_sft_loss import verify_exact_loss
         if not torch.cuda.is_available():
@@ -101,7 +138,7 @@ def main(bundle, output):
         if max(prompts) + 512 > cap:
             raise ValueError('Inference reserve does not fit')
         budget = calculate_budget(len(rows), 4, 3)
-        data = CurriculumDataset(rows, encoded, 20261003, budget['trainer_steps'], 4)
+        data = make_training_data(rows, encoded, budget)
         meta.update(budget=budget, exposure=data.report, encoded_candidate_count=len(encoded),
                     examples_dropped=0, evidence_truncated=False, context=cap)
         dtype = torch.bfloat16 if proof['bf16'] else torch.float16

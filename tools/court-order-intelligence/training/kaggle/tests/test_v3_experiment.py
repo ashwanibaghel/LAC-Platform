@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from v3_experiment_train import verify_experiment, PURPOSE
+from v3_experiment_train import verify_experiment, PURPOSE, make_training_data
 from prepare_v3_experiment import prepare_experiment
 
 
@@ -82,6 +82,24 @@ class ExperimentTests(unittest.TestCase):
         self.assertIn('TRAIN representative integration checks only', code)
         for secret in ('kaggle.json', 'KAGGLE_API_TOKEN', 'delhihighcourt.nic.in', 'MigrateAsync'):
             self.assertNotIn(secret, code)
+
+    def test_every_original_exposed_and_actual_trainer_resume_is_exact(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+        from prove_v3_trainer import run
+        def factory(rows, encoded):
+            converted = [dict(row, expected=row['target']) for row in rows]
+            data = make_training_data(converted, encoded, {'trainer_steps': 80})
+            self.assertEqual(set(data.ids[:len(rows)]), set(encoded))
+            self.assertEqual(data.report['unique_records_exposed'], len(rows))
+            self.assertEqual(data.ids, make_training_data(converted, encoded, {'trainer_steps': 80}).ids)
+            return data
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / 'proof.json'
+            run(report, dataset_factory=factory)
+            actual = json.loads(report.read_text())
+            self.assertTrue(actual['continuous_resume_ids_exact_match'])
+            self.assertEqual(actual['consumed_microbatches'], 320)
+            self.assertEqual(actual['simulated_applied_updates'], 79)
 
 
 if __name__ == '__main__':
