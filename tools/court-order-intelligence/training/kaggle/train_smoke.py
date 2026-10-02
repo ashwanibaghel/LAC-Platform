@@ -16,7 +16,8 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 
 
-def main():
+def main(bundle_verifier=verify_bundle, config_verifier=verify_config,
+         config_filename="training_config_smoke.json"):
     cli = argparse.ArgumentParser()
     cli.add_argument("--bundle", type=Path, required=True)
     cli.add_argument("--output", type=Path, required=True)
@@ -28,8 +29,8 @@ def main():
         raise RuntimeError("Kaggle GPU runtime/output required; no local/offline pretend run")
     if output.exists() and any(output.iterdir()):
         raise RuntimeError("Use a fresh output directory; previous artifacts must remain recoverable")
-    records, manifest = verify_bundle(bundle)
-    config = verify_config(json.loads((bundle / "training_config_smoke.json").read_text(encoding="utf-8")))
+    records, manifest = bundle_verifier(bundle)
+    config = config_verifier(json.loads((bundle / config_filename).read_text(encoding="utf-8")))
     schemas = json.loads((bundle / "target.schemas.json").read_text(encoding="utf-8"))
     import torch
     if not torch.cuda.is_available():
@@ -166,7 +167,7 @@ def main():
             while True:
                 yield from encoded
         data = IterableDataset.from_generator(smoke_stream)
-        metadata["sampling"] = "deterministic cyclic original 22-example stream; no added records"
+        metadata["sampling"] = f"deterministic cyclic original {len(encoded)}-example stream; no added records"
         checkpoints = output / "checkpoints"
         training_start = time.monotonic()
         if args.resume:
