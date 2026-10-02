@@ -1,0 +1,111 @@
+{
+  "purpose": [
+    "SMOKE_ONLY",
+    "NOT_EVALUATION",
+    "NOT_BLIND",
+    "NOT_QUALITY_EVIDENCE"
+  ],
+  "training_steps_in_this_proof": 0,
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "adapter_sha256": "1ba2f5651e348a85bbc0caa6164657fa6f83c1c43d1018acad5f163c013d1970",
+  "schema_supplied_to_prompt": true,
+  "output_repaired": false,
+  "adapter_reload_passed": true,
+  "representative_outputs": [
+    {
+      "id": "jan-attribute",
+      "task": "attribution_classification",
+      "raw_output": "{\n  \"facts\": [\n    {\n      \"anchorId\": 0,\n      \"category\": \"LAC_OR_RESPONDENT_SUBMISSION\",\n      \"field\": \"filing\",\n      \"scope\": \"Current\"\n    },\n    {\n      \"anchorId\": 1,\n      \"category\": \"LAC_OR_RESPONDENT_SUBMISSION\",\n      \"field\": \"observation\",\n      \"scope\": \"Current\"\n    }\n  ],\n  \"needsReview\": false\n}",
+      "parser_accepted": true,
+      "parsed_output": {
+        "facts": [
+          {
+            "anchorId": 0,
+            "category": "LAC_OR_RESPONDENT_SUBMISSION",
+            "field": "filing",
+            "scope": "Current"
+          },
+          {
+            "anchorId": 1,
+            "category": "LAC_OR_RESPONDENT_SUBMISSION",
+            "field": "observation",
+            "scope": "Current"
+          }
+        ],
+        "needsReview": false
+      }
+    },
+    {
+      "id": "940-no-action",
+      "task": "office_action_detection",
+      "raw_output": "{\"claims\":[]}",
+      "parser_accepted": true,
+      "parsed_output": {
+        "claims": []
+      }
+    },
+    {
+      "id": "14604-timeline",
+      "task": "date_specific_retrieval_or_QA",
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2},{\"factId\":3},{\"factId\":4},{\"factId\":5},{\"factId\":6}]}",
+      "parser_accepted": true,
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          },
+          {
+            "factId": 3
+          },
+          {
+            "factId": 4
+          },
+          {
+            "factId": 5
+          },
+          {
+            "factId": 6
+          }
+        ]
+      }
+    },
+    {
+      "id": "940-digest",
+      "task": "order_digest",
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2}]}",
+      "parser_accepted": true,
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "jan-not-complete",
+      "task": "compliance_state",
+      "raw_output": "{\"claims\":[0,1]}",
+      "parser_accepted": false,
+      "error_category": "ValidationError"
+    }
+  ],
+  "runtime_parser_gate_passed": false,
+  "gpu_process_elapsed_seconds_not_account_quota": 85.496,
+  "peak_gpu_memory_bytes": 4022468096,
+  "quality_metric": null,
+  "blind_performance": null
+}

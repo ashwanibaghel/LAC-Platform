@@ -1,0 +1,88 @@
+{
+  "blind_performance": null,
+  "purpose": [
+    "SMOKE_ONLY",
+    "NOT_EVALUATION",
+    "NOT_BLIND",
+    "NOT_QUALITY_EVIDENCE"
+  ],
+  "quality_metric": null,
+  "representative_outputs": [
+    {
+      "error_category": "ValidationError",
+      "id": "jan-attribute",
+      "parser_accepted": false,
+      "raw_output": "{\n  \"anchors\": [\n    {\n      \"anchorId\": 0,\n      \"actors\": [\"LAC\", \"petitioner\"],\n      \"speechRole\": \"LAC_OR_RESPONDENT_SUBMISSION\",\n      \"text\": \"5. The LAC has filed a counter affidavit affirming that on 10.02.2012 a notice under Section 12(2) of the LA Act was issued and the same was ‘duly served upon the petitioner’.\",\n      \"type\": \"LAC_SUBMISSION\"\n    },\n    {\n      \"anchorId\": 1,\n      \"actors\": [\"LAC\", \"petitioner\"],\n      \"speechRole\": \"LAC_OR_RESPONDENT_SUBMISSION\",\n      \"text\": \"6. The learned counsel appearing for the LAC fairly states that the averments made in the counter affidavit may not be entirely correct as the record does not reflect any service of the notice to the petitioner.\",\n      \"type\": \"LAC_SUBMISSION\"\n    }\n  ]\n}",
+      "task": "attribution_classification"
+    },
+    {
+      "id": "940-no-action",
+      "parsed_output": {
+        "claims": []
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[]}",
+      "task": "office_action_detection"
+    },
+    {
+      "id": "14604-timeline",
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          },
+          {
+            "factId": 3
+          },
+          {
+            "factId": 4
+          },
+          {
+            "factId": 5
+          },
+          {
+            "factId": 6
+          }
+        ]
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2},{\"factId\":3},{\"factId\":4},{\"factId\":5},{\"factId\":6}]}",
+      "task": "date_specific_retrieval_or_QA"
+    },
+    {
+      "id": "940-digest",
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          }
+        ]
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2}]}",
+      "task": "order_digest"
+    },
+    {
+      "id": "jan-not-complete",
+      "parsed_output": {
+        "claims": []
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[]}",
+      "task": "compliance_state"
+    }
+  ],
+  "runtime_parser_gate_passed": false
+}

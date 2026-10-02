@@ -1,0 +1,49 @@
+{
+  "actual_example_count": 22,
+  "adapter_reload_passed": true,
+  "adapter_save_location": "/kaggle/working/lac-t2-smoke/adapter",
+  "bf16_native_supported": false,
+  "blind_claim": false,
+  "checkpoint_created": "/kaggle/working/lac-t2-smoke/checkpoints/checkpoint-2",
+  "cuda_version": "12.4",
+  "elapsed_seconds": 170.525,
+  "gpu": "Tesla T4",
+  "gpu_process_elapsed_seconds_not_account_quota": 170.525,
+  "immutable_revision_verified": true,
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "ooms": [],
+  "packages": {
+    "accelerate": "1.10.1",
+    "bitsandbytes": "0.47.0",
+    "datasets": "4.1.1",
+    "jsonschema": "4.25.1",
+    "peft": "0.17.1",
+    "torch": "2.6.0",
+    "transformers": "4.56.2"
+  },
+  "peak_gpu_memory_bytes": 7399721984,
+  "private_notebook_operator_acknowledged": true,
+  "probe_passed": true,
+  "purpose": [
+    "SMOKE_ONLY",
+    "NOT_EVALUATION",
+    "NOT_BLIND",
+    "NOT_QUALITY_EVIDENCE"
+  ],
+  "quality_claim": false,
+  "result": "INCOMPLETE_PARSER_GATE",
+  "resume_result": {
+    "checkpoint_step": 2,
+    "final_step": 6,
+    "passed": true
+  },
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "sampling": "deterministic cyclic original 22-example stream; no added records",
+  "selected_device": 0,
+  "skipped_oversize_ids": [],
+  "stage": "complete",
+  "trainable_parameters": 5898240,
+  "training_seconds": 56.978,
+  "visible_gpu_count": 1,
+  "vram_bytes": 15636037632
+}

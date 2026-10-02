@@ -9,6 +9,7 @@ import shutil
 import time
 
 from smoke_contract import MODEL, REVISION, encode, parse_runtime_output, verify_bundle, verify_config
+from reload_smoke import inference_messages, schema_prefix
 
 
 def save(path, value):
@@ -37,10 +38,10 @@ def main():
     from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
                               Trainer, TrainerCallback, TrainingArguments, set_seed)
     from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training
-    from datasets import Dataset
+    from datasets import IterableDataset
     # Do not guess backend compatibility from hardware name. Execute the probe.
     gpu = torch.cuda.get_device_properties(0)
-    bf16 = torch.cuda.is_bf16_supported()
+    bf16 = torch.cuda.is_bf16_supported(including_emulation=False)
     dtype = torch.bfloat16 if bf16 else torch.float16
     versions = {p: importlib.metadata.version(p) for p in
                 ("torch", "transformers", "peft", "bitsandbytes", "accelerate", "datasets", "jsonschema")}
@@ -52,7 +53,7 @@ def main():
     started = time.monotonic()
     metadata = {"purpose": config["purpose"], "result": "RUNNING", "stage": "model_revision_verification",
         "gpu": gpu.name, "vram_bytes": gpu.total_memory, "cuda_version": torch.version.cuda,
-        "bf16_supported": bf16, "selected_device": 0, "visible_gpu_count": torch.cuda.device_count(),
+        "bf16_native_supported": bf16, "selected_device": 0, "visible_gpu_count": torch.cuda.device_count(),
         "packages": versions, "model_id": MODEL, "revision": REVISION, "ooms": [],
         "private_notebook_operator_acknowledged": True, "quality_claim": False, "blind_claim": False}
     save(output / "run-metadata.json", metadata)
@@ -70,6 +71,13 @@ def main():
             with (output / "training-log.jsonl").open("a", encoding="utf-8") as log:
                 log.write(json.dumps({"step": state.global_step, "elapsed_seconds": round(time.monotonic() - started, 3),
                                       "logs": logs or {}}) + "\n")
+
+    class CheckpointPause(TrainerCallback):
+        def on_step_end(self, training_args, state, control, **kwargs):
+            if state.global_step == config["checkpoint_probe_steps"]:
+                control.should_save = True
+                control.should_training_stop = True
+            return control
 
     def load_base():
         quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
@@ -149,7 +157,16 @@ def main():
         metadata["actual_example_count"] = len(retained)
         metadata["skipped_oversize_ids"] = [r["id"] for r in records if r not in retained]
         save(output / "training-config.json", config)
-        data = Dataset.from_list(encoded)
+        # The pinned Trainer loses a trailing partial accumulation after a
+        # mid-epoch data skip on resume (22 examples / accumulation=4). A cyclic
+        # iterable uses the exact original examples and max_steps as its bound;
+        # it does not manufacture or truncate examples. Both Trainers skip the
+        # same deterministic stream, and each update has four microbatches.
+        def smoke_stream():
+            while True:
+                yield from encoded
+        data = IterableDataset.from_generator(smoke_stream)
+        metadata["sampling"] = "deterministic cyclic original 22-example stream; no added records"
         checkpoints = output / "checkpoints"
         training_start = time.monotonic()
         if args.resume:
@@ -164,7 +181,9 @@ def main():
                 raise RuntimeError("Resume dataset/source bundle differs")
         else:
             persist("initial_training")
-            first = trainer(model, data, config["checkpoint_probe_steps"], checkpoints)
+            # Preserve the exact six-step scheduler across the deliberate pause.
+            first = trainer(model, data, config["max_steps"], checkpoints)
+            first.add_callback(CheckpointPause())
             first.train()
             checkpoint = checkpoints / f"checkpoint-{config['checkpoint_probe_steps']}"
             del first
@@ -204,11 +223,12 @@ def main():
         evaluations = []
         for task in config["representative_tasks"]:
             record = next(r for r in retained if r["task"] == task)
-            prompt = tokenizer.apply_chat_template(record["messages"][:-1], tokenize=True,
+            prompt = tokenizer.apply_chat_template(inference_messages(record, schemas), tokenize=True,
                 add_generation_prompt=True, return_tensors="pt").to("cuda:0")
             with torch.inference_mode():
                 generated = model.generate(input_ids=prompt, attention_mask=torch.ones_like(prompt),
-                    do_sample=False, max_new_tokens=config["max_new_tokens"], pad_token_id=tokenizer.pad_token_id)
+                    do_sample=False, max_new_tokens=config["max_new_tokens"], pad_token_id=tokenizer.pad_token_id,
+                    prefix_allowed_tokens_fn=schema_prefix(tokenizer, schemas[record["contract"]]))
             text = tokenizer.decode(generated[0, prompt.shape[1]:], skip_special_tokens=True).strip()
             entry = {"id": record["id"], "task": task, "raw_output": text, "parser_accepted": False}
             try:

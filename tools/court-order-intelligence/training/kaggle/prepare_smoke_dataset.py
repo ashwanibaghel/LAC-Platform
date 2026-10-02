@@ -54,7 +54,7 @@ def prepare(output):
     output.mkdir(parents=True, exist_ok=True)
     write_jsonl(output / "smoke.jsonl", records)
     write_json(output / "target.schemas.json", schema)
-    for name in ("train_smoke.py", "smoke_contract.py", "requirements.txt", "training_config_smoke.json"):
+    for name in ("train_smoke.py", "smoke_contract.py", "reload_smoke.py", "requirements.txt", "training_config_smoke.json"):
         shutil.copyfile(HERE / name, output / name)
     # Exact frozen parser, NOT product/runtime changes. Imported only for local
     # structural/attribution acceptance; no DHC download code is bundled.

@@ -1,0 +1,42 @@
+{
+  "actual_max_sequence_length": 2048,
+  "batch_size": 1,
+  "checkpoint_probe_steps": 2,
+  "gradient_accumulation_steps": 4,
+  "gradient_checkpointing": true,
+  "learning_rate": 0.0001,
+  "lora_alpha": 16,
+  "lora_dropout": 0.05,
+  "lora_r": 8,
+  "max_new_tokens": 512,
+  "max_sequence_length": 2048,
+  "max_steps": 6,
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "oom_sequence_lengths": [
+    1024,
+    512
+  ],
+  "purpose": [
+    "SMOKE_ONLY",
+    "NOT_EVALUATION",
+    "NOT_BLIND",
+    "NOT_QUALITY_EVIDENCE"
+  ],
+  "quantization": "4bit-nf4-double-quant",
+  "representative_tasks": [
+    "attribution_classification",
+    "office_action_detection",
+    "date_specific_retrieval_or_QA",
+    "order_digest",
+    "compliance_state"
+  ],
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "save_steps": 2,
+  "seed": 20261002,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+  ]
+}

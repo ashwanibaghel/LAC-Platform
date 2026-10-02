@@ -45,6 +45,10 @@ imports. The first actual GPU probe remains the compatibility proof; local
 dependency resolution is not a tested Kaggle environment. No TRL is needed.
 Single GPU device 0 is used, while name/VRAM/CUDA/bf16/versions are recorded.
 Hardware-dependent bf16/FP16 is selected without guessing a GPU model.
+The CLI launcher `run_kaggle.py` handles both ZIP and Kaggle-expanded mounts,
+copies only manifest-listed files, installs the pins, then starts a fresh Python
+subprocess with `CUDA_VISIBLE_DEVICES=0`. This prevents Trainer from silently
+doubling batch size on a dual-T4 host. BF16 requires native support, not emulation.
 
 Settings: 4-bit NF4/double quant, rank 8/alpha 16 Q/K/V/O LoRA, checkpointing,
 batch 1, accumulation 4, maximum 6 optimizer steps, sequence cap 2048.
@@ -60,10 +64,15 @@ legal essays, data inflation, cloud legal Q&A, DHC calls or office endpoints.
 
 ## Checkpoint / resume
 
-The default run trains 2 steps, saves optimizer/scheduler/RNG/adapter, creates a
+The default run uses the six-step schedule, deliberately pauses at step 2,
+saves optimizer/scheduler/RNG/adapter, creates a
 new Trainer, reloads that checkpoint and continues to global step 6. The actual
 resume step/result is written to metadata. Until a real run exists this is a
 procedure, **not a proven resume result**.
+Sampling cycles deterministically through the unchanged original examples. With
+the pinned Trainer, finite mid-epoch resume can lose the final partial gradient
+accumulation. An iterable avoids that boundary, gives four microbatches per
+update and stops at six steps; it adds no records to the dataset.
 
 Keep `checkpoints/`, dataset manifest and training-config.json together. To
 continue in a new Kaggle session, upload the previous **trusted** artifact folder
@@ -94,6 +103,20 @@ automatic inference retry. Every representative task must pass for T2 PASS.
 Expected gold is never used to fake a generated output. Model quality is not
 required; nevertheless parser failures truthfully mean T2 is incomplete.
 
+HF generation must receive the exact target JSON schema in its system message,
+because unlike the frozen production provider it has no JSON-grammar parameter.
+`inference_messages` supplies only that schema, not any expected answer. A
+separately reported `reload_smoke.py` proof may mount trusted previous private
+kernel output, verify adapter checksums, reload the unchanged adapter and run
+the five tasks with this explicit contract. It performs **zero training steps**.
+Use pinned `lm-format-enforcer==0.11.3` prefix-token filtering for the unchanged
+T1 schema, matching the frozen provider's schema-constrained response format.
+This is generation-time structural restriction, not output repair, factual
+verification or proof that unconstrained generation obeys the contract.
+Keep initial rejected outputs in the report; never repair them or replace them
+with gold. FP16 scaler-skipped updates must be distinguished from Trainer global
+steps; six global steps alone do not prove six applied optimizer updates.
+
 Actual Kaggle account quota consumption must be read from the account UI; script
 GPU-process elapsed time is separately labelled and is not billed/quota time.
 No GGUF, no base-model merge, no office deployment, no T3/Pilot V1.
@@ -101,3 +124,4 @@ No GGUF, no base-model merge, no office deployment, no T3/Pilot V1.
 References: [pinned Qwen files](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507/tree/cdbee75f17c01a7cc42f958dc650907174af0554),
 [Transformers 4-bit](https://huggingface.co/docs/transformers/v4.56.2/quantization/bitsandbytes),
 [PEFT quantized training](https://huggingface.co/docs/peft/main/developer_guides/quantization).
+Schema-decoding integration: [LM Format Enforcer 0.11.3](https://github.com/noamgat/lm-format-enforcer/tree/v0.11.3).
