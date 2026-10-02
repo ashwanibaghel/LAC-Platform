@@ -53,6 +53,14 @@ class CurriculumCheckpoint(TrainerCallback):
 
 
 class CurriculumTrainer(Trainer):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        if getattr(getattr(model, 'config', None), 'model_type', None) == 'qwen3':
+            from v3_sft_loss import masked_causal_loss
+            loss, outputs = masked_causal_loss(model, inputs, num_items_in_batch)
+            return (loss, outputs) if return_outputs else loss
+        return super().compute_loss(model, inputs, return_outputs=return_outputs,
+                                    num_items_in_batch=num_items_in_batch)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         data = self.train_dataset

@@ -52,6 +52,7 @@ def main(bundle, output):
         from reload_smoke import inference_messages
         from v3_contract import parse_v3_output, target_schemas_v3
         from v3_trainer import CurriculumDataset, CurriculumTrainer
+        from v3_sft_loss import masked_causal_loss, verify_exact_loss
         if not torch.cuda.is_available():
             raise ValueError('CUDA GPU absent')
         gpu = torch.cuda.get_device_properties(0)
@@ -66,6 +67,7 @@ def main(bundle, output):
         if any(versions[k].split('+')[0] != v for k, v in expected.items()):
             raise ValueError('Pinned dependency mismatch')
         meta['packages'] = versions
+        meta['exact_masked_sft_loss_proof'] = verify_exact_loss()
         save(meta)
         schemas = target_schemas_v3()
         if schemas != json.loads((bundle / 'target.schemas.json').read_text()):
@@ -131,7 +133,7 @@ def main(bundle, output):
                 model.train()
                 batch = {k: v.to('cuda:0') for k, v in collate([sample]).items()}
                 with torch.autocast('cuda', dtype=dtype):
-                    loss = model(**batch).loss
+                    loss, loss_outputs = masked_causal_loss(model, batch)
                 if not torch.isfinite(loss):
                     raise ValueError('Nonfinite memory probe')
                 loss.backward()
@@ -144,6 +146,7 @@ def main(bundle, output):
             finally:
                 model.zero_grad(set_to_none=True)
                 batch = loss = None
+                loss_outputs = None
                 gc.collect()
                 torch.cuda.empty_cache()
             meta['memory_probes'].append(probe)

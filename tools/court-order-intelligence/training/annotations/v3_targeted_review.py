@@ -87,3 +87,10 @@ EXAMPLES.extend([
 for _key, _start in (('wpc4806-2014', 5), ('wpc13932-2025', 6)):
  _ids = [f'{_key}-v3-p{i}' for i in range(_start, len(REVIEWED[_key][1]))]
  EXAMPLES.append((f'v3-{_key}-additional-actors', 'attribution_classification', _ids, _ids, '', 'English', 'SUPPORTED'))
+
+from annotations import v3_chain_review as _chains
+REVIEWED.update(_chains.REVIEWED)
+PASSAGES.update(_chains.PASSAGES)
+OPEN.update(_chains.OPEN)
+STRONG.update(_chains.STRONG)
+EXAMPLES.extend(_chains.EXAMPLES)

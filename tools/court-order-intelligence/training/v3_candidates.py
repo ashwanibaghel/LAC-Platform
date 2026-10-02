@@ -28,4 +28,8 @@ CANDIDATES = [
     ('wpc5489-2022', 'W.P.(C) 5489/2022', 'blind'),
     ('wpc10546-2023', 'W.P.(C) 10546/2023', 'blind'),
     ('cont724-2021', 'CONT.CAS(C) 724/2021', 'blind'),
+    # Targeted replacements reserved before source review/gold/model outputs.
+    ('wpc15198-2025', 'W.P.(C) 15198/2025', 'train'),
+    ('wpc787-2026', 'W.P.(C) 787/2026', 'validation'),
+    ('wpc1784-2026', 'W.P.(C) 1784/2026', 'blind'),
 ]

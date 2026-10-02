@@ -164,6 +164,20 @@ class V3PrecisionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_v3_output('{"claims":[{"factId":0}]}', record, {'claims': ANSWER_SCHEMA}, ROOT)
 
+    def test_explicit_judicial_extension_and_native_reset_not_party_request(self):
+        from v3_semantics import OPERATIVE, judicial_context_safe
+        for text in ('Further time of one week is granted to DDA to file the affidavit.',
+                     'At request, six weeks time is granted to respondent no.1 to file the counter affidavit.',
+                     'List this matter along with the connected petition on 6th August, 2026.',
+                     'In the event the officers cannot agree, the issue be escalated to the competent authority.'):
+            self.assertTrue(OPERATIVE.search(text))
+        self.assertFalse(party_speech('It is evident from the minutes that no substantive decisions were taken, except to seek more time.'))
+        self.assertTrue(party_speech('Counsel seeks more time to file an affidavit.'))
+        selected = 'Rejoinder thereto be filed within four weeks.'
+        self.assertTrue(judicial_context_safe(selected,
+            'Counter affidavit is stated to have been filed. Let counsel check with the Registry. ' + selected))
+        self.assertFalse(judicial_context_safe(selected, 'Counsel submits the following request: ' + selected))
+
     def test_full_chain_v3_cardinality_does_not_change_legacy_or_safety(self):
         from v3_contract import target_schemas_v3
         from schema.contracts import ANSWER_SCHEMA

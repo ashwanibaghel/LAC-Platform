@@ -5,16 +5,16 @@
   },
   "combined_counts": {
     "attribution": {
-      "examples": 19,
-      "groups": 12
+      "examples": 30,
+      "groups": 13
     },
     "certified_strong_current_position": {
       "examples": 4,
       "groups": 4
     },
     "compliance": {
-      "examples": 38,
-      "groups": 21
+      "examples": 40,
+      "groups": 22
     },
     "empty_date_qa": {
       "examples": 34,
@@ -24,14 +24,14 @@
       "examples": 27,
       "groups": 20
     },
-    "independent_leakage_groups": 21,
+    "independent_leakage_groups": 22,
     "languages": {
-      "English": 144,
+      "English": 157,
       "Hindi": 25,
       "Hinglish": 36,
       "RomanHindi": 26
     },
-    "matters": 24,
+    "matters": 26,
     "multi_order_current_position": {
       "examples": 15,
       "groups": 5
@@ -51,11 +51,11 @@
     "reused_by_origin": {
       "pilot-v1": 87,
       "pilot-v2": 131,
-      "pilot-v3-targeted": 13
+      "pilot-v3-targeted": 26
     },
     "tasks": {
-      "attribution_classification": 19,
-      "compliance_state": 38,
+      "attribution_classification": 30,
+      "compliance_state": 40,
       "date_specific_retrieval_or_QA": 69,
       "important_fact_selection": 13,
       "multi_order_current_position": 15,
@@ -63,7 +63,7 @@
       "order_digest": 34,
       "semantic_proposition_extraction": 4
     },
-    "total_examples": 231
+    "total_examples": 244
   },
   "decision": "NO-GO",
   "group_members": {
@@ -89,6 +89,15 @@
       "W.P.(C) 10108/2006",
       "W.P.(C) 7460/2009",
       "W.P.(C) 7689/2000"
+    ],
+    "CIVIL_APPEAL 5250/2018": [
+      "CIVIL_APPEAL 5250/2018",
+      "LPA 543/2026",
+      "W.P.(C) 15198/2025",
+      "W.P.(C) 5198/2024",
+      "W.P.(C) 5198/2202",
+      "W.P.(C) 5201/2024",
+      "W.P.(C) 5202/2024"
     ],
     "CIVIL_APPEAL 8632/2016": [
       "CIVIL_APPEAL 8632/2016",
@@ -132,13 +141,6 @@
       "LPA 07/2009",
       "W.P.(C) 10308/2024",
       "W.P.(C) 7687/2004"
-    ],
-    "LPA 543/2026": [
-      "LPA 543/2026",
-      "W.P.(C) 5198/2024",
-      "W.P.(C) 5198/2202",
-      "W.P.(C) 5201/2024",
-      "W.P.(C) 5202/2024"
     ],
     "W.P.(C) 10159/2015": [
       "W.P.(C) 10159/2015",
@@ -407,6 +409,9 @@
     "W.P.(C) 16669/2024": [
       "W.P.(C) 16669/2024"
     ],
+    "W.P.(C) 1784/2026": [
+      "W.P.(C) 1784/2026"
+    ],
     "W.P.(C) 2085/2024": [
       "W.P.(C) 2085/2024"
     ],
@@ -446,6 +451,11 @@
     ],
     "W.P.(C) 5645/2022": [
       "W.P.(C) 5645/2022"
+    ],
+    "W.P.(C) 587/1987": [
+      "W.P.(C) 587/1987",
+      "W.P.(C) 768/2004",
+      "W.P.(C) 787/2026"
     ],
     "W.P.(C) 5951/2025": [
       "W.P.(C) 5951/2025"
@@ -688,7 +698,7 @@
       "6108-position"
     ]
   },
-  "new_candidates": 13,
+  "new_candidates": 26,
   "protected_exclusions": [],
   "quarantine": [],
   "source_relationships": [
@@ -2033,13 +2043,6 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "CONT.CAS(C) 191/2008",
-        "W.P.(C) 7460/2009"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "CONT.CAS(C) 191/2008",
         "W.P.(C) 10108/2006"
       ]
     },
@@ -2054,14 +2057,14 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "CONT.CAS(C) 191/2008",
-        "LPA 310/2010"
+        "LPA 416/2012"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "CONT.CAS(C) 191/2008",
-        "CONT.CAS(C) 889/2009"
+        "LPA 310/2010"
       ]
     },
     {
@@ -2075,7 +2078,7 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "CONT.CAS(C) 191/2008",
-        "LPA 416/2012"
+        "W.P.(C) 7460/2009"
       ]
     },
     {
@@ -2083,6 +2086,13 @@
       "matters": [
         "CONT.CAS(C) 191/2008",
         "LPA 362/2010"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "CONT.CAS(C) 889/2009"
       ]
     },
     {
@@ -2117,133 +2127,14 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 10338/2015",
-        "W.P.(C) 10340/2015"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 10338/2015",
         "W.P.(C) 10341/2015"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 18591/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 17815/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13738/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12439/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13557/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13554/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13607/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13870/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13788/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13414/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13141/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 14530/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12395/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13600/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13533/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13656/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 14645/2025"
+        "W.P.(C) 10338/2015",
+        "W.P.(C) 10340/2015"
       ]
     },
     {
@@ -2257,49 +2148,7 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 12852/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12683/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12468/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12491/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13165/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 19626/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13668/2025"
+        "W.P.(C) 13870/2025"
       ]
     },
     {
@@ -2313,14 +2162,21 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 12389/2025"
+        "W.P.(C) 13193/2025"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 13585/2025"
+        "W.P.(C) 13668/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13559/2025"
       ]
     },
     {
@@ -2334,49 +2190,14 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 13591/2025"
+        "W.P.(C) 12683/2025"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 8745/2014"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 16632/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 13193/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12537/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 11820/2025"
-      ]
-    },
-    {
-      "kind": "conservative_cited_identity",
-      "matters": [
-        "W.P.(C) 13202/2025",
-        "W.P.(C) 12158/2025"
+        "W.P.(C) 13557/2025"
       ]
     },
     {
@@ -2390,14 +2211,35 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 12851/2025"
+        "W.P.(C) 16632/2025"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 3108/2026"
+        "W.P.(C) 13414/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13533/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13607/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13600/2025"
       ]
     },
     {
@@ -2411,14 +2253,70 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 12394/2025"
+        "W.P.(C) 12491/2025"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 13267/2025"
+        "W.P.(C) 12537/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13788/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 8745/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12468/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 3108/2026"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13656/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13585/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12439/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12158/2025"
       ]
     },
     {
@@ -2432,7 +2330,119 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 13202/2025",
-        "W.P.(C) 13559/2025"
+        "W.P.(C) 18591/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 11820/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12389/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12394/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 19626/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12851/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12395/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 14645/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13591/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 17815/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13141/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13554/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13267/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12852/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 14530/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13738/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13165/2025"
       ]
     },
     {
@@ -2448,6 +2458,13 @@
       "matters": [
         "W.P.(C) 13738/2025",
         "W.P.(C) 13469/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 15198/2025",
+        "CIVIL_APPEAL 5250/2018"
       ]
     },
     {
@@ -2475,14 +2492,14 @@
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 5202/2024",
-        "W.P.(C) 5198/2024"
+        "W.P.(C) 5198/2202"
       ]
     },
     {
       "kind": "conservative_cited_identity",
       "matters": [
         "W.P.(C) 5202/2024",
-        "W.P.(C) 5198/2202"
+        "W.P.(C) 5198/2024"
       ]
     },
     {
@@ -2493,12 +2510,34 @@
       ]
     },
     {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 787/2026",
+        "W.P.(C) 587/1987"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 787/2026",
+        "W.P.(C) 768/2004"
+      ]
+    },
+    {
       "kind": "exact_or_near_passage",
       "matters": [
         "LPA 543/2026",
         "W.P.(C) 5202/2024"
       ],
       "passage_sha256": "12acd50398ea88222bb289655488793b3ef0b17abfbd113b608260482eda5925"
+    },
+    {
+      "kind": "exact_or_near_passage",
+      "matters": [
+        "W.P.(C) 15198/2025",
+        "W.P.(C) 5202/2024"
+      ],
+      "passage_sha256": "1a6b3a1ce1456e2ede58830d121981d89313936b12986a5dd38a26b43c6ef4a0"
     }
   ],
   "state": "TARGETED_CANDIDATES_NOT_FROZEN_NO_GPU",

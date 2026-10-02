@@ -19,8 +19,9 @@ class V3AcquisitionTests(unittest.TestCase):
             self.assertIn(identity(case), protected)
 
     def test_five_candidate_holdouts_reserved_before_outputs_not_gold(self):
-        self.assertEqual(sum(split == 'validation' for _, _, split in CANDIDATES), 5)
-        self.assertEqual(sum(split == 'blind' for _, _, split in CANDIDATES), 5)
+        # Includes replacement reservations, NOT five certified/frozen groups.
+        self.assertGreaterEqual(sum(split == 'validation' for _, _, split in CANDIDATES), 5)
+        self.assertGreaterEqual(sum(split == 'blind' for _, _, split in CANDIDATES), 5)
         self.assertEqual(len(CANDIDATES), len({identifier for identifier, _, _ in CANDIDATES}))
         self.assertEqual(len(CANDIDATES), len({identity(case) for _, case, _ in CANDIDATES}))
 
@@ -31,6 +32,13 @@ class V3AcquisitionTests(unittest.TestCase):
         self.assertNotIn('provider.extract(', source)
         self.assertNotIn('.post(', source)
         self.assertNotIn('localhost', source)
+
+    def test_native_decision_date_never_uses_upload_or_signing_date(self):
+        from build_v3_targeted import native_order_date
+        self.assertEqual(native_order_date('Date of decision: 13th February, 2026 Uploaded on: 17th February, 2026'), '2026-02-13')
+        self.assertEqual(native_order_date('O R D E R % 09.01.2026 Downloaded on 03/10/2026'), '2026-01-09')
+        with self.assertRaises(ValueError):
+            native_order_date('Signing Date:17.02.2026 Uploaded on: 17th February, 2026')
 
 
 if __name__ == '__main__':

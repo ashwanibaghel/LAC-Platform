@@ -17,6 +17,19 @@ from v3_contract import parse_v3_output, context_for_v3, target_schemas_v3
 from audit_v3_composite import audit, counts, group_sources, rows, verify_frozen
 
 
+def native_order_date(first_page):
+    """Exact native decision header only; never upload/signing/filename dates."""
+    import re
+    stamp = re.search(r'%\s*(\d{2}\.\d{2}\.\d{4})', first_page)
+    if stamp:
+        return datetime.strptime(stamp[1], '%d.%m.%Y').date().isoformat()
+    decision = re.search(r'Date of decision:\s*(\d{1,2})(?:st|nd|rd|th)?\s+'
+                         r'([A-Za-z]+),\s*(\d{4})', first_page, re.I)
+    if decision:
+        return datetime.strptime(' '.join(decision.groups()), '%d %B %Y').date().isoformat()
+    raise ValueError('Exact native judicial date not established')
+
+
 def compile_targeted():
     records, sources = {}, {}
     for key, (day, _) in review.REVIEWED.items():
@@ -29,9 +42,7 @@ def compile_targeted():
             raise ValueError('Missing or ambiguous targeted native source version')
         source = found[0]
         _, native = source_header({int(p): t for p, t in source['pages'].items()})
-        import re
-        stamp = re.search(r'%\s*(\d{2}\.\d{2}\.\d{4})', next(iter(native.values()))) if native else None
-        if not stamp or datetime.strptime(stamp[1], '%d.%m.%Y').date().isoformat() != day:
+        if not native or native_order_date(source['pages'][min(source['pages'], key=int)]) != day:
             raise ValueError('Native order date differs from targeted annotation')
         records[key] = source
         sources[key] = dict(matter_id=source['case'], order_date=day, sha256=source['sha256'], url=source['url'])

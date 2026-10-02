@@ -11,10 +11,14 @@ JUDICIAL = ('COURT_DIRECTION', 'COURT_FINDING', 'COURT_OBSERVATION', 'RECORDED_C
 OPERATIVE = re.compile(
     r'\bshall\b|\b(?:is|are) directed\b|\b(?:we|Court) directs?\b|\bit is directed\b|'
     r'\blet\b.{0,180}\b(?:filed|file|placed|place|submitted|submit|impleaded|brought|furnish)\b|'
-    r'\b(?:be filed|be served|be completed|be placed on record|be brought on record)\b|'
+    r'\b(?:be filed|be served|be completed|be escalated|be placed on record|be brought on record)\b|'
     r'\b(?:last|final) (?:and final )?opportunity\b.{0,180}\b(?:file|bring|argue)\b|'
     r'\b(?:opportunity|permission|time) (?:is |was )?granted\b.{0,160}\b(?:file|argue)\b|'
-    r'\blist (?:the matter |matter )?(?:on|for|before)\b|\bre-?notify\b|\bissue notice\b', re.I)
+    r'\b(?:further )?time of\b.{0,50}\b(?:is |was )?granted\b.{0,100}\bto file\b|'
+    r'\b(?:weeks?|months?|days?) time (?:is |was )?granted\b.{0,100}\bto file\b|'
+    r'\blist (?:the matter |matter )?(?:on|for|before)\b|'
+    r'\blist this matter\b.{0,160}\bon\s+|'
+    r'\blist in the category\b[^.!?]{0,90}\bon \d|\bre-?notify\b|\bissue notice\b', re.I)
 SPEECH = re.compile(
     r'\b(?:submits?|submitted|contends?|contended|alleges?|alleged|claims|claimed|'
     r'asserts?|asserted|argues?|argued|prays?|seeks?|averred|undertakes?|according to|'
@@ -35,6 +39,11 @@ def party_speech(text):
     value = re.sub(r'\bbe submitted\b', 'be performed', value, flags=re.I)
     if re.search(r'\b(?:opportunity|permission)\b.{0,140}\b(?:to|and) argue\b', value, re.I):
         value = re.sub(r'\b(?:to|and) argue\b', 'to perform', value, flags=re.I)
+    # This explicit negative judicial assessment of recorded meeting minutes
+    # is not a party's "seeks" assertion; do not erase other speech markers.
+    if re.search(r'\bIt is evident from the minutes\b', value, re.I):
+        value = re.sub(r'\bno substantive decisions were taken, except to seek more time\b',
+                       'no substantive decisions were taken, except requesting more time', value, flags=re.I)
     if SPEECH.search(value) or re.search(
             r'\b(?:counsel|petitioner|respondent|LAC|Mr\.?|Ms\.?)\b[^.!?]{0,120}'
             r'\b(?:states?|stated|reports? that|reported that)\b|'
@@ -69,10 +78,18 @@ def judicial_context_safe(selected, native):
                      r'list (?:the matter |matter )?(?:on|for|before)|issue notice)', selected, re.I)
     reset = re.search(r'(?:Court|we) (?:direct|order|hold|observe|find|note)|it is directed|'
                       r'\b(?:matter|issue) is referred\b', prefix, re.I)
+    # A new unnumbered judicial instruction after a closed reported sentence
+    # also resets voice. A counsel request/colon/quoted passage does not.
+    unnumbered = prefix.rstrip().endswith('.') and re.match(
+        r'^(?:Rejoinder thereto(?:, if any,)? be filed|'
+        r'At request, (?:[\w-]+ )?(?:weeks?|months?|days?) time is granted)\b', selected, re.I)
+    native_let_reset = re.search(r'(?:^|\.\s+)(?:\d+\.\s*)?Let\b[^.!?]{0,180}'
+                                 r'\b(?:file|check|place|furnish)\b[^.!?]*\.\s*$', prefix, re.I)
     numbered = re.match(r'^\d+\.\s+', selected) and prefix.rstrip().endswith('.') and OPERATIVE.search(selected)
     stated_judicial_reset = prefix.rstrip().endswith('.') and re.search(
-        r'\b(?:this )?Court (?:is of the opinion|finds?|holds?|observes?|notes?|directs?)\b', selected, re.I)
-    return bool(fresh or reset or numbered or stated_judicial_reset)
+        r'\b(?:this )?Court (?:is of the opinion|finds?|holds?|observes?|notes?|directs?)\b|'
+        r'^The order specifically directs\b', selected, re.I)
+    return bool(fresh or reset or numbered or stated_judicial_reset or unnumbered or native_let_reset)
 
 
 def actor_supported(actor, entry):

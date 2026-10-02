@@ -59,7 +59,7 @@ def prepare(destination):
     write_json(bundle / 'target.schemas.json', schemas)
     for name in ('v3_gpu_preflight.py', 'smoke_contract.py', 'reload_smoke.py', 'requirements.txt'):
         shutil.copyfile(HERE / name, bundle / name)
-    for name in ('v3_sampler.py', 'v3_trainer.py', 'v3_context.py', 'v3_contract.py'):
+    for name in ('v3_sampler.py', 'v3_trainer.py', 'v3_sft_loss.py', 'v3_context.py', 'v3_contract.py'):
         shutil.copyfile(ROOT / name, bundle / name)
     for name in ('v3_semantics.py', 'semantic_gate.py', 'anchors.py', 'semantics.py', 'questions.py', 'query_intents.py'):
         shutil.copyfile(ROOT.parent / name, bundle / name)
