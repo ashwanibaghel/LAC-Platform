@@ -8,7 +8,9 @@ type Action = { id: string; type?: string; text: string; actor: string; deadline
 type CaptionEntry = { text: string; source: Source };
 type Intelligence = { caseNumber?: string; status: string; processingComplete: boolean; currentPosition: { text: string; source: Source; attribution?: string; role?: string; scope?: string }[]; beforeNextHearing: Action[]; latestOrder: Order | null; finalOrder?: Order | null; latestMeaningfulOrder?: Order | null; chronologyWarnings?: string[]; orders: Order[]; caption?: Record<string, CaptionEntry | string>; lacCaptionAppearances?: CaptionEntry[]; factualChronology?: { dates: string[]; text: string; role: string; source: Source }[]; sourceCoverage?: { basis: string; knownSources: number; checkedSources: number; gaps: { orderDate: string | null; officialUrl: string; reason: string }[] } };
 type Answer = { answer: string; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
-const officialLink = (url: string) => { try { const parsed = new URL(url); return parsed.protocol === "https:" && parsed.hostname === "delhihighcourt.nic.in" ? url : null; } catch { return null; } };
+type RegisteredIntelligence = Intelligence & { caseId: string; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; checked?: number; total?: number; needsReview?: number; message?: string } };
+const officialLink = (url: string) => { try { const parsed = new URL(url); return parsed.protocol === "https:" && parsed.hostname === "delhihighcourt.nic.in" && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && (!parsed.port || parsed.port === "443") && ["/app/showlogo/", "/app/showFileJudgment/", "/app/case_number_pdf/", "/app/downloadOrderbByDate/"].some(prefix => parsed.pathname.startsWith(prefix)) ? url : null; } catch { return null; } };
+const registeredPayload = (value: unknown, caseId: string): value is RegisteredIntelligence => !!value && typeof value === "object" && "caseId" in value && value.caseId === caseId && "orders" in value && Array.isArray(value.orders) && "currentPosition" in value && Array.isArray(value.currentPosition) && "beforeNextHearing" in value && Array.isArray(value.beforeNextHearing);
 const officerText = (text: string) => text.replace(/^\s*(?:\d+[.)]|\(\d+\)|\([a-z]\))\s+/i, "");
 const safeOrderFacts = (order: Order) => order.summaryFacts ?? (order.status === "Validated" ? order.facts : []);
 const currentFacts = (order: Order) => safeOrderFacts(order).filter(fact => fact.scope === "Current" && ["COURT_DIRECTION", "COURT_FINDING", "PROCEDURAL_EVENT"].includes(fact.category));
@@ -30,26 +32,55 @@ const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
 };
 const FullOrderFacts: React.FC<{ order: Order }> = ({ order }) => <details><summary>Full verified order brief</summary>{safeOrderFacts(order).filter(fact => !["Quoted", "Uncertain"].includes(fact.scope)).map((fact, index) => <div key={index}><small>{roleLabel(fact.category)}{fact.scope === "Historical" ? " · historical reference" : ""}</small><p>{officerText(fact.value)}</p><Evidence source={{ orderDate: order.orderDate, page: fact.page, evidence: fact.evidence, evidenceParts: fact.evidenceParts, officialUrl: order.officialUrl }} /></div>)}</details>;
 export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: boolean }> = ({ caseId, showMatterHeader = false }) => {
-  const [data, setData] = useState<Intelligence | null>(null);
+  const [storedData, setData] = useState<RegisteredIntelligence | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState("");
   const activeCase = React.useRef(caseId); activeCase.current = caseId;
+  const epoch = React.useRef(0);
+  const questionAbort = React.useRef<AbortController | null>(null);
+  const refreshAbort = React.useRef<AbortController | null>(null);
+  const data = storedData?.caseId === caseId ? storedData : null;
   useEffect(() => {
     const controller = new AbortController();
-    setData(null); setUnavailable(false); setQuestion(""); setAnswer(null); setAskError(""); setHistoryOpen(false);
-    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }).then(async response => { if (response.status === 204) return null; if (!response.ok) throw new Error("Unavailable"); return response.json() as Promise<Intelligence>; }).then(result => { if (!controller.signal.aborted) { setData(result); setHistoryOpen((result?.orders.length ?? 0) > 1); } }).catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
-    return () => controller.abort();
+    const generation = ++epoch.current;
+    setData(null); setUnavailable(false); setQuestion(""); setAnswer(null); setAskError(""); setHistoryOpen(false); setAsking(false); setRefreshing(false); setRefreshError("");
+    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }).then(async response => { if (response.status === 204) return null; if (!response.ok) throw new Error("Unavailable"); const result: unknown = await response.json(); if (!registeredPayload(result, caseId)) throw new Error("Invalid case intelligence"); return result; }).then(result => { if (!controller.signal.aborted && epoch.current === generation && activeCase.current === caseId) { setData(result); setHistoryOpen((result?.orders.length ?? 0) > 1); } }).catch(() => { if (!controller.signal.aborted && epoch.current === generation) setUnavailable(true); });
+    return () => { controller.abort(); questionAbort.current?.abort(); refreshAbort.current?.abort(); };
   }, [caseId]);
+  const running = data?.refreshState?.status === "Running";
+  useEffect(() => {
+    if (!running) return;
+    const controller = new AbortController(); const generation = epoch.current;
+    let inFlight = false;
+    const timer = setInterval(async () => {
+      if (inFlight) return; inFlight = true;
+      try { const response = await fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }); if (!response.ok) return; const result: unknown = await response.json(); if (!controller.signal.aborted && generation === epoch.current && activeCase.current === caseId && registeredPayload(result, caseId)) setData(result); }
+      catch { /* Existing structured brief stays readable during transient polling failure. */ }
+      finally { inFlight = false; }
+    }, 5000);
+    return () => { clearInterval(timer); controller.abort(); };
+  }, [caseId, running]);
   const ask = async (event: React.FormEvent) => {
     event.preventDefault(); if (asking || !question.trim()) return;
-    const requestedCase = caseId; setAsking(true); setAnswer(null); setAskError("");
-    try { const response = await fetch(`/api/court-cases/${caseId}/intelligence/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), cache: "no-store" }); if (!response.ok) throw new Error("Unavailable"); const result = await response.json() as Answer; if (activeCase.current === requestedCase) setAnswer(result); }
-    catch { if (activeCase.current === requestedCase) setAskError("Question answering is temporarily unavailable. Case intelligence remains available."); }
-    finally { setAsking(false); }
+    const requestedCase = caseId; const generation = epoch.current; const controller = new AbortController(); questionAbort.current = controller;
+    setAsking(true); setAnswer(null); setAskError("");
+    try { const response = await fetch(`/api/court-cases/${caseId}/intelligence/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question }), signal: controller.signal, cache: "no-store" }); if (!response.ok) throw new Error("Unavailable"); const result = await response.json() as Answer & { caseId: string }; if (result.caseId !== requestedCase || !Array.isArray(result.claims)) throw new Error("Wrong case response"); if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) setAnswer(result); }
+    catch { if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) setAskError("Question answering is temporarily unavailable. Case intelligence remains available."); }
+    finally { if (generation === epoch.current && activeCase.current === requestedCase) setAsking(false); }
+  };
+  const refresh = async () => {
+    if (refreshing || running) return;
+    const generation = epoch.current; const requestedCase = caseId; const controller = new AbortController(); refreshAbort.current = controller;
+    setRefreshing(true); setRefreshError("");
+    try { const response = await fetch(`/api/court-cases/${caseId}/intelligence/refresh`, { method: "POST", signal: controller.signal, cache: "no-store" }); if (response.status !== 202) throw new Error("Unavailable"); const state = await response.json(); if (state.caseId !== requestedCase) throw new Error("Wrong case"); if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) setData(previous => previous ? { ...previous, refreshState: state } : previous); }
+    catch { if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) setRefreshError("Local intelligence processing is temporarily unavailable or busy. Your Court records and verified evidence remain available."); }
+    finally { if (generation === epoch.current && activeCase.current === requestedCase) setRefreshing(false); }
   };
   const reviewCount = data?.orders.filter(order => order.status !== "Validated").length ?? 0;
   const verifiedFacts = data?.orders.flatMap(safeOrderFacts) ?? [];
@@ -64,6 +95,17 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   return <section className="court-intelligence" aria-label="Court Intelligence">
     <header className="court-intelligence-header"><h3>Court Intelligence</h3><span>Evidence-backed office brief</span></header>
     {!data ? <p className="court-intelligence-empty">{unavailable ? "Court intelligence is temporarily unavailable. Your Court records remain available." : "No reviewed intelligence is available yet. Court records and official order links remain unchanged."}</p> : <>
+      {data.knownOrderCount !== undefined && <div role="status">
+        {data.knownOrderCount === 0 ? <p>No official order is indexed for this registered matter. Current position is not inferred.</p> : <>
+          {!!data.unprocessedOrderCount && <p>Intelligence not processed yet for {data.unprocessedOrderCount} known order{data.unprocessedOrderCount === 1 ? "" : "s"}. Only verified evidence is shown below.</p>}
+          {!!data.unusableKnownOrderCount && <p>{data.unusableKnownOrderCount} known source{data.unusableKnownOrderCount === 1 ? " needs" : "s need"} case/date/source verification before processing.</p>}
+          {data.orders.length > 0 && <button type="button" onClick={refresh} disabled={refreshing || running}>{refreshing || running ? "Processing intelligence…" : data.unprocessedOrderCount ? "Process known orders" : "Refresh intelligence"}</button>}
+        </>}
+        {running && <p>Checking this matter's known official orders… {data.refreshState?.checked ?? 0} checked. Existing verified evidence stays available.</p>}
+        {["Failed", "Interrupted"].includes(data.refreshState?.status ?? "") && <p>Intelligence processing did not finish. Existing verified evidence is unchanged; you can retry explicitly.</p>}
+        {data.refreshState?.status === "CompletedWithReview" && <p>Intelligence checked · {data.refreshState.needsReview ?? 0} sources need review. Unverified material contributes no facts.</p>}
+        {refreshError && <p>{refreshError}</p>}
+      </div>}
       {showMatterHeader && <div className="court-intelligence-matter"><h2>{data.caseNumber ?? "Court matter"}</h2><div>{data.latestOrder?.court && <span>{data.latestOrder.court}</span>}{confirmedNextHearing(data.latestOrder) && <span>{upcomingHearing(data.latestOrder) ? "Next source-listed hearing" : "Last source-listed date"}: {shownDate(data.latestOrder!.nextHearingDate!)}</span>}</div>{confirmedNextHearing(data.latestOrder) && !upcomingHearing(data.latestOrder) && <p className="court-intelligence-muted">That date has passed. A subsequent order or new hearing date is not established by the processed sources.</p>}</div>}
       {(reviewCount > 0 || !data.processingComplete) && <details className="court-intelligence-verification"><summary>Some source material still needs verification.{reviewCount > 0 ? ` · ${reviewCount} order${reviewCount === 1 ? "" : "s"}` : ""}</summary><p>Actions and summaries shown here use only verified evidence.</p></details>}
       {data.caption && <article className="court-intelligence-position"><h4>{typeof data.caption.title === "string" ? data.caption.title : "Source-confirmed case context"}</h4><dl>{[["bench", "Bench"], ["petitionerAdvocates", "Advocates for petitioner"], ["respondentAdvocates", "Advocates for respondents / LAC"]].map(([key, label]) => { const entry = data.caption?.[key]; return entry && typeof entry !== "string" ? <div key={key}><dt>{label}</dt><dd>{entry.text}<Evidence source={entry.source} /></dd></div> : null; })}</dl></article>}
@@ -71,7 +113,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
       {!!data.chronologyWarnings?.length && <p className="court-intelligence-muted">The supplied order history has a continuity gap. An earlier judicial outcome must not be assumed to establish the present case status.</p>}
       {!data.finalOrder && data.latestMeaningfulOrder && data.latestMeaningfulOrder.orderDate !== data.latestOrder?.orderDate && <details className="court-intelligence-history"><summary>Earlier substantive development · {shownDate(data.latestMeaningfulOrder.orderDate)}</summary><OrderSummary order={data.latestMeaningfulOrder} /><FullOrderFacts order={data.latestMeaningfulOrder} /></details>}
       {!!data.lacCaptionAppearances?.length && <details className="court-intelligence-history"><summary>LAC counsel appearances in processed orders</summary>{data.lacCaptionAppearances.map((entry, index) => <div className="court-intelligence-history-row" key={index}><small>{shownDate(entry.source.orderDate)} · Exact respondent caption; other respondents may also be named</small><p>{entry.text}</p><Evidence source={entry.source} /></div>)}</details>}
-      <article className={`court-intelligence-attention${data.beforeNextHearing.length ? "" : " court-intelligence-attention-empty"}`}><div className="court-intelligence-region-heading"><h4>{data.beforeNextHearing.length ? "Needs your attention" : "Office action check"}</h4>{data.beforeNextHearing.length > 0 && <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>}</div>{data.beforeNextHearing.length ? <>{data.beforeNextHearing.slice(0, 3).map(action => <ActionRow key={action.id} action={action} />)}{data.beforeNextHearing.length > 3 && <details className="court-intelligence-all-actions"><summary>View all actions ({data.beforeNextHearing.length})</summary>{data.beforeNextHearing.slice(3).map(action => <ActionRow key={action.id} action={action} />)}</details>}</> : <p>No direct LAC action was identified in the processed orders. This does not establish that all office duties are complete.</p>}</article>
+      <article className={`court-intelligence-attention${data.beforeNextHearing.length ? "" : " court-intelligence-attention-empty"}`}><div className="court-intelligence-region-heading"><h4>{data.beforeNextHearing.length ? "Needs your attention" : "Office action check"}</h4>{data.beforeNextHearing.length > 0 && <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>}</div>{data.beforeNextHearing.length ? <>{data.beforeNextHearing.slice(0, 3).map(action => <ActionRow key={action.id} action={action} />)}{data.beforeNextHearing.length > 3 && <details className="court-intelligence-all-actions"><summary>View all actions ({data.beforeNextHearing.length})</summary>{data.beforeNextHearing.slice(3).map(action => <ActionRow key={action.id} action={action} />)}</details>}</> : <p>{data.unprocessedOrderCount && !verifiedFacts.length ? "Known orders have not been processed yet; no office obligation is inferred." : "No direct LAC action was identified in the processed orders. This does not establish that all office duties are complete."}</p>}</article>
       <article className="court-intelligence-position"><h4>Current position</h4>{data.currentPosition.length ? <>{data.currentPosition.slice(0, 3).map((line, index) => <div key={index}><p>{line.role && <small>{roleLabel(line.role)}{line.scope === "Historical" ? " · historical reference" : ""} · </small>}{officerText(line.text)}</p><Evidence source={line.source} /></div>)}{data.currentPosition.length > 3 && <details><summary>More case context</summary>{data.currentPosition.slice(3, 6).map((line, index) => <div key={index}><small>{line.role ? roleLabel(line.role) : line.attribution}</small><p>{officerText(line.text)}</p><Evidence source={line.source} /></div>)}</details>}</> : <p className="court-intelligence-muted">Current position is not yet confirmed from the available orders.</p>}</article>
       <div className="court-intelligence-working-grid"><article className="court-intelligence-latest"><div className="court-intelligence-region-heading"><h4>Latest order</h4>{data.latestOrder && <time>{shownDate(data.latestOrder.orderDate)}</time>}</div>{data.latestOrder ? <OrderSummary order={data.latestOrder} /> : <p className="court-intelligence-muted">No processed order is available yet.</p>}</article>
         <article className="court-intelligence-ask"><h4>Ask Court Intelligence</h4><p className="court-intelligence-muted">English, हिन्दी or Hinglish · this matter only</p><form onSubmit={ask}><label className="court-intelligence-question-label" htmlFor={`case-question-${caseId}`}>Your question</label><div className="court-intelligence-question-row"><input id={`case-question-${caseId}`} value={question} maxLength={600} onChange={event => setQuestion(event.target.value)} placeholder="Ask anything about this matter…" /><button type="submit" disabled={asking || !question.trim()}>{asking ? "Checking…" : "Ask"}</button></div></form>

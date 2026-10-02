@@ -303,23 +303,22 @@ public static class CourtEndpoints
         group.MapPost("/{id:guid}/intelligence/ask", async (
             Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients, LacDbContext db,
             ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser,
-            HttpContext context, CancellationToken ct) =>
+            HttpContext context, LocalStoragePaths paths, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
             context.Response.Headers.CacheControl = "no-store";
-            var caseNumber = await db.CourtCases.AsNoTracking().Where(x => x.Id == id)
-                .Select(x => x.CaseNumber).SingleOrDefaultAsync(ct);
-            if (caseNumber is null) return Results.NotFound();
-            // Reuse durable official observation metadata. Read-only; no PDF fetch on GET/render.
-            var orderIndex = await db.CourtExternalOrderObservations.AsNoTracking()
-                .Where(x => x.CourtCaseId == id).OrderBy(x => x.OrderDate).ThenBy(x => x.Id)
-                .Select(x => new CourtIntelligenceKnownOrder(x.CourtCaseId, x.NormalizedCaseIdentity,
-                    x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id)).Take(1000).ToListAsync(ct);
-            return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct, caseNumber, orderIndex);
+            try
+            {
+                var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
+                if (index is null) return Results.NotFound();
+                return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct,
+                    index.CaseNumber, index.Orders, paths.ExtractionRoot);
+            }
+            catch (InvalidDataException) { return Results.Problem("This matter's known-order index needs verification.", statusCode: 503); }
         });
-        group.MapGet("/{id:guid}/intelligence", async (
-            Guid id, LocalStoragePaths paths, ICourtAuthorizationService courtAuth,
+        group.MapPost("/{id:guid}/intelligence/refresh", async (
+            Guid id, IHttpClientFactory clients, LacDbContext db, ICourtAuthorizationService courtAuth,
             ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -327,10 +326,25 @@ public static class CourtEndpoints
             context.Response.Headers.CacheControl = "no-store";
             try
             {
-                var artifact = await CourtIntelligenceArtifactReader.ReadAsync(paths.ExtractionRoot, id, ct);
-                return artifact.HasValue ? Results.Ok(artifact.Value) : Results.NoContent();
+                var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
+                return index is null ? Results.NotFound() : await CourtIntelligenceQuestions.RefreshAsync(index, clients, ct);
             }
-            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+            catch (InvalidDataException) { return Results.Problem("This matter's known-order index needs verification.", statusCode: 503); }
+        });
+        group.MapGet("/{id:guid}/intelligence", async (
+            Guid id, LocalStoragePaths paths, LacDbContext db, ICourtAuthorizationService courtAuth,
+            ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            context.Response.Headers.CacheControl = "no-store";
+            try
+            {
+                var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
+                if (index is null) return Results.NotFound();
+                return Results.Ok(await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct));
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or UnauthorizedAccessException)
             {
                 return Results.Problem("Court intelligence is unavailable. Canonical court records remain unchanged.", statusCode: 503);
             }

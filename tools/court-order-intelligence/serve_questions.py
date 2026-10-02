@@ -7,6 +7,7 @@ from pathlib import Path
 from provider import LlamaCppProvider
 from questions import answer, INSUFFICIENT
 from order_index import merge_known_orders,prepare_question
+from real_case import RefreshController, read_artifact
 
 def main():
     parser=argparse.ArgumentParser()
@@ -19,6 +20,7 @@ def main():
     root=Path(args.extraction_root)
     if not root.is_absolute() or not root.is_dir(): raise SystemExit('Existing absolute extraction root required')
     provider=LlamaCppProvider(args.endpoint,args.model_version,request_timeout=240)
+    refresh=RefreshController(root,lambda:LlamaCppProvider(args.endpoint,args.model_version,request_timeout=120))
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass # no questions/evidence in access logs
         def do_GET(self):
@@ -39,32 +41,40 @@ def main():
         def do_POST(self):
             import re
             demo_route=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-0000000000(?:0[1-9]|1[0123]))/intelligence/ask',self.path) if args.demo else None
-            if self.path != '/ask' and not demo_route: self.send_error(404); return
+            if self.path not in ('/ask','/refresh') and not demo_route: self.send_error(404); return
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=512*1024: raise ValueError('Request size') # bounded trusted known-order metadata
                 request=json.loads(self.rfile.read(length))
                 case_id=demo_route[1] if demo_route else str(uuid.UUID(request['caseId']))
+                if self.path=='/refresh':
+                    result=refresh.start(case_id,request['caseNumber'],request['orderIndex'])
+                    body=json.dumps(result or {'error':'Another local Court intelligence check is in progress.'}).encode()
+                    self.send_response(202 if result else 409)
+                    self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
+                    self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+                    return
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
                 path=root/'court-intelligence'/'v1'/case_id/'current.json'
                 if path.is_file() and path.stat().st_size>2*1024*1024: raise ValueError('Artifact size limit')
-                artifact=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
+                artifact=read_artifact(root,case_id,request.get('caseNumber'))
                 if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
-                    artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000])
+                    artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
                     from order_index import pdf_lock
                     from worker import atomic_json
                     with pdf_lock(root/'court-intelligence'/'v1'):
                         # Merge again under the writer lock; never overwrite a
                         # concurrent worker's newer intelligence with stale metadata.
-                        latest=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else None
-                        artifact=merge_known_orders(latest,case_id,request['caseNumber'],request['orderIndex'][:1000])
+                        latest=read_artifact(root,case_id,request['caseNumber'])
+                        artifact=merge_known_orders(latest,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
                         atomic_json(path,artifact)
                 if artifact is None:
                     result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
                 else:
-                    artifact=prepare_question(root,artifact,case_id,question,provider)
+                    artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
                     result=answer(artifact,case_id,question,provider)
+                result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()
                 self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)

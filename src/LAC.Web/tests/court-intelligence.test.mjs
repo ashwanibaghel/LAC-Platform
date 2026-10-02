@@ -14,12 +14,12 @@ test('loading a multi-order case opens its history without any extra action requ
   const previousFetch=globalThis.fetch;
   try {
     for(const count of [6,1]){
-      let index=0,effect;
+      let index=0; const effects=[];
       const changes=[],requests=[];
-      const hooks={...React,useRef:value=>({current:value}),useEffect:fn=>{effect=fn;},useState:value=>{const slot=index++;return [value,next=>changes.push([slot,next])];}};
+      const hooks={...React,useRef:value=>({current:value}),useEffect:fn=>{effects.push(fn);},useState:value=>{const slot=index++;return [value,next=>changes.push([slot,next])];}};
       const loaded=new Function('React',evaluated+'; return CourtIntelligence;')(hooks);
-      globalThis.fetch=async(url,options)=>{requests.push({url,options});return {status:200,ok:true,json:async()=>({orders:Array.from({length:count},()=>({}))})};};
-      loaded({caseId:'case-'+count});effect();
+      globalThis.fetch=async(url,options)=>{requests.push({url,options});return {status:200,ok:true,json:async()=>({caseId:'case-'+count,currentPosition:[],beforeNextHearing:[],orders:Array.from({length:count},()=>({}))})};};
+      loaded({caseId:'case-'+count});effects[0]();
       await new Promise(resolve=>setImmediate(resolve));
       assert.equal(changes.filter(([slot])=>slot===6).at(-1)[1],count>1);
       assert.equal(requests.length,1);
@@ -60,7 +60,7 @@ test('past source-listed hearing is not presented as an upcoming hearing',()=>{
   assert.match(source,/Last source-listed date/);
   assert.match(source,/subsequent order or new hearing date is not established/);
 });
-const evidence={orderDate:'2025-01-30',page:6,evidence:'2. The LAC shall forward the reference preferably within four weeks.',officialUrl:'https://delhihighcourt.nic.in/app/test.pdf'};
+const evidence={orderDate:'2025-01-30',page:6,evidence:'2. The LAC shall forward the reference preferably within four weeks.',officialUrl:'https://delhihighcourt.nic.in/app/showlogo/test.pdf/2025'};
 const direction={category:'COURT_DIRECTION',field:'direction',scope:'Current',value:evidence.evidence,page:6,evidence:evidence.evidence};
 const data={status:'NeedsReview',processingComplete:true,currentPosition:[{text:'2. Reference was declined.',source:{...evidence,evidence:'2. Reference was declined.'}}],beforeNextHearing:[{id:'a',text:direction.value,actor:'LAC',deadlineText:'preferably within four weeks',dueDate:'2025-02-27',source:evidence}],latestOrder:{orderDate:'2025-01-30',officialUrl:evidence.officialUrl,status:'NeedsReview',facts:[direction],summaryFacts:[direction]},orders:[]};
 test('final outcome preserves history, caption evidence, factual date separation and source gaps',()=>{
@@ -79,7 +79,7 @@ test('multi-page evidence displays original fragments and both page numbers',()=
 });
 function officerMarkup(artifact){
   let stateIndex=0;
-  const passiveReact={...React,useEffect:()=>{},useRef:value=>({current:value}),useState:initial=>[stateIndex++===0?artifact:initial,()=>{}]};
+  const passiveReact={...React,useEffect:()=>{},useRef:value=>({current:value}),useState:initial=>[stateIndex++===0?{...artifact,caseId:'case'}:initial,()=>{}]};
   const populated=new Function('React',evaluated+'; return CourtIntelligence;')(passiveReact);
   return renderToStaticMarkup(React.createElement(populated,{caseId:'case'}));
 }

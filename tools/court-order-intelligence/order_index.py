@@ -48,7 +48,7 @@ def index_entries(case_id, case_number, orders):
     for order in orders:
         if not official_pdf(order.get('officialUrl')): continue
         state={'Validated':'Processed','Unprocessed':'Unprocessed','NeedsSourceReview':'NeedsSourceReview'}.get(order.get('status'),'NeedsReview')
-        result.append({'courtCaseId':case_id,'normalizedCaseIdentity':identity(case_number),
+        result.append({'courtCaseId':case_id,'normalizedCaseIdentity':order.get('normalizedCaseIdentity') or identity(case_number),
             'orderDate':order.get('orderDate'),'officialUrl':order['officialUrl'],
             'corrigendumUrl':order.get('corrigendumUrl'),'uploadDate':order.get('uploadDate'),
             'sourceObservationId':order.get('sourceObservationId'),'processingState':state,
@@ -57,10 +57,11 @@ def index_entries(case_id, case_number, orders):
             'processedAt':order.get('processedAt')})
     return result
 
-def merge_known_orders(artifact, case_id, case_number, sources):
+def merge_known_orders(artifact, case_id, case_number, sources, strict_index=False):
     if artifact and (artifact.get('caseId')!=case_id or identity(artifact.get('caseNumber',''))!=identity(case_number)):
         raise ValueError('Current-matter artifact/index identity mismatch')
     orders=list((artifact or {}).get('orders',[]))
+    accepted=set()
     for source in sources:
         source_identity=source.get('normalizedCaseIdentity','')
         # The existing DB identity includes the forum. Do not equate other courts.
@@ -71,11 +72,14 @@ def merge_known_orders(artifact, case_id, case_number, sources):
         if not day or not official_pdf(source.get('officialUrl')): continue
         try: date.fromisoformat(day)
         except (ValueError,TypeError): continue
+        accepted.add((day,source['officialUrl']))
         prior=next((order for order in orders if order.get('orderDate')==day and order.get('officialUrl')==source['officialUrl']),None)
-        metadata={key:source.get(key) for key in ('sourceObservationId','corrigendumUrl','uploadDate')}
+        metadata={key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate')}
         if prior: prior.update(metadata)
         else: orders.append(dict(officialUrl=source['officialUrl'],orderDate=day,caseNumber=case_number,
                                  status='Unprocessed',facts=[],sha256=None,**metadata))
+    if strict_index:
+        orders=[order for order in orders if (order.get('orderDate'),order.get('officialUrl')) in accepted]
     from semantics import synthesize
     result=synthesize(case_id,case_number,orders)
     result['processingComplete']=bool(orders) and all(order.get('status')!='Unprocessed' for order in orders)
@@ -95,7 +99,7 @@ def pdf_lock(folder):
         finally:
             lock.seek(0); msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
 
-def prepare_question(root, artifact, case_id, question, provider, processor=None):
+def prepare_question(root, artifact, case_id, question, provider, processor=None, strict_index=False):
     """Only a unique requested actual order may fetch. No render/timeline bulk fetch."""
     from anchors import CASE_REFERENCES
     if artifact.get('caseId')!=case_id: raise ValueError('Current matter mismatch')
@@ -121,7 +125,7 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
         if current.is_file():
             if current.stat().st_size>2*1024*1024: raise ValueError('Artifact size limit')
             fresh=json.loads(current.read_text(encoding='utf-8'))
-            artifact=merge_known_orders(fresh,case_id,artifact['caseNumber'],artifact.get('orderIndex',[]))
+            artifact=merge_known_orders(fresh,case_id,artifact['caseNumber'],artifact.get('orderIndex',[]),strict_index=strict_index)
             orders=artifact['orders']
             matches=[order for order in orders if order.get('orderDate')==target['date']]
             if len(matches)!=1 or matches[0].get('status')=='Validated' and not retry: return artifact
@@ -141,7 +145,9 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
         record=processor(source,artifact['caseNumber'],BoundedProvider())
         if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256']:
             record.update(status='NeedsSourceReview',facts=[],failureMessage='Known official source bytes changed; explicit source-version review required')
-        record.update({key:source.get(key) for key in ('sourceObservationId','corrigendumUrl','uploadDate')})
+        record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate')})
+        if record.get('failureMessage') and source.get('status')=='Validated':
+            record=dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')
         updated=[record if order is source else order for order in orders]
         from semantics import synthesize
         result=synthesize(case_id,artifact['caseNumber'],updated)
