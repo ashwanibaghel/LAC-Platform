@@ -29,22 +29,25 @@ def verify_download_version(version, binary, native_pages):
     return True
 
 
-def validate_example(example):
+def validate_example(example, corpus=None):
+    annotations = corpus.EXAMPLES if corpus else EXAMPLES
+    sources = corpus.SOURCES if corpus else SOURCES
+    passages = corpus.PASSAGES if corpus else PASSAGES
     jsonschema.validate(example, EXAMPLE)
     if example["state"] != "VERIFIED_GOLD":
         raise ValueError("Only explicitly VERIFIED_GOLD annotations may be exported")
-    annotation = next((a for a in EXAMPLES if a[0] == example["id"]), None)
+    annotation = next((a for a in annotations if a[0] == example["id"]), None)
     if annotation is None:
         raise ValueError("No independent reviewed target; inference output is not gold")
-    expected = compile_example(annotation)
+    expected = compile_example(annotation, corpus)
     if expected["state"] != "VERIFIED_GOLD":
         raise ValueError("Explicit review ledger has not approved this example")
     for p in example["provenance"]:
         if p["matter_id"] != example["matter_id"]:
             raise ValueError("Cross-case/connected-case evidence mixing")
-        if p != evidence(p["passage_id"]):
+        if p != evidence(p["passage_id"], corpus):
             raise ValueError("Source version/SHA/URL/date/page/exact-text mismatch")
-        if not 1 <= p["page"] <= SOURCES[p["source_version_id"]]["page_count"]:
+        if not 1 <= p["page"] <= sources[p["source_version_id"]]["page_count"]:
             raise ValueError("Page outside source version")
     contract = ANCHOR_SCHEMA if TASKS[example["task"]] == "anchors" else ANSWER_SCHEMA
     jsonschema.validate(example["target"], contract)
@@ -55,7 +58,7 @@ def validate_example(example):
     if example != expected:
         raise ValueError("Input/target/outcome differs from independent reviewed annotation")
     for pid in annotation[3]:
-        _, _, _, role, _, scope, actor = PASSAGES[pid]
+        _, _, _, role, _, scope, actor = passages[pid]
         if scope == "Uncertain":
             raise ValueError("Uncertain proposition cannot be positive gold")
         if example["task"] == "office_action_detection" and (role != "COURT_DIRECTION" or scope != "Current" or actor != "LAC"):

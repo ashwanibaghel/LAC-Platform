@@ -1,0 +1,167 @@
+[
+  {
+    "id": "7003-cross-page-panchnama",
+    "reason": "Direction spans PDF pages; single-page evidence contract cannot represent complete sentence safely.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "11284-address-background",
+    "reason": "Private residential-location narrative excluded from public minimized dataset.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "10308-excess-as-established",
+    "reason": "GNCTD assertion of excess allotment is not a Court-established quantity.",
+    "state": "REJECTED"
+  },
+  {
+    "id": "cont527-2018-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "cont527-2018-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "cont659-2018-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "cont659-2018-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "cs23-2025-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "cs23-2025-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-feb2026-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-feb2026-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-sep2025-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc10308-2024-sep2025-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc11284-2026-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc11284-2026-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6203-2026-may29-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6203-2026-may29-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6328-2026-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6328-2026-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-july2025-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-july2025-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-march2025-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc6384-2024-march2025-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc7003-2026-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc7003-2026-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc8404-2024-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc8404-2024-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc8971-2025-attribute",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  },
+  {
+    "id": "wpc8971-2025-extract",
+    "reason": "Audited extraction target rejected by unchanged runtime expansion; labels not changed to bypass safety.",
+    "state": "QUARANTINED"
+  }
+]

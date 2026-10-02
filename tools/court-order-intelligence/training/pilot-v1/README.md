@@ -1,6 +1,6 @@
 # Pilot V1 bounded native-source dataset
 
-15 matters, 22 actual official orders, 224 independently reviewed examples.
+15 matters, 22 actual official orders, 194 accepted independently reviewed examples.
 Register inventory: 12 Pending / 3 Disposed; not a current official status claim.
 All native pages were read before model evaluation/split freeze. No inference
 output was imported. Codex review is not human legal certification.
@@ -25,7 +25,13 @@ Short adjournment orders provide truthful negative examples, not substantive
 compensation coverage. The pilot is below the desired dozens-of-orders target;
 its useful scope and eventual evaluation must not be overstated.
 
-Two source passages quarantined; one invalid interpretation rejected.
+Two source passages quarantined; one invalid interpretation rejected. In addition,
+30 audited extraction/attribution targets are quarantined because the unchanged
+runtime expansion rejects them. These labels were not rewritten to evade the
+gate. Only seven sources supply accepted anchor-contract examples; claims tasks
+retain source-verified structured evidence, so this pilot has important extraction
+coverage limitations. Frozen split metadata retains excluded IDs for drift checks;
+they are absent from all gold JSONL/training/evaluation records.
 Source numbering/conditions/quoted scope remain verbatim. No private workbook,
 raw whole-page text, personal contact details or PDFs enter this public dataset.
 Download hashes refer to exact audited bytes. DHC download footers can change

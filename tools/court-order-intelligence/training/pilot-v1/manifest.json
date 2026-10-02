@@ -1,0 +1,18 @@
+{
+  "annotations_sha256": "e4ae9b52d205767928897ab74dfebee30fb09f0b98ede394638203a5cf593c74",
+  "files": {
+    "README.md": "97d60ce93bafe83c219e1e92c1cc697acac1949fc58f4286ecbcd4fb460a9654",
+    "blind.jsonl": "86a98104414e6de30812dabf3d7b89bb6dc3a1b57aedfdba8eccfa9ee36e7c0f",
+    "excluded.json": "10c1c33077c2e31467e552a8aaf7a25cde6b47f1985c58761beb08ec1eaa22b1",
+    "splits.json": "944eb9ef4605d6806cf48cf82f855be30f07de0204e309d2530ee50293fc5370",
+    "stats.json": "bbde775e740beed3336bd19c9856a92bcf48c36a4289a193ec564b7834a7a6ff",
+    "target.schemas.json": "38d0e2d9582a63d999d00730b112e73dc4e13b185663f5af323e23fe54c6ea7f",
+    "train.jsonl": "74e3c19b18d1d8945767f95751e0a280860e9d27c6494582466fa91ffdef788b",
+    "validation.jsonl": "524d7b8d0991f0334ea1bb14d0a17c74bf73b43b8d71b361d17d6d7c1083c8a1"
+  },
+  "model_id": "Qwen/Qwen3-4B-Instruct-2507",
+  "private_workbook_included": false,
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "source_ledger_sha256": "617171d02dd372b945b38b151ff1ff9121e236973ad8b70ddd879b194ca981e1",
+  "version": "pilot-v1"
+}

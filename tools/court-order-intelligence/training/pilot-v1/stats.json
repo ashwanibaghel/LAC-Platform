@@ -1,0 +1,40 @@
+{
+  "by_language": {
+    "English": 128,
+    "Hindi": 22,
+    "Hinglish": 22,
+    "RomanHindi": 22
+  },
+  "by_task": {
+    "attribution_classification": 7,
+    "compliance_state": 22,
+    "date_specific_retrieval_or_QA": 88,
+    "important_fact_selection": 22,
+    "multi_order_current_position": 4,
+    "office_action_detection": 22,
+    "order_digest": 22,
+    "semantic_proposition_extraction": 7
+  },
+  "complete_order_history_claim": false,
+  "excluded_annotations": 33,
+  "leakage_groups": 15,
+  "matters": 15,
+  "orders": 22,
+  "register_status_not_current_status": {
+    "Disposed": 3,
+    "Pending": 12
+  },
+  "review_is_not_human_legal_certification": true,
+  "split_examples": {
+    "blind": 37,
+    "train": 113,
+    "validation": 44
+  },
+  "split_matters": {
+    "blind": 2,
+    "train": 11,
+    "validation": 2
+  },
+  "training_started": false,
+  "verified_examples": 194
+}

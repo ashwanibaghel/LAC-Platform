@@ -18,18 +18,23 @@ def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def evidence(passage_id):
-    version, page, text, *_ = PASSAGES[passage_id]
-    source = SOURCES[version]
+def evidence(passage_id, corpus=None):
+    passages = corpus.PASSAGES if corpus else PASSAGES
+    sources = corpus.SOURCES if corpus else SOURCES
+    version, page, text, *_ = passages[passage_id]
+    source = sources[version]
     return {"passage_id": passage_id, "source_version_id": version,
             "matter_id": source["matter_id"], "sha256": source["sha256"],
             "url": source["url"], "order_date": source["order_date"], "page": page,
             "text": text, "text_sha256": digest(text)}
 
 
-def compile_example(annotation):
+def compile_example(annotation, corpus=None):
+    passages = corpus.PASSAGES if corpus else PASSAGES
+    review = corpus.REVIEW if corpus else REVIEW
+    verified_ids = corpus.VERIFIED_IDS if corpus else VERIFIED_IDS
     key, task, supplied, selected, question, language, outcome = annotation
-    bound = [evidence(pid) for pid in supplied]
+    bound = [evidence(pid, corpus) for pid in supplied]
     if not bound or len({p["matter_id"] for p in bound}) != 1:
         raise ValueError("Missing evidence or connected-case mixing")
     if not set(selected).issubset(supplied):
@@ -39,28 +44,28 @@ def compile_example(annotation):
             raise ValueError("Extraction chunk must belong to one exact order version")
         anchors = []
         for index, pid in enumerate(supplied):
-            _, page, text, role, _, scope, _ = PASSAGES[pid]
+            _, page, text, role, _, scope, _ = passages[pid]
             anchors.append({"anchorId": index, "page": page, "text": text,
                             "actors": list(dict.fromkeys(m.group() for m in ACTORS.finditer(text))),
                             "quoted": scope == "Quoted",
                             "speechRole": role if role in SUBMISSION_ROLES else None,
-                            "precedingContext": " ".join(PASSAGES[x][2] for x in supplied[:index])[-180:],
+                            "precedingContext": " ".join(passages[x][2] for x in supplied[:index])[-180:],
                             "atPageStart": False, "atPageEnd": False})
         input_value = {"caseNumber": bound[0]["matter_id"], "documentOrderDate": bound[0]["order_date"],
                        "sourceRoleContext": "", "anchors": anchors}
-        target = {"facts": [{"anchorId": supplied.index(pid), "category": PASSAGES[pid][3],
-                              "field": PASSAGES[pid][4], "scope": PASSAGES[pid][5]}
+        target = {"facts": [{"anchorId": supplied.index(pid), "category": passages[pid][3],
+                              "field": passages[pid][4], "scope": passages[pid][5]}
                              for pid in selected], "needsReview": False}
     else:
-        entries = [{"factId": index, "text": p["text"], "category": PASSAGES[pid][3],
-                    "scope": PASSAGES[pid][5], "source": {"orderDate": p["order_date"],
+        entries = [{"factId": index, "text": p["text"], "category": passages[pid][3],
+                    "scope": passages[pid][5], "source": {"orderDate": p["order_date"],
                     "page": p["page"], "evidence": p["text"], "officialUrl": p["url"]}}
                    for index, (pid, p) in enumerate(zip(supplied, bound))]
         input_value = {"currentCase": bound[0]["matter_id"], "question": question, "availableEvidence": entries}
         target = {"claims": [{"factId": supplied.index(pid)} for pid in selected]}
     return {"id": key, "task": task, "matter_id": bound[0]["matter_id"],
-            "state": "VERIFIED_GOLD" if key in VERIFIED_IDS else "UNREVIEWED",
-            "language": language, "review": dict(REVIEW), "outcome": outcome,
+            "state": "VERIFIED_GOLD" if key in verified_ids else "UNREVIEWED",
+            "language": language, "review": dict(review), "outcome": outcome,
             "provenance": bound, "input": input_value, "target": target}
 
 
