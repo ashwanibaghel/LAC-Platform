@@ -41,7 +41,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   useEffect(() => {
     const controller = new AbortController();
     setData(null); setUnavailable(false); setQuestion(""); setAnswer(null); setAskError(""); setHistoryOpen(false);
-    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }).then(async response => { if (response.status === 204) return null; if (!response.ok) throw new Error("Unavailable"); return response.json() as Promise<Intelligence>; }).then(result => { if (!controller.signal.aborted) setData(result); }).catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
+    fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" }).then(async response => { if (response.status === 204) return null; if (!response.ok) throw new Error("Unavailable"); return response.json() as Promise<Intelligence>; }).then(result => { if (!controller.signal.aborted) { setData(result); setHistoryOpen((result?.orders.length ?? 0) > 1); } }).catch(() => { if (!controller.signal.aborted) setUnavailable(true); });
     return () => controller.abort();
   }, [caseId]);
   const ask = async (event: React.FormEvent) => {

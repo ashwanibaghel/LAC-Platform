@@ -10,6 +10,25 @@ const js=ts.transpileModule(source.replace('import "./court-intelligence.css";',
 const evaluated=js.replace(/import React,.*?from "react";/,'const { useEffect, useState } = React;').replace('export const CourtIntelligence','const CourtIntelligence');
 const component=new Function('React',evaluated+'; return CourtIntelligence;')(React);
 
+test('loading a multi-order case opens its history without any extra action request',async()=>{
+  const previousFetch=globalThis.fetch;
+  try {
+    for(const count of [6,1]){
+      let index=0,effect;
+      const changes=[],requests=[];
+      const hooks={...React,useRef:value=>({current:value}),useEffect:fn=>{effect=fn;},useState:value=>{const slot=index++;return [value,next=>changes.push([slot,next])];}};
+      const loaded=new Function('React',evaluated+'; return CourtIntelligence;')(hooks);
+      globalThis.fetch=async(url,options)=>{requests.push({url,options});return {status:200,ok:true,json:async()=>({orders:Array.from({length:count},()=>({}))})};};
+      loaded({caseId:'case-'+count});effect();
+      await new Promise(resolve=>setImmediate(resolve));
+      assert.equal(changes.filter(([slot])=>slot===6).at(-1)[1],count>1);
+      assert.equal(requests.length,1);
+      assert.equal(requests[0].url,`/api/court-cases/case-${count}/intelligence`);
+      assert.equal(requests[0].options.method,undefined);
+    }
+  } finally {globalThis.fetch=previousFetch;}
+});
+
 test('Court intelligence renders calmly with AI off and makes no render-time action',()=>{
   const html=renderToStaticMarkup(React.createElement(component,{caseId:'case'}));
   assert.match(html,/Court Intelligence/);
