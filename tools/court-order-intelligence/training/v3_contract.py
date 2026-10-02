@@ -14,6 +14,19 @@ from semantic_gate import validate_claims, chronology_context, VERSION
 from v3_context import restore_input
 
 
+def target_schemas_v3():
+    """Bound complete chronology to 16 retrieved claims, not eight subclaims.
+
+    No property/type/source/semantic safeguard changes. Legacy schemas are
+    copied, never edited. All four V3 comparison modes use this same contract.
+    """
+    from copy import deepcopy
+    from schema.contracts import ANCHOR_SCHEMA, ANSWER_SCHEMA
+    result = {'anchors': deepcopy(ANCHOR_SCHEMA), 'claims': deepcopy(ANSWER_SCHEMA)}
+    result['claims']['properties']['claims']['maxItems'] = 16
+    return result
+
+
 def parse_v3_output(text, record, schemas, runtime_dir):
     payload = json.loads(text)
     jsonschema.validate(payload, schemas[record['contract']])

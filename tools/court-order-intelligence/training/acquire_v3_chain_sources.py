@@ -28,6 +28,7 @@ DISCOVERY = (
     ('wpc10308-2024-apr2026', 'W.P.(C) 10308/2024', '14-04-2026', '19 November 2025 actual supplied order listing'),
     ('wpc5084-2018-feb2021', 'W.P.(C) 5084/2018', '12-02-2021', '29 January 2021 actual supplied order listing before roster bench'),
     ('wpc5997-2024-dec2024', 'W.P.(C) 5997/2024', '09-12-2024', '20 August 2024 actual supplied Registrar listing'),
+    ('wpc13932-2025-oct2025', 'W.P.(C) 13932/2025', '17-10-2025', '10 September 2025 supplied order listing; verify actual order'),
 )
 
 

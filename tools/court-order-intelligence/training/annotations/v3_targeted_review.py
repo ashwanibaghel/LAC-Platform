@@ -47,3 +47,43 @@ for key, (_, passages) in REVIEWED.items():
  for start in range(0, len(passages), 6):
   ids = [f'{key}-v3-p{i}' for i in range(start, min(start + 6, len(passages)))]
   EXAMPLES.append((f'v3-{key}-attribution-{start}', 'attribution_classification', ids, ids, '', 'English', 'SUPPORTED'))
+
+# Complete rereviews of existing TRAIN sources. These are NEW V3 targets, never
+# replacements of the narrower frozen legacy targets. All native pages were
+# reread, including separate non-LAC duties and conditional costs.
+from annotations.v2_review import REVIEWED as _v2_review
+for _key in ('wpc4806-2014-feb2020', 'wpc4806-2014-apr2022', 'wpc4806-2014',
+             'wpc13932-2025-sep2025', 'wpc13932-2025-feb03', 'wpc13932-2025'):
+ _day, _ps = _v2_review[_key]
+ REVIEWED[_key] = (_day, [p[:6] for p in _ps])
+REVIEWED['wpc4806-2014'][1].extend([
+ (2, '8. Accordingly, let the Secretary, Services, Government of National Capital Territory of Delhi (hereinafter, ‘GNCTD’) look into the matter relating to short staffing at the LAC in terms of the sanctioned posts and the presently working staff. Let a status report be filed by the Secretary, Services, GNCTD in respect of the following by the next date of hearing: i. Total sanction strength of the LAC in all Districts in Delhi; ii. Total number of officials presently working in the LAC office; iii. Steps taken to fill up the vacancies, if any; iv. Proposal to immediately fill up the vacant positions in the LAC offices in the various districts.', 'COURT_DIRECTION', 'filing', 'Current', 'Secretary, Services, GNCTD'),
+ (2, '9. Copy of this order be served upon Mr. Sameer Vashisht, ld. Standing Counsel for GNCTD by the Registry.', 'COURT_DIRECTION', 'direction', 'Current', 'Registry')])
+REVIEWED['wpc13932-2025'][1].extend([
+ (2, 'Let all the counter affidavits be brought on record.', 'COURT_DIRECTION', 'filing', 'Current', 'Respondents'),
+ (2, '8. Let rejoinders be filed within six weeks.', 'COURT_DIRECTION', 'filing', 'Current', 'Petitioners')])
+_new_keys = ('wpc4806-2014-feb2020', 'wpc4806-2014-apr2022', 'wpc4806-2014',
+             'wpc13932-2025-sep2025', 'wpc13932-2025-feb03', 'wpc13932-2025')
+for _key in _new_keys:
+ PASSAGES.update({f'{_key}-v3-p{i}': (_key, *p) for i, p in enumerate(REVIEWED[_key][1])})
+OPEN.update({'wpc4806-2014-v3-p2', 'wpc4806-2014-v3-p3', 'wpc4806-2014-v3-p4',
+             'wpc4806-2014-v3-p5', 'wpc4806-2014-v3-p6', 'wpc13932-2025-v3-p4',
+             'wpc13932-2025-v3-p5', 'wpc13932-2025-v3-p6', 'wpc13932-2025-v3-p7'})
+STRONG.update({
+ 'v3-4806-complete-feb2026': 'Three actual orders: counsel correction assurance, last three-week opportunity, latest judicial non-correction, renewed four-week LAC affidavit and conditional costs, separate Secretary staffing/report and Registry service duties, latest listing. No deadline expiry used as completion.',
+ 'v3-13932-complete-aug2026': 'Three actual orders: disputed title/release and historical acquisition, completed original-owner service, later impleadment and application-only disposal, stated counters vs judicial condonation, outstanding counter-record/rejoinder/amended-memo requirements and latest Court date. No writ disposal or confirmed counter filing inferred.'})
+EXAMPLES.extend([
+ ('v3-4806-complete-feb2026', 'multi_order_current_position',
+  ['wpc4806-2014-feb2020-v3-p0', 'wpc4806-2014-apr2022-v3-p0', *[f'wpc4806-2014-v3-p{i}' for i in range(7)]],
+  [f'wpc4806-2014-v3-p{i}' for i in (0,1,2,3,4,5,6)],
+  'Give the complete current position as of the latest of these three actual orders. Distinguish the earlier filing assurance/extension, present uncorrected errors, renewed LAC affidavit with conditional costs, Secretary Services staffing report and Registry service obligations, and latest Court listing. Do not assign every actor’s work to LAC.', 'English', 'SUPPORTED'),
+ ('v3-13932-complete-aug2026', 'multi_order_current_position',
+  [*[f'wpc13932-2025-sep2025-v3-p{i}' for i in (0,1,2)], 'wpc13932-2025-feb03-v3-p1', *[f'wpc13932-2025-v3-p{i}' for i in range(8)]],
+  [*[f'wpc13932-2025-sep2025-v3-p{i}' for i in (0,1,2)], 'wpc13932-2025-feb03-v3-p1', *[f'wpc13932-2025-v3-p{i}' for i in range(8)]],
+  'What is the full current position in this supplied three-order chain? Keep the claimed title/release distinct from the historical Award. Include actual service and later impleadment, limited application disposal, stated counter filing versus condonation and bringing counters on record, petitioner rejoinder/amended memo duties, and latest hearing. Do not decide title or dispose of the writ.', 'English', 'SUPPORTED'),
+])
+# Only new attribution chunks for newly reviewed passages; do not pad counts by
+# re-exporting the earlier identical selections under different IDs/questions.
+for _key, _start in (('wpc4806-2014', 5), ('wpc13932-2025', 6)):
+ _ids = [f'{_key}-v3-p{i}' for i in range(_start, len(REVIEWED[_key][1]))]
+ EXAMPLES.append((f'v3-{_key}-additional-actors', 'attribution_classification', _ids, _ids, '', 'English', 'SUPPORTED'))

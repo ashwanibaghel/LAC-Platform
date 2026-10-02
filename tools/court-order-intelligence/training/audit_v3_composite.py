@@ -418,7 +418,8 @@ def context_audit(examples):
                 raise ValueError('Frozen tokenizer changed')
             verified[relative] = actual
     tokenizer = AutoTokenizer.from_pretrained(frozen / 'adapter', local_files_only=True, trust_remote_code=False)
-    schemas = load(ROOT / 'pilot-v1/target.schemas.json')
+    from v3_contract import target_schemas_v3
+    schemas = target_schemas_v3()
     results = [check(tokenizer, e, schemas) for e in examples]
     from v3_context import compact_input
     compacted_results = []

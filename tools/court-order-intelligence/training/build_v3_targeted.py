@@ -13,14 +13,21 @@ from annotations import v3_targeted_review as review
 from annotations.v3_reuse_context import enrich
 from anchors import source_header
 from schema.contracts import TASKS, ANCHOR_SCHEMA, ANSWER_SCHEMA
-from v3_contract import parse_v3_output, context_for_v3
+from v3_contract import parse_v3_output, context_for_v3, target_schemas_v3
 from audit_v3_composite import audit, counts, group_sources, rows, verify_frozen
 
 
 def compile_targeted():
     records, sources = {}, {}
     for key, (day, _) in review.REVIEWED.items():
-        source = json.loads((ROOT / 'local-private/pilot-v3-source-audit' / (key + '.json')).read_text(encoding='utf-8'))
+        paths = [ROOT / 'local-private' / folder / (key + '.json') for folder in
+                 ('pilot-source-audit', 'pilot-v2-source-audit', 'pilot-v3-source-audit')]
+        # Old native records are read-only; a new annotation is NOT a rewrite of
+        # frozen legacy gold. Require an unambiguous source version.
+        found = [json.loads(p.read_text(encoding='utf-8')) for p in paths if p.exists()]
+        if not found or len({(s['sha256'], s['url']) for s in found}) != 1:
+            raise ValueError('Missing or ambiguous targeted native source version')
+        source = found[0]
         _, native = source_header({int(p): t for p, t in source['pages'].items()})
         import re
         stamp = re.search(r'%\s*(\d{2}\.\d{2}\.\d{4})', next(iter(native.values()))) if native else None
@@ -61,7 +68,7 @@ def compile_targeted():
             raise ValueError('Targeted compiler changed reviewed gold')
         try:
             parse_v3_output(canonical(example['target']), example,
-                            {'anchors': ANCHOR_SCHEMA, 'claims': ANSWER_SCHEMA}, ROOT.parent)
+                            target_schemas_v3(), ROOT.parent)
             accepted.append(example)
         except ValueError as error:
             quarantine.append(dict(id=example['id'], reason=str(error), training_eligible=False, targets_changed=False))

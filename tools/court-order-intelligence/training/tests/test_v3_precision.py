@@ -46,6 +46,9 @@ class V3PrecisionTests(unittest.TestCase):
                      'LAC has filed the affidavit.', 'The respondent will file an affidavit.'):
             with self.assertRaises(ValueError):
                 self.claims(entry(text, field='filing'), 'office_action_detection')
+        from v3_semantics import OPERATIVE
+        self.assertTrue(OPERATIVE.search('Copy of this order be served by the Registry.'))
+        self.assertTrue(party_speech('Counsel submits that a copy be served by the Registry.'))
 
     def test_performance_must_be_selected_linked_actor_supported_and_unnegated(self):
         for text in ('Pursuant to the direction, GNCTD has now filed the affidavit.',
@@ -160,6 +163,27 @@ class V3PrecisionTests(unittest.TestCase):
         compacted['availableEvidence'][0]['source']['sourceRef'] = 9
         with self.assertRaises(ValueError):
             parse_v3_output('{"claims":[{"factId":0}]}', record, {'claims': ANSWER_SCHEMA}, ROOT)
+
+    def test_full_chain_v3_cardinality_does_not_change_legacy_or_safety(self):
+        from v3_contract import target_schemas_v3
+        from schema.contracts import ANSWER_SCHEMA
+        import jsonschema
+        before = copy.deepcopy(ANSWER_SCHEMA)
+        schemas = target_schemas_v3()
+        self.assertEqual(ANSWER_SCHEMA, before)
+        self.assertEqual(ANSWER_SCHEMA['properties']['claims']['maxItems'], 8)
+        self.assertEqual(schemas['claims']['properties']['claims']['maxItems'], 16)
+        values = [entry('LAC shall submit the report.', field='filing') for _ in range(12)]
+        for i, value in enumerate(values):
+            value['factId'] = i
+        record = dict(task='office_action_detection', contract='claims', input={'availableEvidence': values})
+        raw = json.dumps({'claims': [{'factId': i} for i in range(12)]})
+        parse_v3_output(raw, record, schemas, ROOT)
+        values[11]['directionLifecycle'] = 'UNKNOWN'
+        with self.assertRaises(ValueError):
+            parse_v3_output(raw, record, schemas, ROOT)
+        with self.assertRaises(jsonschema.ValidationError):
+            parse_v3_output(json.dumps({'claims': [{'factId': 0}] * 17}), record, schemas, ROOT)
 
 
 if __name__ == '__main__':

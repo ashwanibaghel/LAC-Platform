@@ -11,7 +11,7 @@ JUDICIAL = ('COURT_DIRECTION', 'COURT_FINDING', 'COURT_OBSERVATION', 'RECORDED_C
 OPERATIVE = re.compile(
     r'\bshall\b|\b(?:is|are) directed\b|\b(?:we|Court) directs?\b|\bit is directed\b|'
     r'\blet\b.{0,180}\b(?:filed|file|placed|place|submitted|submit|impleaded|brought|furnish)\b|'
-    r'\b(?:be filed|be completed|be placed on record|be brought on record)\b|'
+    r'\b(?:be filed|be served|be completed|be placed on record|be brought on record)\b|'
     r'\b(?:last|final) (?:and final )?opportunity\b.{0,180}\b(?:file|bring|argue)\b|'
     r'\b(?:opportunity|permission|time) (?:is |was )?granted\b.{0,160}\b(?:file|argue)\b|'
     r'\blist (?:the matter |matter )?(?:on|for|before)\b|\bre-?notify\b|\bissue notice\b', re.I)
