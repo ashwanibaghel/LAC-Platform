@@ -19,7 +19,7 @@ def ratio(counter, key, numerator, denominator):
 def analyze(rows, records):
     results = {}
     for mode in ('stock_4b', 'fine_tuned_4b'):
-        counter = {'unexpected_office_action': 0, 'unexpected_compliance': 0,
+        counter = {'unexpected_office_action': 0, 'unexpected_compliance': 0, 'unsupported_negative_answer': 0,
                    'unexpected_next_date': 0, 'case_mixing': 0, 'unretrieved_ids': 0}
         for row in [r for r in rows if r['model'] == mode]:
             record = records[row['id']]
@@ -39,13 +39,15 @@ def analyze(rows, records):
             got = {r['factId'] for r in prediction.get('claims', [])}
             counter['unretrieved_ids'] += len([i for i in got if not 0 <= i < len(entries)])
             task = record['task']
+            officer = task == 'officer_qualitative_qa'
+            counter['unsupported_negative_answer'] += int(not wanted and bool(got))
             if task == 'important_fact_selection':
                 ratio(counter, 'important_fact_recall', len(got & wanted), len(wanted))
-            if task == 'office_action_detection':
+            if task == 'office_action_detection' or officer and row['id'].endswith('-action'):
                 ratio(counter, 'office_action_precision', len(got & wanted), len(got))
                 ratio(counter, 'office_action_recall', len(got & wanted), len(wanted))
                 counter['unexpected_office_action'] += len(got - wanted)
-            if task == 'compliance_state':
+            if task == 'compliance_state' or officer and row['id'].endswith('-compliance'):
                 ratio(counter, 'compliance_state_correctness', int(got == wanted), 1)
                 counter['unexpected_compliance'] += len(got - wanted)
             if task == 'date_specific_retrieval_or_QA':
@@ -68,7 +70,7 @@ def analyze(rows, records):
                 ratio(counter, 'officer_question_exact', int(got == wanted), 1)
         results[mode] = counter
     old, new = results['stock_4b'], results['fine_tuned_4b']
-    safe_keys = ('unexpected_office_action', 'unexpected_compliance', 'unexpected_next_date', 'unretrieved_ids', 'case_mixing', 'wrong_role_or_scope')
+    safe_keys = ('unexpected_office_action', 'unexpected_compliance', 'unexpected_next_date', 'unsupported_negative_answer', 'unretrieved_ids', 'case_mixing', 'wrong_role_or_scope')
     regression = [key for key in safe_keys if new.get(key, 0) > old.get(key, 0)]
     total = old['exact_target'][1]
     improvement = new['exact_target'][0] - old['exact_target'][0]
