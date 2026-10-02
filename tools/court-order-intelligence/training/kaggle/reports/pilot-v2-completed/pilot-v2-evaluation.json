@@ -1,0 +1,731 @@
+{
+  "base": "Qwen/Qwen3-4B-Instruct-2507",
+  "claims_input_is_oracle_structured_evidence": true,
+  "deployment_gate": "NOT_APPROVED_PENDING_SOURCE_CHAIN_REVIEW",
+  "elapsed_seconds": 3927.139,
+  "first_frozen_evaluation": true,
+  "metrics": {
+    "pilot_v1": {
+      "blind": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              1,
+              6
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              7,
+              7
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              12,
+              14
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              1,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              5,
+              7
+            ]
+          }
+        },
+        "court_direction_precision": [
+          2,
+          3
+        ],
+        "court_direction_recall": [
+          2,
+          8
+        ],
+        "exact_target": 26,
+        "examples": 37,
+        "missed_office_actions": 0,
+        "office_action_precision": [
+          0,
+          5
+        ],
+        "office_action_recall": [
+          0,
+          0
+        ],
+        "parser_accepted": 35,
+        "selected_fact_precision": [
+          30,
+          39
+        ],
+        "selected_fact_recall": [
+          30,
+          32
+        ],
+        "semantic_role_correct": [
+          2,
+          12
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 9,
+        "unsupported_negative_answer": 2,
+        "wrong_category": 8,
+        "wrong_field": 3,
+        "wrong_role_or_scope": 10,
+        "wrong_scope": 0
+      },
+      "v1_regression": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              8,
+              9
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              33,
+              36
+            ]
+          },
+          "important_fact_selection": {
+            "exact_target": [
+              8,
+              9
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              5,
+              9
+            ]
+          },
+          "order_digest": {
+            "exact_target": [
+              8,
+              9
+            ]
+          },
+          "semantic_proposition_extraction": {
+            "exact_target": [
+              0,
+              3
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          4
+        ],
+        "court_direction_recall": [
+          0,
+          18
+        ],
+        "exact_target": 62,
+        "examples": 81,
+        "missed_office_actions": 2,
+        "office_action_precision": [
+          4,
+          8
+        ],
+        "office_action_recall": [
+          4,
+          6
+        ],
+        "parser_accepted": 70,
+        "selected_fact_precision": [
+          219,
+          232
+        ],
+        "selected_fact_recall": [
+          219,
+          227
+        ],
+        "semantic_role_correct": [
+          0,
+          28
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 13,
+        "unsupported_negative_answer": 0,
+        "wrong_category": 18,
+        "wrong_field": 18,
+        "wrong_role_or_scope": 28,
+        "wrong_scope": 6
+      },
+      "validation": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              6,
+              6
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              11,
+              12
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              2,
+              5
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          0
+        ],
+        "court_direction_recall": [
+          0,
+          2
+        ],
+        "exact_target": 19,
+        "examples": 27,
+        "missed_office_actions": 2,
+        "office_action_precision": [
+          1,
+          9
+        ],
+        "office_action_recall": [
+          1,
+          3
+        ],
+        "parser_accepted": 26,
+        "selected_fact_precision": [
+          22,
+          29
+        ],
+        "selected_fact_recall": [
+          22,
+          32
+        ],
+        "semantic_role_correct": [
+          0,
+          4
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 7,
+        "unsupported_negative_answer": 1,
+        "wrong_category": 2,
+        "wrong_field": 3,
+        "wrong_role_or_scope": 4,
+        "wrong_scope": 0
+      }
+    },
+    "pilot_v2": {
+      "blind": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              1,
+              6
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              7,
+              7
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              10,
+              14
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              1,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              6,
+              7
+            ]
+          }
+        },
+        "court_direction_precision": [
+          2,
+          3
+        ],
+        "court_direction_recall": [
+          2,
+          8
+        ],
+        "exact_target": 25,
+        "examples": 37,
+        "missed_office_actions": 0,
+        "office_action_precision": [
+          0,
+          3
+        ],
+        "office_action_recall": [
+          0,
+          0
+        ],
+        "parser_accepted": 35,
+        "selected_fact_precision": [
+          25,
+          32
+        ],
+        "selected_fact_recall": [
+          25,
+          32
+        ],
+        "semantic_role_correct": [
+          2,
+          12
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 7,
+        "unsupported_negative_answer": 1,
+        "wrong_category": 8,
+        "wrong_field": 3,
+        "wrong_role_or_scope": 10,
+        "wrong_scope": 0
+      },
+      "v1_regression": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              7,
+              9
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              34,
+              36
+            ]
+          },
+          "important_fact_selection": {
+            "exact_target": [
+              8,
+              9
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              6,
+              9
+            ]
+          },
+          "order_digest": {
+            "exact_target": [
+              7,
+              9
+            ]
+          },
+          "semantic_proposition_extraction": {
+            "exact_target": [
+              0,
+              3
+            ]
+          }
+        },
+        "court_direction_precision": [
+          2,
+          4
+        ],
+        "court_direction_recall": [
+          2,
+          18
+        ],
+        "exact_target": 62,
+        "examples": 81,
+        "missed_office_actions": 3,
+        "office_action_precision": [
+          3,
+          4
+        ],
+        "office_action_recall": [
+          3,
+          6
+        ],
+        "parser_accepted": 75,
+        "selected_fact_precision": [
+          204,
+          213
+        ],
+        "selected_fact_recall": [
+          204,
+          227
+        ],
+        "semantic_role_correct": [
+          4,
+          28
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 9,
+        "unsupported_negative_answer": 1,
+        "wrong_category": 18,
+        "wrong_field": 14,
+        "wrong_role_or_scope": 24,
+        "wrong_scope": 6
+      },
+      "validation": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              6,
+              6
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              8,
+              12
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              3,
+              5
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          1
+        ],
+        "court_direction_recall": [
+          0,
+          2
+        ],
+        "exact_target": 17,
+        "examples": 27,
+        "missed_office_actions": 3,
+        "office_action_precision": [
+          0,
+          6
+        ],
+        "office_action_recall": [
+          0,
+          3
+        ],
+        "parser_accepted": 25,
+        "selected_fact_precision": [
+          16,
+          20
+        ],
+        "selected_fact_recall": [
+          16,
+          32
+        ],
+        "semantic_role_correct": [
+          0,
+          4
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 4,
+        "unsupported_negative_answer": 0,
+        "wrong_category": 3,
+        "wrong_field": 2,
+        "wrong_role_or_scope": 4,
+        "wrong_scope": 0
+      }
+    },
+    "stock_4b": {
+      "blind": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              6
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              7,
+              7
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              11,
+              14
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              1,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              2,
+              7
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          1
+        ],
+        "court_direction_recall": [
+          0,
+          8
+        ],
+        "exact_target": 21,
+        "examples": 37,
+        "missed_office_actions": 0,
+        "office_action_precision": [
+          0,
+          8
+        ],
+        "office_action_recall": [
+          0,
+          0
+        ],
+        "parser_accepted": 36,
+        "selected_fact_precision": [
+          25,
+          36
+        ],
+        "selected_fact_recall": [
+          25,
+          32
+        ],
+        "semantic_role_correct": [
+          0,
+          12
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 11,
+        "unsupported_negative_answer": 5,
+        "wrong_category": 6,
+        "wrong_field": 2,
+        "wrong_role_or_scope": 8,
+        "wrong_scope": 0
+      },
+      "v1_regression": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              0,
+              9
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              26,
+              36
+            ]
+          },
+          "important_fact_selection": {
+            "exact_target": [
+              7,
+              9
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              3
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              3,
+              9
+            ]
+          },
+          "order_digest": {
+            "exact_target": [
+              8,
+              9
+            ]
+          },
+          "semantic_proposition_extraction": {
+            "exact_target": [
+              0,
+              3
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          2
+        ],
+        "court_direction_recall": [
+          0,
+          18
+        ],
+        "exact_target": 44,
+        "examples": 81,
+        "missed_office_actions": 1,
+        "office_action_precision": [
+          5,
+          13
+        ],
+        "office_action_recall": [
+          5,
+          6
+        ],
+        "parser_accepted": 68,
+        "selected_fact_precision": [
+          212,
+          255
+        ],
+        "selected_fact_recall": [
+          212,
+          227
+        ],
+        "semantic_role_correct": [
+          0,
+          28
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 43,
+        "unsupported_negative_answer": 11,
+        "wrong_category": 20,
+        "wrong_field": 16,
+        "wrong_role_or_scope": 26,
+        "wrong_scope": 6
+      },
+      "validation": {
+        "by_task": {
+          "attribution_classification": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "compliance_state": {
+            "exact_target": [
+              5,
+              6
+            ]
+          },
+          "date_specific_retrieval_or_QA": {
+            "exact_target": [
+              11,
+              12
+            ]
+          },
+          "multi_order_current_position": {
+            "exact_target": [
+              0,
+              2
+            ]
+          },
+          "office_action_detection": {
+            "exact_target": [
+              0,
+              5
+            ]
+          }
+        },
+        "court_direction_precision": [
+          0,
+          0
+        ],
+        "court_direction_recall": [
+          0,
+          2
+        ],
+        "exact_target": 16,
+        "examples": 27,
+        "missed_office_actions": 1,
+        "office_action_precision": [
+          2,
+          7
+        ],
+        "office_action_recall": [
+          2,
+          3
+        ],
+        "parser_accepted": 27,
+        "selected_fact_precision": [
+          24,
+          32
+        ],
+        "selected_fact_recall": [
+          24,
+          32
+        ],
+        "semantic_role_correct": [
+          0,
+          4
+        ],
+        "submission_as_court": 0,
+        "unexpected_selection": 8,
+        "unsupported_negative_answer": 4,
+        "wrong_category": 2,
+        "wrong_field": 2,
+        "wrong_role_or_scope": 3,
+        "wrong_scope": 0
+      }
+    }
+  },
+  "output_repair": false,
+  "post_blind_tuning": false,
+  "revision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "same_4bit_base_and_safety_layer": true,
+  "v1_regression_is_validation_plus_blind_not_81_blind": true
+}

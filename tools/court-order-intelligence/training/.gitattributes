@@ -5,3 +5,4 @@ annotations/v2_tasks.py -text
 annotations/v2_eval_review.py -text
 pilot-v2/*.json -text
 pilot-v2/*.jsonl -text
+kaggle/reports/pilot-v2-completed/* -text

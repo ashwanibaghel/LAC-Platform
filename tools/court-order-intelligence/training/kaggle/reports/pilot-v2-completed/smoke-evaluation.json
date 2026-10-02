@@ -1,0 +1,103 @@
+{
+  "blind_performance": null,
+  "purpose": [
+    "PILOT_V2",
+    "BOUNDED_EVALUATION",
+    "NO_DEPLOYMENT"
+  ],
+  "quality_metric": null,
+  "representative_outputs": [
+    {
+      "error_category": "ValueError",
+      "id": "wpc9093-2022-apr2024-attribute-0",
+      "parser_accepted": false,
+      "raw_output": "{\"facts\":[{\"anchorId\":0,\"category\":\"PETITIONER_SUBMISSION\",\"field\":\"possession\",\"scope\":\"Current\"},{\"anchorId\":1,\"category\":\"PETITIONER_SUBMISSION\",\"field\":\"compensation\",\"scope\":\"Current\"},{\"anchorId\":2,\"category\":\"PETITIONER_SUBMISSION\",\"field\":\"issue\",\"scope\":\"Current\"},{\"anchorId\":3,\"category\":\"PROCEDURAL_EVENT\",\"field\":\"nextHearing\",\"scope\":\"Current\"}],\"needsReview\":false}",
+      "task": "attribution_classification"
+    },
+    {
+      "id": "wpc9093-2022-apr2024-compliance",
+      "parsed_output": {
+        "claims": []
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[]}",
+      "task": "compliance_state"
+    },
+    {
+      "id": "wpc9093-2022-apr2024-date",
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          },
+          {
+            "factId": 3
+          }
+        ]
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2},{\"factId\":3}]}",
+      "task": "date_specific_retrieval_or_QA"
+    },
+    {
+      "id": "9093-position",
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          },
+          {
+            "factId": 3
+          }
+        ]
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2},{\"factId\":3}]}",
+      "task": "multi_order_current_position"
+    },
+    {
+      "id": "wpc9093-2022-apr2024-action",
+      "parsed_output": {
+        "claims": []
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[]}",
+      "task": "office_action_detection"
+    },
+    {
+      "id": "wpc9093-2022-apr2024-digest",
+      "parsed_output": {
+        "claims": [
+          {
+            "factId": 0
+          },
+          {
+            "factId": 1
+          },
+          {
+            "factId": 2
+          },
+          {
+            "factId": 3
+          }
+        ]
+      },
+      "parser_accepted": true,
+      "raw_output": "{\"claims\":[{\"factId\":0},{\"factId\":1},{\"factId\":2},{\"factId\":3}]}",
+      "task": "order_digest"
+    }
+  ],
+  "runtime_parser_gate_passed": false
+}
