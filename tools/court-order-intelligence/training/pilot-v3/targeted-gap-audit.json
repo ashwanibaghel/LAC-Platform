@@ -1,0 +1,2495 @@
+{
+  "certified_strong_current_position": {
+    "examples": 2,
+    "groups": 2
+  },
+  "combined_counts": {
+    "attribution": {
+      "examples": 17,
+      "groups": 11
+    },
+    "certified_strong_current_position": {
+      "examples": 2,
+      "groups": 2
+    },
+    "compliance": {
+      "examples": 38,
+      "groups": 21
+    },
+    "empty_date_qa": {
+      "examples": 34,
+      "groups": 21
+    },
+    "empty_lac_action": {
+      "examples": 27,
+      "groups": 20
+    },
+    "independent_leakage_groups": 21,
+    "languages": {
+      "English": 140,
+      "Hindi": 25,
+      "Hinglish": 36,
+      "RomanHindi": 26
+    },
+    "matters": 24,
+    "multi_order_current_position": {
+      "examples": 13,
+      "groups": 5
+    },
+    "positive_compliance": {
+      "examples": 5,
+      "groups": 2
+    },
+    "positive_date_qa": {
+      "examples": 35,
+      "groups": 21
+    },
+    "positive_lac_action": {
+      "examples": 12,
+      "groups": 4
+    },
+    "reused_by_origin": {
+      "pilot-v1": 87,
+      "pilot-v2": 131,
+      "pilot-v3-targeted": 9
+    },
+    "tasks": {
+      "attribution_classification": 17,
+      "compliance_state": 38,
+      "date_specific_retrieval_or_QA": 69,
+      "important_fact_selection": 13,
+      "multi_order_current_position": 13,
+      "office_action_detection": 39,
+      "order_digest": 34,
+      "semantic_proposition_extraction": 4
+    },
+    "total_examples": 227
+  },
+  "decision": "NO-GO",
+  "group_members": {
+    "CIVIL_APPEAL 3565/2023": [
+      "CIVIL_APPEAL 3565/2023",
+      "CIVIL_APPEAL 8786/2013",
+      "W.P.(C) 10030/2023",
+      "W.P.(C) 10053/2023",
+      "W.P.(C) 10101/2023",
+      "W.P.(C) 10105/2023",
+      "W.P.(C) 10132/2023",
+      "W.P.(C) 10278/2023",
+      "W.P.(C) 1692/2006",
+      "W.P.(C) 7696/2014"
+    ],
+    "CIVIL_APPEAL 4478/2013": [
+      "CIVIL_APPEAL 4478/2013",
+      "CONT.CAS(C) 191/2008",
+      "CONT.CAS(C) 889/2009",
+      "LPA 310/2010",
+      "LPA 362/2010",
+      "LPA 416/2012",
+      "W.P.(C) 10108/2006",
+      "W.P.(C) 7460/2009",
+      "W.P.(C) 7689/2000"
+    ],
+    "CIVIL_APPEAL 8632/2016": [
+      "CIVIL_APPEAL 8632/2016",
+      "W.P.(C) 6328/2026",
+      "W.P.(C) 8686/2014"
+    ],
+    "CONT.CAS(C) 1094/2026": [
+      "CONT.CAS(C) 1094/2026",
+      "W.P.(C) 10546/2023"
+    ],
+    "CONT.CAS(C) 1779/2025": [
+      "CONT.CAS(C) 1779/2025"
+    ],
+    "CONT.CAS(C) 418/2025": [
+      "CONT.CAS(C) 418/2025",
+      "W.P.(C) 5437/2019"
+    ],
+    "CONT.CAS(C) 490/2026": [
+      "CONT.CAS(C) 490/2026"
+    ],
+    "CONT.CAS(C) 527/2018": [
+      "CONT.CAS(C) 527/2018"
+    ],
+    "CONT.CAS(C) 615/2019": [
+      "CONT.CAS(C) 615/2019"
+    ],
+    "CONT.CAS(C) 659/2018": [
+      "CONT.CAS(C) 659/2018"
+    ],
+    "CONT.CAS(C) 777/2019": [
+      "CONT.CAS(C) 777/2019",
+      "W.P.(C) 3722/2017"
+    ],
+    "CS(OS) 147/2022": [
+      "CS(OS) 147/2022"
+    ],
+    "CS(OS) 23/2025": [
+      "CS(OS) 23/2025"
+    ],
+    "LPA 543/2026": [
+      "LPA 543/2026",
+      "W.P.(C) 5198/2024",
+      "W.P.(C) 5198/2202",
+      "W.P.(C) 5201/2024",
+      "W.P.(C) 5202/2024"
+    ],
+    "W.P.(C) 10159/2015": [
+      "W.P.(C) 10159/2015",
+      "W.P.(C) 1032/2016",
+      "W.P.(C) 10648/2015",
+      "W.P.(C) 10671/2016",
+      "W.P.(C) 1075/2026",
+      "W.P.(C) 11/2015",
+      "W.P.(C) 11178/2016",
+      "W.P.(C) 11355/2017",
+      "W.P.(C) 11462/2015",
+      "W.P.(C) 11469/2016",
+      "W.P.(C) 11625/2015",
+      "W.P.(C) 1174/2017",
+      "W.P.(C) 11820/2025",
+      "W.P.(C) 1199/2017",
+      "W.P.(C) 12002/2015",
+      "W.P.(C) 1203/2017",
+      "W.P.(C) 12040/2015",
+      "W.P.(C) 12042/2016",
+      "W.P.(C) 12124/2015",
+      "W.P.(C) 12131/2015",
+      "W.P.(C) 12158/2025",
+      "W.P.(C) 12180/2016",
+      "W.P.(C) 12389/2025",
+      "W.P.(C) 12394/2025",
+      "W.P.(C) 12395/2025",
+      "W.P.(C) 12439/2025",
+      "W.P.(C) 12468/2025",
+      "W.P.(C) 12491/2025",
+      "W.P.(C) 12537/2025",
+      "W.P.(C) 12683/2025",
+      "W.P.(C) 12851/2025",
+      "W.P.(C) 12852/2025",
+      "W.P.(C) 13141/2025",
+      "W.P.(C) 13160/2025",
+      "W.P.(C) 13165/2025",
+      "W.P.(C) 13193/2025",
+      "W.P.(C) 13202/2025",
+      "W.P.(C) 13267/2025",
+      "W.P.(C) 13414/2025",
+      "W.P.(C) 13469/2025",
+      "W.P.(C) 13533/2025",
+      "W.P.(C) 13554/2025",
+      "W.P.(C) 13557/2025",
+      "W.P.(C) 13559/2025",
+      "W.P.(C) 13585/2025",
+      "W.P.(C) 13591/2025",
+      "W.P.(C) 13600/2025",
+      "W.P.(C) 13607/2025",
+      "W.P.(C) 13656/2025",
+      "W.P.(C) 13668/2025",
+      "W.P.(C) 13720/2025",
+      "W.P.(C) 13738/2025",
+      "W.P.(C) 13788/2025",
+      "W.P.(C) 13819/2025",
+      "W.P.(C) 13870/2025",
+      "W.P.(C) 1390/2017",
+      "W.P.(C) 1391/2017",
+      "W.P.(C) 1393/2017",
+      "W.P.(C) 13932/2025",
+      "W.P.(C) 14530/2025",
+      "W.P.(C) 1454/2015",
+      "W.P.(C) 14645/2025",
+      "W.P.(C) 147/2015",
+      "W.P.(C) 15233/2025",
+      "W.P.(C) 15411/2025",
+      "W.P.(C) 1543/2018",
+      "W.P.(C) 16605/2025",
+      "W.P.(C) 16632/2025",
+      "W.P.(C) 177/2015",
+      "W.P.(C) 17815/2025",
+      "W.P.(C) 18591/2025",
+      "W.P.(C) 1934/2017",
+      "W.P.(C) 195/2015",
+      "W.P.(C) 19626/2025",
+      "W.P.(C) 1980/2015",
+      "W.P.(C) 1985/2015",
+      "W.P.(C) 1987/2015",
+      "W.P.(C) 2051/2015",
+      "W.P.(C) 2121/2002",
+      "W.P.(C) 2204/2015",
+      "W.P.(C) 2297/2016",
+      "W.P.(C) 2465/2015",
+      "W.P.(C) 2472/2015",
+      "W.P.(C) 2481/2016",
+      "W.P.(C) 26/2018",
+      "W.P.(C) 2611/2015",
+      "W.P.(C) 2656/2015",
+      "W.P.(C) 2674/2017",
+      "W.P.(C) 2680/2015",
+      "W.P.(C) 2723/2015",
+      "W.P.(C) 2804/2015",
+      "W.P.(C) 2827/2014",
+      "W.P.(C) 2840/2015",
+      "W.P.(C) 2867/2015",
+      "W.P.(C) 2869/2015",
+      "W.P.(C) 2913/2016",
+      "W.P.(C) 2921/2016",
+      "W.P.(C) 2949/2015",
+      "W.P.(C) 2988/2016",
+      "W.P.(C) 2994/2016",
+      "W.P.(C) 2995/2016",
+      "W.P.(C) 2996/2016",
+      "W.P.(C) 3030/2015",
+      "W.P.(C) 3108/2026",
+      "W.P.(C) 316/2017",
+      "W.P.(C) 3304/2016",
+      "W.P.(C) 3431/2015",
+      "W.P.(C) 3659/2016",
+      "W.P.(C) 3699/2016",
+      "W.P.(C) 3714/2015",
+      "W.P.(C) 3734/2016",
+      "W.P.(C) 3859/2015",
+      "W.P.(C) 3903/2015",
+      "W.P.(C) 3911/2017",
+      "W.P.(C) 4060/2013",
+      "W.P.(C) 4082/2017",
+      "W.P.(C) 4192/2015",
+      "W.P.(C) 4255/2016",
+      "W.P.(C) 4274/2015",
+      "W.P.(C) 4324/2016",
+      "W.P.(C) 4330/2015",
+      "W.P.(C) 4427/2016",
+      "W.P.(C) 4552/2015",
+      "W.P.(C) 4566/2015",
+      "W.P.(C) 4621/2014",
+      "W.P.(C) 4771/2016",
+      "W.P.(C) 484/2016",
+      "W.P.(C) 49/2015",
+      "W.P.(C) 4989/2015",
+      "W.P.(C) 5162/2016",
+      "W.P.(C) 5225/2015",
+      "W.P.(C) 5260/2015",
+      "W.P.(C) 5270/2015",
+      "W.P.(C) 5565/2014",
+      "W.P.(C) 5679/2014",
+      "W.P.(C) 5768/2014",
+      "W.P.(C) 5877/2017",
+      "W.P.(C) 6036/2016",
+      "W.P.(C) 6104/2016",
+      "W.P.(C) 6108/2015",
+      "W.P.(C) 6316/2014",
+      "W.P.(C) 6350/2014",
+      "W.P.(C) 6374/2014",
+      "W.P.(C) 6380/2014",
+      "W.P.(C) 6405/2014",
+      "W.P.(C) 6551/2014",
+      "W.P.(C) 6565/2015",
+      "W.P.(C) 6604/2014",
+      "W.P.(C) 6617/2014",
+      "W.P.(C) 67/2015",
+      "W.P.(C) 6714/2014",
+      "W.P.(C) 6766/2015",
+      "W.P.(C) 6798/2017",
+      "W.P.(C) 6801/2014",
+      "W.P.(C) 6932/2015",
+      "W.P.(C) 6954/2015",
+      "W.P.(C) 7296/2016",
+      "W.P.(C) 7356/2016",
+      "W.P.(C) 7364/2015",
+      "W.P.(C) 7391/2016",
+      "W.P.(C) 7442/2015",
+      "W.P.(C) 7470/2014",
+      "W.P.(C) 7524/2014",
+      "W.P.(C) 7668/2014",
+      "W.P.(C) 7678/2015",
+      "W.P.(C) 7699/2014",
+      "W.P.(C) 7701/2015",
+      "W.P.(C) 7731/2015",
+      "W.P.(C) 7801/2014",
+      "W.P.(C) 7807/2014",
+      "W.P.(C) 7830/2015",
+      "W.P.(C) 7851/2014",
+      "W.P.(C) 7887/2014",
+      "W.P.(C) 7893/2014",
+      "W.P.(C) 7901/2014",
+      "W.P.(C) 7911/2014",
+      "W.P.(C) 7925/2014",
+      "W.P.(C) 7963/2015",
+      "W.P.(C) 8058/2017",
+      "W.P.(C) 8075/2017",
+      "W.P.(C) 8100/2014",
+      "W.P.(C) 8122/2014",
+      "W.P.(C) 8130/2016",
+      "W.P.(C) 8138/2016",
+      "W.P.(C) 8140/2017",
+      "W.P.(C) 8194/2017",
+      "W.P.(C) 8265/2014",
+      "W.P.(C) 8406/2015",
+      "W.P.(C) 8415/2014",
+      "W.P.(C) 8469/2014",
+      "W.P.(C) 8475/2014",
+      "W.P.(C) 8478/2017",
+      "W.P.(C) 8479/2014",
+      "W.P.(C) 8517/2015",
+      "W.P.(C) 8526/2014",
+      "W.P.(C) 8540/2014",
+      "W.P.(C) 857/2015",
+      "W.P.(C) 8593/2014",
+      "W.P.(C) 8649/2015",
+      "W.P.(C) 8657/2014",
+      "W.P.(C) 8674/2014",
+      "W.P.(C) 8713/2014",
+      "W.P.(C) 8745/2014",
+      "W.P.(C) 8758/2017",
+      "W.P.(C) 8867/2014",
+      "W.P.(C) 9011/2015",
+      "W.P.(C) 9023/2015",
+      "W.P.(C) 9247/2017",
+      "W.P.(C) 9319/2014",
+      "W.P.(C) 9428/2017",
+      "W.P.(C) 9452/2015",
+      "W.P.(C) 9548/2015",
+      "W.P.(C) 9549/2015",
+      "W.P.(C) 960/2015",
+      "W.P.(C) 9912/2017"
+    ],
+    "W.P.(C) 10308/2024": [
+      "W.P.(C) 10308/2024",
+      "W.P.(C) 7687/2004"
+    ],
+    "W.P.(C) 10337/2015": [
+      "W.P.(C) 10337/2015",
+      "W.P.(C) 10338/2015",
+      "W.P.(C) 10339/2015",
+      "W.P.(C) 10340/2015",
+      "W.P.(C) 10341/2015"
+    ],
+    "W.P.(C) 1069/2025": [
+      "W.P.(C) 1069/2025"
+    ],
+    "W.P.(C) 11284/2026": [
+      "W.P.(C) 11284/2026"
+    ],
+    "W.P.(C) 1157/2026": [
+      "W.P.(C) 1157/2026"
+    ],
+    "W.P.(C) 12083/2025": [
+      "W.P.(C) 12083/2025",
+      "W.P.(C) 12122/2021",
+      "W.P.(C) 2466/2026"
+    ],
+    "W.P.(C) 12473/2025": [
+      "W.P.(C) 12473/2025"
+    ],
+    "W.P.(C) 12994/2023": [
+      "W.P.(C) 12994/2023"
+    ],
+    "W.P.(C) 13941/2025": [
+      "W.P.(C) 13941/2025"
+    ],
+    "W.P.(C) 14604/2025": [
+      "W.P.(C) 14604/2025"
+    ],
+    "W.P.(C) 14785/2023": [
+      "W.P.(C) 14785/2023"
+    ],
+    "W.P.(C) 14846/2024": [
+      "W.P.(C) 14846/2024"
+    ],
+    "W.P.(C) 15528/2025": [
+      "W.P.(C) 15528/2025",
+      "W.P.(C) 15556/2025",
+      "W.P.(C) 15557/2025"
+    ],
+    "W.P.(C) 16215/2023": [
+      "W.P.(C) 16215/2023"
+    ],
+    "W.P.(C) 16669/2024": [
+      "W.P.(C) 16669/2024"
+    ],
+    "W.P.(C) 2085/2024": [
+      "W.P.(C) 2085/2024"
+    ],
+    "W.P.(C) 2686/2018": [
+      "W.P.(C) 2686/2018",
+      "W.P.(C) 5796/2026",
+      "W.P.(C) 7817/2017",
+      "W.P.(C) 8404/2024"
+    ],
+    "W.P.(C) 2733/2025": [
+      "W.P.(C) 2733/2025"
+    ],
+    "W.P.(C) 3229/2024": [
+      "W.P.(C) 3229/2024",
+      "W.P.(C) 3351/2024",
+      "W.P.(C) 3352/2024"
+    ],
+    "W.P.(C) 3238/2023": [
+      "W.P.(C) 3238/2023"
+    ],
+    "W.P.(C) 3282/2024": [
+      "W.P.(C) 3282/2024"
+    ],
+    "W.P.(C) 4644/2024": [
+      "W.P.(C) 4644/2024"
+    ],
+    "W.P.(C) 4806/2014": [
+      "W.P.(C) 4806/2014"
+    ],
+    "W.P.(C) 5084/2018": [
+      "W.P.(C) 5084/2018",
+      "W.P.(C) 86/2020"
+    ],
+    "W.P.(C) 5489/2022": [
+      "W.P.(C) 5489/2022"
+    ],
+    "W.P.(C) 5645/2022": [
+      "W.P.(C) 5645/2022"
+    ],
+    "W.P.(C) 5951/2025": [
+      "W.P.(C) 5951/2025"
+    ],
+    "W.P.(C) 5993/2024": [
+      "W.P.(C) 5993/2024",
+      "W.P.(C) 5996/2024"
+    ],
+    "W.P.(C) 5997/2024": [
+      "W.P.(C) 5997/2024"
+    ],
+    "W.P.(C) 6203/2026": [
+      "W.P.(C) 6203/2026"
+    ],
+    "W.P.(C) 6384/2024": [
+      "W.P.(C) 6384/2024"
+    ],
+    "W.P.(C) 6504/2023": [
+      "W.P.(C) 6504/2023"
+    ],
+    "W.P.(C) 6760/2014": [
+      "W.P.(C) 6760/2014"
+    ],
+    "W.P.(C) 7003/2026": [
+      "W.P.(C) 7003/2026"
+    ],
+    "W.P.(C) 847/2025": [
+      "W.P.(C) 847/2025"
+    ],
+    "W.P.(C) 8664/2021": [
+      "W.P.(C) 8664/2021"
+    ],
+    "W.P.(C) 8971/2025": [
+      "W.P.(C) 8971/2025"
+    ],
+    "W.P.(C) 9093/2022": [
+      "W.P.(C) 9093/2022"
+    ],
+    "W.P.(C) 940/2015": [
+      "W.P.(C) 940/2015"
+    ],
+    "W.P.(C) 9889/2024": [
+      "W.P.(C) 9889/2024"
+    ]
+  },
+  "legacy_files_unchanged": true,
+  "legacy_recovery": {
+    "baseline_quarantine_count": 32,
+    "baseline_sha": "cc5e22d62a6da2282829974222a7806b98276b6d",
+    "recovered": [
+      {
+        "id": "wpc7003-2026-important",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "important_fact_selection"
+      },
+      {
+        "id": "wpc7003-2026-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc7003-2026-date-en",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "wpc10308-2024-important",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "important_fact_selection"
+      },
+      {
+        "id": "wpc10308-2024-compliance",
+        "original_rejection": "Semantic gate: completion requires recorded performance",
+        "targets_changed": false,
+        "task": "compliance_state"
+      },
+      {
+        "id": "wpc10308-2024-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc10308-2024-date-en",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "wpc10308-2024-feb2026-important",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "important_fact_selection"
+      },
+      {
+        "id": "wpc10308-2024-feb2026-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc10308-2024-feb2026-date-en",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "10308-position",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "multi_order_current_position"
+      },
+      {
+        "id": "cont418-2025-attribute-0",
+        "original_rejection": "Anchor 4 (COURT_DIRECTION/direction): Direction excerpt drops nearby party-submission attribution",
+        "targets_changed": false,
+        "task": "attribution_classification"
+      },
+      {
+        "id": "wpc6108-2015-nov2025-action",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc6108-2015-nov2025-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc6108-2015-nov2025-date",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "wpc6108-2015-feb25-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc6108-2015-feb25-compliance",
+        "original_rejection": "Semantic gate: completion requires recorded performance",
+        "targets_changed": false,
+        "task": "compliance_state"
+      },
+      {
+        "id": "wpc4806-2014-feb2020-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc4806-2014-apr2022-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc4806-2014-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc6108-2015-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc4255-2016-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "wpc9093-2022-feb09-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc9093-2022-feb09-date",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "wpc14785-2023-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc14785-2023-date",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "wpc4644-2024-digest",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "order_digest"
+      },
+      {
+        "id": "wpc4644-2024-date",
+        "original_rejection": "Semantic gate: party assertion cannot become judicial fact",
+        "targets_changed": false,
+        "task": "date_specific_retrieval_or_QA"
+      },
+      {
+        "id": "4806-active-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "6108-active-action",
+        "original_rejection": "Semantic gate: action requires supported active LAC direction",
+        "targets_changed": false,
+        "task": "office_action_detection"
+      },
+      {
+        "id": "6108-compliance",
+        "original_rejection": "Semantic gate: completion requires recorded performance",
+        "targets_changed": false,
+        "task": "compliance_state"
+      }
+    ],
+    "recovered_count": 31,
+    "still_quarantined": [
+      "6108-position"
+    ]
+  },
+  "new_candidates": 9,
+  "protected_exclusions": [],
+  "quarantine": [],
+  "source_relationships": [
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "CIVIL_APPEAL 8786/2013"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10030/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10053/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10101/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10105/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10132/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 10278/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 1692/2006"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 3565/2023",
+        "W.P.(C) 7696/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 8632/2016",
+        "W.P.(C) 6328/2026"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CIVIL_APPEAL 8632/2016",
+        "W.P.(C) 8686/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CONT.CAS(C) 1094/2026",
+        "W.P.(C) 10546/2023"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "CONT.CAS(C) 418/2025",
+        "W.P.(C) 5437/2019"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1032/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 10648/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 10671/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11178/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11355/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11462/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11469/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 11625/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1174/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1199/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12002/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1203/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12040/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12042/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12124/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12131/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 12180/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1390/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1391/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1393/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 13932/2025"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1454/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 147/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 15411/2025"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1543/2018"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 177/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1934/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 195/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1980/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1985/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 1987/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2051/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2121/2002"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2204/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2297/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2465/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2472/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2481/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 26/2018"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2611/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2656/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2674/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2680/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2723/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2804/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2827/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2840/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2867/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2869/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2913/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2921/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2949/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2988/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2994/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2995/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 2996/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3030/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 316/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3304/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3431/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3659/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3699/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3714/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3734/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3859/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3903/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 3911/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4060/2013"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4082/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4192/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4255/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4274/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4324/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4330/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4427/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4552/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4566/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4621/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4771/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 484/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 49/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 4989/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5162/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5225/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5260/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5270/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5565/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5679/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5768/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 5877/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6036/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6104/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6108/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6316/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6350/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6374/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6380/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6405/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6551/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6565/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6604/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6617/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 67/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6714/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6766/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6798/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6801/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6932/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 6954/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7296/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7356/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7364/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7391/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7442/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7470/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7524/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7668/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7678/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7699/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7701/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7731/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7801/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7807/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7830/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7851/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7887/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7893/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7901/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7911/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7925/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 7963/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8058/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8075/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8100/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8122/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8130/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8138/2016"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8140/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8194/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8265/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8406/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8415/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8469/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8475/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8478/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8479/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8517/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8526/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8540/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 857/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8593/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8649/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8657/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8674/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8713/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8758/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 8867/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9011/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9023/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9247/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9319/2014"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9428/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9452/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9548/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9549/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 960/2015"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10159/2015",
+        "W.P.(C) 9912/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 10308/2024",
+        "W.P.(C) 7687/2004"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 12083/2025",
+        "W.P.(C) 12122/2021"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 12083/2025",
+        "W.P.(C) 2466/2026"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 15528/2025",
+        "W.P.(C) 15556/2025"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 15528/2025",
+        "W.P.(C) 15557/2025"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 5796/2026"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 7817/2017"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 2686/2018",
+        "W.P.(C) 8404/2024"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 5084/2018",
+        "W.P.(C) 86/2020"
+      ]
+    },
+    {
+      "kind": "frozen_or_reviewed_group",
+      "matters": [
+        "W.P.(C) 5993/2024",
+        "W.P.(C) 5996/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "W.P.(C) 7460/2009"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "CONT.CAS(C) 889/2009"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "LPA 310/2010"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "LPA 416/2012"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "CIVIL_APPEAL 4478/2013"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "LPA 362/2010"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "W.P.(C) 10108/2006"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 191/2008",
+        "W.P.(C) 7689/2000"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "CONT.CAS(C) 777/2019",
+        "W.P.(C) 3722/2017"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10338/2015",
+        "W.P.(C) 10337/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10338/2015",
+        "W.P.(C) 10340/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10338/2015",
+        "W.P.(C) 10339/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 10338/2015",
+        "W.P.(C) 10341/2015"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12468/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 3108/2026"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13870/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13193/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13165/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12537/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 14645/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 18591/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13668/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 15233/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 8745/2014"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12491/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 14530/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13267/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13591/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 16605/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13414/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 16632/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 11820/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13585/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13533/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12439/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13607/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12395/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13600/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13141/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 19626/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13788/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12389/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13738/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 17815/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13557/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13720/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13559/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13160/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12158/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12851/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12852/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12394/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13819/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13554/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 1075/2026"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 13656/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13202/2025",
+        "W.P.(C) 12683/2025"
+      ]
+    },
+    {
+      "kind": "identity_common_judgment_sha_or_url",
+      "link": "COMMON_AUTHORITY DDA_TEJPAL",
+      "matters": [
+        "W.P.(C) 13738/2025",
+        "W.P.(C) 4255/2016"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 13738/2025",
+        "W.P.(C) 13469/2025"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 3351/2024",
+        "W.P.(C) 3352/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 3351/2024",
+        "W.P.(C) 3229/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 5202/2024",
+        "W.P.(C) 5198/2202"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 5202/2024",
+        "W.P.(C) 5198/2024"
+      ]
+    },
+    {
+      "kind": "conservative_cited_identity",
+      "matters": [
+        "W.P.(C) 5202/2024",
+        "W.P.(C) 5201/2024"
+      ]
+    },
+    {
+      "kind": "exact_or_near_passage",
+      "matters": [
+        "LPA 543/2026",
+        "W.P.(C) 5202/2024"
+      ],
+      "passage_sha256": "12acd50398ea88222bb289655488793b3ef0b17abfbd113b608260482eda5925"
+    }
+  ],
+  "state": "TARGETED_CANDIDATES_NOT_FROZEN_NO_GPU",
+  "unsafe_unfrozen_holdout_reservations_quarantined": {
+    "cont724-2021": "Shares BSK authority with prior/protected source family; replace blind reservation.",
+    "wpc10546-2023": "Judgment expressly connected to existing TRAIN contempt 1094/2026; replace blind reservation.",
+    "wpc17094-2025": "Same Harender petitioner/Award 02/2024/SW chain as validation 12473/2025; replace blind reservation.",
+    "wpc17105-2025": "Shares Okaya/Jeevantika authorities and prior TRAIN group; replace validation reservation."
+  }
+}

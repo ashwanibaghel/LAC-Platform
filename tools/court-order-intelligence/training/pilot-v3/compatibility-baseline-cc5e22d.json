@@ -1,0 +1,226 @@
+[
+  {
+    "id": "wpc7003-2026-important",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc7003-2026-digest",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc7003-2026-date-en",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-important",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-compliance",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: completion requires recorded performance",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-digest",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-date-en",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-feb2026-important",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-feb2026-digest",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc10308-2024-feb2026-date-en",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "10308-position",
+    "origin": "pilot-v1",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "cont418-2025-attribute-0",
+    "origin": "pilot-v2",
+    "reason": "Anchor 4 (COURT_DIRECTION/direction): Direction excerpt drops nearby party-submission attribution",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-nov2025-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-nov2025-digest",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-nov2025-date",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-feb25-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-feb25-compliance",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: completion requires recorded performance",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-feb2020-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-apr2022-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4806-2014-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc6108-2015-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4255-2016-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc9093-2022-feb09-digest",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc9093-2022-feb09-date",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc14785-2023-digest",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc14785-2023-date",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4644-2024-digest",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "wpc4644-2024-date",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "4806-active-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "6108-position",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: party assertion cannot become judicial fact",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "6108-active-action",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: action requires supported active LAC direction",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  },
+  {
+    "id": "6108-compliance",
+    "origin": "pilot-v2",
+    "reason": "Semantic gate: completion requires recorded performance",
+    "training_eligible": false,
+    "truthful_labels_changed": false
+  }
+]

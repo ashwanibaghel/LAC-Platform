@@ -7,12 +7,14 @@ Unknown lifecycle remains unknown: silence/expiry never proves completion.
 """
 import re
 
-from semantics import dates_in, normalized, party_speech, IMPERATIVE, OFFICE
+from semantics import dates_in, normalized, OFFICE
+from v3_semantics import party_speech, OPERATIVE, actor_supported, judicial_context_safe
 
-VERSION = 'court-task-semantics-v3.1'
+VERSION = 'court-task-semantics-v3.2'
 PERFORMANCE = re.compile(
-    r'\b(?:has|have|had|was|were)\s+(?:been\s+)?(?:filed|forwarded|deposited|paid|'
-    r'produced|submitted|completed)|\btaken on record\b|\bcomplied with\b', re.I)
+    r'\b(?:has|have|had|was|were)\s+(?:now\s+|already\s+)?(?:been\s+)?(?:filed|forwarded|deposited|paid|'
+    r'produced|submitted|completed|served)\b|\bhave placed before the Court\b|'
+    r'\bstood served\b|\btaken on record\b|\bcomplied with\b', re.I)
 NOT_PERFORMED = re.compile(
     r'\b(?:not|never|yet to|no compliance|shall|will|would|directed to|to be filed|'
     r'time (?:is |was )?granted)\b', re.I)
@@ -49,6 +51,14 @@ def _source(entry):
         raise ValueError('Semantic gate: selected text is not in its cited evidence')
     if entry['scope'] == 'Uncertain':
         raise ValueError('Semantic gate: uncertain evidence cannot establish an answer')
+    for context in entry.get('sourceContext', []):
+        if (not isinstance(context.get('page'), int) or context['page'] < 1
+                or not 0 < len(context.get('evidence', '')) <= 900
+                or not re.fullmatch('[0-9a-f]{64}', context.get('sha256', ''))
+                or context.get('sha256') != source.get('sha256')
+                or context.get('officialUrl') != source['officialUrl']
+                or context.get('orderDate') != source['orderDate']):
+            raise ValueError('Semantic gate: adjacent context source binding failed')
     return evidence
 
 
@@ -69,24 +79,27 @@ def validate_claims(payload, entries, task, *, intent=None):
         entry = entries[index]
         evidence = _source(entry)
         role, scope = entry['category'], entry['scope']
-        if role in ('COURT_FINDING', 'COURT_OBSERVATION', 'COURT_DIRECTION', 'RECORDED_COMPLIANCE') and party_speech(evidence):
-            raise ValueError('Semantic gate: party assertion cannot become judicial fact')
+        if role in ('COURT_FINDING', 'COURT_OBSERVATION', 'COURT_DIRECTION', 'RECORDED_COMPLIANCE'):
+            if party_speech(entry['text']) or not judicial_context_safe(entry['text'], evidence):
+                raise ValueError('Semantic gate: party assertion cannot become judicial fact')
         if task == 'compliance_state':
             # Existing claims contract answers proof of performance, not an
             # unconstrained generated OPEN/COMPLETED state. Other state queries
             # need an explicit reviewed contract before training can launch.
             if (role not in ('RECORDED_COMPLIANCE', 'COURT_FINDING', 'PROCEDURAL_EVENT')
                     or entry.get('field') != 'compliance' or scope != 'Current'
-                    or party_speech(evidence) or not PERFORMANCE.search(evidence)
-                    or NOT_PERFORMED.search(evidence)):
+                    or party_speech(entry['text']) or not PERFORMANCE.search(entry['text'])
+                    or NOT_PERFORMED.search(entry['text']) or not actor_supported(entry.get('actor'), entry)
+                    or not re.search(r'\b(?:compliance|in terms of|pursuant to|directed|undertakes?|obligation)\b',
+                        ' '.join([evidence, *(c['evidence'] for c in entry.get('sourceContext', []))]), re.I)):
                 raise ValueError('Semantic gate: completion requires recorded performance')
         elif task == 'office_action_detection':
             actor = entry.get('actor') or ''
             if (role != 'COURT_DIRECTION' or scope != 'Current'
-                    or entry.get('field') != 'direction' or not OFFICE.search(actor)
+                    or entry.get('field') not in ('direction', 'filing', 'documents', 'referenceToAdj', 'compensation', 'possession') or not OFFICE.search(actor)
                     or re.search(r'DDA|petitioner|Faridabad|Haryana', actor, re.I)
-                    or normalized(actor) not in evidence
-                    or party_speech(evidence) or not IMPERATIVE.search(evidence)
+                    or not actor_supported(actor, entry)
+                    or party_speech(entry['text']) or not OPERATIVE.search(entry['text'])
                     or entry.get('directionLifecycle') not in ('OPEN', 'PARTIAL')):
                 raise ValueError('Semantic gate: action requires supported active LAC direction')
         elif task == 'date_specific_retrieval_or_QA' and intent == 'next_hearing':

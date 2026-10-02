@@ -114,6 +114,7 @@ def deduplicate(examples):
 
 
 def counts(examples):
+    from annotations.v3_strong_reuse_review import STRONG_REUSE
     def selected(task, positive=None):
         return [e for e in examples if e['task'] == task and
                 (positive is None or bool(e['target'].get('claims', e['target'].get('facts'))) == positive)]
@@ -128,6 +129,8 @@ def counts(examples):
         'tasks': dict(Counter(e['task'] for e in examples)),
         'attribution': describe(selected('attribution_classification')),
         'multi_order_current_position': describe(selected('multi_order_current_position')),
+        'certified_strong_current_position': describe([e for e in selected('multi_order_current_position')
+             if e['id'] in STRONG_REUSE or e.get('strongCurrentPositionReview')]),
         'positive_lac_action': describe(selected('office_action_detection', True)),
         'empty_lac_action': describe(selected('office_action_detection', False)),
         'compliance': describe(selected('compliance_state')),
@@ -248,7 +251,7 @@ def bind_reviewed_context(example, passage_ledger, source_records):
     result['input'] = context_for_v3(result['input'])
     if result['target'] != example['target'] or result['provenance'] != example['provenance']:
         raise ValueError('Reuse changed original target or provenance')
-    parse_runtime_output(canonical(result['target']), result,
+    parse_v3_output(canonical(result['target']), result,
                          {'anchors': ANCHOR_SCHEMA, 'claims': ANSWER_SCHEMA}, ROOT.parent)
     return result
 
@@ -371,6 +374,24 @@ def audit(root=ROOT):
         'truthful_labels_changed': False, 'no_live_requests': True,
         'decision': 'NO-GO',
     }
+    baseline_path = root / 'pilot-v3/compatibility-baseline-cc5e22d.json'
+    if baseline_path.exists():
+        baseline = load(baseline_path)
+        by_id = {e['id']: e for e in compatible}
+        report['precision_recovery'] = {
+            'baseline_sha': 'cc5e22d62a6da2282829974222a7806b98276b6d',
+            'baseline_quarantine_count': len(baseline),
+            'recovered_count': sum(e['id'] in by_id for e in baseline),
+            'still_quarantined': [e['id'] for e in baseline if e['id'] not in by_id],
+            'recovered': [{'id': e['id'], 'original_rejection': e['reason'], 'task': by_id[e['id']]['task'],
+                           'targets_changed': False} for e in baseline if e['id'] in by_id],
+        }
+    from annotations.v3_strong_reuse_review import STRONG_REUSE, INCOMPLETE_BROAD_REUSE
+    report['strong_current_position_completeness_review'] = {
+        'certified_reuse': STRONG_REUSE, 'not_certified': INCOMPLETE_BROAD_REUSE,
+        'review_is_source_annotation_not_human_legal_certification': True,
+        'focused_or_listing_tasks_not_counted_as_full_position': True,
+    }
     return compatible, canonical_rows, report
 
 
@@ -399,6 +420,12 @@ def context_audit(examples):
     tokenizer = AutoTokenizer.from_pretrained(frozen / 'adapter', local_files_only=True, trust_remote_code=False)
     schemas = load(ROOT / 'pilot-v1/target.schemas.json')
     results = [check(tokenizer, e, schemas) for e in examples]
+    from v3_context import compact_input
+    compacted_results = []
+    for example in examples:
+        compacted = deepcopy(example)
+        compacted['input'] = compact_input(example['input'])
+        compacted_results.append(check(tokenizer, compacted, schemas, cap=4096))
     return {'state': 'REUSE_CANDIDATE_ONLY_NOT_FINAL_FREEZE', 'model': MODEL, 'revision': REVISION,
             'transformers': transformers.__version__, 'tokenizer_artifacts': verified,
             'candidate_count': len(examples), 'sequence_cap': 2048, 'output_reserve': 512,
@@ -409,6 +436,14 @@ def context_audit(examples):
             'max_inference_prompt_tokens': max(r['inference_prompt_tokens'] for r in results),
             'input_sha256': digest(canonical(examples)), 'results': results,
             'weights_loaded': False, 'evidence_truncated': False, 'examples_dropped': False,
+            'lossless_presentation_4096': {
+                'training_fit': sum(r['training_fits'] for r in compacted_results),
+                'inference_with_output_reserve_fit': sum(r['inference_with_output_reserve_fits'] for r in compacted_results),
+                'max_training_tokens': max(r['training_tokens'] for r in compacted_results),
+                'max_inference_prompt_tokens': max(r['inference_prompt_tokens'] for r in compacted_results),
+                'results': compacted_results,
+                'round_trip_equal': True, 'gpu_memory_proven': False,
+            },
             'gpu_launch_allowed': False}
 
 

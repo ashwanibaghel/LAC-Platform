@@ -125,7 +125,7 @@ class V3CompositeTests(unittest.TestCase):
         with patch.object(v3_reuse_context, 'OPEN_AS_ISSUED', {'passage'}), \
              patch.object(v3_reuse_context, 'SUPERSEDED_AT', {}), \
              patch.object(v3_reuse_context, 'CONTINUES_THROUGH', {}):
-            enriched = v3_reuse_context.enrich(a, {}, {})
+            enriched = v3_reuse_context.enrich(a, {}, {'source': {'pages': {'1': a['provenance'][0]['text']}}})
         self.assertEqual(enriched['input']['availableEvidence'][0]['directionLifecycle'], 'UNKNOWN')
 
     def test_explicit_reviewed_renewal_not_invented_completion(self):
@@ -134,7 +134,7 @@ class V3CompositeTests(unittest.TestCase):
         a['input']['availableEvidence'].append(deepcopy(a['input']['availableEvidence'][0]))
         with patch.object(v3_reuse_context, 'OPEN_AS_ISSUED', {'passage'}), \
              patch.object(v3_reuse_context, 'SUPERSEDED_AT', {'passage': '2025-02-01'}):
-            enriched = v3_reuse_context.enrich(a, {}, {})
+            enriched = v3_reuse_context.enrich(a, {}, {'source': {'pages': {'1': a['provenance'][0]['text']}}})
         self.assertEqual(enriched['input']['availableEvidence'][0]['directionLifecycle'], 'SUPERSEDED')
         self.assertEqual(enriched['target'], a['target'])
         self.assertNotEqual(enriched['input']['availableEvidence'][0]['directionLifecycle'], 'COMPLETED')
