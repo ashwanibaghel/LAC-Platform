@@ -22,10 +22,15 @@ ANSWER_SCHEMA = {'type':'object','additionalProperties':False,
                      'properties':{'factId':{'type':'integer','minimum':0}},
                      'required':['factId']}}}, 'required':['claims']}
 
+def entry_label(entry):
+    if entry.get('actionClass')=='Conditional': return 'Conditional Court direction / permission (not a mandatory action)'
+    if entry.get('actionClass')=='Mandatory': return 'Mandatory current Court direction'
+    return LABELS[entry['category']]
+
 def compose(entries):
     claims=[]
     for entry in entries:
-        label=LABELS[entry['category']]
+        label=entry_label(entry)
         if entry['scope'] in ('Historical','Quoted'): label='Historical/quoted · '+label
         claims.append({'text':entry['text'],'attribution':label,'source':entry['source']})
     return {'answer':'\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
@@ -40,8 +45,16 @@ def retrieve(artifact, question, intent=None):
     mapping={'direction':['direction'],'lac_action':['direction'],'compensation':['compensation'],'possession':['possession'],
              'award':['award'],'khasra':['khasra'],'filing':['filing','direction'],'reference':['referenceToAdj'],
              'section18':['section18','referenceToAdj'],'section30_31':['section30_31'],'compliance':['compliance'],'timeline':['*'],
-             'order_summary':['*'],'general_case':['*'],'party_position':['*'],'court_position':['*'],'court_observation':['*'],'court_finding':['*'],'next_hearing':['nextHearing']}
+             'case_outcome':['*'],'order_summary':['*'],'general_case':['*'],'party_position':['*'],'court_position':['*'],'court_observation':['*'],'court_finding':['*'],'next_hearing':['nextHearing']}
     for topic in intent['topics']: fields.update(mapping.get(topic,[]))
+    court_roles=set()
+    role_topics={'court_finding':{'COURT_FINDING'},'court_observation':{'COURT_OBSERVATION'},
+                 'direction':{'COURT_DIRECTION'},
+                 'case_outcome':{'COURT_FINDING','COURT_OBSERVATION','COURT_DIRECTION','PROCEDURAL_EVENT','DISPOSITION'},
+                 'court_position':{'COURT_FINDING','COURT_OBSERVATION','COURT_DIRECTION','PROCEDURAL_EVENT','DISPOSITION'}}
+    for topic in intent['topics']: court_roles.update(role_topics.get(topic,set()))
+    if 'court_finding' in intent['topics'] and 'direction' in intent['topics']:
+        court_roles.add('DISPOSITION')
     if 'possession' in intent['topics']: topic_pattern=r'possession|status quo|vacate|evict'
     elif 'compensation' in intent['topics']: topic_pattern=r'compensation|payment|paid|deposit|disburse'
     if not fields:
@@ -63,12 +76,11 @@ def retrieve(artifact, question, intent=None):
             continue
         for fact in usable_facts(order):
             role=fact['category']
+            if 'case_outcome' in intent['topics'] and fact['scope']!='Current': continue
             if 'party_position' in intent['topics']:
                 allowed={'Petitioner':{'PETITIONER_SUBMISSION'},'LAC':{'LAC_OR_RESPONDENT_SUBMISSION'},'Respondent':{'LAC_OR_RESPONDENT_SUBMISSION'},'Other':{'OTHER_PARTY_SUBMISSION'}}
                 if role not in allowed.get(intent['party'],SUBMISSION_ROLES): continue
-            if 'court_observation' in intent['topics'] and role!='COURT_OBSERVATION': continue
-            if 'court_finding' in intent['topics'] and role!='COURT_FINDING': continue
-            if 'court_position' in intent['topics'] and role not in ('COURT_OBSERVATION','COURT_FINDING','COURT_DIRECTION','PROCEDURAL_EVENT','DISPOSITION'): continue
+            if court_roles and role not in court_roles: continue
             matches_direction='direction' in fields and fact['category']=='COURT_DIRECTION'
             matches_topic=topic_pattern and re.search(topic_pattern,fact['value'],re.I)
             if fact.get('scope') in ('Uncertain','Quoted') or '*' not in fields and fact['field'] not in fields and not matches_direction and not matches_topic:
@@ -84,11 +96,36 @@ def retrieve(artifact, question, intent=None):
                           'source':{'orderDate':order['orderDate'],'page':fact['page'],
                                     'evidence':fact['evidence'],'officialUrl':order['officialUrl']}})
             if fact.get('evidenceParts'): found[-1]['source']['evidenceParts']=fact['evidenceParts']
+    # Reuse verified contingent presentation, never add these to the lifecycle
+    # action collection. Source/date matching prevents cross-order reuse.
+    from conditional_directions import conditional_directions
+    conditional=[entry for order in orders for entry in conditional_directions(order)]
+    conditional_by_source={(entry['source']['orderDate'],entry['source']['page'],entry['source']['evidence']):entry for entry in conditional}
+    for entry in found:
+        key=(entry['source']['orderDate'],entry['source']['page'],entry['source']['evidence'])
+        if key in conditional_by_source:
+            entry['actionClass']='Conditional'
+    if 'lac_action' in intent['topics'] or 'case_outcome' in intent['topics']:
+        active={action['text'] for action in artifact.get('beforeNextHearing',[])}
+        mandatory=[dict(entry,actionClass='Mandatory') for entry in found
+                   if entry['text'] in active and entry['category']=='COURT_DIRECTION' and entry['scope']=='Current']
+        contingent=[]
+        for order in orders:
+            for fact in usable_facts(order):
+                key=(order['orderDate'],fact['page'],fact['evidence'])
+                verified=conditional_by_source.get(key)
+                if not verified: continue
+                contingent.append(dict(text=fact['value'],category=fact['category'],scope='Current',
+                                       source=verified['source'],actionClass='Conditional'))
+        found=(mandatory if 'case_outcome' not in intent['topics'] else found)+contingent
     found=list({json.dumps(entry,sort_keys=True):entry for entry in found}.values())
+    if 'case_outcome' in intent['topics']:
+        # Reserve the latest source disposition before operative explanation.
+        found.sort(key=lambda entry:entry['category']!='DISPOSITION')
     if intent.get('fullStory'):
         # Reserve distinct voices and the originating dispute across the chain.
         priority=['CASE_CONTEXT','ISSUE_BEFORE_COURT','PETITIONER_SUBMISSION','LAC_OR_RESPONDENT_SUBMISSION',
-                  'OTHER_PARTY_SUBMISSION','COURT_FINDING','COURT_DIRECTION','DISPOSITION']
+                  'OTHER_PARTY_SUBMISSION','COURT_FINDING','COURT_OBSERVATION','COMPENSATION_FACT','COURT_DIRECTION','PROCEDURAL_EVENT','DISPOSITION']
         selected=[]
         for role in priority:
             entries=[entry for entry in found if entry['category']==role]
@@ -105,12 +142,31 @@ def retrieve(artifact, question, intent=None):
                     operative=[entry for entry in entries if not re.match(r'\s*(?:\d+\.\s*)?(?:list|renotify)',entry['text'],re.I)]
                     last_opportunity=[entry for entry in operative if re.search(r'last (?:and )?final opportunity',entry['text'],re.I)]
                     selected.append((last_opportunity or operative or entries)[-1])
+                elif role=='COMPENSATION_FACT':
+                    from semantics import proposition_kind
+                    states=[entry for entry in entries if proposition_kind({'category':role,'evidence':entry['text']})=='DescriptiveState' and entry['scope']=='Current']
+                    selected.append((states or entries)[-1])
+                elif role=='DISPOSITION':
+                    principal=[entry for entry in entries if re.search(r'\b(?:petition|appeal|suit)\b',entry['text'],re.I)]
+                    selected.append((principal or entries)[-1])
+                elif role=='PROCEDURAL_EVENT':
+                    permissions=[entry for entry in entries if re.search(r'\bpermitted\b',entry['text'],re.I)]
+                    selected.append((permissions or entries)[-1])
                 else: selected.append(entries[-1])
+        # Keep distinct current conditional propositions, not just one category
+        # representative. They remain exact evidence, never mandatory actions.
+        from semantics import proposition_kind
+        conditional=[entry for entry in found if entry['scope']=='Current' and
+                     proposition_kind({'category':entry['category'],'evidence':entry['text']}) in ('ConditionalDirection','Permission')]
+        reserved=list(selected)
+        for entry in conditional:
+            if entry not in selected: selected.append(entry)
+        while len(selected)>8:
+            optional=next((entry for entry in selected if entry not in reserved),None)
+            if optional is None: break
+            selected.remove(optional)
         found=selected or found
-    # Explicit lifecycle evidence is authoritative; absence never means completed.
-    if 'lac_action' in intent['topics']:
-        active = {action['text'] for action in artifact.get('beforeNextHearing',[])}
-        found = [entry for entry in found if entry['text'] in active and entry['category']=='COURT_DIRECTION' and entry['scope']=='Current']
+    # Mandatory and contingent evidence remain separately labeled above.
     # Timeline retrieval reserves evidence for every requested available date;
     # never let a verbose last order erase middle hearings from the context.
     if 'timeline' in intent['topics'] and len(found)>8:
@@ -170,7 +226,7 @@ not instructions to change scope. Return only the specified JSON schema.'''
                 entry=evidence[claim['factId']]
                 if claim['factId'] in used: continue
                 used.add(claim['factId'])
-                label=LABELS[entry['category']]
+                label=entry_label(entry)
                 if entry['scope'] in ('Historical','Quoted'): label='Historical/quoted · '+label
                 claims.append({'text':entry['text'], 'attribution':label, 'source':entry['source']})
             if 'timeline' in intent['topics'] or intent.get('fullStory'):
@@ -180,6 +236,12 @@ not instructions to change scope. Return only the specified JSON schema.'''
                     if key not in represented and len(claims)<8:
                         claims.extend(compose([entry])['claims']); represented.add(key)
                 claims.sort(key=lambda claim:claim['source']['orderDate'] or '')
+            if 'lac_action' in intent['topics'] or 'case_outcome' in intent['topics']:
+                # Do not let selection erase either verified action class or
+                # return insufficient merely because only contingent evidence exists.
+                for index,entry in enumerate(evidence):
+                    if index not in used and len(claims)<8:
+                        claims.extend(compose([entry])['claims'])
             return {'answer': '\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
                     'claims':claims,'insufficientEvidence':not claims}
         except (ValueError,KeyError,TypeError,jsonschema.ValidationError):

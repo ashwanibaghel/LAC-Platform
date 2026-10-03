@@ -108,6 +108,62 @@ def party_speech(text):
     return bool(affidavit_statement or re.search(r'made the following submissions',text,re.I) or SUBMISSION.search(text) or re.search(
         r'\b(?:counsel|petitioner|respondent|LAC|Mr\.?|Ms\.?)\b[^.!?]{0,120}\b(?:states?|stated|reports?\s+that|reported\s+that)\b|\bsubmission of\b|\b(?:case|stand|contention) of the (?:petitioners?|respondents?|LAC) is that\b',text,re.I))
 
+def proposition_kind(fact):
+    """Modality is not a completed state. Classification creates no facts/actions."""
+    text=fact['evidence']
+    if fact['category'] in SUBMISSION_ROLES or party_speech(text): return 'Submission'
+    if re.search(r'\b(?:if|unless|subject to|provided that|on condition|after examining)\b',text,re.I):
+        return 'ConditionalDirection'
+    if re.search(r'\b(?:may|permitted|permission|at liberty|can)\b',text,re.I): return 'Permission'
+    if fact['category']=='RECORDED_COMPLIANCE': return 'RecordedCompliance'
+    if fact['category']=='COURT_DIRECTION' or IMPERATIVE.search(text): return 'MandatoryDirection'
+    return 'DescriptiveState'
+
+def conflicting_fact_indexes(facts, include_submissions=False):
+    """Opposed performed-state assertions on the same topic/predicate/scope/time.
+
+    A field is a topic, not a truth axis: an assessment, deposit, payment and
+    future permission can coexist. Unrecognized predicates are not guessed.
+    Exact source dates distinguish historical states; scope is never collapsed.
+    """
+    groups={}
+    for index,fact in enumerate(facts):
+        kind=proposition_kind(fact)
+        if kind not in ('DescriptiveState','RecordedCompliance') and not (include_submissions and kind=='Submission'): continue
+        text=fact['value'].lower()
+        predicates=re.findall(r'\b(?:paid|unpaid|taken|filed|deposited|assessed|released|made|completed|submitted|delivered)\b',text)
+        if len(set(predicates))!=1: continue # Multi-state prose needs review, not guessed opposition.
+        predicate='paid' if predicates[0]=='unpaid' else predicates[0]
+        # An explicit Court finding may use field=finding while the same state
+        # uses a topical field. Match its literal subject, not its model label.
+        subject=text[:re.search(r'\b'+predicates[0]+r'\b',text).start()]
+        subject=re.sub(r'^\s*\d+[.)]\s*','',subject)
+        subject=re.sub(r'^.*?\b(?:court|we)\b.*?\b(?:finds?|found|holds?|held|observes?|observed|records?|recorded)\b\s+(?:that\s+)?','',subject)
+        subject=re.sub(r'\b(?:therefore|accordingly|as of today|as per record)\b','',subject)
+        subject=re.sub(r'\b(?:the|a|an|no|not|never|has|have|had|been|being|was|were|is|are|already|yet|now)\b','',subject)
+        subject=identity(subject)
+        if not subject: continue # Do not infer an omitted subject/semantic axis.
+        time=tuple(sorted(dates_in(text)))
+        attribution=fact['category'] if kind=='Submission' else 'RecordedState'
+        identifiers=tuple(re.findall(r'\b\d+(?:[/-]\d+)*\b',text))
+        key=(subject,predicate,fact['scope'],time,identifiers,identity(fact.get('actor') or ''),attribution)
+        negative=bool(re.search(r'\b(?:not|no|never|unpaid)\b',text))
+        groups.setdefault(key,[]).append((index,negative))
+    return {index for group in groups.values() if len({negative for _,negative in group})>1
+            for index,_ in group}
+
+class CandidateSemanticError(ValueError):
+    """A source candidate requires the single targeted semantic recovery."""
+
+
+def compensation_only(value):
+    # Test the selected proposition's predicate, not incidental topic words.
+    text=normalized(value)
+    predicate=re.search(r'\b(?:compensation|payment|deposit|amount|sum)\b.{0,65}\b(?:paid|unpaid|deposited|released|disbursed|made|received)\b|\b(?:pay|paid|deposit|deposited|release|released|disburse|disbursed)\b.{0,55}\b(?:compensation|payment|amount|sum)\b',text,re.I)
+    land_state=re.search(r'\b(?:land|parcel|plot|khasra|title|ownership|possession|acquisition)\b.{0,70}\b(?:belongs|owned|owner|vested|acquired|situated|comprised|taken|disputed|proved)\b|\b(?:ownership|title|possession)\s+(?:of\b.{0,65})?(?:is|was|remains|has|had)\b',text,re.I)
+    return bool(predicate and not land_state)
+
+
 def validate(payload, pages):
     jsonschema.validate(payload, SCHEMA)
     for fact in payload['facts']:
@@ -122,6 +178,8 @@ def validate(payload, pages):
             raise ValueError('Evidence is not on cited supplied source page')
         if normalized(fact['value']) not in evidence:
             raise ValueError('Fact value must be a verbatim part of its evidence')
+        if fact['category']=='LAND_FACT' and compensation_only(fact['value']):
+            raise CandidateSemanticError('Compensation-only predicate cannot validate as generic LAND_FACT/land')
         if fact['category'] in ROLE_FIELDS and fact['field']!=ROLE_FIELDS[fact['category']]:
             raise ValueError('Semantic role does not match its structured field')
         if fact['category'] not in SUBMISSION_ROLES and party_speech(evidence):
@@ -162,13 +220,11 @@ def validate(payload, pages):
         if fact['scope'] == 'Uncertain':
             payload['needsReview'] = True
     # Opposed assertions on the same land dimension are review work, never a chosen fact.
-    for field in ('compensation', 'possession'):
-        facts = [f['value'].lower() for f in payload['facts'] if f['field'] == field]
-        if len(facts) > 1 and any(re.search(r'\b(?:not|no|never|unpaid)\b', x) for x in facts) and any(not re.search(r'\b(?:not|no|never|unpaid)\b', x) for x in facts):
-            payload['needsReview'] = True
+    if conflicting_fact_indexes(payload['facts'],include_submissions=True): payload['needsReview'] = True
     return payload
 
 def office_action(fact, order):
+    if proposition_kind(fact) != 'MandatoryDirection': return None
     if (fact['category'] != 'COURT_DIRECTION' or fact['scope'] != 'Current'
             or not fact['actor'] or not OFFICE.search(fact['actor'])
             or re.search(r'Faridabad|Haryana|DDA|petitioner', fact['actor'], re.I)
@@ -203,13 +259,9 @@ def usable_facts(order):
     if order.get('status') != 'Validated' and not (order.get('status') == 'NeedsReview' and order.get('coverage',{}).get('allSelectedChunksProcessed') and not order.get('failureMessage')):
         return []
     facts=order.get('facts',[])
-    conflicts=set()
-    for field in ('compensation','possession'):
-        values=[fact['value'].lower() for fact in facts if fact['field']==field and fact['category'] not in SUBMISSION_ROLES]
-        if any(re.search(r'\b(?:not|no|never|unpaid)\b',value) for value in values) and any(not re.search(r'\b(?:not|no|never|unpaid)\b',value) for value in values):
-            conflicts.add(field)
-    admitted=[fact for fact in facts if fact['scope']!='Uncertain' and (fact['category'] in SUBMISSION_ROLES or not party_speech(fact['evidence']))
-            and (fact['field'] not in conflicts or fact['category'] in SUBMISSION_ROLES)
+    conflicts=conflicting_fact_indexes(facts)
+    admitted=[fact for index,fact in enumerate(facts) if fact['scope']!='Uncertain' and (fact['category'] in SUBMISSION_ROLES or not party_speech(fact['evidence']))
+            and index not in conflicts
             and (fact['field']!='compliance' or re.search(r'\b(?:complied|compliance|direction|directed)\b',fact['evidence'],re.I))]
     result=[]
     for fact in admitted:
@@ -262,6 +314,7 @@ def order_digest(order):
 
 
 def synthesize(case_id, case_number, orders):
+    from conditional_directions import conditional_directions
     from chronology import factual_events, source_coverage, presentation_kind
     from order_index import index_entries
     ordered = [dict(order,summaryFacts=usable_facts(order),propositions=propositions(order),digest=order_digest(order)) for order in sorted(orders, key=lambda x: x.get('orderDate') or '')]
@@ -339,6 +392,7 @@ def synthesize(case_id, case_number, orders):
     return {'version': 1, 'semanticVersion':VERSION, 'caseId': case_id, 'caseNumber': case_number,
             'status': 'NeedsReview' if incomplete else 'Validated',
             'currentPosition': current[:6], 'beforeNextHearing': [a for a in actions if a['state'] == 'Not confirmed complete'],
+            'conditionalDirections': [entry for order in ordered for entry in conditional_directions(order)],
             'latestOrder': latest, 'finalOrder': final, 'caption': latest.get('caption',{}) if latest else {},
             'latestMeaningfulOrder':next((order for order in reversed(ordered) if order['presentationKind']=='Substantive'),None),
             'chronologyWarnings': ['An earlier source contains a final disposition but later orders also exist. Intervening restoration/appeal history is not established by these supplied sources.']

@@ -2,7 +2,7 @@
 import re
 import copy
 import jsonschema
-from semantics import CATEGORIES, FIELDS, ROLE_FIELDS, SUBMISSION_ROLES, validate, party_speech
+from semantics import CATEGORIES, FIELDS, ROLE_FIELDS, SUBMISSION_ROLES, validate, party_speech, CandidateSemanticError
 
 ANCHOR_SCHEMA={'type':'object','additionalProperties':False,
  'properties':{'facts':{'type':'array','maxItems':8,'items':{'type':'object','additionalProperties':False,
@@ -74,7 +74,7 @@ def sentences(text):
         start=boundary.end()
     if text[start:].strip(): yield start,len(text),text[start:].strip()
 
-def anchors_for(pages):
+def anchors_for(pages, outer_paragraphs=None):
     anchors=[]
     quote_depth=0
     inherited_role=None
@@ -95,6 +95,17 @@ def anchors_for(pages):
         # Complete sentences, not truncated token snippets. Abbreviation fragments
         # remain only if relevant; accompanying prefix preserves attribution context.
         for start,end,passage in sentences(body):
+            # Optional certificate from native PDF geometry, not model output.
+            # A numbered outer paragraph may have been attached to the prior
+            # sentence by extraction. Reset ONLY at its exact native boundary.
+            native_return = next((number for offset, number in (outer_paragraphs or {}).get(page, [])
+                if offset <= start and re.fullmatch(r'\s*'+str(number)+r'\.\s*', body[offset:start])
+                or offset == start and re.match(str(number)+r'\.\s', passage)), None)
+            if native_return is not None:
+                quote_depth = 0
+                precedent = False
+                inherited_role = None
+                outer_paragraph = native_return
             number=re.match(r'^(\d{1,3})\.\s+',passage)
             returning=precedent and precedent_parent is not None and (
                 number and int(number[1])==precedent_parent+1 or
@@ -124,7 +135,12 @@ def anchors_for(pages):
             actors=list(dict.fromkeys(m.group() for m in ACTORS.finditer(passage)))
             role=None
             speech=r'\b(?:submits?|submitted|submissions|contends?|contended|claims|claimed|alleges?|alleged|asserts?|asserted|argues?|argued|prays?|seeks?|states?|stated|explains?|pointed out)\b'
-            if re.search(r'\bpetitioners?(?:[’\x27]s)?\b.{0,100}'+speech,passage,re.I) or re.search(r'the case of the petitioners? is that',passage,re.I): role='PETITIONER_SUBMISSION'
+            # A petitioner mentioned INSIDE the LAC's reported position is not
+            # its speaker. Explicit document/position attribution wins first.
+            if re.search(r'(?:stand|contention) of (?:the )?(?:LAC|respondents?)|affidavit.{0,35}filed by (?:the )?LAC|(?:LAC|respondent).{0,60}affidavit.{0,30}affirm',passage,re.I): role='LAC_OR_RESPONDENT_SUBMISSION'
+            elif re.search(r'\bpetition\b.{0,100}filed by (?:the )?petitioners?\b.{0,100}\bseeking\b|^\s*(?:\d+\.\s*)?(?:the )?petitioners?\b.{0,50}\b(?:seeks|prays)\b',passage,re.I): role='PETITIONER_SUBMISSION'
+            elif re.search(r'\b(?:stand|affidavit|reply) of (?:the )?(?:NHAI|DDA|MCD)\b',passage,re.I): role='OTHER_PARTY_SUBMISSION'
+            elif re.search(r'^\s*(?:\d+\.\s*)?(?:the )?petitioners?(?:[’\x27]s)?\b.{0,100}'+speech,passage,re.I) or re.search(r'the case of the petitioners? is that',passage,re.I): role='PETITIONER_SUBMISSION'
             elif re.search(r'\b(?:LAC|Land Acquisition Collector|respondent)\b.{0,100}'+speech,passage,re.I) or re.search(r'\bLAC\b.{0,60}\bcounter.affidavit\b.{0,30}\baffirm',passage,re.I): role='LAC_OR_RESPONDENT_SUBMISSION'
             elif re.search(r'\b(?:DDA|MCD|NHAI|Union of India|other party)\b.{0,100}'+speech,passage,re.I): role='OTHER_PARTY_SUBMISSION'
             elif re.search(r'submission of.{0,100}\brespondents?\b',passage,re.I): role='LAC_OR_RESPONDENT_SUBMISSION'
@@ -159,7 +175,22 @@ def anchors_for(pages):
     for index,anchor in enumerate(joined): anchor['anchorId']=index
     return joined
 
-def expand(payload, anchors, pages):
+def requires_present_scope(anchor):
+    """Reject a model's past scope only for explicit, unquoted present narration.
+
+    This is a validation constraint, never a fact/scope rewrite. A quoted
+    speaker can use 'today' relative to their own older document.
+    """
+    if anchor.get('quoted'): return False
+    text=anchor['text']
+    present=re.search(r'\b(?:as of today|as on date|as of date|currently|at present)\b',text,re.I)
+    if not present: return False
+    prefix=text[max(0,present.start()-160):present.start()]
+    earlier=re.search(r'\b(?:at that time|then|previously|earlier|in (?:19|20)\d{2}|(?:order|affidavit|statement) dated)\b',prefix,re.I)
+    return not earlier
+
+
+def expand(payload, anchors, pages, defer_semantic=False):
     jsonschema.validate(payload,ANCHOR_SCHEMA)
     by_id={a['anchorId']:a for a in anchors}
     selections=list(payload['facts'])
@@ -168,13 +199,19 @@ def expand(payload, anchors, pages):
     # chunk. Source-confirmed speaker attribution needs no generated text: keep
     # that exact utterance independently, never elevate it to a judicial fact.
     for anchor in anchors:
-        if anchor['anchorId'] not in selected and anchor.get('speechRole'):
+        relief=re.search(r'\bpetition\b.{0,180}\bseeking\b|\bpetitioner\b.{0,50}\b(?:seeks|prays)\b',anchor['text'],re.I)
+        if anchor['anchorId'] not in selected and anchor.get('speechRole') and not relief:
             selections.append({'anchorId':anchor['anchorId'],'category':anchor['speechRole'],
                                'field':'context','scope':'Quoted' if anchor.get('quoted') else 'Current'})
     facts=[]
+    rejected=[]
     for selection in selections:
         if selection['anchorId'] not in by_id: raise ValueError('Unknown source anchor')
         anchor=by_id[selection['anchorId']]
+        if requires_present_scope(anchor) and selection['scope']!='Current':
+            if defer_semantic:
+                rejected.append(anchor['anchorId']); continue
+            raise CandidateSemanticError(f"Anchor {anchor['anchorId']} explicitly describes the present state outside source quotation; scope contradicts current-order context")
         if anchor.get('quoted') and selection['scope'] not in ('Quoted','Uncertain'):
             raise ValueError(f"Anchor {anchor['anchorId']} is inside a source quotation")
         if anchor.get('speechRole') and selection['category']!=anchor['speechRole']:
@@ -197,6 +234,10 @@ def expand(payload, anchors, pages):
         if anchor.get('evidenceParts'): fact['evidenceParts']=anchor['evidenceParts']
         try:
             validate({'facts':[fact],'needsReview':payload['needsReview']},pages)
+        except CandidateSemanticError:
+            if defer_semantic:
+                rejected.append(anchor['anchorId']); continue
+            raise
         except (ValueError,jsonschema.ValidationError) as error:
             detail=str(error) if isinstance(error,ValueError) else 'Expanded field violates schema'
             raise ValueError(f"Anchor {anchor['anchorId']} ({selection['category']}/{selection['field']}): {detail}") from error
@@ -208,7 +249,9 @@ def expand(payload, anchors, pages):
     for start in range(0,len(facts),6):
         checked=validate({'facts':facts[start:start+6],'needsReview':False},pages)
         needs_review |= checked['needsReview']
-    return {'facts':facts,'needsReview':needs_review or any(f['scope']=='Uncertain' for f in facts)}
+    result={'facts':facts,'needsReview':needs_review or any(f['scope']=='Uncertain' for f in facts)}
+    if defer_semantic: result['unresolvedAnchorIds']=rejected
+    return result
 
 def schema_for(anchors,pages):
     """Constrain generation with the same independent attribution guardrails.
@@ -268,6 +311,9 @@ def schema_for(anchors,pages):
                 scopes=['Uncertain']
             else:
                 scopes=['Current','Historical','Uncertain']
+            if requires_present_scope(anchor):
+                scopes=[scope for scope in scopes if scope not in ('Historical','Quoted')]
+                if not scopes: scopes=['Uncertain']
             choice['properties']['scope']={'type':'string','enum':scopes}
             if category=='COURT_DIRECTION':
                 fields=['direction','filing','documents','referenceToAdj','compensation','possession','nextHearing']

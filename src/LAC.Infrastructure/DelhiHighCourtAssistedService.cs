@@ -15,7 +15,8 @@ public sealed record DhcAssistedResult(DhcAssistedSyncRun Run,
 
 public sealed class DelhiHighCourtAssistedService(
     LacDbContext db, ICourtAuthorizationService authorization, IOfficeClock clock,
-    ICourtWorkflowService? workflow = null)
+    ICourtWorkflowService? workflow = null,
+    Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
 {
     public async Task RequireOperatorAsync(Guid userId, CancellationToken ct)
     {
@@ -218,7 +219,18 @@ public sealed class DelhiHighCourtAssistedService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task ConfirmCanonicalStatusAsync(Guid observationId, string reason,
+    public Task ConfirmCanonicalStatusAsync(Guid observationId, string reason,
+        Guid userId, CancellationToken ct) =>
+        (strategyFactory?.Invoke() ?? db.Database.CreateExecutionStrategy()).ExecuteAsync(async () =>
+        {
+            // The complete atomic unit, including authorization queries and the
+            // explicit transaction, must run inside the provider strategy.
+            // Reload on replay; never reuse partially saved tracked state.
+            db.ChangeTracker.Clear();
+            await ConfirmCanonicalStatusCoreAsync(observationId, reason, userId, ct);
+        });
+
+    private async Task ConfirmCanonicalStatusCoreAsync(Guid observationId, string reason,
         Guid userId, CancellationToken ct)
     {
         await RequireOperatorAsync(userId, ct);

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { dailyCauseListOutcome } from "./DhcDailyCauseListOutcome";
+import { responseError } from "./CourtRequestError";
 import type { CourtCaseListItemDto, CourtCaseListResponse, DhcHistoricalStatusDto, DhcObservationDto, DhcSourceReviewDto, DhcSyncStatusDto } from "./types";
 
 type ActiveCheck = { status: string; phase: string; completedCases: number; totalCases: number };
@@ -140,7 +141,7 @@ export const DhcSyncPanel: React.FC = () => {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accept, courtCaseId, listingDate: item.listingDate, reason: reason.trim() }),
       });
-      if (!response.ok) throw new Error("The decision was not saved. Check the case number and official date.");
+      if (!response.ok) throw new Error(await responseError(response, "The decision was not saved. Check the case number and official date."));
       setReasons(previous => ({ ...previous, [item.id]: "" }));
       await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : "Decision failed."); }

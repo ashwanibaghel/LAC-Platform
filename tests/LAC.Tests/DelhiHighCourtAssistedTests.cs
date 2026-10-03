@@ -1338,6 +1338,41 @@ public sealed class DelhiHighCourtAssistedTests
         }
     }
 
+    [Fact]
+    public async Task CanonicalConfirmation_UsesProviderExecutionStrategy_AndPreservesAudit()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var observation = new CourtExternalCaseStatusObservation
+            {
+                CourtCaseId = caseIds[0], NormalizedCaseIdentity = "delhihighcourt|wpc|7003|2026",
+                RawCaseNumber = "W.P.(C) 7003/2026", RawStatus = "Disposed",
+                Status = DhcAssistedEvidenceStatus.NeedsReview, ReviewReason = "StatusDifference"
+            };
+            db.CourtExternalCaseStatusObservations.Add(observation);
+            await db.SaveChangesAsync();
+            var strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: false);
+            var service = new DelhiHighCourtAssistedService(db,
+                scope.ServiceProvider.GetRequiredService<ICourtAuthorizationService>(), new Clock(),
+                scope.ServiceProvider.GetRequiredService<ICourtWorkflowService>(), () => strategy);
+            await service.ConfirmCanonicalStatusAsync(observation.Id, "Officer confirmed exact official status", userId, default);
+            Assert.Equal(1, strategy.AttemptCount);
+            db.ChangeTracker.Clear();
+            var courtCase = await db.CourtCases.SingleAsync(x => x.Id == caseIds[0]);
+            Assert.Equal("Disposed", courtCase.CurrentStatus);
+            Assert.Equal(DhcAssistedEvidenceStatus.Accepted,
+                (await db.CourtExternalCaseStatusObservations.SingleAsync()).Status);
+            Assert.Single(await db.CourtCaseEvents.ToListAsync());
+            Assert.Single(await db.CourtExternalAssistedDecisions.ToListAsync());
+            await Assert.ThrowsAsync<CourtWorkflowException>(() =>
+                service.ConfirmCanonicalStatusAsync(observation.Id, "Repeated confirmation", userId, default));
+            Assert.Single(await db.CourtExternalAssistedDecisions.ToListAsync());
+        }
+    }
+
     [Theory]
     [InlineData("Archived")]
     [InlineData("Stay")]

@@ -3,7 +3,7 @@ import re
 import json
 import jsonschema
 
-TOPICS=['order_summary','party_position','court_position','court_observation','court_finding','next_hearing','general_case','direction','lac_action','compensation','possession','award','khasra','filing','reference','section18','section30_31','compliance','timeline','unknown']
+TOPICS=['case_outcome','order_summary','party_position','court_position','court_observation','court_finding','next_hearing','general_case','direction','lac_action','compensation','possession','award','khasra','filing','reference','section18','section30_31','compliance','timeline','unknown']
 INTENT_SCHEMA={'type':'object','additionalProperties':False,'properties':{
     'topics':{'type':'array','maxItems':3,'uniqueItems':True,'items':{'enum':TOPICS}},
     'latest':{'type':'boolean'},'party':{'enum':['Petitioner','LAC','Respondent','Other',None]},'yearFrom':{'type':['integer','null'],'minimum':1900,'maximum':2100},
@@ -19,7 +19,7 @@ ALIASES=[
  ('section30_31',r'(?:section|धारा)\s*(?:30|31)'),
  ('compliance',r'compliance|complied|completed|अनुपालन'),
  ('timeline',r'what happened|history|timeline|during|between|kya(?:\s+kya)? hua|क्या हुआ|इतिहास|से अब तक'),
- ('lac_action',r'pending|baki|baaki|बाकी|लंबित|need to do|must do|kya karna|क्या करना|क्या करना है|next hearing|next date|agli (?:hearing|tar(?:ee|i)kh|date)|agle|अगली (?:तारीख|सुनवाई)|पहले हमें'),
+ ('lac_action',r'baki|baaki|बाकी|need to do|must do|kya karna|kya action|क्या करना|क्या करना है|next hearing|next date|agli (?:hearing|tar(?:ee|i)kh|date)|agle|अगली (?:तारीख|सुनवाई)|पहले हमें'),
  ('direction',r'direction|direct|निर्देश')]
 
 def normalize(question, provider=None):
@@ -37,14 +37,30 @@ def normalize(question, provider=None):
     if re.search(r'petitioner|याचिकाकर्ता',text): party='Petitioner'
     elif re.search(r'\blac\b',text): party='LAC'
     elif re.search(r'respondent|प्रतिवादी',text): party='Respondent'
+    outcome=bool(re.search(r'final (?:outcome|disposition|order)|अंतिम (?:आदेश|निर्णय)|(?:case|petition|appeal|matter|मामला|याचिका|अपील).*(?:dispos\w*|pending|निस्तारित|लंबित)',text))
+    office_pending=bool(re.search(r'pending|लंबित',text) and re.search(r'\blac\b|action|compliance|work|task|hearing|अनुपालन|कार्य',text))
+    if office_pending and not outcome: topics=['lac_action']+topics
+    if party=='LAC' and re.search(r'need to do|kya.*(?:karna|action|direction)|क्या.*(?:करना|निर्देश)',text):
+        topics=['lac_action']+[topic for topic in topics if topic!='direction']
+    # Relief sought is a party position, never proof that the Court granted it.
+    # Require a named party so generic wants/seeks wording cannot redirect
+    # unrelated Court questions into submission retrieval.
+    party_relief=bool(party and re.search(r'\b(?:seek\w*|want\w*|pray\w*|relief|maang\w*|mang\w*|chaht\w*)\b|मांग|मांगी|चाह|राहत|प्रार्थना',text))
+    if party_relief:
+        return {'topics':['party_position'],'latest':latest,'party':party,'yearFrom':start,'yearTo':end}
     if party and re.search(r'contention|stand|say|said|stated|position|keh|bola|कहा|पक्ष',text) and 'lac_action' not in topics: topics=['party_position']+topics
     if re.search(r'observe|observation|अवलोकन',text): topics=['court_observation']+topics
-    elif re.search(r'court.*(?:find|finding)|निष्कर्ष',text): topics=['court_finding']+topics
+    if re.search(r'court.*(?:find|finding)|निष्कर्ष',text): topics=['court_finding']+topics
     elif re.search(r'(?:court|कोर्ट|न्यायालय).*(?:kya kaha|क्या कहा)',text): topics=['court_position']+topics
+    if re.search(r'(?:court|कोर्ट|न्यायालय).*(?:final order|final outcome|exactly.*order|अंतिम आदेश)',text): topics=['court_position']+topics
     if re.search(r'(?:order|आदेश).*(?:what happened|hua kya|kya hua|क्या हुआ)|what happened.*order',text): topics=['order_summary']+[topic for topic in topics if topic not in ('direction','timeline')]
     if re.search(r'next hearing|next date|agli (?:hearing|tar(?:ee|i)kh)|अगली (?:तारीख|सुनवाई)',text) and re.search(r'\bwhen\b|\bkab\b|कब',text): topics=['next_hearing']+[topic for topic in topics if topic!='lac_action']
     if 'lac_action' in topics: topics=[topic for topic in topics if topic!='direction']
     if 'timeline' in topics and any(topic in topics for topic in ('compensation','possession','reference','section18','section30_31')): topics.remove('timeline')
+    if outcome:
+        topics=['case_outcome']+[topic for topic in topics if topic not in ('lac_action','party_position','timeline')]
+        latest=True # current judicial outcome, not a quoted prior disposition
+        party=None
     intent={'topics':list(dict.fromkeys(topics))[:3] or ['unknown'],'latest':latest,'party':party,'yearFrom':start,'yearTo':end}
     count=re.search(r'last\s+(\d|one|two|three|four|five)\s+(?:hearings?|orders?|dates?)',text)
     if count:
@@ -52,7 +68,7 @@ def normalize(question, provider=None):
         intent['topics']=['timeline']
     if re.search(r'kab start|when.*(?:start|begin)|kis date|which date|किस तारीख|कब शुरू',text):
         intent['factualDates']=True
-    if re.search(r'poori kahani|puri kahani|poore matter|pure matter|full (?:story|case)|actual demand|case.*(?:start|shuru)|version.*(?:difference|farq)|पूरी कहानी',text):
+    if re.search(r'poori kahani|puri kahani|poore matter|pure matter|\b(?:poora|pura)\s+(?:scene|case|matter)\b|\boverall case\b|\bcomplete case summary\b|full (?:story|case)|actual demand|case.*(?:start|shuru)|version.*(?:difference|farq)|पूरी कहानी|पूरा\s+(?:मामला|केस)',text):
         intent['topics']=['general_case']; intent['latest']=False; intent['party']=None
         intent['fullStory']=True
         return intent

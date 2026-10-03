@@ -732,6 +732,19 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             )}
           </article>
 
+          {"conditionalDirections" in data && Array.isArray(data.conditionalDirections) && data.conditionalDirections.length > 0 && (
+            <article className="court-intelligence-position">
+              <h4>Conditional Court directions</h4>
+              <p className="court-intelligence-muted">These depend on the stated conditions; they are not unconditional tasks or payment deadlines.</p>
+              {data.conditionalDirections.map((entry: { text: string; actor: string; conditionText?: string; modality: string; source: Source }, index: number) => (
+                <div className="court-position-item" key={index}>
+                  <small>{entry.actor} · {entry.modality}{entry.conditionText ? ` · ${entry.conditionText}` : ""}</small>
+                  <p>{officerText(entry.text)}</p>
+                  <Evidence source={entry.source} />
+                </div>
+              ))}
+            </article>
+          )}
           <div className="court-intelligence-working-grid">
             <article className="court-intelligence-latest">
               <div className="court-intelligence-region-heading">

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { orderLinkCheckState } from "./DhcAssistedOrderProgress";
+import { responseError } from "./CourtRequestError";
 
 type PreviewCase = { courtCaseId: string; caseNumber: string; operationalNdoh: string | null; reason: string; identityNeedsReview: boolean };
 type Preview = { recommendedCount: number; noNdohCount: number; overdueCount: number; reviewCount: number; skippedIdentityCount: number; cases: PreviewCase[] };
@@ -55,7 +56,7 @@ export const DhcAssistedPage: React.FC = () => {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accept, reason }),
       });
-      if (!response.ok) throw new Error(accept ? "This evidence cannot be accepted automatically. Check the exact identity and current date." : "Review decision could not be saved.");
+      if (!response.ok) throw new Error(await responseError(response, accept ? "This evidence cannot be accepted automatically. Check the exact identity and current date." : "Review decision could not be saved."));
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
       const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
       if (runId && courtCaseId) {
@@ -76,7 +77,7 @@ export const DhcAssistedPage: React.FC = () => {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: statusDecisionReason }),
       });
-      if (!response.ok) throw new Error("The office status could not be updated. Open the case and review the official result.");
+      if (!response.ok) throw new Error(await responseError(response, "The office status could not be updated. Open the case and review the official result."));
       setReviewReasons(previous => ({ ...previous, [id]: "" }));
       const courtCaseId = reviews.find(row => row.id === id)?.courtCaseId;
       if (runId && courtCaseId) {

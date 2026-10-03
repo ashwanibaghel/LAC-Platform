@@ -5,6 +5,13 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 const source=readFileSync(new URL('../src/court/CourtIntelligence.tsx',import.meta.url),'utf8');
+test('conditional directions have a separate non-urgent evidence block',()=>{
+  assert.match(source,/Conditional Court directions/);
+  assert.match(source,/not unconditional tasks or payment deadlines/);
+  assert.match(source,/entry\.conditionText/);
+  assert.match(source,/Evidence source=\{entry\.source\}/);
+  assert.doesNotMatch(source,/beforeNextHearing\.push|conditionalDirections.*isActionOverdue/);
+});
 const js=ts.transpileModule(source.replace('import "./court-intelligence.css";',''),{compilerOptions:{module:ts.ModuleKind.ESNext,jsx:ts.JsxEmit.React,target:ts.ScriptTarget.ES2022}}).outputText;
 // Resolve React without relying on package resolution from a data URL.
 const evaluated=js.replace(/import React,.*?from "react";/,'const { useEffect, useState } = React;').replace('export const CourtIntelligence','const CourtIntelligence');
@@ -146,6 +153,18 @@ test('zero-action order still renders rich attributed facts, not an empty action
   assert.doesNotMatch(html,/No useful intelligence|No confirmed operative summary/);
   assert.match(html,/court-intelligence-timeline-fact/);
   assert.doesNotMatch(html,/<details class="court-intelligence-history" open/);
+});
+
+test('conditional permission is visible separately and preserves adjacent source pages',()=>{
+  const permission={text:'After examining the documents, the LAC may release compensation.',actor:'LAC',
+    modality:'may release',conditionText:'After examining the documents',scope:'Current',completion:'Not established',
+    source:{...evidence,evidenceParts:[{page:9,evidence:'If required, the LAC to consider the reference'},
+      {page:10,evidence:'and examine the documents.'}]}};
+  const html=officerMarkup({...data,beforeNextHearing:[],conditionalDirections:[permission]});
+  assert.match(html,/Conditional Court directions/);
+  assert.match(html,/may release/); assert.match(html,/After examining the documents/);
+  assert.match(html,/Page 9/); assert.match(html,/Page 10/);
+  assert.doesNotMatch(html,/Preferred period ended|Overdue/);
 });
 
 test('incomplete or review-required processing never claims there is no direct LAC action',()=>{

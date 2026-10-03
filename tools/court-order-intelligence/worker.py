@@ -18,6 +18,9 @@ from provider import LlamaCppProvider
 from semantics import VERSION, identity, normalized, dates_in, synthesize, confirmed_hearing_date
 from anchors import anchors_for, expand, schema_for, source_header, CASE_REFERENCES, INSTRUCTIONS as ANCHOR_INSTRUCTIONS
 from chronology import caption_context
+from preselection import select_candidates, bounded_chunks
+from native_layout import outer_paragraph_offsets
+from completeness import recover
 
 class StopRequested(BaseException):
     pass
@@ -97,21 +100,15 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             record['court']='Delhi High Court' if 'HIGH COURT OF DELHI' in pages[1].upper() else None
             record['caption'] = caption_context(headers, source['officialUrl'], record['orderDate'])
             record['bench'] = record['caption'].get('bench', {}).get('text')
-            anchors = anchors_for(pages)
-            chunks=[]
-            current=[]
-            length=0
-            for anchor in anchors:
-                size=len(json.dumps(anchor))
-                if current and (length+size>5000 or len(current)>=6):
-                    chunks.append(current); current=[]; length=0
-                current.append(anchor); length+=size
-            if current: chunks.append(current)
+            anchors = anchors_for(pages, outer_paragraph_offsets(path, pages))
+            candidates, selection = select_candidates(anchors, pages)
+            chunks = bounded_chunks(candidates)
             if len(chunks)>16: raise ValueError('NeedsSourceReview: order exceeds bounded inference coverage')
             if not chunks:
                 raise ValueError('NeedsSourceReview: no usable relevant paragraphs')
             record['coverage'] = {'pageCount': len(pages), 'selectedPages': sorted({a['page'] for c in chunks for a in c}),
-                                  'chunkCount': len(chunks), 'anchorCount':len(anchors), 'allSelectedChunksProcessed': False}
+                                  'chunkCount': len(chunks), 'anchorCount':len(anchors),
+                                  'preselection': selection, 'allSelectedChunksProcessed': False}
             needs_review = False
             collected = []
             for chunk in chunks:
@@ -125,7 +122,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                 feedback = ''
                 for attempt in range(2):
                     try:
-                        payload = expand(provider.extract(ANCHOR_INSTRUCTIONS, prompt, schema, feedback),chunk,pages)
+                        payload = expand(provider.extract(ANCHOR_INSTRUCTIONS, prompt, schema, feedback),chunk,pages,defer_semantic=True)
                         check_stop(stop_file)
                         break
                     except (ValueError, KeyError, TypeError, jsonschema.ValidationError) as error:
@@ -136,6 +133,12 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                             raise ValueError('Structured extraction/evidence validation failed after one correction: ' + detail[:240]) from error
                 needs_review |= payload['needsReview']
                 collected.extend(payload['facts'])
+            check_stop(stop_file)
+            extra, completeness = recover(candidates,collected,pages,case_number,record['orderDate'],provider)
+            check_stop(stop_file)
+            collected.extend(extra)
+            record['coverage']['completenessRetry']=completeness
+            needs_review |= completeness['needsReview'] or bool(completeness['remainingAnchorIds'])
             record['coverage']['allSelectedChunksProcessed'] = True
             record['facts'] = list({json.dumps(f, sort_keys=True): f for f in collected}.values())
             record['coverage']['representedAnchorCount'] = len({(f['page'],f['evidence']) for f in record['facts']})
