@@ -85,7 +85,12 @@ public static class CourtIntelligenceCaseData
         {
             var info = new FileInfo(statePath);
             if (info.Length > 8192) throw new InvalidDataException("Refresh state exceeds safety limit.");
-            var state = JsonNode.Parse(await File.ReadAllTextAsync(statePath, ct)) as JsonObject
+            // A polling reader must permit atomic same-directory replacement
+            // on Windows. File.ReadAllTextAsync uses a delete-incompatible share.
+            await using var stateStream = new FileStream(statePath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.Asynchronous);
+            if (stateStream.Length > 8192) throw new InvalidDataException("Refresh state exceeds safety limit.");
+            var state = await JsonNode.ParseAsync(stateStream, cancellationToken: ct) as JsonObject
                 ?? throw new InvalidDataException("Invalid refresh state.");
             if (state["caseId"]?.GetValue<string>() != index.CaseId.ToString()) throw new InvalidDataException("Refresh case mismatch.");
             if (!new[] { "Running", "Completed", "CompletedWithReview", "Failed", "Interrupted" }.Contains(state["status"]?.GetValue<string>()))

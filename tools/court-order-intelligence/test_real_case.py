@@ -104,6 +104,35 @@ class RealCaseTests(unittest.TestCase):
             RefreshController(root,lambda:self.fail('Startup inference'))
             self.assertEqual('Interrupted',json.loads(path.read_text())['status'])
 
+    def test_refresh_budget_is_configurable_bounded_and_restores_provider_timeout(self):
+        class Provider:
+            version='fixture'
+            request_timeout=300
+            def extract(self,*args): return self.request_timeout
+        provider=Provider(); seen=[]
+        def process(src,number,bounded):
+            seen.append(bounded.extract());return order([fact()],officialUrl=URL)
+        with tempfile.TemporaryDirectory() as root:
+            refresh_case(root,CASE,NUMBER,[source()],provider,processor=process,timeout_seconds=1800)
+        self.assertEqual([300],seen); self.assertEqual(300,provider.request_timeout)
+        for invalid in [0,1801,float('inf'),None]:
+            with self.assertRaises(ValueError): RefreshController('.',lambda:provider,timeout_seconds=invalid)
+
+    def test_whole_budget_caps_each_request_and_expiration_is_fail_closed(self):
+        class Provider:
+            version='fixture'
+            request_timeout=300
+            def extract(self,*args): return self.request_timeout
+        provider=Provider(); seen=[]
+        def process(src,number,bounded):
+            seen.append(bounded.extract());return order([fact()],officialUrl=URL)
+        with tempfile.TemporaryDirectory() as root:
+            refresh_case(root,CASE,NUMBER,[source()],provider,processor=process,timeout_seconds=10)
+        self.assertLessEqual(seen[0],10);self.assertEqual(300,provider.request_timeout)
+        with tempfile.TemporaryDirectory() as root, patch('real_case.time.monotonic',side_effect=[0,11]):
+            with self.assertRaises(ValueError):refresh_case(root,CASE,NUMBER,[source()],provider,processor=process,timeout_seconds=10)
+            self.assertIsNone(read_artifact(root,CASE))
+
     def test_only_one_case_refresh_can_start_and_explicit_retry_is_possible(self):
         entered=threading.Event(); finish=threading.Event()
         def blocked(*args,**kwargs): entered.set(); finish.wait(3); return {},0

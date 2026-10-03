@@ -29,7 +29,10 @@ def read_artifact(root, case_id, case_number=None):
     return artifact
 
 
-def refresh_case(root, case_id, case_number, sources, provider, processor=process_order, progress=None):
+def refresh_case(root, case_id, case_number, sources, provider, processor=process_order, progress=None,
+                 timeout_seconds=900):
+    if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 1800:
+        raise ValueError('Explicit refresh budget must be between 1 and 1800 seconds')
     case_id=str(uuid.UUID(case_id))
     folder=Path(root)/'court-intelligence'/'v1'
     case_folder=folder/case_id
@@ -38,7 +41,7 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
         indexed=merge_known_orders(existing,case_id,case_number,sources,strict_index=True)
         if not indexed['orders']: raise ValueError('No exact dated official sources')
         records=[]; reviews=0
-        deadline=time.monotonic()+900 # one explicit case, finite local refresh
+        deadline=time.monotonic()+timeout_seconds # one explicit case, finite local refresh
         class BoundedProvider:
             version=getattr(provider,'version','local')
             def extract(self,*args,**kwargs):
@@ -83,7 +86,10 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
 
 
 class RefreshController:
-    def __init__(self,root,provider_factory):
+    def __init__(self,root,provider_factory,timeout_seconds=900):
+        if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 1800:
+            raise ValueError('Explicit refresh budget must be between 1 and 1800 seconds')
+        self.timeout_seconds=timeout_seconds
         self.root=Path(root); self.provider_factory=provider_factory
         self.lock=threading.Lock()
         # Restart never resumes downloads. Disclose lost runtime work only.
@@ -118,7 +124,8 @@ class RefreshController:
                     def progress(checked,total,reviews):
                         state.update(checked=checked,total=total,needsReview=reviews)
                         atomic_json(status_path,state)
-                    _,reviews=refresh_case(self.root,case_id,case_number,sources,self.provider_factory(),progress=progress)
+                    _,reviews=refresh_case(self.root,case_id,case_number,sources,self.provider_factory(),progress=progress,
+                                           timeout_seconds=self.timeout_seconds)
                     state.update(status='CompletedWithReview' if reviews else 'Completed')
                 except Exception:
                     # Provider errors can contain URLs; status never stores raw

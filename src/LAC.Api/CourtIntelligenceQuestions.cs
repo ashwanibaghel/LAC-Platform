@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text;
 
 namespace LAC.Api;
 
@@ -18,8 +19,7 @@ public static class CourtIntelligenceQuestions
         try
         {
             // Fixed literal loopback origin; the Python service retrieves only this GUID.
-            using var response = await clients.CreateClient("CourtCaseQuestions")
-                .PostAsJsonAsync("ask", new { caseId, question, caseNumber, orderIndex }, ct);
+            using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber, orderIndex }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
@@ -50,7 +50,7 @@ public static class CourtIntelligenceQuestions
             return Results.BadRequest(new { error = "No exact dated official DHC order source is available for this matter." });
         try
         {
-            using var response = await clients.CreateClient("CourtCaseQuestions").PostAsJsonAsync("refresh",
+            using var response = await PostLocalAsync(clients, "refresh",
                 new { caseId = index.CaseId, caseNumber = index.CaseNumber, orderIndex = index.Orders }, ct);
             if ((int)response.StatusCode == 409) return Results.Conflict(new { error = "Another local Court intelligence check is in progress." });
             if ((int)response.StatusCode != 202) return Unavailable();
@@ -60,6 +60,19 @@ public static class CourtIntelligenceQuestions
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException
             or IOException or InvalidDataException or InvalidOperationException or KeyNotFoundException or FormatException) { return Unavailable(); }
+    }
+
+    private static async Task<HttpResponseMessage> PostLocalAsync<T>(IHttpClientFactory clients, string path, T payload, CancellationToken ct)
+    {
+        // The bounded local Python HTTP receiver reads Content-Length. JsonContent
+        // streams chunked JSON with no length; buffer the same Web JSON contract
+        // before sending instead of relaxing the receiver or replaying requests.
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, JsonSerializerOptions.Web);
+        if (bytes.Length > 512 * 1024) throw new InvalidDataException("Local request exceeds safety limit.");
+        using var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+        using var client = clients.CreateClient("CourtCaseQuestions");
+        return await client.PostAsync(path, content, ct);
     }
 
     private static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response, CancellationToken ct)

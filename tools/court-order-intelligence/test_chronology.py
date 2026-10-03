@@ -9,6 +9,24 @@ from test_worker import fact, order
 
 
 class ChronologyTests(unittest.TestCase):
+    def test_multi_judge_coram_excludes_oral_author_but_retains_evidence(self):
+        text='CORAM: JUSTICE ALPHA B. ONE JUSTICE GAMMA C. TWO Alpha B. One'
+        result=caption_context({1:text},'official','2026-01-01')['bench']
+        self.assertEqual('JUSTICE ALPHA B. ONE JUSTICE GAMMA C. TWO',result['text'])
+        self.assertEqual(text,result['source']['evidence'])
+
+    def test_single_judge_oral_author_is_not_duplicate(self):
+        for text in ["CORAM: HON'BLE MR. JUSTICE ALPHA B. ONE Alpha B. One, J. (Oral)",
+                     "CORAM: JUSTICE ALPHA B. ONE Alpha B. One"]:
+            result=caption_context({1:text},'official','2026-01-01')['bench']
+            self.assertEqual(1,result['text'].lower().count('alpha b. one'))
+            self.assertIn('JUSTICE',result['text'])
+            self.assertEqual(text,result['source']['evidence'])
+
+    def test_bench_does_not_swallow_following_advocate_block(self):
+        text="CORAM: JUSTICE ALPHA B. ONE Through: Mr. Counsel, Advocate"
+        self.assertEqual('JUSTICE ALPHA B. ONE',caption_context({1:text},'official','2026-01-01')['bench']['text'])
+
     def test_low_quote_defined_term_does_not_quote_remaining_judgment(self):
         pages={1:'1. The petition concerns the statute (hereinafter called „the 2013 Act‟). 2. The Award was made on 24.10.2002. 3. In that decision, this Court observed as under:- “8. The respondents submit possession was taken.” 4. As a consequence, compensation has not been paid. 5. The writ petition is allowed.'}
         anchors=anchors_for(pages)

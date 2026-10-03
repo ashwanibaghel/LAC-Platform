@@ -15,12 +15,18 @@ def main():
     parser.add_argument('--model-version',required=True)
     parser.add_argument('--endpoint',default='http://127.0.0.1:8096')
     parser.add_argument('--port',type=int,default=8097)
+    parser.add_argument('--refresh-request-timeout-seconds',type=int,choices=range(1,301),default=120,
+                        metavar='1..300',help='Bounded explicit refresh inference timeout; Q&A unchanged')
+    parser.add_argument('--refresh-case-timeout-seconds',type=int,choices=range(1,1801),default=900,
+                        metavar='1..1800',help='Whole explicit case refresh budget')
     parser.add_argument('--demo',action='store_true',help='Explicit isolated public-order demo; never enables registered-case search')
     args=parser.parse_args()
     root=Path(args.extraction_root)
     if not root.is_absolute() or not root.is_dir(): raise SystemExit('Existing absolute extraction root required')
     provider=LlamaCppProvider(args.endpoint,args.model_version,request_timeout=240)
-    refresh=RefreshController(root,lambda:LlamaCppProvider(args.endpoint,args.model_version,request_timeout=120))
+    refresh=RefreshController(root,lambda:LlamaCppProvider(args.endpoint,args.model_version,
+                               request_timeout=args.refresh_request_timeout_seconds),
+                               timeout_seconds=args.refresh_case_timeout_seconds)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args): pass # no questions/evidence in access logs
         def do_GET(self):

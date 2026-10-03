@@ -4,7 +4,7 @@ import "./court-intelligence.css";
 type Source = { orderDate: string | null; page: number; evidence: string; officialUrl: string; evidenceParts?: { page: number; evidence: string }[] };
 type Fact = { category: string; field: string; value: string; page: number; evidence: string; scope: string; evidenceParts?: { page: number; evidence: string }[] };
 type Proposition = { id?: string; role: string; attribution: string; scope: string; text: string; source: Source };
-type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null; court?: string | null; digest?: Proposition[]; presentationKind?: "Routine" | "Substantive" | "Unverified"; officeActionCount?: number };
+type Order = { orderDate: string | null; officialUrl: string; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null; court?: string | null; digest?: Proposition[]; presentationKind?: "Routine" | "Substantive" | "Unverified"; officeActionCount?: number; failureMessage?: string; refreshFailure?: string; coverage?: { allSelectedChunksProcessed?: boolean } };
 type Action = { id: string; type?: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
 type CaptionEntry = { text: string; source: Source };
 type Intelligence = { caseNumber?: string; status: string; processingComplete: boolean; currentPosition: { text: string; source: Source; attribution?: string; role?: string; scope?: string }[]; beforeNextHearing: Action[]; latestOrder: Order | null; finalOrder?: Order | null; latestMeaningfulOrder?: Order | null; chronologyWarnings?: string[]; orders: Order[]; caption?: Record<string, CaptionEntry | string>; lacCaptionAppearances?: CaptionEntry[]; factualChronology?: { dates: string[]; text: string; role: string; source: Source }[]; sourceCoverage?: { basis: string; knownSources: number; checkedSources: number; gaps: { orderDate: string | null; officialUrl: string; reason: string }[] } };
@@ -233,7 +233,7 @@ const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
               </li>
             ))}
           </ul>
-          {order.officeActionCount === 0 && (
+            {order.officeActionCount === 0 && order.status === "Validated" && !order.failureMessage && !order.refreshFailure && order.coverage?.allSelectedChunksProcessed !== false && (
             <small className="court-order-no-action">No direct LAC action was identified in this order.</small>
           )}
         </>
@@ -432,7 +432,10 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   };
 
   const reviewCount = data?.orders.filter(order => order.status !== "Validated").length ?? 0;
-  const verifiedFacts = data?.orders.flatMap(safeOrderFacts) ?? [];
+    const verifiedFacts = data?.orders.flatMap(safeOrderFacts) ?? [];
+    const actionCheckIncomplete = !!data && (!data.processingComplete || data.orders.length === 0 ||
+      data.orders.some(order => order.status !== "Validated" || !!order.failureMessage || !!order.refreshFailure || order.coverage?.allSelectedChunksProcessed === false) ||
+      !!data.unusableKnownOrderCount);
   const anyOverdueAction = data ? data.beforeNextHearing.some(a => isActionOverdue(a)) : false;
 
   const suggestions = data
@@ -680,8 +683,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               </>
             ) : (
               <p>
-                {data.unprocessedOrderCount && !verifiedFacts.length
-                  ? "Known orders have not been processed yet; no office obligation is inferred."
+                  {actionCheckIncomplete
+                    ? "Office action check is incomplete because one or more Court orders could not be fully processed. Review the source order before concluding whether any LAC action is outstanding."
                   : "No direct LAC action was identified in the processed orders. This does not establish that all office duties are complete."}
               </p>
             )}

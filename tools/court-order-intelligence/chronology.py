@@ -3,6 +3,29 @@ import re
 from semantics import normalized, dates_in
 
 
+def bench_text(value):
+    """Strip an oral-author repeat, never infer an additional bench member.
+
+    Caption/body splitting can leave the author's name before ', J. (Oral)'
+    in the header. Only remove a trailing full name already introduced as
+    JUSTICE; retain the unmodified passage separately as evidence.
+    """
+    value = normalized(re.split(r'\bThrough\s*:|\b(?:O R D E R|J U D G M E N T)\b', value, flags=re.I)[0])
+    value = re.split(r',?\s+J\.?\s*\(\s*oral\s*\)', value, flags=re.I)[0].strip()
+    names = re.findall(r'\bJUSTICE\s+(.+?)(?=\s+(?:HON[\x27’]BLE|JUSTICE)\b)', value, re.I)
+    for name in names:
+        if value.lower().endswith(' ' + name.lower()):
+            return value[:-(len(name)+1)].strip()
+    last = re.search(r'\bJUSTICE\s+(.+)$', value, re.I)
+    if last:
+        words = last[1].split()
+        if len(words) >= 4 and len(words) % 2 == 0:
+            middle = len(words)//2
+            if [w.lower() for w in words[:middle]] == [w.lower() for w in words[middle:]]:
+                value = value[:last.start(1)] + ' '.join(words[:middle])
+    return value
+
+
 def caption_context(headers, official_url, order_date):
     """Keep exact caption blocks and page evidence; do not infer advocate roles."""
     result = {}
@@ -16,9 +39,7 @@ def caption_context(headers, official_url, order_date):
             if match:
                 value = normalized(match[1])
                 if role == 'bench':
-                    first=re.search(r"HON'BLE (?:MR\.|MS\.) JUSTICE (.*?)(?= HON'BLE|$)",value)
-                    if first and value.count(first[1])>1 and value.endswith(' '+first[1]):
-                        value=value[:-(len(first[1])+1)]
+                    value = bench_text(value)
                 # Caption number preceding the title is not part of the party name.
                 value = re.sub(r'^CM APPL\..*?\d{4}\s+', '', value)
                 result[role] = {'text': value, 'source': {'page': page, 'orderDate': order_date,

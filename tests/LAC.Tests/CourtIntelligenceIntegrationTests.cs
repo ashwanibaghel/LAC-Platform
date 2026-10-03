@@ -21,6 +21,42 @@ public sealed class CourtIntelligenceIntegrationTests
     private const string Url = "https://delhihighcourt.nic.in/app/showlogo/synthetic-422026.pdf/2026";
 
     [Fact]
+    public async Task Refresh_polling_accepts_atomic_state_replacement_without_changing_case_data()
+    {
+        using var env = new Harness();
+        var courtCase = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        var folder = Path.GetDirectoryName(env.ArtifactPath(courtCase.Id))!;
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, "refresh.json");
+        var running = JsonSerializer.Serialize(new { caseId = courtCase.Id, status = "Running", @checked = 0 });
+        var completed = JsonSerializer.Serialize(new { caseId = courtCase.Id, status = "Completed", @checked = 1 });
+        await File.WriteAllTextAsync(path, running);
+        var before = await env.Snapshot(courtCase.Id);
+        // Poll real endpoint while atomically publishing same-directory files.
+        var reads = Task.Run(async () =>
+        {
+            for (var i = 0; i < 50; i++)
+            {
+                using var response = await env.Client.GetAsync($"/api/court-cases/{courtCase.Id}/intelligence");
+                response.EnsureSuccessStatusCode();
+                var view = await response.Content.ReadFromJsonAsync<JsonElement>();
+                Assert.Contains(view.GetProperty("refreshState").GetProperty("status").GetString(), new[] { "Running", "Completed" });
+            }
+        });
+        for (var i = 0; i < 50; i++)
+        {
+            var temp = Path.Combine(folder, "state-" + Guid.NewGuid() + ".tmp");
+            await File.WriteAllTextAsync(temp, i % 2 == 0 ? running : completed);
+            File.Move(temp, path, true);
+            await Task.Delay(1);
+        }
+        await reads;
+        Assert.Equal(before, await env.Snapshot(courtCase.Id));
+        Assert.Empty(env.Transport.Requests);
+        Assert.Empty(Directory.GetFiles(folder, "*.tmp"));
+    }
+
+    [Fact]
     public async Task Actual_registered_case_routes_forward_only_its_DB_order_index_without_canonical_writes()
     {
         using var env = new Harness();
@@ -42,6 +78,9 @@ public sealed class CourtIntelligenceIntegrationTests
         using var refresh = await env.Client.PostAsync($"/api/court-cases/{a.Id}/intelligence/refresh", null);
         Assert.Equal(HttpStatusCode.Accepted, refresh.StatusCode);
         var requests = env.Transport.Requests.ToArray();
+        Assert.Equal(2, env.Transport.RequestContentLengths.Count);
+        Assert.All(env.Transport.RequestContentLengths, length => Assert.True(length is > 0 and <= 512 * 1024,
+            "The local Python receiver requires a bounded Content-Length, not chunked JSON."));
         Assert.Equal(new[] { "/ask", "/refresh" }, requests.Select(x => x.Path));
         foreach (var request in requests)
         {
@@ -251,11 +290,13 @@ public sealed class CourtIntelligenceIntegrationTests
     private sealed class CaptureTransport : HttpMessageHandler, IHttpClientFactory
     {
         public ConcurrentQueue<(string Host, string Path, JsonElement Body)> Requests { get; } = new();
+        public ConcurrentQueue<long?> RequestContentLengths { get; } = new();
         public JsonObject? Answer { get; set; }
         public bool Unavailable { get; set; }
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("http://127.0.0.1:8097/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            RequestContentLengths.Enqueue(request.Content!.Headers.ContentLength);
             var body = JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync(ct));
             Requests.Enqueue((request.RequestUri!.Host, request.RequestUri.AbsolutePath, body));
             if (Unavailable) throw new HttpRequestException("Synthetic local model outage");

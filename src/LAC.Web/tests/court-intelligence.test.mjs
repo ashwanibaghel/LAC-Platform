@@ -134,7 +134,7 @@ test('review warning uses officer wording without altering verified evidence',()
 });
 test('zero-action order still renders rich attributed facts, not an empty action detector',()=>{
   const facts=[{...direction,category:'PETITIONER_SUBMISSION',field:'compensation',value:'Petitioner claims compensation remains unpaid.'},{...direction,category:'LAC_OR_RESPONDENT_SUBMISSION',field:'compensation',value:'LAC submits compensation was deposited.'},{...direction,category:'COURT_OBSERVATION',field:'observation',value:'The Court observed that the record was incomplete.'}];
-  const latest={...data.latestOrder,summaryFacts:facts,officeActionCount:0};
+  const latest={...data.latestOrder,status:'Validated',summaryFacts:facts,officeActionCount:0,coverage:{allSelectedChunksProcessed:true}};
   const html=officerMarkup({...data,beforeNextHearing:[],latestOrder:latest,currentPosition:[],orders:[latest]});
   assert.match(html,/What happened in this order/);
   assert.match(html,/Petitioner submission/);
@@ -146,6 +146,27 @@ test('zero-action order still renders rich attributed facts, not an empty action
   assert.doesNotMatch(html,/No useful intelligence|No confirmed operative summary/);
   assert.match(html,/court-intelligence-timeline-fact/);
   assert.doesNotMatch(html,/<details class="court-intelligence-history" open/);
+});
+
+test('incomplete or review-required processing never claims there is no direct LAC action',()=>{
+  for(const change of [
+    {processingComplete:false},
+    {orders:[{...data.latestOrder,status:'NeedsReview',facts:[],failureMessage:'Local processing failed'}]},
+    {orders:[{...data.latestOrder,status:'NeedsSourceReview',facts:[]}]},
+    {orders:[{...data.latestOrder,status:'Validated',facts:[],coverage:{allSelectedChunksProcessed:false}}]},
+    {orders:[{...data.latestOrder,status:'Validated',facts:[],refreshFailure:'Latest check failed'}]},
+  ]){
+    const html=officerMarkup({...data,beforeNextHearing:[],orders:[{...data.latestOrder,status:'Validated'}],...change});
+    assert.match(html,/Office action check is incomplete/);
+    assert.doesNotMatch(html,/No direct LAC action was identified in the processed orders/);
+  }
+});
+
+test('complete verified zero-action evidence retains the genuine no-action outcome',()=>{
+  const latest={...data.latestOrder,status:'Validated',facts:[],summaryFacts:[],officeActionCount:0,coverage:{allSelectedChunksProcessed:true}};
+  const html=officerMarkup({...data,status:'Validated',processingComplete:true,beforeNextHearing:[],latestOrder:latest,orders:[latest]});
+  assert.match(html,/No direct LAC action was identified in the processed orders/);
+  assert.doesNotMatch(html,/Office action check is incomplete/);
 });
 test('current position retains role distinctions and review warning appears only once',()=>{
   const html=officerMarkup({...data,orders:[data.latestOrder],currentPosition:[{role:'COURT_FINDING',text:'The reference was in time.',source:evidence},{role:'PETITIONER_SUBMISSION',text:'The petitioner disputes payment.',source:evidence}]});

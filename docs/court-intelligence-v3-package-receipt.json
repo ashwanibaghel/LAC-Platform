@@ -1,0 +1,22 @@
+{
+  "purpose": "LOCAL_REAL_CASE_ACCEPTANCE_ONLY_NOT_RELEASE_PROMOTION",
+  "modelVersion": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321",
+  "model": "Qwen/Qwen3-4B-Instruct-2507",
+  "baseRevision": "cdbee75f17c01a7cc42f958dc650907174af0554",
+  "adapterSha256": "d57f20ada9a5d07b9f472385393127ba6ae1a8191c7247441cd5473448965175",
+  "adapterManifestSha256": "2f219f3567c52befbc528943b7352a7dc66a7c9055b27eee442d96b3c29de934",
+  "evaluationMetadataSha256": "93c8a1aa14b4e5480de3ab9ee3b58b588f1d2a8c452e44ddc22e0c549ff3a891",
+  "baseGgufSha256": "9657e9d21175ed290fa4ec3662fffb61a001463ac4ec1abd62deaa509b440710",
+  "loraGgufSha256": "f002c12aef178431cd56bc482350f3733e92f51972a668ed119a7d946e68daf1",
+  "loraBitExactTensors": 288,
+  "deploymentManifestSha256": "926a2dc2002941987c40b4ddd656e5e4b12d5c5e2fa74423fb3500b8f026631b",
+  "v1FallbackManifestSha256": "d3fb70af9dd325e4e2a13eb8015ebc52208aadb6a370c103fb17f0798922204c",
+  "quantization": "Q4_K_M",
+  "contextSize": 4096,
+  "parallel": 1,
+  "cpuThreads": 2,
+  "gpuLayers": 0,
+  "modelEndpoint": "http://127.0.0.1:8096",
+  "questionEndpoint": "http://127.0.0.1:8097",
+  "qualityStatus": "EVALUATION_NO_GO_LOCAL_ACCEPTANCE_ONLY"
+}

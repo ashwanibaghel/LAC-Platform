@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,9 +95,8 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             if len({identity(raw) for page,raw in matches})>1:
                 raise ValueError('NeedsSourceReview: connected-case PDF needs case-specific attribution; no cross-case facts inferred')
             record['court']='Delhi High Court' if 'HIGH COURT OF DELHI' in pages[1].upper() else None
-            bench=re.search(r'CORAM:\s*(.*)',list(headers.values())[-1],re.I)
-            record['bench']=bench[1] if bench and len(bench[1])<=900 else None
             record['caption'] = caption_context(headers, source['officialUrl'], record['orderDate'])
+            record['bench'] = record['caption'].get('bench', {}).get('text')
             anchors = anchors_for(pages)
             chunks=[]
             current=[]
@@ -153,15 +153,26 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
 
 def atomic_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.tmp', dir=path.parent, delete=False) as stream:
-        temporary = Path(stream.name)
-        json.dump(value, stream, ensure_ascii=False, indent=2)
-        stream.flush()
-        os.fsync(stream.fileno())
+    temporary = None
     try:
-        os.replace(temporary, path)
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.tmp', dir=path.parent, delete=False) as stream:
+            temporary = Path(stream.name)
+            json.dump(value, stream, ensure_ascii=False, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Windows readers/antivirus may briefly deny delete-sharing. Never
+        # replace atomic publication with a direct write or retry indefinitely.
+        delays = (0.02, 0.05, 0.1, 0.2, 0.4)
+        for attempt in range(len(delays) + 1):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError as error:
+                if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == len(delays):
+                    raise
+                time.sleep(delays[attempt])
     finally:
-        temporary.unlink(missing_ok=True)
+        if temporary is not None: temporary.unlink(missing_ok=True)
 
 def main():
     parser = argparse.ArgumentParser()
