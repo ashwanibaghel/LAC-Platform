@@ -11,6 +11,28 @@ type Intelligence = { caseNumber?: string; status: string; processingComplete: b
 type Answer = { answer: string; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
 type RegisteredIntelligence = Intelligence & { caseId: string; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; checked?: number; total?: number; needsReview?: number; message?: string } };
 
+const IconCourt: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = "" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+    aria-hidden="true"
+  >
+    <path d="M3 21h18" />
+    <path d="M6 18v-7" />
+    <path d="M10 18v-7" />
+    <path d="M14 18v-7" />
+    <path d="M18 18v-7" />
+    <polygon points="12 2 2 7 22 7 12 2" />
+  </svg>
+);
+
 const officialLink = (url: string) => {
   try {
     const parsed = new URL(url);
@@ -77,6 +99,7 @@ const roleClass = (role?: string) => {
   if (r.includes("DIRECTION")) return "role-court-direction";
   if (r.includes("OBSERVATION")) return "role-court-observation";
   if (r.includes("PETITIONER")) return "role-petitioner-submission";
+  if (r.includes("OTHER_PARTY")) return "role-other-party-submission";
   if (r.includes("LAC") || r.includes("RESPONDENT")) return "role-lac-or-respondent-submission";
   if (r.includes("COMPLIANCE")) return "role-recorded-compliance";
   if (r.includes("COMPENSATION")) return "role-compensation-fact";
@@ -129,6 +152,8 @@ const officeToday = () => {
 const upcomingHearing = (order: Order | null, today = officeToday()) =>
   confirmedNextHearing(order) && order!.nextHearingDate! >= today;
 
+const isActionOverdue = (action: Action, today = officeToday()) => !!action.dueDate && action.dueDate < today;
+
 const actionPeriod = (action: Action, today = officeToday()) => {
   if (!action.dueDate) return `${action.deadlineText ?? "No deadline stated"} · completion not confirmed`;
   if (/\bpreferably\b/i.test(action.deadlineText ?? ""))
@@ -171,16 +196,21 @@ const actionTitle = (action: Action) =>
     ? "Compensation action"
     : "Outstanding LAC action";
 
-const ActionRow: React.FC<{ action: Action }> = ({ action }) => (
-  <div className="court-intelligence-action">
-    <div className="court-action-topline">
-      <h5>{actionTitle(action)}</h5>
-      <small className="court-action-deadline">{actionPeriod(action)}</small>
+const ActionRow: React.FC<{ action: Action }> = ({ action }) => {
+  const overdue = isActionOverdue(action);
+  return (
+    <div className={`court-intelligence-action ${overdue ? "action-overdue" : "action-pending"}`}>
+      <div className="court-action-topline">
+        <h5>{actionTitle(action)}</h5>
+        <small className={`court-action-deadline ${overdue ? "overdue" : "pending"}`}>
+          {actionPeriod(action)}
+        </small>
+      </div>
+      <p>{officerText(action.text)}</p>
+      <Evidence source={action.source} />
     </div>
-    <p>{officerText(action.text)}</p>
-    <Evidence source={action.source} />
-  </div>
-);
+  );
+};
 
 const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
   const digest = orderDigest(order);
@@ -403,6 +433,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
 
   const reviewCount = data?.orders.filter(order => order.status !== "Validated").length ?? 0;
   const verifiedFacts = data?.orders.flatMap(safeOrderFacts) ?? [];
+  const anyOverdueAction = data ? data.beforeNextHearing.some(a => isActionOverdue(a)) : false;
+
   const suggestions = data
     ? [
         ...(data.latestOrder && currentFacts(data.latestOrder).some(fact => fact.category === "COURT_DIRECTION")
@@ -428,10 +460,12 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     <section className="court-intelligence" aria-label="Court Intelligence">
       <header className="court-intelligence-header">
         <div className="court-intelligence-title-lockup">
-          <span className="court-intelligence-emblem" aria-hidden="true">🏛</span>
+          <span className="court-intelligence-emblem">
+            <IconCourt size={15} />
+          </span>
           <div>
             <h3>Court Intelligence</h3>
-            <p className="court-intelligence-header-desc">Synthesized from official Court orders & proceedings</p>
+            <p className="court-intelligence-header-desc">Synthesized from available verified Court orders</p>
           </div>
         </div>
         <span>Evidence-backed office brief</span>
@@ -467,9 +501,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                       </p>
                     )}
                     {!data.unprocessedOrderCount && !data.unusableKnownOrderCount && (
-                      <p className="court-intelligence-status-synced">
-                        <span className="court-status-pill verified">Verified Index</span>
-                        {data.knownOrderCount} official Court {data.knownOrderCount === 1 ? "order" : "orders"} indexed &amp; verified.
+                      <p className="court-intelligence-status-indexed">
+                        <span className="court-status-pill neutral">Official Index</span>
+                        {data.knownOrderCount} official Court {data.knownOrderCount === 1 ? "order" : "orders"} indexed.
                       </p>
                     )}
                     {data.orders.length > 0 && (
@@ -613,7 +647,11 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
 
           <article
             className={`court-intelligence-attention${
-              data.beforeNextHearing.length ? "" : " court-intelligence-attention-empty"
+              data.beforeNextHearing.length
+                ? anyOverdueAction
+                  ? " attention-has-overdue"
+                  : " attention-pending-future"
+                : " court-intelligence-attention-empty"
             }`}
           >
             <div className="court-intelligence-region-heading">
@@ -660,7 +698,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                         {line.role && (
                           <small className={`court-role-pill ${roleClass(line.role)}`}>
                             {roleLabel(line.role)}
-                            {line.scope === "Historical" ? " · historical reference" : ""} ·{" "}
+                            {line.scope === "Historical" ? " · historical reference" : ""}
                           </small>
                         )}
                         {officerText(line.text)}
@@ -816,8 +854,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                           .map((entry, number) => (
                             <span className="court-intelligence-timeline-fact" key={number}>
                               <small className={`court-role-pill ${roleClass(entry.role)}`}>
-                                {roleLabel(entry.role)} ·{" "}
-                              </small>
+                                {roleLabel(entry.role)}
+                              </small>{" "}
                               {officerText(entry.text)}
                             </span>
                           ))
