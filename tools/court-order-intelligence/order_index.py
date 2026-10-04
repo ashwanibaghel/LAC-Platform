@@ -9,6 +9,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from semantics import identity, VERSION
 
+MAX_CASE_ARTIFACT_BYTES=8*1024*1024
+MAX_ORDER_ARTIFACT_BYTES=2*1024*1024
+
 MONTHS={name:index for index,names in enumerate((
     'jan january','feb february','mar march','apr april','may','jun june',
     'jul july','aug august','sep sept september','oct october','nov november','dec december'),1)
@@ -74,8 +77,13 @@ def merge_known_orders(artifact, case_id, case_number, sources, strict_index=Fal
         except (ValueError,TypeError): continue
         accepted.add((day,source['officialUrl']))
         prior=next((order for order in orders if order.get('orderDate')==day and order.get('officialUrl')==source['officialUrl']),None)
-        metadata={key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate')}
-        if prior: prior.update(metadata)
+        metadata={key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256','sourceKind')}
+        metadata['sourceEvidenceSha256']=source.get('sourceEvidenceSha256') or source.get('evidenceSha256')
+        if prior:
+            # Upgrade provenance markers from a legacy verified artifact before
+            # updating it to the newest observation metadata. No facts change.
+            if 'processedObservationId' not in prior: prior['processedObservationId']=prior.get('sourceObservationId')
+            prior.update(metadata)
         else: orders.append(dict(officialUrl=source['officialUrl'],orderDate=day,caseNumber=case_number,
                                  status='Unprocessed',facts=[],sha256=None,**metadata))
     if strict_index:
@@ -123,7 +131,7 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
     with pdf_lock(folder):
         current=case_folder/'current.json'
         if current.is_file():
-            if current.stat().st_size>2*1024*1024: raise ValueError('Artifact size limit')
+            if current.stat().st_size>MAX_CASE_ARTIFACT_BYTES: raise ValueError('Artifact size limit')
             fresh=json.loads(current.read_text(encoding='utf-8'))
             artifact=merge_known_orders(fresh,case_id,artifact['caseNumber'],artifact.get('orderIndex',[]),strict_index=strict_index)
             orders=artifact['orders']
@@ -143,9 +151,12 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
                 finally:
                     if previous is not None: provider.request_timeout=previous
         record=processor(source,artifact['caseNumber'],BoundedProvider())
-        if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256']:
+        failed_without_facts=bool(source.get('failureMessage') and not source.get('facts'))
+        if failed_without_facts and source.get('sha256'):
+            record['previousAttemptSha256']=source['sha256']
+        if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256'] and not failed_without_facts:
             record.update(status='NeedsSourceReview',facts=[],failureMessage='Known official source bytes changed; explicit source-version review required')
-        record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate')})
+        record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256')})
         if record.get('failureMessage') and source.get('status')=='Validated':
             record=dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')
         updated=[record if order is source else order for order in orders]

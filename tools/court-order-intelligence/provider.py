@@ -1,5 +1,8 @@
 """Local-only inference boundary. No DNS, proxies, redirects or cloud fallback."""
 import json
+import threading
+
+INFERENCE_LOCK = threading.RLock()
 from abc import ABC, abstractmethod
 from urllib.parse import urlsplit
 import requests
@@ -28,8 +31,9 @@ class LlamaCppProvider(ModelProvider):
                                  + ('\nVALIDATION FEEDBACK: ' + feedback if feedback else '')}],
                    'response_format': {'type': 'json_object', 'schema': schema},
                    'chat_template_kwargs': {'enable_thinking': False}}
-        response = self.session.post(self.endpoint + '/v1/chat/completions', json=payload,
-                                     timeout=(5, self.request_timeout), allow_redirects=False)
+        with INFERENCE_LOCK:
+            response = self.session.post(self.endpoint + '/v1/chat/completions', json=payload,
+                                         timeout=(5, self.request_timeout), allow_redirects=False)
         if response.status_code != 200 or len(response.content) > 128 * 1024:
             raise ValueError('Local inference unavailable or unbounded response')
         result = response.json()['choices'][0]

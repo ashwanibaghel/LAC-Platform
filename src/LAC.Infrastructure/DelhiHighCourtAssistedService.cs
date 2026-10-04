@@ -9,7 +9,7 @@ public sealed record DhcAssistedPreviewCase(Guid CourtCaseId, string CaseNumber,
 public sealed record DhcAssistedPreview(int RecommendedCount, int NoNdohCount,
     int OverdueCount, int ReviewCount, int SkippedIdentityCount,
     IReadOnlyList<DhcAssistedPreviewCase> Cases);
-public sealed record DhcAssistedStartRequest(string Scope, IReadOnlyList<Guid>? CaseIds);
+public sealed record DhcAssistedStartRequest(string Scope, IReadOnlyList<Guid>? CaseIds, bool FullHistory = false);
 public sealed record DhcAssistedResult(DhcAssistedSyncRun Run,
     IReadOnlyList<DhcAssistedSyncItem> Items, string? OwnerName);
 
@@ -18,6 +18,7 @@ public sealed class DelhiHighCourtAssistedService(
     ICourtWorkflowService? workflow = null,
     Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
 {
+    public const string FullHistoryReason = "Full DHC History";
     public async Task RequireOperatorAsync(Guid userId, CancellationToken ct)
     {
         if (!await authorization.CanViewCourtReferencesAsync(userId, ct) ||
@@ -59,6 +60,20 @@ public sealed class DelhiHighCourtAssistedService(
     public async Task<DhcAssistedSyncRun> CreateRunAsync(Guid userId, DhcAssistedStartRequest request, CancellationToken ct)
     {
         var preview = await PreviewAsync(userId, ct);
+        if (request.FullHistory)
+        {
+            if (request.Scope != "Selected" || request.CaseIds?.Count != 1)
+                throw new CourtWorkflowException("Full history requires exactly one registered case.", 400);
+            var id = request.CaseIds[0];
+            if (!await authorization.CanViewCourtCaseAsync(id, userId, ct) ||
+                !await authorization.CanEditCourtCaseAsync(id, userId, ct))
+                throw new CourtWorkflowException("Court case view and edit access is required.", 403);
+            var matter = await db.CourtCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+            if (matter == null || matter.RecordStatus != RecordStatus.Active ||
+                matter.CourtName != "Delhi High Court" || CourtImportService.Identity(matter.CourtName, matter.CaseNumber) == null)
+                throw new CourtWorkflowException("An active registered Delhi High Court case with an exact case number is required.", 400);
+            preview = new(1, 0, 0, 0, 0, [new(id, matter.CaseNumber, null, FullHistoryReason, false)]);
+        }
         var today = clock.GetCurrentDate();
         var selected = request.Scope switch
         {
@@ -86,7 +101,7 @@ public sealed class DelhiHighCourtAssistedService(
             var courtCase = await db.CourtCases.AsNoTracking().SingleAsync(x => x.Id == item.CourtCaseId, ct);
             var identity = CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber);
             if (courtCase.RecordStatus != RecordStatus.Active || courtCase.CourtName != "Delhi High Court" ||
-                !string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) ||
+                !request.FullHistory && !string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) ||
                 identity == null || identity.Length > 512)
                 throw new CourtWorkflowException("Selected cases must still be active, pending, exact Delhi High Court identities.", 409);
             run.Items.Add(new DhcAssistedSyncItem
@@ -294,7 +309,7 @@ public sealed class DelhiHighCourtAssistedService(
         var courtCase = await db.CourtCases.AsNoTracking().SingleOrDefaultAsync(x => x.Id == item.CourtCaseId, ct);
         if (courtCase != null && courtCase.RecordStatus == RecordStatus.Active &&
             courtCase.CourtName == "Delhi High Court" &&
-            string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) &&
+            (item.Reason == FullHistoryReason || string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase)) &&
             !string.IsNullOrEmpty(item.NormalizedCaseIdentity) &&
             CourtImportService.Identity(courtCase.CourtName, courtCase.CaseNumber) == item.NormalizedCaseIdentity)
             return true;
@@ -369,7 +384,7 @@ public sealed class DelhiHighCourtAssistedService(
                     .Select(x => x.CaseNumber).ToListAsync(ct);
                 var uniqueLocalIdentity = localNumbers.Count(number =>
                     CourtImportService.Identity("Delhi High Court", number) == requested) == 1;
-                autoDispose = workflow != null && !ambiguousResult && uniqueLocalIdentity && !conflict && statusDifference &&
+                autoDispose = item.Reason != FullHistoryReason && workflow != null && !ambiguousResult && uniqueLocalIdentity && !conflict && statusDifference &&
                     string.Equals(courtCase.CurrentStatus?.Trim(), "Pending", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(row.RawStatus?.Trim(), "Disposed", StringComparison.OrdinalIgnoreCase) &&
                     await authorization.CanEditCourtCaseAsync(courtCase.Id, run.StartedByUserId, ct);
@@ -459,13 +474,16 @@ public sealed class DelhiHighCourtAssistedService(
     }
 
     public async Task ProcessOrdersAsync(DhcAssistedSyncRun run, DhcAssistedSyncItem item,
-        string response, CancellationToken ct)
+        string response, CancellationToken ct, string? sourceUrl = null)
     {
         if (!await ValidateQueuedCaseAsync(run, item, false, ct)) return;
         var courtCase = await db.CourtCases.AsNoTracking().SingleAsync(x => x.Id == item.CourtCaseId, ct);
         var requested = item.NormalizedCaseIdentity;
         var rows = DelhiHighCourtAssistedForms.ParseOrderRows(response);
-        var exactRows = rows.Where(x => ContainsRequestedIdentity(x.RawCaseNumber, requested)).ToList();
+        var exactRows = rows.Where(x => ContainsRequestedIdentity(x.RawCaseNumber, requested))
+            .SelectMany(row => row.HindiOrderUrl != null && row.HindiOrderUrl != row.OfficialUrl
+                ? new[] { row, row with { OfficialUrl = row.HindiOrderUrl, CorrigendumUrl = null, HindiOrderUrl = null } }
+                : new[] { row }).ToList();
         if (rows.Count > 0 && exactRows.Count == 0)
         {
             item.Status = DhcAssistedItemStatus.NeedsReview;
@@ -487,10 +505,12 @@ public sealed class DelhiHighCourtAssistedService(
                 run.NeedsReviewCases++;
             }
         }
-        foreach (var row in exactRows)
+        foreach (var row in exactRows.DistinctBy(x => (x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.EvidenceSha256)))
         {
             if (await db.CourtExternalOrderObservations.AnyAsync(x =>
-                    x.RunItemId == item.Id && x.EvidenceSha256 == row.EvidenceSha256, ct)) continue;
+                    x.CourtCaseId == courtCase.Id && x.NormalizedCaseIdentity == requested &&
+                    x.OrderDate == row.OrderDate && x.OfficialUrl == row.OfficialUrl &&
+                    x.CorrigendumUrl == row.CorrigendumUrl && x.EvidenceSha256 == row.EvidenceSha256, ct)) continue;
             db.CourtExternalOrderObservations.Add(new CourtExternalOrderObservation
             {
                 CourtCaseId = courtCase.Id, RunItemId = item.Id, ObservedAt = clock.GetUtcNow(),
@@ -498,7 +518,7 @@ public sealed class DelhiHighCourtAssistedService(
                 RawOrderDate = row.RawOrderDate, OrderDate = row.OrderDate,
                 OfficialUrl = row.OfficialUrl, CorrigendumUrl = row.CorrigendumUrl,
                 UploadDate = row.UploadDate, RawUploadDate = row.RawUploadDate,
-                RawRemark = row.RawRemark, SourceUrl = DelhiHighCourtAssistedForms.OrderUrl,
+                RawRemark = row.RawRemark, SourceUrl = sourceUrl ?? DelhiHighCourtAssistedForms.OrderUrl,
                 EvidenceSha256 = row.EvidenceSha256, RawEvidenceText = row.RawEvidenceText
             });
         }
@@ -510,15 +530,16 @@ public sealed class DelhiHighCourtAssistedService(
         await db.SaveChangesAsync(ct);
     }
 
-    private static bool ContainsRequestedIdentity(string raw, string requested)
+    public static bool ContainsRequestedIdentity(string raw, string requested)
     {
+        var identities = new HashSet<string>();
         foreach (Match match in Regex.Matches(raw,
                      @"[A-Za-z][A-Za-z.() ]*?\s*(?:No\.?\s*)?[-/]?\s*\d+\s*/\s*(?:19|20)\d{2}"))
         {
             var identity = CourtImportService.Identity("Delhi High Court", match.Value);
-            if (identity == requested) return true;
+            if (identity != null) identities.Add(identity);
         }
-        return false;
+        return identities.Count == 1 && identities.Contains(requested);
     }
 
     private async Task StoreReviewEvidenceAsync(Guid caseId, Guid itemId, string requested,

@@ -18,6 +18,20 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
     private DateTimeOffset lastRequest;
     private string? pendingHumanOrderAnswer;
     private string? lastResponseContentType;
+    private readonly Dictionary<string, string> statusOrderLinks = new(StringComparer.Ordinal);
+    public string? StatusOrderListUrl(string identity) => statusOrderLinks.GetValueOrDefault(identity);
+    public bool RestoreRecordedStatusOrderList(string identity, string rawCase, string evidence, string evidenceSha256)
+    {
+        if (!DelhiHighCourtAssistedService.ContainsRequestedIdentity(rawCase, identity) ||
+            !string.Equals(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(evidence))),
+                evidenceSha256, StringComparison.OrdinalIgnoreCase)) return false;
+        const string marker = " | Official order list: ";
+        var position = evidence.LastIndexOf(marker, StringComparison.Ordinal);
+        if (position < 0 || !Uri.TryCreate(evidence[(position + marker.Length)..], UriKind.Absolute, out var url) ||
+            !DelhiHighCourtAssistedForms.IsOfficialStatusOrderListUri(url)) return false;
+        statusOrderLinks[identity] = url.AbsoluteUri;
+        return true;
+    }
     public string? LastOrderResponseContentType { get; private set; }
     public IReadOnlyList<string> LastOrderPostFieldNames { get; private set; } = [];
     public CookieContainer Cookies { get; } = new();
@@ -151,7 +165,48 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         // regular navigation GET. Its own AJAX call sends this header and gets
         // the JSON case result after the officer's manual verification.
         request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-        return await TextAsync(request, ct);
+        var response = await TextAsync(request, ct);
+        if (response.TrimStart().StartsWith('{') && !DelhiHighCourtAssistedForms.CaptchaRequired(response))
+        {
+            var identity = CourtImportService.Identity("Delhi High Court", $"{officialType} {number}/{year}");
+            var rows = DelhiHighCourtAssistedForms.ParseStatusRows(response);
+            var exact = rows.Where(x => DelhiHighCourtAssistedService.ContainsRequestedIdentity(x.RawCaseNumber, identity!)).ToList();
+            if (identity != null && rows.Count == 1 && exact.Count == 1 && exact[0].OfficialOrderListUrl is { } link)
+                statusOrderLinks[identity] = link;
+        }
+        return response;
+    }
+
+    public async Task<string> SearchStatusOrdersAsync(string identity, CancellationToken ct)
+    {
+        var source = StatusOrderListUrl(identity) ?? throw new InvalidOperationException("Fresh exact status order-list evidence is required.");
+        if (!DelhiHighCourtAssistedForms.IsOfficialStatusOrderListUri(new Uri(source)))
+            throw new InvalidDataException("Official order-list URL is not approved.");
+        var combined = new List<JsonElement>();
+        int? total = null;
+        const int pageSize = 50;
+        for (var start = 0; ; start += pageSize)
+        {
+            var draw = start / pageSize + 1;
+            using var request = new HttpRequestMessage(HttpMethod.Get, source + $"?draw={draw}&start={start}&length={pageSize}");
+            request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+            var response = await TextAsync(request, ct);
+            var page = DelhiHighCourtAssistedForms.ParseStatusOrderPage(response);
+            total ??= page.Total;
+            if (page.Draw != draw || page.Total != total || page.Rows.Count != Math.Min(pageSize, total.Value - start))
+                throw new InvalidDataException("Official order pagination is incomplete or changed during lookup.");
+            using var document = JsonDocument.Parse(response);
+            var position = start;
+            foreach (var row in document.RootElement.GetProperty("data").EnumerateArray())
+            {
+                if (!row.TryGetProperty("DT_RowIndex", out var index) || !index.TryGetInt32(out var rowIndex) ||
+                    rowIndex != ++position)
+                    throw new InvalidDataException("Official order pagination repeated or omitted a row.");
+                combined.Add(row.Clone());
+            }
+            if (combined.Count == total) break;
+        }
+        return JsonSerializer.Serialize(new { draw = 1, recordsTotal = total, recordsFiltered = total, data = combined });
     }
 
     public async Task<string> SearchOrdersAsync(string officialType, string number, string year, CancellationToken ct)
@@ -160,6 +215,7 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         var manualAnswer = pendingHumanOrderAnswer ??
             throw new InvalidOperationException("A fresh human-entered order verification code is required.");
         pendingHumanOrderAnswer = null;
+        statusOrderLinks.Clear();
         Verified = false;
         var fields = new Dictionary<string, string>(OrderForm.HiddenFields, StringComparer.Ordinal)
         {
@@ -180,6 +236,7 @@ public sealed class DelhiHighCourtAssistedSession : IAsyncDisposable
         client.Dispose();
         StatusForm = null;
         OrderForm = null;
+        statusOrderLinks.Clear();
         pendingHumanOrderAnswer = null;
         Verified = false;
         IsDisposed = true;

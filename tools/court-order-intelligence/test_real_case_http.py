@@ -17,6 +17,37 @@ from test_questions import SelectAll
 
 
 class RegisteredHttpTests(unittest.TestCase):
+    def test_authenticated_name_remains_available_while_court_answer_waits_for_inference(self):
+        case=str(uuid.uuid4()); ready=threading.Event(); entered=threading.Event(); release=threading.Event(); servers=[]; responses=[]
+        actual_server_type=serve_questions.HTTPServer
+        class Slow(SelectAll):
+            def extract(self,*args):
+                entered.set()
+                if not release.wait(5): raise TimeoutError('Test inference was not released')
+                return super().extract(*args)
+        def server(_address,handler):
+            actual=actual_server_type(('127.0.0.1',0),handler); servers.append(actual); ready.set(); return actual
+        with tempfile.TemporaryDirectory() as root:
+            refresh_case(root,case,NUMBER,[source(case=case)],SelectAll(),
+                processor=lambda metadata,*args:order([fact()],officialUrl=metadata['officialUrl'],orderDate=metadata['orderDate']))
+            with patch.object(serve_questions,'HTTPServer',server), patch.object(serve_questions,'LlamaCppProvider',lambda *a,**k:Slow()), \
+                    patch('sys.argv',['serve_questions','--extraction-root',root,'--model-version','test']):
+                thread=threading.Thread(target=serve_questions.main,daemon=True); thread.start(); self.assertTrue(ready.wait(3))
+                base='http://127.0.0.1:'+str(servers[0].server_port)
+                def ask_slow():
+                    responses.append(requests.post(base+'/ask',json={'caseId':case,'caseNumber':NUMBER,
+                        'question':'What did the latest order direct?','orderIndex':[source(case=case)]},timeout=6))
+                pending=threading.Thread(target=ask_slow,daemon=True); pending.start()
+                try:
+                    self.assertTrue(entered.wait(3))
+                    name=requests.post(base+'/ask',json={'caseId':case,'question':'mera naam kya hai?',
+                        'appContext':{'displayName':'Test Officer'}},timeout=2)
+                    self.assertEqual(200,name.status_code); self.assertEqual('Aapka naam Test Officer hai.',name.json()['answer'])
+                    self.assertEqual([],name.json()['claims']); self.assertTrue(pending.is_alive())
+                finally:
+                    release.set(); pending.join(3); servers[0].shutdown(); servers[0].server_close(); thread.join(3)
+                self.assertEqual(200,responses[0].status_code)
+
     def test_registered_refresh_and_grounded_question_use_same_actual_case_index(self):
         case=str(uuid.uuid4()); other=str(uuid.uuid4()); ready=threading.Event(); completed=threading.Event()
         servers=[]; seen=[]

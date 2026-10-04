@@ -99,7 +99,7 @@ public sealed class CourtImportService(LacDbContext db, IDocumentStorage storage
         foreach (var row in rows)
             row.RowStatus = conflict ? CourtImportRowStatus.IdentityConflict : CourtImportRowStatus.PotentialDuplicate;
     }
-    internal static string? Identity(string? court, string? caseNumber)
+    public static string? Identity(string? court, string? caseNumber)
     {
         var (type, number, year) = ParseCase(caseNumber);
         var canonicalCourt = CanonicalCourtName(court);

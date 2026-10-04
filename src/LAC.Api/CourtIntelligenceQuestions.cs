@@ -4,27 +4,36 @@ using System.Text;
 
 namespace LAC.Api;
 
-public sealed record AskCourtIntelligenceRequest(string Question);
+public sealed record CourtChatTurn(string Question, string Answer);
+public sealed record AskCourtIntelligenceRequest(string Question, IReadOnlyList<CourtChatTurn>? History = null);
+public sealed record CourtAssistantContext(string? DisplayName, string? Designation);
 public sealed record CourtIntelligenceKnownOrder(Guid CourtCaseId, string NormalizedCaseIdentity,
-    DateOnly? OrderDate, string? OfficialUrl, string? CorrigendumUrl, DateOnly? UploadDate, Guid SourceObservationId);
+    DateOnly? OrderDate, string? OfficialUrl, string? CorrigendumUrl, DateOnly? UploadDate, Guid SourceObservationId,
+    string? SourceEvidenceSha256 = null, string? SourceKind = null);
 
 public static class CourtIntelligenceQuestions
 {
     public static async Task<IResult> AskAsync(Guid caseId, string question, IHttpClientFactory clients, CancellationToken ct,
         string? caseNumber = null, IReadOnlyList<CourtIntelligenceKnownOrder>? orderIndex = null,
-        string? extractionRoot = null)
+        string? extractionRoot = null, CourtAssistantContext? appContext = null, IReadOnlyList<CourtChatTurn>? history = null)
     {
         if (string.IsNullOrWhiteSpace(question) || question.Length > 600)
             return Results.BadRequest(new { error = "Please ask a question of up to 600 characters." });
         try
         {
             // Fixed literal loopback origin; the Python service retrieves only this GUID.
-            using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber, orderIndex }, ct);
+            var boundedHistory = history?.TakeLast(4).Where(x => x is { Question.Length: <= 600, Answer.Length: <= 1200 }).ToArray();
+            using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber, orderIndex, appContext, history = boundedHistory }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
             if (!document.RootElement.TryGetProperty("claims", out var claims) || claims.ValueKind != JsonValueKind.Array)
                 return Unavailable();
+            if (document.RootElement.TryGetProperty("mode", out var mode) && mode.GetString() == "GeneralLocal"
+                && (claims.GetArrayLength() != 0 || IsCourtQuestion(question) ||
+                    !document.RootElement.TryGetProperty("answer", out var generalText) ||
+                    generalText.ValueKind != JsonValueKind.String || generalText.GetString()!.Length > 1200 ||
+                    IsCourtQuestion(generalText.GetString()!))) return Unavailable();
             if (extractionRoot is not null)
             {
                 if (document.RootElement.GetProperty("caseId").GetGuid() != caseId) return Unavailable();
@@ -43,6 +52,10 @@ public static class CourtIntelligenceQuestions
             return Unavailable();
         }
     }
+
+    private static bool IsCourtQuestion(string text) => System.Text.RegularExpressions.Regex.IsMatch(text,
+        @"\b(court|case|matter|order|hearing|petition\w*|respondent|party|parties|lac|dhc|compensation|payment|paid|deposit|possession|reference|section|award|khasra|status|directions?|compliance|disposed|deadline|ndoh|muaw\w*|kab[zj]\w*|tarikh|tareekh)\b|केस|मामल|कोर्ट|न्यायालय|आदेश|सुनवाई|मुआव|भुगतान|कब्ज|निर्देश|याचिका|प्रतिवादी|खसरा|अवार्ड|तारीख|अनुपालन",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     public static async Task<IResult> RefreshAsync(CourtIntelligenceCaseIndex index, IHttpClientFactory clients, CancellationToken ct)
     {

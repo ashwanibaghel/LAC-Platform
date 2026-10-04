@@ -313,7 +313,8 @@ public static class CourtEndpoints
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
                 return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct,
-                    index.CaseNumber, index.Orders, paths.ExtractionRoot);
+                    index.CaseNumber, index.Orders, paths.ExtractionRoot,
+                    new(currentUser.DisplayName, currentUser.DesignationName), request.History);
             }
             catch (InvalidDataException) { return Results.Problem("This matter's known-order index needs verification.", statusCode: 503); }
         });

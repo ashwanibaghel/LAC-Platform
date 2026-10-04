@@ -13,6 +13,24 @@ public static class DhcAssistedEndpoints
 {
     public static void MapDhcAssistedEndpoints(this RouteGroupBuilder group)
     {
+        group.MapPost("/{id:guid}/dhc-history", async (Guid id,
+            DelhiHighCourtAssistedCoordinator coordinator, ICourtAuthorizationService auth,
+            ICurrentUserContext user, HttpContext http, CancellationToken ct) =>
+        {
+            if (user.UserId is not { } uid) return Results.Unauthorized();
+            if (!await auth.CanViewCourtCaseAsync(id, uid, ct) || !await auth.CanEditCourtCaseAsync(id, uid, ct))
+                return Results.Forbid();
+            NoStore(http);
+            try
+            {
+                var runId = await coordinator.StartAsync(uid, new("Selected", [id], FullHistory: true), ct);
+                return Results.Created($"/api/court-cases/dhc-assisted/runs/{runId}", new { caseId = id, runId });
+            }
+            catch (CourtWorkflowException ex) { return CourtEndpoints.ToProblem(ex); }
+            catch (HttpRequestException) { return OfficialSiteUnavailable(); }
+            catch (IOException) { return OfficialSiteUnavailable(); }
+            catch (TaskCanceledException) when (!ct.IsCancellationRequested) { return OfficialSiteUnavailable(); }
+        });
         group.MapGet("/dhc-assisted/preview", async (DelhiHighCourtAssistedService service,
             ICurrentUserContext user, CancellationToken ct) =>
         {

@@ -7,21 +7,43 @@ namespace LAC.Api;
 
 // Only the existing registered matter and durable order observations. No writes.
 public sealed record CourtIntelligenceCaseIndex(Guid CaseId, string CaseNumber,
-    IReadOnlyList<CourtIntelligenceKnownOrder> Orders);
+    IReadOnlyList<CourtIntelligenceKnownOrder> Orders, string? CourtName = null, string? OfficeStatus = null,
+    object? OfficialStatus = null, object? HistorySync = null, DateOnly? OfficeNdoh = null);
 
 public static class CourtIntelligenceCaseData
 {
     public static async Task<CourtIntelligenceCaseIndex?> LoadAsync(LacDbContext db, Guid id, CancellationToken ct)
     {
-        var number = await db.CourtCases.AsNoTracking().Where(x => x.Id == id)
-            .Select(x => x.CaseNumber).SingleOrDefaultAsync(ct);
-        if (number is null) return null;
+        var matter = await db.CourtCases.AsNoTracking().Where(x => x.Id == id)
+            .Select(x => new { x.CaseNumber, x.CourtName, x.CurrentStatus }).SingleOrDefaultAsync(ct);
+        if (matter is null) return null;
         var orders = await db.CourtExternalOrderObservations.AsNoTracking()
-            .Where(x => x.CourtCaseId == id).OrderBy(x => x.OrderDate).ThenBy(x => x.Id)
+            .Where(x => x.CourtCaseId == id).OrderByDescending(x => x.ObservedAt).ThenBy(x => x.Id)
             .Select(x => new CourtIntelligenceKnownOrder(x.CourtCaseId, x.NormalizedCaseIdentity,
-                x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id)).Take(1001).ToListAsync(ct);
+                x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id, x.EvidenceSha256)).Take(1001).ToListAsync(ct);
         if (orders.Count > 1000) throw new InvalidDataException("Known-order index exceeds safety limit.");
-        return new(id, number, orders);
+        orders = orders.SelectMany(o => OfficialPdf(o.CorrigendumUrl) && o.CorrigendumUrl != o.OfficialUrl
+            ? new[] { o, o with { OfficialUrl = o.CorrigendumUrl, CorrigendumUrl = null, SourceKind = "Corrigendum" } }
+            : new[] { o }).DistinctBy(x => (x.OrderDate, x.OfficialUrl)).ToList();
+        if (orders.Count > 1000) throw new InvalidDataException("Known PDF index exceeds safety limit.");
+        var identity = CourtImportService.Identity(matter.CourtName, matter.CaseNumber);
+        var official = await db.CourtExternalCaseStatusObservations.AsNoTracking()
+            .Where(x => x.CourtCaseId == id && x.NormalizedCaseIdentity == identity &&
+                x.ReviewReason != "IdentityMismatch" && x.ReviewReason != "MultipleExactRows" &&
+                x.ReviewReason != "AmbiguousOfficialRows" && x.ReviewReason != "LocalIdentityConflict")
+            .OrderByDescending(x => x.ObservedAt)
+            .Select(x => new { x.RawStatus, x.ObservedAt, x.ListingDate, x.RawListingDate, x.SourceUrl, x.EvidenceSha256 })
+            .FirstOrDefaultAsync(ct);
+        var sync = await db.DhcAssistedSyncItems.AsNoTracking()
+            .Where(x => x.CourtCaseId == id && x.Reason == DelhiHighCourtAssistedService.FullHistoryReason)
+            .OrderByDescending(x => x.Run.StartedAt)
+            .Select(x => new { RunId = x.RunId, Status = x.Run.Status.ToString(), Phase = x.Run.Phase.ToString(),
+                x.Run.StartedAt, x.Run.CompletedAt, x.FailureCode, x.FailureMessage }).FirstOrDefaultAsync(ct);
+        var officeNdoh = await db.CourtProceedings.AsNoTracking().Where(x => x.CourtCaseId == id)
+            .OrderByDescending(x => x.ProceedingDate).ThenByDescending(x => x.CreatedAt)
+            .Select(x => x.NextDate).FirstOrDefaultAsync(ct);
+        return new(id, matter.CaseNumber, orders.DistinctBy(x => (x.OrderDate, x.OfficialUrl, x.CorrigendumUrl)).ToList(),
+            matter.CourtName, matter.CurrentStatus, official, sync, officeNdoh);
     }
 
     public static bool OfficialPdf(string? value) => Uri.TryCreate(value, UriKind.Absolute, out var uri)
@@ -33,11 +55,14 @@ public static class CourtIntelligenceCaseData
     public static string Identity(string value) => new(value.Where(char.IsLetterOrDigit)
         .Select(char.ToLowerInvariant).ToArray());
 
-    public static bool Eligible(CourtIntelligenceCaseIndex index, CourtIntelligenceKnownOrder order) =>
-        order.CourtCaseId == index.CaseId && order.OrderDate.HasValue && OfficialPdf(order.OfficialUrl)
+    private static bool ExactIdentity(CourtIntelligenceCaseIndex index, CourtIntelligenceKnownOrder order) =>
+        order.CourtCaseId == index.CaseId
         && order.NormalizedCaseIdentity.StartsWith("delhihighcourt|", StringComparison.Ordinal)
         && order.NormalizedCaseIdentity.Split('|').Length == 4
         && string.Concat(order.NormalizedCaseIdentity.Split('|').Skip(1)) == Identity(index.CaseNumber);
+
+    public static bool Eligible(CourtIntelligenceCaseIndex index, CourtIntelligenceKnownOrder order) =>
+        ExactIdentity(index, order) && order.OrderDate.HasValue && OfficialPdf(order.OfficialUrl);
 
     public static async Task<JsonElement> ViewAsync(string extractionRoot, CourtIntelligenceCaseIndex index, CancellationToken ct)
     {
@@ -51,6 +76,18 @@ public static class CourtIntelligenceCaseData
             ["latestOrder"] = null, ["orders"] = new JsonArray()
         };
         var orders = view["orders"]!.AsArray();
+        view["courtName"] = index.CourtName;
+        view["officeStatus"] = index.OfficeStatus;
+        view["officeNdoh"] = index.OfficeNdoh?.ToString("yyyy-MM-dd");
+        view["officialStatus"] = JsonSerializer.SerializeToNode(index.OfficialStatus, JsonSerializerOptions.Web);
+        view["historySync"] = JsonSerializer.SerializeToNode(index.HistorySync, JsonSerializerOptions.Web);
+        // Retain exact official PDF rows with an unparseable date visibly for
+        // officer review. They never enter the evidence/model processing index.
+        var reviewSources = index.Orders
+            .Where(o => ExactIdentity(index, o) && OfficialPdf(o.OfficialUrl) && !o.OrderDate.HasValue)
+            .Select(o => new { o.OrderDate, o.OfficialUrl, o.CorrigendumUrl,
+                Reason = "Official order date needs verification before AI processing." }).ToList();
+        view["sourceReviewOrders"] = JsonSerializer.SerializeToNode(reviewSources, JsonSerializerOptions.Web);
         foreach (var source in index.Orders.Where(x => Eligible(index, x)))
         {
             if (orders.Any(o => o!["officialUrl"]!.GetValue<string>() == source.OfficialUrl
@@ -58,7 +95,8 @@ public static class CourtIntelligenceCaseData
             orders.Add(new JsonObject { ["officialUrl"] = source.OfficialUrl,
                 ["orderDate"] = source.OrderDate!.Value.ToString("yyyy-MM-dd"), ["status"] = "Unprocessed",
                 ["facts"] = new JsonArray(), ["sourceObservationId"] = source.SourceObservationId.ToString(),
-                ["corrigendumUrl"] = source.CorrigendumUrl, ["uploadDate"] = source.UploadDate?.ToString("yyyy-MM-dd") });
+                ["corrigendumUrl"] = source.CorrigendumUrl, ["uploadDate"] = source.UploadDate?.ToString("yyyy-MM-dd"),
+                ["sourceKind"] = source.SourceKind });
         }
         var sorted = new JsonArray(orders.OrderBy(o => o!["orderDate"]!.GetValue<string>())
             .Select(o => o!.DeepClone()).ToArray());
@@ -74,12 +112,14 @@ public static class CourtIntelligenceCaseData
         view["unprocessedOrderCount"] = unprocessed;
         view["unusableKnownOrderCount"] = index.Orders.Where(x => !Eligible(index, x))
             .Select(o => (o.OrderDate, o.OfficialUrl)).Distinct().Count();
-        view["processingComplete"] = sorted.Count > 0 && unprocessed == 0;
+        view["processingComplete"] = sorted.Count > 0 && unprocessed == 0 && reviewSources.Count == 0;
         view["sourceCoverage"] = new JsonObject { ["basis"] = "Registered case official order index",
-            ["knownSources"] = sorted.Count, ["checkedSources"] = sorted.Count(o => o!["status"]!.GetValue<string>() == "Validated"),
+            ["knownSources"] = sorted.Count + reviewSources.Count, ["checkedSources"] = sorted.Count(o => o!["status"]!.GetValue<string>() == "Validated"),
             ["gaps"] = new JsonArray(sorted.Where(o => o!["status"]!.GetValue<string>() != "Validated" || o["refreshFailure"] is not null)
                 .Select(o => (JsonNode)new JsonObject { ["orderDate"] = o!["orderDate"]!.DeepClone(),
-                    ["officialUrl"] = o["officialUrl"]!.DeepClone(), ["reason"] = o["refreshFailure"]?.GetValue<string>() ?? o["status"]!.GetValue<string>() }).ToArray()) };
+                    ["officialUrl"] = o["officialUrl"]!.DeepClone(), ["reason"] = o["refreshFailure"]?.GetValue<string>() ?? o["status"]!.GetValue<string>() })
+                .Concat(reviewSources.Select(o => (JsonNode)new JsonObject { ["orderDate"] = null,
+                    ["officialUrl"] = o.OfficialUrl, ["reason"] = o.Reason })).ToArray()) };
         var statePath = Path.Combine(extractionRoot, "court-intelligence", "v1", index.CaseId.ToString(), "refresh.json");
         if (File.Exists(statePath))
         {

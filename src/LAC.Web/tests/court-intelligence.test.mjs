@@ -44,7 +44,7 @@ test('Court intelligence renders calmly with AI off and makes no render-time act
   assert.doesNotMatch(html,/tokens|RAM|latency|confidence|raw JSON|Qwen|llama/i);
 });
 test('officer headings and evidence are present without developer metrics',()=>{
-  for(const text of ['Current position','Before next hearing','Latest order','Order history','View timeline','Ask Court Intelligence','View evidence','What happened in this order'])assert.ok(source.includes(text));
+  for(const text of ['Current position','Before next hearing','Latest order','Complete order history','View timeline','Ask Court Intelligence','View evidence','What happened in this order'])assert.ok(source.includes(text));
   assert.doesNotMatch(source,/modelVersion|inferenceTime|confidencePercent|JSON\.stringify\(data/);
   assert.match(source,/source\.orderDate/);assert.match(source,/source\.page/);assert.match(source,/source\.evidence/);
 });
@@ -52,7 +52,7 @@ test('questions require explicit submit and AI failure leaves intelligence avail
   assert.match(source,/onSubmit=\{ask\}/);
   assert.match(source,/Question answering is temporarily unavailable\. Case intelligence remains available/);
   assert.match(source,/activeCase\.current === requestedCase/);
-  assert.doesNotMatch(source,/\/resume|captcha|dhc-assisted\/runs|sync-now|review-decision/);
+  assert.doesNotMatch(source.slice(source.indexOf('  const ask = async'),source.indexOf('  const refresh = async')),/\/resume|captcha|dhc-assisted\/runs|sync-now|review-decision/);
 });
 test('review-marked orders display only independently usable summary facts',()=>{
   assert.match(source,/order\.summaryFacts \?\? \(order\.status === "Validated" \? order\.facts : \[\]\)/);

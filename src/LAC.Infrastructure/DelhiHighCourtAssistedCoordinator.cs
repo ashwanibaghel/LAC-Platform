@@ -89,6 +89,64 @@ public sealed class DelhiHighCourtAssistedCoordinator(
             if (run.Status is not (DhcAssistedRunStatus.Interrupted or DhcAssistedRunStatus.Failed))
                 throw new CourtWorkflowException("This assisted run cannot be resumed.", 409);
             var statusItems = await db.DhcAssistedSyncItems.Where(x => x.RunId == runId).ToListAsync(ct);
+            if (statusItems.Count == 1 && statusItems[0].Reason == DelhiHighCourtAssistedService.FullHistoryReason)
+            {
+                // The opaque Orders link belongs to the exact human-verified
+                // status result. A lost session obtains it again; never guess it
+                // or switch to the separate judgment-search form.
+                var fullSession = sessionFactory?.Invoke() ?? new DelhiHighCourtAssistedSession(configuration);
+                try
+                {
+                    // Orders are a public read-only GET. Resume the same run's
+                    // exact accepted status provenance after a transport failure,
+                    // without replaying a CAPTCHA POST or constructing a URL.
+                    var item = statusItems[0];
+                    var observation = run.Phase == DhcAssistedPhase.OrderLookup
+                        ? await db.CourtExternalCaseStatusObservations.AsNoTracking()
+                            .Where(x => x.RunItemId == item.Id && x.CourtCaseId == item.CourtCaseId &&
+                                x.NormalizedCaseIdentity == item.NormalizedCaseIdentity &&
+                                x.Status == DhcAssistedEvidenceStatus.Accepted)
+                            .OrderByDescending(x => x.ObservedAt).FirstOrDefaultAsync(ct) : null;
+                    if (observation != null && observation.ObservedAt >= clock.GetUtcNow().AddHours(-1) &&
+                        observation.ObservedAt <= clock.GetUtcNow().AddMinutes(1) &&
+                        fullSession.RestoreRecordedStatusOrderList(item.NormalizedCaseIdentity,
+                            observation.RawCaseNumber, observation.RawEvidenceText, observation.EvidenceSha256))
+                    {
+                        item.Status = DhcAssistedItemStatus.StatusCaptured;
+                        item.FailureCode = null;
+                        item.FailureMessage = null;
+                        item.CompletedAt = null;
+                        run.Status = DhcAssistedRunStatus.Running;
+                        run.CompletedCases = run.FailedCases = run.NeedsReviewCases = 0;
+                        run.CompletedAt = null;
+                        run.FailureMessage = null;
+                        run.LastActivityAt = clock.GetUtcNow();
+                        await db.SaveChangesAsync(ct);
+                        active = new Active(run.Id, userId, fullSession, clock.GetUtcNow()) { Busy = true };
+                        StartMonitor(active);
+                        var resumed = active;
+                        _ = Task.Run(() => ProcessQueueAsync(resumed), CancellationToken.None);
+                        return run.Id;
+                    }
+                    await fullSession.LoadFormAsync(false, ct);
+                    statusItems[0].Status = DhcAssistedItemStatus.Queued;
+                    statusItems[0].FailureCode = null;
+                    statusItems[0].FailureMessage = null;
+                    statusItems[0].CompletedAt = null;
+                    run.Phase = DhcAssistedPhase.StatusLookup;
+                    run.Status = DhcAssistedRunStatus.WaitingForCaptcha;
+                    run.CompletedCases = run.FailedCases = run.NeedsReviewCases = 0;
+                    run.CompletedAt = null;
+                    run.FailureMessage = null;
+                    run.CaptchaChallenges++;
+                    run.LastActivityAt = clock.GetUtcNow();
+                    await db.SaveChangesAsync(ct);
+                    active = new Active(run.Id, userId, fullSession, clock.GetUtcNow());
+                    StartMonitor(active);
+                    return run.Id;
+                }
+                catch { await fullSession.DisposeAsync(); throw; }
+            }
             if (run.Phase == DhcAssistedPhase.StatusLookup && statusItems.Count == run.TotalCases &&
                 statusItems.All(x => x.Status is DhcAssistedItemStatus.StatusCaptured or
                     DhcAssistedItemStatus.Completed or DhcAssistedItemStatus.NeedsReview or
@@ -244,6 +302,20 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                 throw new CourtWorkflowException("Only the run owner may start order lookup.", 403);
             if (run.Status != DhcAssistedRunStatus.ReadyForOrders)
                 throw new CourtWorkflowException("Complete case-status verification before order lookup.", 409);
+            var fullItems = await db.DhcAssistedSyncItems.Where(x => x.RunId == runId).ToListAsync(ct);
+            if (fullItems.Count == 1 && fullItems[0].Reason == DelhiHighCourtAssistedService.FullHistoryReason)
+            {
+                if (active?.Session.StatusOrderListUrl(fullItems[0].NormalizedCaseIdentity) == null)
+                    throw new CourtWorkflowException("The exact official status result did not provide an Orders link. Resume fresh official status verification.", 409);
+                run.Phase = DhcAssistedPhase.OrderLookup;
+                run.Status = DhcAssistedRunStatus.Running;
+                run.LastActivityAt = clock.GetUtcNow();
+                await db.SaveChangesAsync(ct);
+                var fullActive = active!;
+                fullActive.Busy = true;
+                _ = Task.Run(() => ProcessQueueAsync(fullActive), CancellationToken.None);
+                return;
+            }
             var newSession = active == null;
             var session = active?.Session ?? (sessionFactory?.Invoke() ?? new DelhiHighCourtAssistedSession(configuration));
             try { await session.LoadFormAsync(true, ct); }
@@ -414,6 +486,19 @@ public sealed class DelhiHighCourtAssistedCoordinator(
                     item.FailureMessage = "Order lookup skipped because exact status evidence is unavailable.";
                     run.NeedsReviewCases++;
                     await db.SaveChangesAsync(ct);
+                    continue;
+                }
+                if (item.Reason == DelhiHighCourtAssistedService.FullHistoryReason)
+                {
+                    item.Status = DhcAssistedItemStatus.CheckingOrders;
+                    await db.SaveChangesAsync(ct);
+                    if (!await service.ValidateQueuedCaseAsync(run, item, false, ct)) continue;
+                    EnsureWithinLifetime(current);
+                    Touch(current);
+                    var detailResponse = await current.Session.SearchStatusOrdersAsync(identity, ct);
+                    Touch(current);
+                    await service.ProcessOrdersAsync(run, item, detailResponse, ct,
+                        current.Session.StatusOrderListUrl(identity));
                     continue;
                 }
                 if (!current.Session.Verified || current.Session.OrderForm == null)

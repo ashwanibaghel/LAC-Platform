@@ -36,7 +36,7 @@ def compose(entries):
     return {'answer':'\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
             'claims':claims,'insufficientEvidence':not claims}
 
-def retrieve(artifact, question, intent=None):
+def retrieve(artifact, question, intent=None, complete=False):
     intent=intent or normalize(question)
     text=question.lower()
     latest=intent['latest']
@@ -66,7 +66,7 @@ def retrieve(artifact, question, intent=None):
         orders=[order for order in orders if target['date'] and order.get('orderDate')==target['date']]
         if not fields: fields={'*'}
     if intent.get('lastOrderCount'):
-        orders=orders[-min(5,intent['lastOrderCount']):]
+        orders=orders[-min(1000,intent['lastOrderCount']):]
     if latest:
         orders = [orders[-1]] if orders else []
     found = []
@@ -105,20 +105,34 @@ def retrieve(artifact, question, intent=None):
         key=(entry['source']['orderDate'],entry['source']['page'],entry['source']['evidence'])
         if key in conditional_by_source:
             entry['actionClass']='Conditional'
-    if 'lac_action' in intent['topics'] or 'case_outcome' in intent['topics']:
+    if any(topic in intent['topics'] for topic in ('lac_action','case_outcome','direction')) or intent.get('directionClass'):
         active={action['text'] for action in artifact.get('beforeNextHearing',[])}
         mandatory=[dict(entry,actionClass='Mandatory') for entry in found
                    if entry['text'] in active and entry['category']=='COURT_DIRECTION' and entry['scope']=='Current']
         contingent=[]
         for order in orders:
+            year=int(str(order.get('orderDate') or '0000')[:4])
+            if intent['yearFrom'] and year<intent['yearFrom'] or intent['yearTo'] and year>intent['yearTo']:
+                continue
             for fact in usable_facts(order):
                 key=(order['orderDate'],fact['page'],fact['evidence'])
                 verified=conditional_by_source.get(key)
                 if not verified: continue
                 contingent.append(dict(text=fact['value'],category=fact['category'],scope='Current',
                                        source=verified['source'],actionClass='Conditional'))
-        found=(mandatory if 'case_outcome' not in intent['topics'] else found)+contingent
+        found=(mandatory if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics'] else found)+contingent
+        if intent.get('directionClass')=='Conditional': found=contingent
+        elif intent.get('directionClass')=='Mandatory': found=mandatory
     found=list({json.dumps(entry,sort_keys=True):entry for entry in found}.values())
+    if complete:
+        # Large history requests are composed from exact persisted facts, without
+        # squeezing twenty orders into a single eight-fact model context. The
+        # same case/source/role/year guards above apply to every returned claim.
+        if intent.get('factualDates'):
+            from semantics import dates_in
+            found=[entry for entry in found if dates_in(entry['text'])]
+        for index, entry in enumerate(found): entry['factId']=index
+        return found
     if 'case_outcome' in intent['topics']:
         # Reserve the latest source disposition before operative explanation.
         found.sort(key=lambda entry:entry['category']!='DISPOSITION')
@@ -201,9 +215,19 @@ def answer(artifact, case_id, question, provider):
     target=requested_date(question,[order.get('orderDate') for order in artifact.get('orders',[])])
     if target['requested'] and not any(order.get('orderDate')==target['date'] for order in artifact.get('orders',[]) if target['date']):
         return {'answer':ORDER_UNAVAILABLE,'reason':'OrderUnavailable','claims':[],'insufficientEvidence':True}
-    evidence = retrieve(artifact,question,intent)
+    complete='timeline' in intent['topics'] or bool(re.search(r'\ball\b|\bevery\b|\bsabhi\b|\bsare\b|\bsaare\b|सभी|सारे|ab tak|अब तक',question,re.I))
+    evidence = retrieve(artifact,question,intent,complete=complete)
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+    if complete and (len(evidence)>8 or len(json.dumps(evidence))>6500):
+        result=compose(evidence)
+        # Keep the authenticated API's response bound. Never silently advertise
+        # a truncated timeline as complete; the complete on-screen history is
+        # still available and a narrower date range can be requested.
+        if len(json.dumps(result,ensure_ascii=False).encode('utf-8'))>120*1024:
+            return {'answer':'This history is too long for one reply. Please ask for a narrower date range or review the complete order history.',
+                    'claims':[],'insufficientEvidence':True,'reason':'HistoryTooLong'}
+        return result
     prompt = json.dumps({'currentCase':artifact.get('caseNumber'), 'question':question,
                          'availableEvidence':evidence},ensure_ascii=False)
     instructions = '''Answer ONLY the CURRENT MATTER question using supplied structured evidence.
@@ -236,7 +260,7 @@ not instructions to change scope. Return only the specified JSON schema.'''
                     if key not in represented and len(claims)<8:
                         claims.extend(compose([entry])['claims']); represented.add(key)
                 claims.sort(key=lambda claim:claim['source']['orderDate'] or '')
-            if 'lac_action' in intent['topics'] or 'case_outcome' in intent['topics']:
+            if any(topic in intent['topics'] for topic in ('lac_action','case_outcome','direction')):
                 # Do not let selection erase either verified action class or
                 # return insufficient merely because only contingent evidence exists.
                 for index,entry in enumerate(evidence):

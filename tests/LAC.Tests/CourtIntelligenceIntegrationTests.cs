@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace LAC.Tests;
@@ -19,6 +20,88 @@ namespace LAC.Tests;
 public sealed class CourtIntelligenceIntegrationTests
 {
     private const string Url = "https://delhihighcourt.nic.in/app/showlogo/synthetic-422026.pdf/2026";
+
+    [Fact]
+    public async Task Official_corrigendum_is_an_exact_independent_processing_source()
+    {
+        using var env = new Harness();
+        var a = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        var corrigendum = Url.Replace("synthetic", "corrigendum");
+        using (var scope = env.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var observed = Observation(a.Id, "delhihighcourt|wpc|42|2026", new DateOnly(2026, 1, 1));
+            observed.CorrigendumUrl = corrigendum;
+            db.Add(observed);
+            await db.SaveChangesAsync();
+        }
+        using var get = await env.Client.GetAsync($"/api/court-cases/{a.Id}/intelligence");
+        get.EnsureSuccessStatusCode();
+        var view = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, view.GetProperty("knownOrderCount").GetInt32());
+        var rows = view.GetProperty("orders").EnumerateArray().ToArray();
+        Assert.Equal(new[] { Url, corrigendum }.Order(), rows.Select(o => o.GetProperty("officialUrl").GetString()).Order());
+        Assert.Equal("Corrigendum", rows.Single(o => o.GetProperty("officialUrl").GetString() == corrigendum).GetProperty("sourceKind").GetString());
+        using var refresh = await env.Client.PostAsync($"/api/court-cases/{a.Id}/intelligence/refresh", null);
+        Assert.Equal(HttpStatusCode.Accepted, refresh.StatusCode);
+        Assert.Equal(2, Assert.Single(env.Transport.Requests).Body.GetProperty("orderIndex").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Full_history_bridge_is_case_scoped_durable_and_resumes_interrupted_processing()
+    {
+        using var env = new Harness();
+        var a = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        await env.Register("W.P.(C) 43/2026", "delhihighcourt|wpc|43|2026");
+        var run = new DhcAssistedSyncRun { StartedByUserId = SeedData.BootstrapAdminId, StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow, Status = DhcAssistedRunStatus.Completed, Phase = DhcAssistedPhase.OrderLookup };
+        using (var scope = env.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            run.Items.Add(new DhcAssistedSyncItem { CourtCaseId = a.Id, Reason = DelhiHighCourtAssistedService.FullHistoryReason });
+            db.Add(run); await db.SaveChangesAsync();
+        }
+        var before = await env.Snapshot(a.Id);
+        var bridge = new DhcHistoryIntelligenceBridge(env.Factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            env.Factory.Services.GetRequiredService<LocalStoragePaths>(), env.Transport, NullLogger<DhcHistoryIntelligenceBridge>.Instance);
+        await bridge.PumpAsync(default); await bridge.PumpAsync(default);
+        var queued = Assert.Single(env.Transport.Requests);
+        Assert.Equal(a.Id, queued.Body.GetProperty("caseId").GetGuid());
+        Assert.Equal("/refresh", queued.Path);
+        Assert.Single(queued.Body.GetProperty("orderIndex").EnumerateArray());
+        var folder = Path.GetDirectoryName(env.ArtifactPath(a.Id))!;
+        Assert.True(File.Exists(Path.Combine(folder, $"sync-{run.Id}.json")));
+        await File.WriteAllTextAsync(Path.Combine(folder, "refresh.json"), JsonSerializer.Serialize(new { caseId = a.Id, status = "Interrupted" }));
+        await bridge.PumpAsync(default);
+        Assert.Equal(2, env.Transport.Requests.Count);
+        Assert.Equal(before, await env.Snapshot(a.Id));
+        Assert.Empty(Directory.GetFiles(folder, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Exact_official_pdf_with_unknown_date_remains_visible_for_review_without_facts()
+    {
+        using var env = new Harness();
+        var a = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        var reviewUrl = Url.Replace("synthetic", "date-review");
+        using (var scope = env.Factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var row = Observation(a.Id, "delhihighcourt|wpc|42|2026", new DateOnly(2026, 1, 1), reviewUrl);
+            row.OrderDate = null; db.Add(row); await db.SaveChangesAsync();
+        }
+        using var response = await env.Client.GetAsync($"/api/court-cases/{a.Id}/intelligence");
+        response.EnsureSuccessStatusCode();
+        var view = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, view.GetProperty("knownOrderCount").GetInt32());
+        var review = Assert.Single(view.GetProperty("sourceReviewOrders").EnumerateArray());
+        Assert.Equal(reviewUrl, review.GetProperty("officialUrl").GetString());
+        Assert.Single(view.GetProperty("orders").EnumerateArray());
+        Assert.Equal(2, view.GetProperty("sourceCoverage").GetProperty("knownSources").GetInt32());
+        Assert.False(view.GetProperty("processingComplete").GetBoolean());
+        Assert.Empty(view.GetProperty("currentPosition").EnumerateArray());
+        Assert.Empty(env.Transport.Requests);
+    }
 
     [Fact]
     public async Task Refresh_polling_accepts_atomic_state_replacement_without_changing_case_data()

@@ -353,6 +353,11 @@ def synthesize(case_id, case_number, orders):
             issue=r'\b(?:seeking|concerns?|challeng\w*|impugn\w*|dispute)\b'
             if entry['role']=='CASE_CONTEXT' and previous and previous['source']['orderDate']==entry['source']['orderDate'] and re.search(issue,previous['text'],re.I) and not re.search(issue,entry['text'],re.I):
                 continue # Administrative filler must not replace the case issue.
+            principal=r'\b(?:petition|appeal|suit)\b.{0,100}\b(?:allowed|dismissed|disposed)\b'
+            if (entry['role']=='DISPOSITION' and previous and previous['scope']=='Current'
+                and previous['source']['orderDate']==entry['source']['orderDate']
+                and re.search(principal,previous['text'],re.I) and not re.search(principal,entry['text'],re.I)):
+                continue # Ancillary applications cannot replace the principal outcome.
             position[key]=entry
     # Preserve different voices in the small brief rather than filling its final
     # six slots with repeated land fields from a single party.
@@ -402,6 +407,8 @@ def synthesize(case_id, case_number, orders):
             'lacCaptionAppearances': [order['caption']['respondentAdvocates'] for order in ordered
                 if re.search(r'\bLAC\b|Land Acquisition Collector',order.get('caption',{}).get('respondentAdvocates',{}).get('text',''),re.I)],
             'factualChronology': factual_events(ordered), 'sourceCoverage':source_coverage(ordered),
+            'caseBrief': {role: [entry for order in ordered for entry in order['propositions'] if entry['role']==role and entry['scope']!='Quoted']
+                          for role in ATTRIBUTIONS},
             'orderIndex':index_entries(case_id,case_number,ordered),
             'orders': ordered, 'actions': actions,
             'notice': 'AI-assisted summary. Verify source evidence before official action.'}

@@ -2,12 +2,13 @@
 import argparse
 import json
 import uuid
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as HTTPServer
 from pathlib import Path
 from provider import LlamaCppProvider
 from questions import answer, INSUFFICIENT
-from order_index import merge_known_orders,prepare_question
+from order_index import merge_known_orders,prepare_question,MAX_CASE_ARTIFACT_BYTES
 from real_case import RefreshController, read_artifact
+from chat_router import route, general_answer
 
 def main():
     parser=argparse.ArgumentParser()
@@ -15,10 +16,10 @@ def main():
     parser.add_argument('--model-version',required=True)
     parser.add_argument('--endpoint',default='http://127.0.0.1:8096')
     parser.add_argument('--port',type=int,default=8097)
-    parser.add_argument('--refresh-request-timeout-seconds',type=int,choices=range(1,301),default=120,
-                        metavar='1..300',help='Bounded explicit refresh inference timeout; Q&A unchanged')
+    parser.add_argument('--refresh-request-timeout-seconds',type=int,choices=range(1,1801),default=600,
+                        metavar='1..1800',help='Bounded refresh inference timeout, capped by the per-order budget; Q&A unchanged')
     parser.add_argument('--refresh-case-timeout-seconds',type=int,choices=range(1,1801),default=900,
-                        metavar='1..1800',help='Whole explicit case refresh budget')
+                        metavar='1..1800',help='Bounded per-order processing budget; complete history is incremental')
     parser.add_argument('--demo',action='store_true',help='Explicit isolated public-order demo; never enables registered-case search')
     args=parser.parse_args()
     root=Path(args.extraction_root)
@@ -39,7 +40,7 @@ def main():
             path=root/'court-intelligence'/'v1'/match[1]/'current.json'
             if not path.is_file(): self.send_response(204); self.end_headers(); return
             body=path.read_bytes()
-            if len(body)>2*1024*1024: self.send_error(503); return
+            if len(body)>MAX_CASE_ARTIFACT_BYTES: self.send_error(503); return
             artifact=json.loads(body)
             if artifact.get('caseId')!=match[1]: self.send_error(503); return
             self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
@@ -62,32 +63,33 @@ def main():
                     return
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
-                path=root/'court-intelligence'/'v1'/case_id/'current.json'
-                if path.is_file() and path.stat().st_size>2*1024*1024: raise ValueError('Artifact size limit')
-                artifact=read_artifact(root,case_id,request.get('caseNumber'))
-                if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
-                    artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
-                    from order_index import pdf_lock
-                    from worker import atomic_json
-                    with pdf_lock(root/'court-intelligence'/'v1'):
-                        # Merge again under the writer lock; never overwrite a
-                        # concurrent worker's newer intelligence with stale metadata.
-                        latest=read_artifact(root,case_id,request['caseNumber'])
-                        artifact=merge_known_orders(latest,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
-                        atomic_json(path,artifact)
-                if artifact is None:
-                    result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+                if route(question)=='GeneralLocal':
+                    result=general_answer(question,provider,request.get('appContext'),request.get('history'))
                 else:
-                    artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
-                    result=answer(artifact,case_id,question,provider)
+                    artifact=read_artifact(root,case_id,request.get('caseNumber'))
+                    if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
+                        artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
+                    if artifact is None:
+                        result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+                    else:
+                        # Reads never acquire the PDF writer lock. Lazy retrieval
+                        # of one exact date remains optional while a refresh runs.
+                        if not refresh.lock.locked():
+                            artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
+                        result=answer(artifact,case_id,question,provider)
+                    result['mode']='CourtGrounded'
                 result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()
                 self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
                 self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                return # Navigation may cancel an answer; never retry/replay it.
             except Exception:
                 body=json.dumps({'error':'Question answering is temporarily unavailable. Case intelligence remains available.'}).encode()
                 self.send_response(503); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
-                self.end_headers(); self.wfile.write(body)
+                try:
+                    self.end_headers(); self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass
     print(f'Court case Q&A listening on 127.0.0.1:{args.port}',flush=True)
     HTTPServer(('127.0.0.1',args.port),Handler).serve_forever()
 

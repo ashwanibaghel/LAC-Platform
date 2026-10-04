@@ -14,6 +14,170 @@ namespace LAC.Tests;
 
 public sealed class DelhiHighCourtAssistedTests
 {
+    private const string DetailUrl = "https://delhihighcourt.nic.in/app/case-type-status-details/AAA/BBB/CCC";
+    [Theory]
+    [InlineData("W.P.(C) 940/2015", true)]
+    [InlineData("W.P.(C) 941/2015", false)]
+    public void StatusOrderJudgmentLabel_IsNotPartOfLinkedCaseIdentity(string linkedCase, bool exact)
+    {
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            draw = 1, recordsTotal = 1, recordsFiltered = 1,
+            data = new[] { new { caseno = "W.P.(C) 940/2015",
+                case_no_order_link = $"<a href='https://delhihighcourt.nic.in/app/case_number_pdf/2015:DHC:8336-DB/SAS05102015CW9402015.pdf'>{linkedCase}</a></br><small>(Oral Judgement/Judgement)</small>",
+                order_date = new { display = "05/10/2015" }, orddate = "05/10/2015", corrigendum = "" } }
+        });
+        if (!exact) Assert.Throws<InvalidDataException>(() => DelhiHighCourtAssistedForms.ParseStatusOrderPage(json));
+        else
+        {
+            var row = Assert.Single(DelhiHighCourtAssistedForms.ParseStatusOrderPage(json).Rows);
+            Assert.Equal("W.P.(C) 940/2015", row.RawCaseNumber);
+            Assert.Equal(new DateOnly(2015, 10, 5), row.OrderDate);
+            Assert.EndsWith("SAS05102015CW9402015.pdf", row.OfficialUrl);
+        }
+    }
+
+    private sealed class StatusOrdersHandler(bool incomplete = false, bool failFirstPage = false, bool bilingual = false) : HttpMessageHandler
+    {
+        public List<int> Starts { get; } = [];
+        public int Validations;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            string body;
+            if (path.EndsWith("validateCaptcha")) { Validations++; body = "{\"success\":true}"; }
+            else if (path.EndsWith("get-case-type-status"))
+                body = request.RequestUri.Query.Length == 0 ? StatusForm : StatusResult.Replace("</b>",
+                    $"</b><a href='{DetailUrl}'>Click here for Orders</a>");
+            else if (path.Contains("case-type-status-details"))
+            {
+                Assert.Equal("XMLHttpRequest", request.Headers.GetValues("X-Requested-With").Single());
+                var start = int.Parse(System.Text.RegularExpressions.Regex.Match(request.RequestUri.Query, @"start=(\d+)").Groups[1].Value);
+                var draw = int.Parse(System.Text.RegularExpressions.Regex.Match(request.RequestUri.Query, @"draw=(\d+)").Groups[1].Value);
+                Starts.Add(start);
+                if (failFirstPage && Starts.Count == 1)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                var rows = Enumerable.Range(start, incomplete && start == 50 ? 1 : Math.Min(50, 52 - start))
+                    .Select(i => new { caseno = "W.P.(C) 7003/2026",
+                        case_no_order_link = $"<a href='/app/showlogo/order-{i}.pdf/2026'>W.P.(C) 7003/2026</a>",
+                        order_date = new { display = "25/09/2026" }, corrigendum = "",
+                        hindi_order = bilingual && i == 0 ? "<a href='/app/showlogo/order-0-hindi.pdf/2026'>Hindi order</a>" : "",
+                        remarks = "", DT_RowIndex = i + 1 });
+                body = System.Text.Json.JsonSerializer.Serialize(new { draw, recordsTotal = 52, recordsFiltered = 52, data = rows });
+            }
+            else throw new InvalidOperationException("Full history must follow the status Orders link, not judgment search.");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
+    }
+
+    [Fact]
+    public async Task FullHistory_RetainsBilingualPublication_AsItsOwnExactDatedPdf_WithoutChangingPageRowCounts()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var handler = new StatusOrdersHandler(bilingual: true);
+            var coordinator = new DelhiHighCourtAssistedCoordinator(provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => handler));
+            var runId = await coordinator.StartAsync(userId, new("Selected", caseIds, FullHistory: true), default);
+            await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default);
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.Completed);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(53, await db.CourtExternalOrderObservations.CountAsync());
+            var hindi = await db.CourtExternalOrderObservations.SingleAsync(x => x.OfficialUrl!.Contains("-hindi"));
+            Assert.Equal(caseIds[0], hindi.CourtCaseId);
+            Assert.Equal(new DateOnly(2026, 9, 25), hindi.OrderDate);
+            Assert.Equal(DetailUrl, hindi.SourceUrl);
+            Assert.Contains("order-0-hindi.pdf", hindi.RawEvidenceText);
+            Assert.Equal(new[] { 0, 50 }, handler.Starts);
+        }
+    }
+
+    [Fact]
+    public async Task FullHistory_ResumesFailedPublicOrdersGet_FromSameRunVerifiedEvidence_WithoutReplayingCaptcha()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var handler = new StatusOrdersHandler(failFirstPage: true);
+            var time = new ManualTime();
+            time.Advance(TimeSpan.FromHours(3));
+            var coordinator = new DelhiHighCourtAssistedCoordinator(provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => handler), time);
+            var runId = await coordinator.StartAsync(userId, new("Selected", caseIds, FullHistory: true), default);
+            await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default);
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.Failed);
+            await coordinator.ResumeAsync(runId, userId, default);
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.Completed);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(52, await db.CourtExternalOrderObservations.CountAsync());
+            Assert.Equal(1, await db.CourtExternalCaseStatusObservations.CountAsync());
+            Assert.Equal(1, handler.Validations);
+            Assert.Equal(new[] { 0, 0, 50 }, handler.Starts);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "W.P.(C) 7003/2026")]
+    [InlineData(true, "W.P.(C) 7004/2026")]
+    public async Task RecordedStatusOrdersLink_RequiresUntamperedExactStatusEvidence(bool correctHash, string rawCase)
+    {
+        var evidence = $"{rawCase} [Pending] | Parties | Listing | Official order list: {DetailUrl}";
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(evidence)));
+        await using var session = new DelhiHighCourtAssistedSession(new ConfigurationBuilder().Build());
+        Assert.False(session.RestoreRecordedStatusOrderList("delhihighcourt|wpc|7003|2026", rawCase,
+            evidence, correctHash ? hash : new string('0', 64)));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FullHistory_FollowsVerifiedStatusOrdersLink_PaginatesAllRows_AndFailsClosedForIncompletePage(bool incomplete)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            var config = new ConfigurationBuilder().Build();
+            var handler = new StatusOrdersHandler(incomplete);
+            var coordinator = new DelhiHighCourtAssistedCoordinator(provider.GetRequiredService<IServiceScopeFactory>(), config,
+                new Lifetime(), NullLogger<DelhiHighCourtAssistedCoordinator>.Instance,
+                () => new DelhiHighCourtAssistedSession(config, _ => handler));
+            var runId = await coordinator.StartAsync(userId, new("Selected", caseIds, FullHistory: true), default);
+            Assert.True(await coordinator.SubmitHumanAnswerAsync(runId, userId, "typed-by-officer", default));
+            await WaitForRunStatusAsync(provider, runId, DhcAssistedRunStatus.ReadyForOrders);
+            await coordinator.StartOrdersAsync(runId, userId, default);
+            await WaitForRunStatusAsync(provider, runId, incomplete ? DhcAssistedRunStatus.Failed : DhcAssistedRunStatus.Completed);
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            Assert.Equal(incomplete ? 0 : 52, await db.CourtExternalOrderObservations.CountAsync());
+            Assert.All(await db.CourtExternalOrderObservations.ToListAsync(), x => Assert.Equal(DetailUrl, x.SourceUrl));
+            Assert.Equal(new[] { 0, 50 }, handler.Starts);
+            Assert.Equal(1, handler.Validations);
+            Assert.Equal("Pending", (await db.CourtCases.SingleAsync()).CurrentStatus);
+            Assert.Contains(DetailUrl, (await db.CourtExternalCaseStatusObservations.SingleAsync()).RawEvidenceText);
+        }
+    }
+
+    [Theory]
+    [InlineData("https://example.com/app/case-type-status-details/A/B/C")]
+    [InlineData("https://delhihighcourt.nic.in/app/another-route/A/B/C")]
+    [InlineData("https://delhihighcourt.nic.in/app/case-type-status-details/A/B/C?redirect=1")]
+    public void StatusOrdersLink_RejectsUnapprovedDestinations(string url)
+    {
+        Assert.Throws<InvalidDataException>(() => DelhiHighCourtAssistedForms.ParseStatusRows(
+            StatusResult.Replace("</b>", $"</b><a href='{url}'>Click here for Orders</a>")));
+    }
+
     private const string StatusForm = """
         <html><select id='case_type'><option value='W.P.(C)'>W.P.(C)</option><option value='LPA'>LPA</option></select>
         <span id='captcha-code'>TEST7</span><input id='captchaInput' name='captchaInput'>
@@ -1283,6 +1447,73 @@ public sealed class DelhiHighCourtAssistedTests
             Assert.Single(await db.CourtExternalAssistedDecisions.Where(x => x.ObservationId == observation.Id).ToListAsync());
             Assert.Equal(DhcAssistedEvidenceStatus.Accepted, observation.Status);
         }
+    }
+
+    [Theory]
+    [InlineData("Pending", "Disposed")]
+    [InlineData("Disposed", "Pending")]
+    [InlineData("Pending", "Pending")]
+    public async Task FullHistory_SelectsOnlyRegisteredCase_AndNeverMutatesCanonicalStatus(string office, string official)
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(2);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var matter = await db.CourtCases.SingleAsync(x => x.Id == caseIds[0]);
+            matter.CurrentStatus = office;
+            await db.SaveChangesAsync();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            var run = await service.CreateRunAsync(userId, new("Selected", [matter.Id], FullHistory: true), default);
+            var item = Assert.Single(run.Items);
+            Assert.Equal(matter.Id, item.CourtCaseId);
+            Assert.Equal(DelhiHighCourtAssistedService.FullHistoryReason, item.Reason);
+            var revision = matter.Revision;
+            await service.ProcessStatusAsync(run, item, StatusResult.Replace("[Pending]", $"[{official}]"), default);
+            var observation = await db.CourtExternalCaseStatusObservations.SingleAsync();
+            Assert.Equal(official, observation.RawStatus);
+            Assert.Equal(office, (await db.CourtCases.SingleAsync(x => x.Id == matter.Id)).CurrentStatus);
+            Assert.Equal(revision, matter.Revision);
+            Assert.Empty(db.CourtCaseEvents);
+            Assert.True(await service.ValidateQueuedCaseAsync(run, item, false, default));
+            Assert.Empty(await db.CourtExternalCaseStatusObservations.Where(x => x.CourtCaseId == caseIds[1]).ToListAsync());
+            await Assert.ThrowsAsync<CourtWorkflowException>(() => service.CreateRunAsync(userId,
+                new("Selected", caseIds, FullHistory: true), default));
+        }
+    }
+
+    [Fact]
+    public async Task FullHistory_AllExactRows_DeduplicateAcrossRuns_AndKeepNewOrdersOnly()
+    {
+        var (provider, userId, caseIds) = await HarnessAsync(1);
+        await using (provider)
+        {
+            using var scope = provider.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var service = scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>();
+            async Task Sync(string html)
+            {
+                var run = await service.CreateRunAsync(userId, new("Selected", caseIds, FullHistory: true), default);
+                await service.ProcessOrdersAsync(run, Assert.Single(run.Items), html, default);
+            }
+            var second = OrderResult.Replace("25.09.2026", "26.09.2026").Replace("order.pdf", "second.pdf");
+            var foreign = OrderResult.Replace("7003/2026", "7004/2026");
+            var connected = OrderResult.Replace("W.P.(C) 7003/2026</td>", "W.P.(C) 7003/2026 &amp; W.P.(C) 7004/2026</td>");
+            await Sync(OrderResult + second + foreign + connected);
+            Assert.Equal(2, await db.CourtExternalOrderObservations.CountAsync());
+            await Sync(OrderResult + second);
+            Assert.Equal(2, await db.CourtExternalOrderObservations.CountAsync());
+            await Sync(OrderResult + second + OrderResult.Replace("25.09.2026", "27.09.2026").Replace("order.pdf", "third.pdf"));
+            Assert.Equal(3, await db.CourtExternalOrderObservations.CountAsync());
+            Assert.All(await db.CourtExternalOrderObservations.ToListAsync(), x => Assert.Equal(caseIds[0], x.CourtCaseId));
+        }
+    }
+
+    [Fact]
+    public void FullHistory_UnknownServerPaginationFailsClosed_InsteadOfReportingComplete()
+    {
+        Assert.Throws<InvalidDataException>(() => DelhiHighCourtAssistedForms.ParseOrderRows(
+            OrderResult + "<nav class='pagination'><a rel='next' href='?page=2'>Next</a></nav>"));
     }
 
     [Fact]

@@ -2,12 +2,41 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using LAC.Api;
+using Microsoft.AspNetCore.Http;
 using Xunit;
 
 namespace LAC.Tests;
 
 public sealed class CourtIntelligenceQuestionMetadataTests
 {
+    [Fact]
+    public async Task General_chat_forwards_minimal_authenticated_context_and_only_four_bounded_turns()
+    {
+        var id = Guid.NewGuid();
+        using var handler = new Capture { Reply = JsonSerializer.Serialize(new
+            { caseId = id, mode = "GeneralLocal", answer = "Your name is Ashwani.", claims = Array.Empty<object>(), insufficientEvidence = false }) };
+        var history = Enumerable.Range(0, 8).Select(i => new CourtChatTurn("hello " + i, "Hi")).ToArray();
+        var result = await CourtIntelligenceQuestions.AskAsync(id, "mera naam kya hai?", new Factory(handler), default,
+            appContext: new("Ashwani", "Additional District Magistrate"), history: history);
+        Assert.Equal(200, ((IStatusCodeHttpResult)result).StatusCode);
+        using var body = JsonDocument.Parse(handler.Body!);
+        Assert.Equal(new[] { "displayName", "designation" }, body.RootElement.GetProperty("appContext").EnumerateObject().Select(p => p.Name));
+        Assert.Equal("Ashwani", body.RootElement.GetProperty("appContext").GetProperty("displayName").GetString());
+        Assert.Equal(4, body.RootElement.GetProperty("history").GetArrayLength());
+        Assert.Equal("hello 4", body.RootElement.GetProperty("history")[0].GetProperty("question").GetString());
+    }
+
+    [Theory]
+    [InlineData("hello", "The Court disposed the case.")]
+    [InlineData("this case outcome?", "Everything is complete.")]
+    [InlineData("hello", "Compensation was paid.")]
+    public async Task General_mode_cannot_bypass_independent_court_evidence_gate(string question, string answer)
+    {
+        using var handler = new Capture { Reply = JsonSerializer.Serialize(new
+            { mode = "GeneralLocal", answer, claims = Array.Empty<object>(), insufficientEvidence = false }) };
+        var result = await CourtIntelligenceQuestions.AskAsync(Guid.NewGuid(), question, new Factory(handler), default);
+        Assert.Equal(503, ((IStatusCodeHttpResult)result).StatusCode);
+    }
     [Fact]
     public async Task Question_ForwardsOnlyKnownObservationMetadata_ToLoopback()
     {
@@ -33,12 +62,13 @@ public sealed class CourtIntelligenceQuestionMetadataTests
     {
         public string? Url;
         public string? Body;
+        public string Reply = "{\"claims\":[],\"insufficientEvidence\":true}";
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Url = request.RequestUri!.AbsoluteUri;
             Body = await request.Content!.ReadAsStringAsync(ct);
             return new HttpResponseMessage(HttpStatusCode.OK)
-            { Content = new StringContent("{\"claims\":[],\"insufficientEvidence\":true}", Encoding.UTF8, "application/json") };
+            { Content = new StringContent(Reply, Encoding.UTF8, "application/json") };
         }
     }
 
