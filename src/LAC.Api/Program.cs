@@ -103,6 +103,7 @@ builder.Services.AddScoped<IOutwardAuthorizationService, OutwardAuthorizationSer
 builder.Services.AddScoped<OutwardWorkflowService>();
 builder.Services.AddScoped<IMatterAuthorizationService, MatterAuthorizationService>();
 builder.Services.AddScoped<MatterWorkflowService>();
+builder.Services.AddScoped<MatterContextQuery>();
 builder.Services.AddScoped<IWorkItemAuthorizationService, WorkItemAuthorizationService>();
 builder.Services.AddScoped<WorkItemWorkflowService>();
 builder.Services.AddScoped<IRecordAccessLogger, RecordAccessLogger>();
@@ -629,6 +630,7 @@ api.MapGet("/villages/{id:guid}/matters", async (
     Guid id,
     LacDbContext db,
     IMatterAuthorizationService matterAuth,
+    IAccessControlService accessControl,
     ICurrentUserContext currentUser,
     CancellationToken ct) =>
 {
@@ -643,6 +645,7 @@ api.MapGet("/villages/{id:guid}/matters", async (
     if (!auth.HasPermission)
         return Results.Forbid();
 
+    var canViewAwards = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
     var query = auth.Query;
 
     var items = await query.OrderByDescending(x => x.CreatedAt).Select(x => new
@@ -661,7 +664,7 @@ api.MapGet("/villages/{id:guid}/matters", async (
         x.Remarks,
         x.KhasraReferenceText,
         x.Revision,
-        award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
+        award = x.AwardLinks.Where(a => canViewAwards && a.IsPrimary && a.Award.RecordStatus == RecordStatus.Active).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
     }).ToListAsync(ct);
 
     return Results.Ok(items);
@@ -691,7 +694,11 @@ api.MapPost("/villages/{id:guid}/matters", async (
         ReferenceNumber: request.ReferenceNumber,
         Remarks: request.Remarks,
         KhasraReferenceText: request.KhasraReferenceText,
-        AwardId: request.AwardId
+        AwardId: request.AwardId,
+        AwardIds: request.AwardIds,
+        KhasraIds: request.KhasraIds,
+        CourtCaseIds: request.CourtCaseIds,
+        PrimaryAwardId: request.PrimaryAwardId
     );
 
     try
@@ -1310,7 +1317,7 @@ public sealed record LrReviewItem(Guid Id, Guid VillageLrId, Guid VillageId, str
 public sealed record LrProgress(int TotalRows, int Draft, int NeedsReview, int Verified, int Committed);
 public sealed record IdResponse(Guid Id);
 public sealed record CreateVillageAwardRequest(string AwardNumber, DateOnly? AwardDate, string? AwardType, string? Remarks);
-public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId, Guid? WorkstreamId = null);
+public sealed record CreateMatterRequest(string Title, string? MatterType, string? Status, string? ReferenceNumber, string? Remarks, string? KhasraReferenceText, Guid? AwardId, Guid? WorkstreamId = null, IReadOnlyList<Guid>? AwardIds = null, IReadOnlyList<Guid>? KhasraIds = null, IReadOnlyList<Guid>? CourtCaseIds = null, Guid? PrimaryAwardId = null);
 public sealed record CreateMatterDraftRequest(string Title, string DraftType);
 public sealed record UpdateMatterDraftRequest(string Title, string ContentJson, string PageSize, string Orientation, decimal MarginTopMm, decimal MarginRightMm, decimal MarginBottomMm, decimal MarginLeftMm, int ExpectedRevision);
 public sealed record LinkMatterDocumentRequest(Guid DocumentId, string? Role, string? DisplayName);

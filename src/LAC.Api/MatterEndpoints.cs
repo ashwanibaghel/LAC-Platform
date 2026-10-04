@@ -14,6 +14,7 @@ public static class MatterEndpoints
     public static RouteGroupBuilder MapMatterEndpoints(this RouteGroupBuilder api)
     {
         var matters = api.MapGroup("/matters");
+        matters.MapCanonicalContextEndpoints();
 
         // ====================================================================
         // 1. DIRECTORY / LIST MATTERS
@@ -30,6 +31,7 @@ public static class MatterEndpoints
             bool? sortDesc,
             LacDbContext db,
             IMatterAuthorizationService matterAuth,
+            IAccessControlService accessControl,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
@@ -43,6 +45,7 @@ public static class MatterEndpoints
                 return Results.Forbid();
             }
 
+            var canViewAwards = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
             var query = auth.Query;
 
             // Explicit workstream filter
@@ -126,7 +129,7 @@ public static class MatterEndpoints
                     m.UpdatedAt,
                     documentCount = m.DocumentLinks.Count(d => d.Document.RecordStatus == RecordStatus.Active && (d.Document.Status == "Active" || string.IsNullOrEmpty(d.Document.Status))),
                     draftCount = m.Drafts.Count(dr => dr.RecordStatus == RecordStatus.Active),
-                    award = m.AwardLinks.Where(a => a.IsPrimary).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
+                    award = m.AwardLinks.Where(a => canViewAwards && a.IsPrimary && a.Award.RecordStatus == RecordStatus.Active).Select(a => new { a.AwardId, a.Award.AwardNumber }).FirstOrDefault()
                 })
                 .ToListAsync(ct);
 
@@ -167,7 +170,11 @@ public static class MatterEndpoints
                 ReferenceNumber: request.ReferenceNumber,
                 Remarks: request.Remarks,
                 KhasraReferenceText: request.KhasraReferenceText,
-                AwardId: request.AwardId
+                AwardId: request.AwardId,
+                AwardIds: request.AwardIds,
+                KhasraIds: request.KhasraIds,
+                CourtCaseIds: request.CourtCaseIds,
+                PrimaryAwardId: request.PrimaryAwardId
             );
 
             try
@@ -188,6 +195,7 @@ public static class MatterEndpoints
             Guid id,
             LacDbContext db,
             IMatterAuthorizationService matterAuth,
+            IAccessControlService accessControl,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
@@ -197,6 +205,7 @@ public static class MatterEndpoints
             if (!await matterAuth.CanAccessMatterAsync(id, PermissionCodes.MatterView, userId, ct))
                 return Results.Forbid();
 
+            var canViewAwards = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
             var matter = await db.Matters.AsNoTracking()
                 .Where(x => x.Id == id && x.RecordStatus == RecordStatus.Active)
                 .Select(x => new
@@ -217,7 +226,7 @@ public static class MatterEndpoints
                     x.Revision,
                     x.CreatedAt,
                     x.UpdatedAt,
-                    award = x.AwardLinks.Where(a => a.IsPrimary).Select(a => new
+                    award = x.AwardLinks.Where(a => canViewAwards && a.IsPrimary && a.Award.RecordStatus == RecordStatus.Active).Select(a => new
                     {
                         a.AwardId,
                         a.Award.AwardNumber
@@ -252,7 +261,12 @@ public static class MatterEndpoints
                 KhasraReferenceText: request.KhasraReferenceText,
                 ExpectedRevision: request.ExpectedRevision,
                 Status: request.Status,
-                AwardId: request.AwardId
+                AwardId: request.AwardId,
+                AwardIds: request.AwardIds,
+                KhasraIds: request.KhasraIds,
+                CourtCaseIds: request.CourtCaseIds,
+                PrimaryAwardId: request.PrimaryAwardId,
+                VillageId: request.VillageId
             );
 
             try
@@ -881,55 +895,17 @@ public static class MatterEndpoints
         // ====================================================================
         // 9. MATTER LOOKUPS / CONTEXT
         // ====================================================================
-        matters.MapGet("/context", async (
-            LacDbContext db,
-            ICurrentUserContext currentUser,
-            CancellationToken ct) =>
+        matters.MapGet("/context", async (LacDbContext db, IMatterAuthorizationService matterAuth,
+            ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            var userId = currentUser.UserId.Value;
-
-            var createScopes = await (
-                from ur in db.UserRoles
-                join r in db.Roles on ur.RoleId equals r.Id
-                join rp in db.RolePermissions on r.Id equals rp.RoleId
-                join p in db.Permissions on rp.PermissionId equals p.Id
-                where ur.UserId == userId
-                   && r.IsActive && r.RecordStatus == RecordStatus.Active
-                   && p.Code == PermissionCodes.MatterCreate
-                select rp.ScopeMode
-            ).Distinct().ToListAsync(ct);
-
-            List<object> workstreams;
-            if (createScopes.Contains(ScopeMode.All))
-            {
-                workstreams = await db.Workstreams.AsNoTracking()
-                    .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active)
-                    .OrderBy(w => w.Name)
-                    .Select(w => (object)new { id = w.Id, name = w.Name, code = w.Code })
-                    .ToListAsync(ct);
-            }
-            else if (createScopes.Contains(ScopeMode.Workstream))
-            {
-                workstreams = await db.UserWorkstreamMemberships.AsNoTracking()
-                    .Where(m => m.UserId == userId
-                             && m.IsActive
-                             && m.Workstream.IsActive
-                             && m.Workstream.RecordStatus == RecordStatus.Active)
-                    .OrderBy(m => m.Workstream.Name)
-                    .Select(m => (object)new { id = m.WorkstreamId, name = m.Workstream.Name, code = m.Workstream.Code })
-                    .ToListAsync(ct);
-            }
-            else
-            {
+            if (!await db.AppUsers.AnyAsync(x => x.Id == currentUser.UserId && x.IsActive && x.RecordStatus == RecordStatus.Active, ct))
                 return Results.Forbid();
-            }
-
-            return Results.Ok(new
-            {
-                workstreams,
-                matterTypes = new[] { "Court Case", "Compensation", "Land Acquisition", "General", "Other" }
-            });
+            var workstreams = new List<object>();
+            foreach (var ws in await db.Workstreams.AsNoTracking().Where(x => x.IsActive && x.RecordStatus == RecordStatus.Active).OrderBy(x => x.Name).ToListAsync(ct))
+                if (await matterAuth.CanCreateMatterInWorkstreamAsync(ws.Id, currentUser.UserId.Value, ct))
+                    workstreams.Add(new { id = ws.Id, name = ws.Name, code = ws.Code });
+            return Results.Ok(new { workstreams, matterTypes = new[] { "Court Case", "Compensation", "Land Acquisition", "General", "Other" } });
         });
 
         return matters;
@@ -1043,7 +1019,11 @@ public sealed record CreateMatterApiRequest(
     string? ReferenceNumber,
     string? Remarks,
     string? KhasraReferenceText,
-    Guid? AwardId
+    Guid? AwardId,
+    IReadOnlyList<Guid>? AwardIds = null,
+    IReadOnlyList<Guid>? KhasraIds = null,
+    IReadOnlyList<Guid>? CourtCaseIds = null,
+    Guid? PrimaryAwardId = null
 );
 
 public sealed record UpdateMatterMetadataApiRequest(
@@ -1054,7 +1034,12 @@ public sealed record UpdateMatterMetadataApiRequest(
     string? KhasraReferenceText,
     int ExpectedRevision,
     string? Status = null,
-    Guid? AwardId = null
+    Guid? AwardId = null,
+    IReadOnlyList<Guid>? AwardIds = null,
+    IReadOnlyList<Guid>? KhasraIds = null,
+    IReadOnlyList<Guid>? CourtCaseIds = null,
+    Guid? PrimaryAwardId = null,
+    Guid? VillageId = null
 );
 
 public sealed record UpdateMatterDocumentApiRequest(

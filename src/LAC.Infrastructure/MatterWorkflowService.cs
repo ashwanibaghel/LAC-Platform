@@ -17,7 +17,11 @@ public sealed record CreateMatterCommand(
     string? ReferenceNumber = null,
     string? Remarks = null,
     string? KhasraReferenceText = null,
-    Guid? AwardId = null
+    Guid? AwardId = null,
+    IReadOnlyList<Guid>? AwardIds = null,
+    IReadOnlyList<Guid>? KhasraIds = null,
+    IReadOnlyList<Guid>? CourtCaseIds = null,
+    Guid? PrimaryAwardId = null
 );
 
 public sealed record UpdateMatterMetadataCommand(
@@ -28,7 +32,12 @@ public sealed record UpdateMatterMetadataCommand(
     string? KhasraReferenceText,
     int ExpectedRevision,
     string? Status = null,
-    Guid? AwardId = null
+    Guid? AwardId = null,
+    IReadOnlyList<Guid>? AwardIds = null,
+    IReadOnlyList<Guid>? KhasraIds = null,
+    IReadOnlyList<Guid>? CourtCaseIds = null,
+    Guid? PrimaryAwardId = null,
+    Guid? VillageId = null
 );
 
 public sealed record ReclassifyWorkstreamCommand(
@@ -79,12 +88,14 @@ public sealed record RemoveMatterDocumentLinkCommand(
     int ExpectedRevision
 );
 
-public sealed class MatterWorkflowService(
+public sealed partial class MatterWorkflowService(
     LacDbContext db,
     IDocumentStorage storage,
     IMatterAuthorizationService matterAuth,
     IAccessControlService accessControl,
-    Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
+    Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null,
+    ICourtAuthorizationService? courtAuth = null,
+    IDakAuthorizationService? dakAuth = null)
 {
     private sealed class DenyAllAccessControlService : IAccessControlService
     {
@@ -162,6 +173,10 @@ public sealed class MatterWorkflowService(
     // ========================================================================
     public async Task<Matter> CreateMatterAsync(CreateMatterCommand cmd, Guid currentUserId, CancellationToken ct = default)
     {
+        if (cmd.WorkstreamId == Guid.Empty)
+            throw new MatterWorkflowException("Workstream is mandatory for new matters.");
+        if (cmd.AwardId == Guid.Empty)
+            throw new MatterWorkflowException("Award ID must be non-empty for creation.");
         if (string.IsNullOrWhiteSpace(cmd.Title))
             throw new MatterWorkflowException("Title is mandatory.");
         if (string.IsNullOrWhiteSpace(cmd.MatterType))
@@ -181,25 +196,12 @@ public sealed class MatterWorkflowService(
         if (!canCreate)
             throw new MatterWorkflowException("You do not have permission to create a Matter in this workstream.", 403);
 
-        if (cmd.AwardId.HasValue)
-        {
-            var awardBelongsToVillage = await db.AwardVillages.AsNoTracking()
-                .AnyAsync(av => av.AwardId == cmd.AwardId.Value && av.VillageId == cmd.VillageId, ct);
-            if (!awardBelongsToVillage)
-                throw new MatterWorkflowException("Award does not belong to the selected village.", 400);
-
-            var canViewAward = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
-            if (!canViewAward)
-                throw new MatterWorkflowException("Caller lacks Award.View permission to associate this award.", 403);
-        }
-
         var actionUser = await db.AppUsers.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == currentUserId, ct)
             ?? throw new MatterWorkflowException("Current user not found.", 401);
 
         var matterId = Guid.NewGuid();
         var eventId = Guid.NewGuid();
-        var matterAwardId = cmd.AwardId.HasValue ? Guid.NewGuid() : Guid.Empty;
         var now = DateTimeOffset.UtcNow;
 
         return await ExecuteWorkflowTransactionAsync(
@@ -227,18 +229,6 @@ public sealed class MatterWorkflowService(
                 };
                 db.Matters.Add(matter);
 
-                if (cmd.AwardId.HasValue)
-                {
-                    var matterAward = new MatterAward
-                    {
-                        Id = matterAwardId,
-                        MatterId = matterId,
-                        AwardId = cmd.AwardId.Value,
-                        IsPrimary = true
-                    };
-                    db.MatterAwards.Add(matterAward);
-                }
-
                 string? wsName = null;
                 if (cmd.WorkstreamId != Guid.Empty)
                 {
@@ -262,6 +252,9 @@ public sealed class MatterWorkflowService(
                 };
                 db.MatterEvents.Add(createdEvent);
 
+                await ApplyContextSetsAsync(matter, cmd.AwardIds, cmd.KhasraIds, cmd.CourtCaseIds,
+                    cmd.PrimaryAwardId, cmd.AwardId, actionUser, opCt);
+
                 await db.SaveChangesAsync(opCt);
                 return matter;
             },
@@ -274,13 +267,6 @@ public sealed class MatterWorkflowService(
                 var eventExists = await db.MatterEvents.AsNoTracking()
                     .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.SequenceNumber == 1 && e.Action == MatterEventAction.Created, verifyCt);
                 if (!eventExists) return false;
-
-                if (cmd.AwardId.HasValue)
-                {
-                    var maExists = await db.MatterAwards.AsNoTracking()
-                        .AnyAsync(ma => ma.Id == matterAwardId && ma.MatterId == matterId && ma.AwardId == cmd.AwardId.Value, verifyCt);
-                    if (!maExists) return false;
-                }
 
                 return true;
             },
@@ -334,30 +320,16 @@ public sealed class MatterWorkflowService(
                     matter.Status = cmd.Status.Trim();
                 }
 
-                if (cmd.AwardId.HasValue)
+                if (cmd.VillageId.HasValue && cmd.VillageId != matter.VillageId)
                 {
-                    var existingPrimary = await db.MatterAwards.FirstOrDefaultAsync(ma => ma.MatterId == matterId && ma.IsPrimary, opCt);
-                    if (existingPrimary != null)
-                    {
-                        if (cmd.AwardId.Value == Guid.Empty)
-                        {
-                            db.MatterAwards.Remove(existingPrimary);
-                        }
-                        else if (existingPrimary.AwardId != cmd.AwardId.Value)
-                        {
-                            existingPrimary.AwardId = cmd.AwardId.Value;
-                        }
-                    }
-                    else if (cmd.AwardId.Value != Guid.Empty)
-                    {
-                        db.MatterAwards.Add(new MatterAward
-                        {
-                            Id = Guid.NewGuid(),
-                            MatterId = matterId,
-                            AwardId = cmd.AwardId.Value,
-                            IsPrimary = true
-                        });
-                    }
+                    if (courtAuth is null || !await courtAuth.CanAccessVillageAsync(cmd.VillageId.Value, currentUserId, opCt))
+                        throw new MatterWorkflowException("Village is unavailable or unauthorized.", 403);
+                    matter.VillageId = cmd.VillageId.Value;
+                    // Validate retained canonical land links against the new primary Village.
+                    var awards = cmd.AwardIds ?? await db.MatterAwards.Where(x => x.MatterId == matterId).Select(x => x.AwardId).ToListAsync(opCt);
+                    var khasras = cmd.KhasraIds ?? await db.MatterKhasras.Where(x => x.MatterId == matterId).Select(x => x.KhasraId).ToListAsync(opCt);
+                    foreach (var award in awards) await ValidateContextTargetAsync(matter, MatterContextKind.Award, award, currentUserId, true, opCt);
+                    foreach (var khasra in khasras) await ValidateContextTargetAsync(matter, MatterContextKind.Khasra, khasra, currentUserId, true, opCt);
                 }
 
                 matter.Revision++;
@@ -377,6 +349,9 @@ public sealed class MatterWorkflowService(
                     WorkstreamNameSnapshot = matter.Workstream?.Name
                 };
                 db.MatterEvents.Add(ev);
+                await ApplyContextSetsAsync(matter, cmd.AwardIds, cmd.KhasraIds, cmd.CourtCaseIds,
+                    cmd.PrimaryAwardId, cmd.AwardId, actionUser, opCt);
+
 
                 await db.SaveChangesAsync(opCt);
                 return matter;

@@ -7,6 +7,14 @@ public static class MatterModelConfiguration
 {
     public static void Configure(ModelBuilder b)
     {
+        b.Entity<MatterKhasra>().HasIndex(x => new { x.MatterId, x.KhasraId }).IsUnique();
+        b.Entity<MatterKhasra>().HasOne(x => x.Matter).WithMany(x => x.KhasraLinks)
+            .HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MatterKhasra>().HasOne(x => x.Khasra).WithMany()
+            .HasForeignKey(x => x.KhasraId).OnDelete(DeleteBehavior.Restrict);
+        b.Entity<MatterAward>().HasIndex(x => x.MatterId).IsUnique()
+            .HasFilter("\"IsPrimary\" = TRUE");
+        b.Entity<MatterEvent>().Property(x => x.ContextEntityType).HasMaxLength(32);
         b.Entity<MatterDraft>().HasOne(x => x.OfficeDocument).WithMany()
             .HasForeignKey(x => x.OfficeDocumentId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MatterDraft>().Property(x => x.OfficeKeyGeneration).HasDefaultValue(0);
