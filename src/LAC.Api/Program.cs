@@ -299,6 +299,15 @@ api.MapGet("/villages/{id:guid}", async (Guid id, LacDbContext db, CancellationT
     return village is null ? NotFound("Village", id) : Results.Ok(village);
 }).RequirePermission(PermissionCodes.VillageView);
 
+api.MapGet("/villages/{villageId:guid}/acquisition-history", async (Guid villageId, LacDbContext db,
+    IAccessControlService accessControl, CancellationToken ct) =>
+{
+    var canViewPossession = await accessControl.CanAsync(PermissionCodes.AwardView,
+        new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Possession), ct);
+    var history = await VillageAcquisitionHistoryQueries.ReadAsync(db, villageId, canViewPossession, ct);
+    return history is null ? NotFound("Village", villageId) : Results.Ok(history);
+}).RequirePermission(PermissionCodes.VillageView).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+
 // This is deliberately a three-lane read model.  Canonical records, document-review
 // work and missing source categories are returned separately so an OCR suggestion can
 // never be rendered as an official village fact.
