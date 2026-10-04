@@ -30,7 +30,7 @@ def read_artifact(root, case_id, case_number=None):
 
 
 def refresh_case(root, case_id, case_number, sources, provider, processor=process_order, progress=None,
-                 timeout_seconds=900):
+                 timeout_seconds=900, on_order_started=None):
     if not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 1800:
         raise ValueError('Explicit refresh budget must be between 1 and 1800 seconds')
     case_id=str(uuid.UUID(case_id))
@@ -45,7 +45,7 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
         expected_versions={'extraction':VERSION,'rulebook':'2','model':getattr(provider,'version','local')}
         def publish():
             result=synthesize(case_id,case_number,records)
-            result.update(processingComplete=all(r.get('status') not in ('Unprocessed','Processing') for r in records),
+            result.update(processingComplete=all(r.get('status') not in ('Unprocessed','Processing') and r.get('deepProcessingComplete') is not False for r in records),
                           processedAt=datetime.now(timezone.utc).isoformat())
             for r in records:
                 if r.get('refreshFailure'):
@@ -66,67 +66,92 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
                     return provider.extract(*args,**kwargs)
                 finally:
                     if previous is not None: provider.request_timeout=previous
-        for index,source in enumerate(indexed['orders']):
-            # A successful artifact is reusable only for the same publication,
-            # model and extraction guards. HTML evidence SHA is NOT PDF SHA.
-            source_version=source.get('sourceEvidenceSha256')
-            same_observation=(source.get('processedObservationId')==source.get('sourceObservationId'))
-            same_evidence=bool(source_version and source_version==source.get('processedEvidenceSha256'))
-            reusable=(source.get('status')=='Validated' and not source.get('refreshFailure')
-                      and source.get('versions')==expected_versions and bool(source.get('sha256'))
-                      and (same_evidence or same_observation))
+        def reusable(source):
+            same_publication=(source.get('sourceEvidenceSha256')==source.get('processedEvidenceSha256')
+                if source.get('sourceEvidenceSha256') and source.get('processedEvidenceSha256')
+                else bool(source.get('sourceObservationId') and source.get('processedObservationId')==source.get('sourceObservationId')))
+            complete=(source.get('status')=='Validated' or source.get('status')=='NeedsReview'
+                and source.get('coverage',{}).get('allSelectedChunksProcessed') and not source.get('failureMessage')
+                and source.get('deepProcessingComplete') is not False)
+            blocked=source.get('status')=='NeedsSourceReview'
+            return bool((complete or blocked) and not source.get('refreshFailure') and source.get('sha256')
+                and source.get('versions')==expected_versions and same_publication)
+
+        def persisted(source):
             digest=hashlib.sha256((source['officialUrl']+str(source['orderDate'])).encode()).hexdigest()
-            cached_path=case_folder/'orders'/(digest+'.json')
-            # Recover a fully persisted per-order record even if interruption
-            # occurred before publishing its combined case snapshot.
-            if not reusable and cached_path.is_file() and cached_path.stat().st_size<=MAX_ORDER_ARTIFACT_BYTES:
-                cached=json.loads(cached_path.read_text(encoding='utf-8'))
+            return case_folder/'orders'/(digest+'.json')
+
+        # Recover durable per-order records before scheduling. Cache reads do not
+        # download any PDF or invoke the model, including reviewed complete briefs.
+        for index,source in enumerate(records):
+            path=persisted(source)
+            if not reusable(source) and path.is_file() and path.stat().st_size<=MAX_ORDER_ARTIFACT_BYTES:
+                cached=json.loads(path.read_text(encoding='utf-8'))
                 if (cached.get('courtCaseId')==case_id and identity(cached.get('caseNumber',''))==identity(case_number)
-                    and cached.get('officialUrl')==source['officialUrl'] and cached.get('orderDate')==source['orderDate']
-                    and cached.get('status')=='Validated' and cached.get('versions')==expected_versions
-                    and cached.get('sha256') and not cached.get('refreshFailure')
-                    and (source_version and cached.get('processedEvidenceSha256')==source_version
-                         or cached.get('processedObservationId')==source.get('sourceObservationId'))):
-                    source=dict(cached,sourceObservationId=source.get('sourceObservationId'))
-                    reusable=True
-            if reusable:
-                record=source
-            else:
-                # Budget applies to ONE order; twenty orders are never cut off
-                # merely because earlier orders consumed a whole-case budget.
-                deadline=time.monotonic()+timeout_seconds
-                record=processor(source,case_number,BoundedProvider())
-                if record.get('officialUrl')!=source['officialUrl'] or record.get('orderDate')!=source['orderDate']:
-                    raise ValueError('Processor returned another source/date')
-                # A failed attempt has no accepted evidence to invalidate. DHC
-                # may regenerate its PDF wrapper/creation timestamp; a retry
-                # must validate the newly downloaded source from scratch.
-                # Any prior usable facts still retain the byte-change guard.
-                failed_without_facts=bool(source.get('failureMessage') and not source.get('facts'))
-                if failed_without_facts and source.get('sha256'):
-                    record['previousAttemptSha256']=source['sha256']
-                if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256'] and not failed_without_facts:
-                    record.update(status='NeedsSourceReview',facts=[],sourceReasonCode='SourceBytesChanged',failureMessage='Known official source bytes changed; source-version review required')
-                record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256','sourceKind')})
-                record.update(caseNumber=case_number,processedObservationId=source.get('sourceObservationId'),
-                              processedEvidenceSha256=source_version,processedAt=datetime.now(timezone.utc).isoformat())
-                if record.get('failureMessage') and source.get('status')=='Validated':
-                    record=dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')
-                elif record.get('failureMessage'):
-                    record['facts']=[]
-            if record.get('failureMessage') or record.get('refreshFailure') or record.get('status') in ('NeedsReview','NeedsSourceReview'):
-                reviews+=1
-            records[index]=record
-            # Publish the durable per-order record BEFORE the case read model
-            # and before acknowledging progress. Pending sources remain visible.
-            candidate=synthesize(case_id,case_number,records)
+                    and cached.get('officialUrl')==source['officialUrl'] and cached.get('orderDate')==source['orderDate']):
+                    cached=dict(cached,**{key:source.get(key) for key in ('sourceObservationId','sourceEvidenceSha256')})
+                    if reusable(cached): records[index]=cached
+        completed={index for index,source in enumerate(records) if reusable(source)}
+        schedule=sorted((index for index in range(len(records)) if index not in completed),
+            key=lambda index:(records[index]['orderDate'],records[index]['officialUrl']),reverse=True)
+
+        def store(index,record):
+            candidate_records=list(records);candidate_records[index]=record
+            candidate=synthesize(case_id,case_number,candidate_records)
             if len(json.dumps(candidate,ensure_ascii=False,indent=2).encode('utf-8'))>MAX_CASE_ARTIFACT_BYTES:
                 raise ValueError('Structured case snapshot exceeds reader safety limit')
             if len(json.dumps(record,ensure_ascii=False,indent=2).encode('utf-8'))>MAX_ORDER_ARTIFACT_BYTES:
                 raise ValueError('Structured order exceeds safety limit')
-            atomic_json(cached_path,record)
+            atomic_json(persisted(record),record)
+            records[index]=record
+            return publish()
+
+        def finish_record(source,record):
+            if record.get('officialUrl')!=source['officialUrl'] or record.get('orderDate')!=source['orderDate']:
+                raise ValueError('Processor returned another source/date')
+            failed_without_facts=bool(source.get('failureMessage') and not source.get('facts'))
+            if failed_without_facts and source.get('sha256'): record['previousAttemptSha256']=source['sha256']
+            if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256'] and not failed_without_facts:
+                record.update(status='NeedsSourceReview',facts=[],sourceReasonCode='SourceBytesChanged',failureMessage='Known official source bytes changed; source-version review required')
+            record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256','sourceKind')})
+            record.update(caseNumber=case_number,processedObservationId=source.get('sourceObservationId'),
+                processedEvidenceSha256=source.get('sourceEvidenceSha256'),processedAt=datetime.now(timezone.utc).isoformat())
+            from semantics import usable_facts
+            if record.get('failureMessage') and usable_facts(source):
+                return dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')
+            if record.get('failureMessage'): record['facts']=[]
+            # A smaller first brief must not replace a richer verified artifact
+            # of the same checked bytes/version. Enrichment preserves its facts.
+            if (usable_facts(source) and record.get('sha256')==source.get('sha256')
+                and record.get('versions')==source.get('versions') and not record.get('failureMessage')):
+                if record.get('deepProcessingComplete') is False and len(usable_facts(record))<len(usable_facts(source)):
+                    return source
+                record['facts']=list({json.dumps(f,sort_keys=True):f for f in source.get('facts',[])+record.get('facts',[])}.values())
+            return record
+
+        result=indexed
+        for index in schedule:
+            source=records[index]
+            if on_order_started: on_order_started(source['orderDate'],len(completed),len(records))
+            deadline=time.monotonic()+timeout_seconds
+            def fast_ready(partial):
+                partial=finish_record(source,partial)
+                if not partial.get('failureMessage'):
+                    store(index,partial)
+                    if progress: progress(len(completed)+1,len(records),sum(bool(r.get('refreshFailure')) or r.get('status') in ('NeedsReview','NeedsSourceReview') for r in records))
+            if processor is process_order:
+                record=processor(source,case_number,BoundedProvider(),fast=index==schedule[0],
+                    on_fast_ready=fast_ready if index==schedule[0] else None)
+            else:
+                record=processor(source,case_number,BoundedProvider())
+            record=finish_record(source,record)
+            result=store(index,record);completed.add(index)
+            reviews=sum(bool(r.get('failureMessage') or r.get('refreshFailure')) or r.get('status') in ('NeedsReview','NeedsSourceReview') for r in records)
+            if progress: progress(len(completed),len(records),reviews)
+        if not schedule:
             result=publish()
-            if progress: progress(index+1,len(records),reviews)
+            reviews=sum(bool(r.get('refreshFailure')) or r.get('status') in ('NeedsReview','NeedsSourceReview') for r in records)
+            if progress: progress(len(records),len(records),reviews)
         return result,reviews
 
 
@@ -137,6 +162,7 @@ class RefreshController:
         self.timeout_seconds=timeout_seconds
         self.root=Path(root); self.provider_factory=provider_factory
         self.lock=threading.Lock()
+        self.active_case_id=None
         # Restart never resumes downloads. Disclose lost runtime work only.
         folder=self.root/'court-intelligence'/'v1'
         if folder.is_dir():
@@ -159,6 +185,7 @@ class RefreshController:
         if not merge_known_orders(existing,case_id,case_number,sources,strict_index=True)['orders']:
             raise ValueError('No exact official sources')
         if not self.lock.acquire(blocking=False): return None
+        self.active_case_id=case_id
         status_path=self.root/'court-intelligence'/'v1'/case_id/'refresh.json'
         state=dict(caseId=case_id,status='Running',checked=0,total=len(merge_known_orders(existing,case_id,case_number,sources,strict_index=True)['orders']),needsReview=0,
                    startedAt=datetime.now(timezone.utc).isoformat())
@@ -169,9 +196,12 @@ class RefreshController:
                     def progress(checked,total,reviews):
                         state.update(checked=checked,total=total,needsReview=reviews)
                         atomic_json(status_path,state)
+                    def started(day,checked,total):
+                        state.update(processingCurrentOrderDate=day,checked=checked,total=total)
+                        atomic_json(status_path,state)
                     _,reviews=refresh_case(self.root,case_id,case_number,sources,self.provider_factory(),progress=progress,
-                                           timeout_seconds=self.timeout_seconds)
-                    state.update(status='CompletedWithReview' if reviews else 'Completed')
+                                           timeout_seconds=self.timeout_seconds,on_order_started=started)
+                    state.update(status='CompletedWithReview' if reviews else 'Completed',processingCurrentOrderDate=None)
                 except Exception:
                     # Provider errors can contain URLs; status never stores raw
                     # exception strings, prompts, questions or credentials.
@@ -180,8 +210,11 @@ class RefreshController:
                     try:
                         state['completedAt']=datetime.now(timezone.utc).isoformat()
                         atomic_json(status_path,state)
-                    finally: self.lock.release()
+                    finally:
+                        self.active_case_id=None
+                        self.lock.release()
             threading.Thread(target=run,name='court-one-case-refresh',daemon=True).start()
         except BaseException:
+            self.active_case_id=None
             self.lock.release(); raise
         return dict(caseId=case_id,status='Running')

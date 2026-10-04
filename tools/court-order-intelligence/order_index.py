@@ -90,7 +90,7 @@ def merge_known_orders(artifact, case_id, case_number, sources, strict_index=Fal
         orders=[order for order in orders if (order.get('orderDate'),order.get('officialUrl')) in accepted]
     from semantics import synthesize
     result=synthesize(case_id,case_number,orders)
-    result['processingComplete']=bool(orders) and all(order.get('status')!='Unprocessed' for order in orders)
+    result['processingComplete']=bool(orders) and all(order.get('status') not in ('Unprocessed','Processing') and order.get('deepProcessingComplete') is not False for order in orders)
     return result
 
 @contextmanager
@@ -120,6 +120,7 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
     if len(matches)!=1: return artifact # Several publications on one date require source selection.
     source=matches[0]
     retry=bool(re.search(r'\b(?:refresh|retry|reprocess)\b|dobara process',question,re.I))
+    if source.get('status') in ('Unprocessed','Processing') and not retry: return artifact
     if source.get('status')=='Validated' and not retry: return artifact # never redownload per question
     if source.get('status') in ('NeedsReview','NeedsSourceReview') and not retry: return artifact
     if source.get('status') not in ('Unprocessed','Validated','NeedsReview','NeedsSourceReview'): return artifact
@@ -162,7 +163,7 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
         updated=[record if order is source else order for order in orders]
         from semantics import synthesize
         result=synthesize(case_id,artifact['caseNumber'],updated)
-        result['processingComplete']=all(order.get('status')!='Unprocessed' for order in updated)
+        result['processingComplete']=all(order.get('status') not in ('Unprocessed','Processing') and order.get('deepProcessingComplete') is not False for order in updated)
         # Retain structured version history only; the processor deletes its temporary PDF.
         key=record.get('sha256') or 'unreadable'
         if not re.fullmatch(r'[a-f0-9]{64}|unreadable',key): raise ValueError('Invalid artifact digest')

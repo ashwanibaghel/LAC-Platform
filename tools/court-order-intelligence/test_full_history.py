@@ -168,16 +168,16 @@ class FullHistoryTests(unittest.TestCase):
     def test_interruption_saves_first_order_and_resumes_without_reprocessing_it(self):
         first=source();second=source(day='2026-02-01',url=URL.replace('fixture','next'))
         def interrupted(src,*args):
-            if src['orderDate']==second['orderDate']: raise OSError('Interrupted')
+            if src['orderDate']==first['orderDate']: raise OSError('Interrupted')
             return self.processed(src)
         with tempfile.TemporaryDirectory() as root:
             with self.assertRaises(OSError):refresh_case(root,CASE,NUMBER,[first,second],Provider(),processor=interrupted)
             partial=read_artifact(root,CASE)
             self.assertFalse(partial['processingComplete'])
-            self.assertEqual(['Validated','Unprocessed'],[r['status'] for r in partial['orders']])
+            self.assertEqual(['Unprocessed','Validated'],[r['status'] for r in partial['orders']])
             calls=[]
             result,_=refresh_case(root,CASE,NUMBER,[first,second],Provider(),processor=lambda src,*a:(calls.append(src['orderDate']),self.processed(src))[1])
-            self.assertEqual([second['orderDate']],calls)
+            self.assertEqual([first['orderDate']],calls)
             self.assertTrue(result['processingComplete'])
             self.assertFalse(list(Path(root).rglob('*.pdf')))
 

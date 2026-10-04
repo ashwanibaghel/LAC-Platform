@@ -124,7 +124,8 @@ public static class CourtIntelligenceCaseData
         view["unprocessedOrderCount"] = unprocessed;
         view["unusableKnownOrderCount"] = index.Orders.Where(x => !Eligible(index, x))
             .Select(o => (o.OrderDate, o.OfficialUrl)).Distinct().Count();
-        view["processingComplete"] = sorted.Count > 0 && unprocessed == 0 && reviewSources.Count == 0;
+        view["processingComplete"] = sorted.Count > 0 && unprocessed == 0 && reviewSources.Count == 0
+            && !sorted.Any(o => o?["status"]?.GetValue<string>() == "Processing" || o?["deepProcessingComplete"]?.GetValue<bool>() == false);
         view["sourceCoverage"] = new JsonObject { ["basis"] = "Registered case official order index",
             ["knownSources"] = sorted.Count + reviewSources.Count, ["checkedSources"] = sorted.Count(o => o!["status"]!.GetValue<string>() == "Validated"),
             ["gaps"] = new JsonArray(sorted.Where(o => o!["status"]!.GetValue<string>() != "Validated" || o["refreshFailure"] is not null)
@@ -141,7 +142,7 @@ public static class CourtIntelligenceCaseData
             usableAiBriefs = diagnostics.Count(d => d.UsableFactCount > 0),
             blockedBeforeAi = diagnostics.Count(d => d.AiState == "BlockedBeforeAI"),
             processedButReviewRequired = diagnostics.Count(d => d.AiState == "ProcessedWithReview" || d.ReasonCode == "RefreshFailed"),
-            pendingProcessing = diagnostics.Count(d => d.AiState is "Waiting" or "Processing"),
+            pendingProcessing = diagnostics.Count(d => d.AiState is "Waiting" or "Processing" || d.ReasonCode == "FastBriefReady"),
             extractionIncomplete = diagnostics.Count(d => d.AiState == "Incomplete"),
             usableBriefsWithReview = diagnostics.Count(d => d.UsableFactCount > 0 && d.ReviewRequired)
         }, JsonSerializerOptions.Web);
@@ -164,6 +165,7 @@ public static class CourtIntelligenceCaseData
                 if (state[key] is not null && state[key]!.GetValue<int>() is < 0 or > 1000) throw new InvalidDataException("Invalid refresh counter.");
             view["refreshState"] = state;
         }
+        view["progressSummary"] = JsonSerializer.SerializeToNode(CourtProgressSummary.Build(diagnostics, sorted, view["refreshState"]), JsonSerializerOptions.Web);
         return JsonSerializer.SerializeToElement(view);
     }
 

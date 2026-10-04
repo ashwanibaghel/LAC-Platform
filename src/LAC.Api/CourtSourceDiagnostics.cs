@@ -39,6 +39,7 @@ public static class CourtSourceDiagnostics
         { code = "PdfAttributionMismatch"; blocked = true; ai = "BlockedBeforeAI"; usable = 0; }
         else if (!blocked && failure == "Source-confirmed order date required")
         { code = "PdfOrderDateMismatch"; blocked = true; ai = "BlockedBeforeAI"; usable = 0; }
+        else if (!blocked && order?["deepProcessingComplete"]?.GetValue<bool>() == false && usable > 0) code = "FastBriefReady";
         else if (!blocked && order?["refreshFailure"] is not null) code = "RefreshFailed";
         else if (!blocked && ai == "Incomplete") code = "AiExtractionIncomplete";
         else if (!blocked && ai == "ProcessedWithReview") code = "AiProcessedWithReview";
@@ -77,11 +78,12 @@ public static class CourtSourceDiagnostics
             "OfficialSourceNotPdf" => "The official link did not return PDF content. Facts are withheld pending source review.",
             "AiExtractionIncomplete" => "AI extraction did not complete. Partial chunks contribute no usable facts.",
             "AiProcessedWithReview" => "AI extraction completed with coverage or attribution review. Only individually verified facts are usable.",
+            "FastBriefReady" => "Verified latest-order evidence is ready. Background enrichment is still pending; this is not a complete order digest.",
             "RefreshFailed" => "The latest source check failed. Previously verified evidence is retained; review the source before relying on completeness.",
             _ => ai == "Waiting" ? "The official row is verified; AI processing has not started." : ai == "Processing" ? "AI processing is in progress." : "Source and evidence checks completed."
         };
         var aiLabel = ai switch { "BlockedBeforeAI" => "Facts withheld", "Waiting" => "Waiting for AI",
-            "Processing" => "AI processing", "Incomplete" => "AI extraction incomplete", "ProcessedWithReview" => "AI processed with review", _ => "AI processed" };
+            "Processing" => "AI processing", "Incomplete" => "AI extraction incomplete", "ProcessedWithReview" => code == "FastBriefReady" ? "Fast brief ready" : "AI processed with review", _ => "AI processed" };
         return new(source.OrderDate?.ToString("yyyy-MM-dd"), source.RawOrderDate, source.OfficialUrl,
             source.SourceObservationId, sourceState, code, message, ai, usable,
             blocked || ai is "Incomplete" or "ProcessedWithReview" || code == "RefreshFailed", sourceLabel, aiLabel,

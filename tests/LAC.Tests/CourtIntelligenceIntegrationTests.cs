@@ -22,6 +22,29 @@ public sealed class CourtIntelligenceIntegrationTests
     private const string Url = "https://delhihighcourt.nic.in/app/showlogo/synthetic-422026.pdf/2026";
 
     [Fact]
+    public async Task Fast_verified_brief_is_readable_without_claiming_complete_processing_or_starting_inference()
+    {
+        using var env = new Harness();
+        var courtCase = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        var artifact = Artifact(courtCase.Id, category: "PETITIONER_SUBMISSION");
+        var order = artifact["orders"]![0]!;
+        order["status"] = "NeedsReview";
+        order["coverage"] = new JsonObject { ["allSelectedChunksProcessed"] = true };
+        order["summaryFacts"] = order["facts"]!.DeepClone();
+        order["deepProcessingComplete"] = false;
+        order["sourceVerificationComplete"] = true;
+        await env.Write(courtCase.Id, artifact);
+        using var response = await env.Client.GetAsync($"/api/court-cases/{courtCase.Id}/intelligence");
+        response.EnsureSuccessStatusCode();
+        var view = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(view.GetProperty("processingComplete").GetBoolean());
+        Assert.True(view.GetProperty("progressSummary").GetProperty("latestBriefReady").GetBoolean());
+        Assert.Equal(1, view.GetProperty("progressSummary").GetProperty("pendingSources").GetInt32());
+        Assert.Equal("FastBriefReady", Assert.Single(view.GetProperty("sourceDiagnostics").EnumerateArray()).GetProperty("reasonCode").GetString());
+        Assert.Empty(env.Transport.Requests);
+    }
+
+    [Fact]
     public async Task Official_corrigendum_is_an_exact_independent_processing_source()
     {
         using var env = new Harness();

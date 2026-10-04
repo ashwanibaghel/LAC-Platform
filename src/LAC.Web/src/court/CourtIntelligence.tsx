@@ -11,7 +11,8 @@ type Intelligence = { caseNumber?: string; status: string; processingComplete: b
 type SourceDiagnostic = { orderDate: string | null; rawOrderDate: string | null; officialUrl: string | null; sourceObservationId: string; sourceState: string; reasonCode: string; officerMessage: string; aiState: string; usableFactCount: number; reviewRequired: boolean; sourceLabel: string; aiLabel: string; technical: Record<string, unknown> };
 type PipelineSummary = { officialOrdersFound: number; usableAiBriefs: number; blockedBeforeAi: number; processedButReviewRequired: number; pendingProcessing: number; extractionIncomplete: number; usableBriefsWithReview: number };
 type Answer = { answer: string; actionConclusion?: string; coverageNote?: string; mode?: "CourtGrounded" | "GeneralLocal"; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
-type RegisteredIntelligence = Intelligence & { sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string } };
+type ProgressSummary = { officialSources: number; usableBriefs: number; blockedSources: number; pendingSources: number; latestBriefReady: boolean; latestOrderDate: string | null; processingCurrentOrderDate: string | null; processingChecked: number; processingTotal: number; backgroundProcessing: boolean; coverageComplete: boolean };
+type RegisteredIntelligence = Intelligence & { progressSummary?: ProgressSummary; sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string } };
 
 const IconCourt: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = "" }) => (
   <svg
@@ -443,7 +444,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     };
   }, [caseId]);
 
-  const running = data?.refreshState?.status === "Running";
+  const running = data?.progressSummary?.backgroundProcessing ?? data?.refreshState?.status === "Running";
   const syncRunning = !!data?.historySync && !["Completed", "Cancelled", "Failed", "Interrupted"].includes(data.historySync.status);
   // A previous Completed AI job must not stop polling between new official
   // discovery and the durable bridge starting the next incremental job.
@@ -657,7 +658,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             <strong>{pipeline.officialOrdersFound ? `${pipeline.officialOrdersFound} official ${pipeline.officialOrdersFound === 1 ? "source found" : "orders"} · ${pipeline.usableAiBriefs} usable AI ${pipeline.usableAiBriefs === 1 ? "brief" : "briefs"}${pipeline.blockedBeforeAi ? ` · ${pipeline.blockedBeforeAi} source-blocked` : ""}${pipeline.pendingProcessing ? ` · ${pipeline.pendingProcessing} awaiting AI` : ""}${pipeline.extractionIncomplete ? ` · ${pipeline.extractionIncomplete} extraction incomplete` : ""}` : data.historySync?.status === "Completed" ? "Official DHC search returned no order PDF." : "DHC history has not been checked yet."}</strong>
             {pipeline.usableBriefsWithReview > 0 && <small>{pipeline.usableBriefsWithReview} of the {pipeline.usableAiBriefs} usable briefs also require review; this is not an additional source.</small>}
             {primaryNotice && <p className="court-primary-notice">{primaryNotice}</p>}
-            {(running || syncRunning) && <p>{syncRunning ? data.historySync?.status.includes("Captcha") ? "CAPTCHA required · continue verification" : "Checking official DHC history…" : `AI processing · ${data.refreshState?.checked ?? 0} of ${data.refreshState?.total ?? data.orders.length} sources checked`}</p>}
+            {data.progressSummary?.latestBriefReady && <small>{data.progressSummary.backgroundProcessing ? "Fast brief ready" : "Latest brief ready"} · {shownDate(data.progressSummary.latestOrderDate)}</small>}
+            {(running || syncRunning) && <p>{syncRunning ? data.historySync?.status.includes("Captcha") ? "CAPTCHA required · continue verification" : "Checking official DHC history…" : data.progressSummary ? `Background history · ${data.progressSummary.processingChecked} / ${data.progressSummary.processingTotal} sources checked${data.progressSummary.processingCurrentOrderDate ? ` · Processing ${shownDate(data.progressSummary.processingCurrentOrderDate)}` : ""}` : `AI processing · ${data.refreshState?.checked ?? 0} of ${data.refreshState?.total ?? data.orders.length} sources checked`}</p>}
             {data.orders.length > 0 && <details className="court-processing-controls"><summary>Processing controls</summary><button type="button" disabled={refreshing || running} onClick={refresh}>{refreshing || running ? "Processing intelligence…" : data.unprocessedOrderCount ? "Process known orders" : "Refresh intelligence"}</button></details>}
           </div>
           {showMatterHeader && (
@@ -856,6 +858,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                       <p className="court-answer-unconfirmed">
                         {answer.reason === "OrderUnavailable"
                           ? "I could not find an official order for that listed date."
+                          : answer.reason === "OrderProcessing" || answer.reason === "OrderNotVerified" ? answer.answer.split("\n")[0]
                           : answer.reason === "HistoryTooLong" ? "This history is too long for one reply. Please ask for a narrower date range or review the complete order history."
                           : "I could not confirm this from the orders processed for this matter."}
                       </p>

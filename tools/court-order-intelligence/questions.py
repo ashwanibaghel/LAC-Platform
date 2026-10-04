@@ -216,7 +216,15 @@ def action_coverage(artifact, coverage=None):
         return 'Some discovered orders are still awaiting AI processing, so no conclusion is drawn from those sources.'
     return ''
 
-def answer(artifact, case_id, question, provider, coverage=None):
+def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False):
+    result=_answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy)
+    pending=bool(background_processing or any(o.get('status') in ('Unprocessed','Processing') or o.get('deepProcessingComplete') is False for o in artifact.get('orders',[])))
+    if pending and not result.get('coverageNote'):
+        result['coverageNote']='History processing is still in progress. This answer uses only currently verified evidence; pending or review sources are not included.'
+        result['answer']+='\n'+result['coverageNote']
+    return result
+
+def _answer(artifact, case_id, question, provider, coverage=None, background_processing=False):
     if artifact.get('caseId') != case_id:
         raise ValueError('Current-matter artifact identity mismatch')
     if re.search(r'other case|another case|across cases|all cases|compare cases|dusre case|doosre case|दूसरे केस|सभी मामलों',question,re.I):
@@ -224,11 +232,17 @@ def answer(artifact, case_id, question, provider, coverage=None):
     references=re.findall(r'(?:W\.?\s*P\.?\s*\(?C\)?|LA\.?\s*APP\.?|CO\.?\s*PET\.?|SLP\s*\(?C\)?)\s*[-.:]*\s*\d+\s*/\s*\d{4}',question,re.I)
     if any(identity(reference)!=identity(artifact.get('caseNumber','')) for reference in references):
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
-    intent=normalize(question,provider)
     from order_index import requested_date
     target=requested_date(question,[order.get('orderDate') for order in artifact.get('orders',[])])
     if target['requested'] and not any(order.get('orderDate')==target['date'] for order in artifact.get('orders',[]) if target['date']):
         return {'answer':ORDER_UNAVAILABLE,'reason':'OrderUnavailable','claims':[],'insufficientEvidence':True}
+    if target['requested']:
+        matches=[o for o in artifact.get('orders',[]) if o.get('orderDate')==target['date']]
+        if matches and not any(usable_facts(o) for o in matches):
+            pending=any(o.get('status') in ('Unprocessed','Processing') for o in matches)
+            return {'answer':'That official order is still awaiting or undergoing processing. No verified answer is available for that date yet.' if pending else 'That official order is not verified for intelligence. Its facts are withheld pending review.',
+                'reason':'OrderProcessing' if pending else 'OrderNotVerified','claims':[],'insufficientEvidence':True}
+    intent=normalize(question,None if background_processing else provider)
     complete='timeline' in intent['topics'] or bool(re.search(r'\ball\b|\bevery\b|\bsabhi\b|\bsare\b|\bsaare\b|सभी|सारे|ab tak|अब तक',question,re.I))
     evidence = retrieve(artifact,question,intent,complete=complete)
     if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics']:
@@ -247,6 +261,10 @@ def answer(artifact, case_id, question, provider, coverage=None):
             'claims':[],'insufficientEvidence':not has_usable}
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+    if background_processing:
+        # Serve checked extractive evidence immediately, without waiting behind
+        # the single background inference slot or inventing missing history.
+        return compose(evidence[:8] if complete or intent.get('fullStory') else evidence[:4])
     if complete and (len(evidence)>8 or len(json.dumps(evidence))>6500):
         result=compose(evidence)
         # Keep the authenticated API's response bound. Never silently advertise

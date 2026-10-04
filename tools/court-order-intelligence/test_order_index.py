@@ -49,13 +49,13 @@ class OrderIndexTests(unittest.TestCase):
                        {'officialUrl':'https://example.com/order.pdf'},{'officialUrl':URL+'?secret=a'}):
             self.assertEqual([],merge_known_orders(None,CASE,NUMBER,[source(**change)])['orderIndex'])
 
-    def test_lazy_known_date_processes_one_pdf_then_reuses_stored_intelligence(self):
+    def test_explicit_retry_processes_one_pdf_then_reuses_stored_intelligence(self):
         artifact=merge_known_orders(None,CASE,NUMBER,[source()]); calls=[]
         def processor(source,number,provider):
             calls.append(source['officialUrl'])
             return order([fact()],officialUrl=source['officialUrl'],orderDate=source['orderDate'],versions={'extraction':'test'})
         with tempfile.TemporaryDirectory() as root:
-            updated=prepare_question(root,artifact,CASE,'What happened on 29 July 2026?',object(),processor)
+            updated=prepare_question(root,artifact,CASE,'Retry processing 29 July 2026.',object(),processor)
             again=prepare_question(root,updated,CASE,'29 July wali hearing me kya hua?',object(),processor)
             self.assertEqual([URL],calls)
             self.assertEqual('Processed',again['orderIndex'][0]['processingState'])
@@ -84,7 +84,7 @@ class OrderIndexTests(unittest.TestCase):
             def processor(*args):
                 return order([fact()] if prior_sha else [],status='Validated' if prior_sha else 'NeedsSourceReview',officialUrl=URL,orderDate='2026-07-29')
             with tempfile.TemporaryDirectory() as root:
-                result=prepare_question(root,artifact,CASE,'What happened on 29 July 2026?',object(),processor)
+                result=prepare_question(root,artifact,CASE,'Retry processing 29 July 2026.',object(),processor)
                 self.assertEqual('NeedsSourceReview',result['orders'][0]['status'])
                 self.assertEqual([],result['orders'][0]['summaryFacts'])
 

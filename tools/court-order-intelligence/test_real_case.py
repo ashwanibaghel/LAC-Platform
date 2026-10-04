@@ -36,7 +36,8 @@ class RealCaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             result,reviews=refresh_case(root,CASE,NUMBER,index,object(),processor=process)
             self.assertEqual(CASE,result['caseId']); self.assertEqual(2,len(seen))
-            self.assertEqual(NUMBER,seen[0][1]); self.assertEqual(index[0]['sourceObservationId'],seen[0][0]['sourceObservationId'])
+            self.assertEqual(NUMBER,seen[0][1]); self.assertEqual(index[1]['sourceObservationId'],seen[0][0]['sourceObservationId'])
+            self.assertEqual(['2026-02-01','2026-01-01'],[entry[0]['orderDate'] for entry in seen])
             self.assertEqual(index[0]['sourceObservationId'],result['orderIndex'][0]['sourceObservationId'])
             self.assertEqual(index[0]['normalizedCaseIdentity'],result['orderIndex'][0]['normalizedCaseIdentity'])
             self.assertEqual(CASE,result['orders'][0]['courtCaseId'])

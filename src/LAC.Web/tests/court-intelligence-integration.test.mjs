@@ -258,3 +258,19 @@ test('unconfirmed hearing answer does not relabel a verified reviewed brief as s
     assert.doesNotMatch(html,/still needs? source verification/);
   }finally{h.close();globalThis.fetch=previous;}
 });
+
+test('API fast readiness and background progress keep Ask available and pending-date answer explicit',async()=>{
+  const previous=globalThis.fetch,h=harness();
+  try{
+    globalThis.fetch=async(url,options)=>response(options.method?{caseId:B,mode:'CourtGrounded',answer:'That official order is still awaiting or undergoing processing. No verified answer is available for that date yet.',reason:'OrderProcessing',claims:[],insufficientEvidence:true}:{...payload(B),
+      progressSummary:{officialSources:8,usableBriefs:1,blockedSources:0,pendingSources:7,latestBriefReady:true,latestOrderDate:'2026-09-23',processingCurrentOrderDate:'2026-09-18',processingChecked:1,processingTotal:8,backgroundProcessing:true,coverageComplete:false}});
+    h.render(B);await tick();let tree=h.render(B);
+    const html=renderToStaticMarkup(tree);
+    assert.match(html,/Fast brief ready/);assert.match(html,/Background history · 1 \/ 8/);
+    find(tree,n=>n.type==='input').props.onChange({target:{value:'What happened on 6 May 2026?'}});
+    tree=h.render(B);
+    assert.equal(find(tree,n=>n.type==='button'&&n.props.type==='submit').props.disabled,false);
+    await find(tree,n=>n.type==='form').props.onSubmit({preventDefault(){}});
+    assert.match(renderToStaticMarkup(h.render(B)),/still awaiting or undergoing processing/);
+  }finally{h.close();globalThis.fetch=previous;}
+});

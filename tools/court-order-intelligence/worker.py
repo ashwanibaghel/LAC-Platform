@@ -7,6 +7,7 @@ import re
 import tempfile
 import time
 import uuid
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -21,6 +22,7 @@ from chronology import caption_context
 from preselection import select_candidates, bounded_chunks
 from native_layout import outer_paragraph_offsets
 from completeness import recover
+from fast_path import select_fast_candidates, compact_prompt, INSTRUCTIONS as FAST_INSTRUCTIONS
 
 class StopRequested(BaseException):
     pass
@@ -80,7 +82,8 @@ def native_pages(path):
             pages[number] = normalized(text)
     return pages
 
-def process_order(source, case_number, provider, temporary_root=None, downloader=download, stop_file=None):
+def process_order(source, case_number, provider, temporary_root=None, downloader=download, stop_file=None,
+                  fast=False, on_fast_ready=None):
     record = {'officialUrl': source['officialUrl'], 'orderDate': source.get('orderDate'),
               'caseNumber': case_number, 'sha256': None, 'status': 'NeedsReview', 'facts': [],
               'versions': {'extraction': VERSION, 'rulebook': '2', 'model': provider.version},
@@ -112,27 +115,41 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             record['bench'] = record['caption'].get('bench', {}).get('text')
             anchors = anchors_for(pages, outer_paragraph_offsets(path, pages))
             candidates, selection = select_candidates(anchors, pages)
-            chunks = bounded_chunks(candidates)
+            fast_candidates = select_fast_candidates(candidates) if fast else candidates
+            seeded=[]
+            if (fast and source.get('deepProcessingComplete') is False and not source.get('failureMessage')
+                and source.get('sha256')==record['sha256'] and source.get('versions')==record['versions']):
+                # Resume only identical checked bytes/version. Re-expand cached
+                # selections through CURRENT quote/speaker/page/action guards.
+                for batch in range(0,len(source.get('facts',[])),6):
+                    selections=[];matched=[]
+                    for fact in source['facts'][batch:batch+6]:
+                        anchor=next((a for a in candidates if a['page']==fact['page'] and a['text']==fact['evidence']),None)
+                        if anchor:
+                            matched.append(anchor);selections.append(dict(anchorId=anchor['anchorId'],category=fact['category'],field=fact['field'],scope=fact['scope']))
+                    if matched:seeded.extend(expand(dict(facts=selections,needsReview=False),matched,pages,defer_semantic=True)['facts'])
+            represented={(f['page'],f['evidence']) for f in seeded if f['scope']!='Uncertain'}
+            chunks = bounded_chunks([a for a in fast_candidates if (a['page'],a['text']) not in represented])
             if len(chunks)>16: raise ValueError('NeedsSourceReview: order exceeds bounded inference coverage')
-            if not chunks:
+            if not chunks and not seeded:
                 raise ValueError('NeedsSourceReview: no usable relevant paragraphs')
             record['coverage'] = {'pageCount': len(pages), 'selectedPages': sorted({a['page'] for c in chunks for a in c}),
                                   'chunkCount': len(chunks), 'anchorCount':len(anchors),
                                   'preselection': selection, 'allSelectedChunksProcessed': False}
             needs_review = False
-            collected = []
+            collected = list(seeded)
             for chunk in chunks:
                 check_stop(stop_file)
                 # Bounded selection must prioritize current operative language,
                 # without promoting quoted directions or changing source text.
                 chunk = sorted(chunk, key=lambda a: (bool(a.get('quoted')), not bool(re.search(r'\b(?:is directed|are directed|shall|renotify|issue notice)\b', a['text'], re.I)), a['anchorId']))
-                prompt = json.dumps({'documentOrderDate':record['orderDate'],'caseNumber':case_number,
+                prompt = compact_prompt(record['orderDate'],case_number,chunk) if fast else json.dumps({'documentOrderDate':record['orderDate'],'caseNumber':case_number,
                                      'sourceRoleContext':pages[1][:1800],'anchors':chunk},ensure_ascii=False)
                 schema = schema_for(chunk,pages)
                 feedback = ''
                 for attempt in range(2):
                     try:
-                        payload = expand(provider.extract(ANCHOR_INSTRUCTIONS, prompt, schema, feedback),chunk,pages,defer_semantic=True)
+                        payload = expand(provider.extract(FAST_INSTRUCTIONS if fast else ANCHOR_INSTRUCTIONS, prompt, schema, feedback),chunk,pages,defer_semantic=True)
                         check_stop(stop_file)
                         break
                     except (ValueError, KeyError, TypeError, jsonschema.ValidationError) as error:
@@ -143,6 +160,40 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                             raise ValueError('Structured extraction/evidence validation failed after one correction: ' + detail[:240]) from error
                 needs_review |= payload['needsReview']
                 collected.extend(payload['facts'])
+            if fast:
+                # A fast context-only response must not precede unresolved
+                # operative evidence merely to satisfy a latency target.
+                extra,fast_completeness=recover(fast_candidates,collected,pages,case_number,record['orderDate'],provider)
+                collected.extend(extra)
+                needs_review |= fast_completeness['needsReview'] or bool(fast_completeness['remainingAnchorIds'])
+                # Publish only a COMPLETE selected evidence batch, never partial
+                # chunk output. Deep coverage and omissions remain explicit.
+                partial=copy.deepcopy(record)
+                partial['facts']=list({json.dumps(f,sort_keys=True):f for f in collected}.values())
+                partial['coverage'].update(allSelectedChunksProcessed=True,
+                    selectedAnchorCount=len(fast_candidates),fastCompleteness=fast_completeness,
+                    fastOmittedAnchorIds=[a['anchorId'] for a in candidates if a not in fast_candidates])
+                partial.update(briefTier='Fast',deepProcessingComplete=False,status='NeedsReview',
+                    nextHearingDate=confirmed_hearing_date(partial['facts']))
+                fast_batch_verified=bool(partial['facts']) and not fast_completeness['remainingAnchorIds']
+                if on_fast_ready and fast_batch_verified: on_fast_ready(partial)
+                # Continue on the SAME temporary PDF, one inference at a time.
+                # Already classified fast anchors are never extracted twice.
+                remaining=[a for a in candidates if a not in fast_candidates and (a['page'],a['text']) not in represented]
+                for chunk in bounded_chunks(remaining):
+                    check_stop(stop_file)
+                    prompt=json.dumps(dict(documentOrderDate=record['orderDate'],caseNumber=case_number,
+                        sourceRoleContext=pages[1][:1800],anchors=chunk),ensure_ascii=False)
+                    schema=schema_for(chunk,pages); feedback=''
+                    for attempt in range(2):
+                        try:
+                            payload=expand(provider.extract(ANCHOR_INSTRUCTIONS,prompt,schema,feedback),chunk,pages,defer_semantic=True)
+                            break
+                        except (ValueError,KeyError,TypeError,jsonschema.ValidationError) as error:
+                            feedback='Return schema-valid exact page evidence. '+str(error)[:240]
+                            if attempt==1: raise ValueError('Deep extraction validation failed after one correction') from error
+                    needs_review |= payload['needsReview']; collected.extend(payload['facts'])
+                record['coverage']['chunkCount']=len(chunks)+len(bounded_chunks(remaining))
             check_stop(stop_file)
             extra, completeness = recover(candidates,collected,pages,case_number,record['orderDate'],provider)
             check_stop(stop_file)
@@ -158,7 +209,13 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             needs_review |= bool(nonquoted-represented)
             record['nextHearingDate'] = confirmed_hearing_date(record['facts'])
             record['status'] = 'NeedsReview' if needs_review else 'Validated'
+            if fast: record.update(briefTier='Deep',deepProcessingComplete=True)
     except Exception as error:
+        if fast and locals().get('fast_batch_verified',False):
+            # Complete individually checked fast evidence survives interruption
+            # of enrichment. It never claims whole-order/history completeness.
+            partial['refreshFailure']='Background enrichment did not finish; verified fast evidence retained.'
+            return partial
         record['facts'] = [] # partial chunks cannot masquerade as a complete order
         record['status'] = 'NeedsSourceReview' if str(error).startswith('NeedsSourceReview:') else 'NeedsReview'
         record['failureMessage'] = str(error) if isinstance(error, ValueError) else 'Local extraction unavailable: ' + type(error).__name__
