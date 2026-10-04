@@ -1534,3 +1534,320 @@
   color: #ef4444;
 }
 
+/* ═══════════════════════════════════════════════════════
+   SMART CORE DOCUMENT INTAKE — Review UI
+   ═══════════════════════════════════════════════════════ */
+
+/* Wider modal for the intake review */
+.intake-modal {
+  max-width: 720px !important;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+/* Role hint shown in select file phase */
+.intake-role-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 8px;
+  font-style: italic;
+}
+
+/* ── Review list ── */
+.intake-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 14px 0;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ── Individual intake card ── */
+.intake-card {
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.intake-card-pending {
+  border-left: 3px solid #2563eb;
+}
+
+.intake-card-confirmed {
+  border-left: 3px solid #16a34a;
+  background: #f0fdf4;
+}
+
+.intake-card-error {
+  border-left: 3px solid #ef4444;
+  background: #fef2f2;
+}
+
+.intake-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.intake-card-filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+}
+
+/* ── Match state badges ── */
+.intake-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.intake-badge-matched {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.intake-badge-proposed {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.intake-badge-review {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.intake-badge-confirmed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* ── Detection summary row ── */
+.intake-detection-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.intake-detection-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.intake-det-label {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.intake-det-value {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* Confidence level colouring */
+.intake-conf-high   { color: #15803d; }
+.intake-conf-medium { color: #a16207; }
+.intake-conf-low    { color: #dc2626; }
+
+/* ── Evidence accordion ── */
+.intake-evidence-section {
+  margin-bottom: 10px;
+}
+
+.intake-evidence-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+}
+
+.intake-evidence-toggle:hover {
+  text-decoration: underline;
+}
+
+.intake-evidence-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.intake-evidence-item {
+  display: flex;
+  gap: 10px;
+  font-size: 11.5px;
+  color: #374151;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.intake-ev-field {
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 80px;
+}
+
+.intake-ev-page {
+  color: #94a3b8;
+  min-width: 28px;
+}
+
+.intake-ev-text {
+  color: #475569;
+  font-style: italic;
+  flex: 1;
+}
+
+/* ── Error inline ── */
+.intake-error-msg {
+  font-size: 12.5px;
+  color: #dc2626;
+  margin: 6px 0;
+}
+
+/* ── Confirm section ── */
+.intake-confirm-section {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intake-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.intake-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.intake-select {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12.5px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.intake-input {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12.5px;
+  color: #0f172a;
+  background: #fff;
+  width: 100%;
+}
+
+.intake-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── Proposed note ── */
+.intake-proposed-note {
+  font-size: 12px;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  flex: 1;
+}
+
+/* ── New Award form ── */
+.intake-new-award-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intake-new-award-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+/* ── Confirmed card summary ── */
+.intake-confirmed-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.intake-confirmed-role {
+  font-weight: 700;
+  color: #15803d;
+}
+
+.intake-confirmed-award {
+  color: #166534;
+  font-size: 12px;
+}
+
+/* ── Duplicate note ── */
+.intake-duplicate-note {
+  font-size: 12px;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 5px 10px;
+  border-radius: 5px;
+  margin-top: 4px;
+}
+
+/* ── Multi-document entries in a single slot ── */
+.village-doc-file-entry {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.village-doc-file-entry:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}

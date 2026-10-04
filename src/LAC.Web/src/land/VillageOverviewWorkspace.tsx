@@ -369,7 +369,10 @@ export const VillageOverviewWorkspace: React.FC<VillageOverviewProps> = ({ id })
         )}
       </section>
 
-      {/* 3. Acquisition Timeline (Replaces previous Source Coverage) */}
+      {/* 3. Acquisition Timeline — PAUSED: backend attribution correction pending.
+              Do not infer notification→Award relation in frontend.
+              Code preserved below; suppress render until backend is authoritative. */}
+      {false && (
       <section className="village-card">
         <div className="village-card-header">
           <div>
@@ -419,6 +422,7 @@ export const VillageOverviewWorkspace: React.FC<VillageOverviewProps> = ({ id })
           </div>
         )}
       </section>
+      )}
 
       {/* 4. Compact Pending Review Section */}
       {groupedPendingSessions.length > 0 && (
