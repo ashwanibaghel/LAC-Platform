@@ -58,6 +58,10 @@ builder.Services.AddHttpClient("CourtCaseQuestions", client =>
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false })
     .RemoveAllLoggers();
 builder.Services.AddScoped<IDocumentStorage, LocalDocumentStorage>();
+builder.Services.AddSingleton<CoreIntakeGate>();
+builder.Services.AddSingleton<ICoreDocumentTextReader, CoreDocumentNativeTextReader>();
+builder.Services.AddSingleton<ICoreDocumentClassifier, CoreDocumentClassifier>();
+builder.Services.AddScoped<CoreDocumentIntakeService>();
 builder.Services.AddOptions<OnlyOfficeOptions>().BindConfiguration("OnlyOffice")
     .Validate(x => x.IsValid(), "Enabled ONLYOFFICE requires valid BrowserUrl, AppExternalUrl, optional AppBrowserUrl and DocumentServerUrl origins, and a JwtSecret of at least 32 UTF-8 bytes.")
     .ValidateOnStart();
@@ -191,6 +195,7 @@ using (var scope = app.Services.CreateScope())
 
 var api = app.MapGroup("/api");
 api.MapRbacEndpoints();
+api.MapCoreDocumentIntakeEndpoints();
 api.MapDakEndpoints();
 api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
@@ -582,10 +587,8 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDb
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
-    var awards = await db.Awards.AsNoTracking().Where(a => a.VillageLinks.Any(v => v.VillageId == id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
-        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
-    return Results.Ok(awards.Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, roles = new[] { "Award", "NM", "StatementA", "PossessionProceeding" }.Select(role => new { role, count = a.documents.Count(d => d.CoreDocumentRole == role), available = a.documents.Any(d => d.CoreDocumentRole == role) }), documents = a.documents }));
-}).RequirePermission(PermissionCodes.VillageView);
+    return Results.Ok(await CoreDocumentInventory.VillageAsync(db, id, ct));
+}).RequirePermission(PermissionCodes.VillageView).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequest request, LacDbContext db, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(request.AwardNumber)) return Validation("awardNumber", "Award number is required.");
@@ -597,8 +600,7 @@ api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequ
 api.MapGet("/awards/{id:guid}/core-documents", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Awards.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Award", id);
-    return Results.Ok(await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null).OrderByDescending(x => x.Document.UploadedAt)
-        .Select(x => new { x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType, x.Document.UploadedAt }).ToListAsync(ct));
+    return Results.Ok(await CoreDocumentInventory.AwardAsync(db, id, ct));
 }).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/awards/{id:guid}/core-documents", async (Guid id, string role, IFormFile file, LacDbContext db, IDocumentStorage storage, CancellationToken ct) =>
 {
