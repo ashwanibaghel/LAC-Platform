@@ -53,9 +53,28 @@ function formatDate(iso?: string | null): string {
   }
 }
 
+function normalizeSectionLabel(section?: string | null): string | null {
+  if (!section) return null;
+  const trimmed = section.trim();
+  if (!trimmed) return null;
+  if (/^section\b/i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^sec\.?\b/i.test(trimmed)) {
+    return trimmed.replace(/^sec\.?\s*/i, "Section ");
+  }
+  return `Section ${trimmed}`;
+}
+
+function extractSectionNumber(section?: string | null): string {
+  if (!section) return "";
+  return section.trim().replace(/^sec(?:tion|\.)?\s*/i, "").trim();
+}
+
 function renderEventTitle(ev: AcquisitionHistoryEvent): string {
   if (ev.type === "Notification") {
-    return ev.section ? `${ev.section} Notification` : "Statutory Notification";
+    const secLabel = normalizeSectionLabel(ev.section);
+    return secLabel ? `${secLabel} Notification` : "Statutory Notification";
   }
   if (ev.type === "Award") {
     return "Award pronounced";
@@ -70,10 +89,10 @@ function getEventTone(ev: AcquisitionHistoryEvent): string {
   if (ev.type === "Award") return "purple";
   if (ev.type === "Possession") return "amber";
   if (ev.type === "Notification") {
-    const s = ev.section || "";
-    if (s.includes("4")) return "green";
-    if (s.includes("6")) return "blue";
-    if (s.includes("17")) return "amber";
+    const sec = extractSectionNumber(ev.section);
+    if (/^4(\(|$|\s)/.test(sec)) return "green";
+    if (/^6(\(|$|\s)/.test(sec)) return "blue";
+    if (/^17(\(|$|\s)/.test(sec)) return "amber";
     return "blue";
   }
   return "blue";
@@ -198,9 +217,15 @@ export const VillageAcquisitionHistorySection: React.FC<VillageAcquisitionHistor
 
       {awards.length === 0 ? (
         <div className="village-empty-state">
-          <p className="village-empty-title">No Award Acquisition Records</p>
+          <p className="village-empty-title">
+            {unassignedEvents && unassignedEvents.length > 0
+              ? "No Awards Linked Yet"
+              : "No Award Acquisition Records"}
+          </p>
           <p className="village-empty-desc">
-            No canonical acquisition awards or statutory notifications have been registered for this village yet.
+            {unassignedEvents && unassignedEvents.length > 0
+              ? "No Awards linked yet. Unassigned statutory notifications are shown below."
+              : "No canonical acquisition awards or statutory notifications have been registered for this village yet."}
           </p>
         </div>
       ) : (
