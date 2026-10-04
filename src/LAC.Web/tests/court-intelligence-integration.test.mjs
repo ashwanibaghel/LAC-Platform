@@ -76,8 +76,8 @@ test('unprocessed real sources have explicit processing action; no automatic POS
   try{
     globalThis.fetch=async(url,options)=>{requests.push({url,options});return response({...payload(B),knownOrderCount:1,unprocessedOrderCount:1,orders:[{orderDate:'2026-01-01',officialUrl:'https://delhihighcourt.nic.in/app/showlogo/fixture.pdf/2026',status:'Unprocessed',facts:[]}]});};
     h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
-    assert.match(html,/Intelligence not processed yet/);assert.match(html,/Process known orders/);
-    assert.match(html,/Office action check is incomplete/);assert.equal(requests.length,1);assert.ok(!requests[0].options.method);
+    assert.match(html,/awaiting AI/);assert.match(html,/Process known orders/);
+    assert.match(html,/No usable Court evidence is currently available/);assert.equal(requests.length,1);assert.ok(!requests[0].options.method);
   }finally{h.close();globalThis.fetch=previous;}
 });
 test('official order links reject arbitrary paths, credentials, query, ports and other origins',()=>{
@@ -156,7 +156,7 @@ test('empty states distinguish never synced from no official PDF without claimin
   try{for(const checked of [false,true]){
     const h=harness();globalThis.fetch=async()=>response({...payload(B),...(checked?{historySync:{runId:'run',status:'Completed',phase:'OrderLookup'}}:{})});
     h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
-    assert.match(html,checked?/No official order PDF was returned/:/DHC history has not been checked yet/);
+    assert.match(html,checked?/Official DHC search returned no order PDF/:/DHC history has not been checked yet/);
     assert.doesNotMatch(html,/one or more Court orders could not be fully processed|0 of 0|No direct LAC action was identified/);h.close();
   }}finally{globalThis.fetch=previous;}
 });
@@ -183,11 +183,11 @@ test('completed reviewed extraction counts as AI processed while failed and pend
         {...base,orderDate:'2026-03-01',officialUrl:base.officialUrl.replace('one','three'),status:'Unprocessed'}],
       sourceCoverage:{basis:'Official index',knownSources:3,checkedSources:0,gaps:[]}});
     h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
-    assert.match(html,/<dt>AI processed<\/dt><dd>1<\/dd>/);
-    assert.match(html,/<dt>Needs Review<\/dt><dd>2<\/dd>/);
-    assert.match(html,/1 of 3 official orders AI processed/);
-    assert.match(html,/1 awaiting AI processing/);
-    assert.match(html,/Processed orders can still need review/);
+    assert.match(html,/3 official orders/);
+    assert.doesNotMatch(html,/<dt>AI processed|<dt>Needs Review/);
+    assert.match(html,/1 extraction incomplete/);
+    assert.match(html,/1 awaiting AI/);
+    assert.match(html,/Every discovered source is listed below/);
   }finally{h.close();globalThis.fetch=previous;}
 });
 test('explicit processing posts only the current real case and unavailable refresh leaves its brief readable',async()=>{
@@ -199,5 +199,62 @@ test('explicit processing posts only the current real case and unavailable refre
     await button.props.onClick();tree=h.render(B);
     assert.equal(requests.length,2);assert.equal(requests[1].url,`/api/court-cases/${B}/intelligence/refresh`);assert.equal(requests[1].options.method,'POST');
     const html=renderToStaticMarkup(tree);assert.match(html,/temporarily unavailable or busy/);assert.match(html,/Court Intelligence/);assert.match(html,/Complete order history/);
+  }finally{h.close();globalThis.fetch=previous;}
+});
+
+test('typed source cards explain connected PDF blocks and a usable reviewed brief without overlapping metrics',async()=>{
+  const previous=globalThis.fetch,h=harness(),url='https://delhihighcourt.nic.in/app/showlogo/source.pdf';
+  try{
+    const sources=[{orderDate:'2026-04-06',rawOrderDate:'06/04/2026',officialUrl:url,sourceObservationId:'source-a',sourceState:'Blocked',reasonCode:'ConnectedCasePdf',officerMessage:'The PDF names connected cases. Its facts are withheld.',aiState:'BlockedBeforeAI',usableFactCount:0,reviewRequired:true,sourceLabel:'Connected-case PDF',aiLabel:'Facts withheld',technical:{normalizedCaseIdentity:'case-b'}},
+      {orderDate:'2026-09-28',rawOrderDate:'28/09/2026',officialUrl:url.replace('source','latest'),sourceObservationId:'source-b',sourceState:'Verified',reasonCode:'AiProcessedWithReview',officerMessage:'Only individually verified facts are usable.',aiState:'ProcessedWithReview',usableFactCount:11,reviewRequired:true,sourceLabel:'Verified source',aiLabel:'AI processed with review',technical:{}}];
+    globalThis.fetch=async()=>response({...payload(B),sourceDiagnostics:sources,pipelineSummary:{officialOrdersFound:2,usableAiBriefs:1,blockedBeforeAi:1,processedButReviewRequired:1,pendingProcessing:0,extractionIncomplete:0,usableBriefsWithReview:1}});
+    h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
+    assert.match(html,/2 official orders · 1 usable AI brief · 1 source-blocked/);
+    assert.match(html,/1 of the 1 usable briefs also require review; this is not an additional source/);
+    assert.match(html,/Connected-case PDF · Facts withheld/);assert.match(html,/11 usable facts/);
+    assert.match(html,/The PDF names connected cases/);assert.match(html,/Technical source details/);
+    assert.equal((html.match(/Open official PDF/g)||[]).length,2);
+    assert.doesNotMatch(html,/Official Index|Review Required|Some source material still needs verification|<dt>AI processed/);
+  }finally{h.close();globalThis.fetch=previous;}
+});
+
+test('a blocked undated official source explains the exact date failure and stays linked',async()=>{
+  const previous=globalThis.fetch,h=harness();
+  try{
+    globalThis.fetch=async()=>response({...payload(B),sourceDiagnostics:[{orderDate:null,rawOrderDate:'not-a-date',officialUrl:'https://delhihighcourt.nic.in/app/showlogo/source.pdf',sourceObservationId:'source',sourceState:'Blocked',reasonCode:'UnparseableOfficialDate',officerMessage:'The official date could not be parsed safely.',aiState:'BlockedBeforeAI',usableFactCount:0,reviewRequired:true,sourceLabel:'Order date needs verification',aiLabel:'Facts withheld',technical:{}}],pipelineSummary:{officialOrdersFound:1,usableAiBriefs:0,blockedBeforeAi:1,processedButReviewRequired:0,pendingProcessing:0,extractionIncomplete:0,usableBriefsWithReview:0}});
+    h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
+    assert.match(html,/1 official source found/);assert.match(html,/Order date needs verification/);
+    assert.match(html,/official date could not be parsed safely/);assert.match(html,/Awaiting source verification/);
+    assert.match(html,/UnparseableOfficialDate/);assert.match(html,/Open official PDF/);
+    assert.doesNotMatch(html,/known source needs case\/date\/source verification|Latest official order.*Not available/);
+  }finally{h.close();globalThis.fetch=previous;}
+});
+
+test('explicit LAC action conclusion and coverage metadata render instead of generic insufficient evidence',async()=>{
+  const previous=globalThis.fetch,h=harness();
+  try{
+    globalThis.fetch=async(url,options)=>response(options.method?{caseId:B,mode:'CourtGrounded',answer:'Structured answer',actionConclusion:'No verified LAC-specific mandatory action is established in the currently processed evidence.',coverageNote:'Some discovered orders are still under source review, so no conclusion is drawn from those sources.',reason:'LacActionNotEstablished',claims:[],insufficientEvidence:false}:payload(B));
+    h.render(B);await tick();let tree=h.render(B);
+    find(tree,n=>n.type==='input').props.onChange({target:{value:'What to do LAC Branch Right now?'}});
+    tree=h.render(B);await find(tree,n=>n.type==='form').props.onSubmit({preventDefault(){}});
+    const html=renderToStaticMarkup(h.render(B));
+    assert.match(html,/No verified LAC-specific mandatory action/);assert.match(html,/no conclusion is drawn from those sources/);
+    assert.doesNotMatch(html,/I could not confirm this from the orders processed/);
+  }finally{h.close();globalThis.fetch=previous;}
+});
+
+test('unconfirmed hearing answer does not relabel a verified reviewed brief as source-unverified',async()=>{
+  const previous=globalThis.fetch,h=harness();
+  try{
+    globalThis.fetch=async(url,options)=>response(options.method?{caseId:B,mode:'CourtGrounded',answer:'Unconfirmed',claims:[],insufficientEvidence:true}:{...payload(B),
+      pipelineSummary:{officialOrdersFound:1,usableAiBriefs:1,blockedBeforeAi:0,processedButReviewRequired:1,pendingProcessing:0,extractionIncomplete:0,usableBriefsWithReview:1},
+      orders:[{orderDate:'2026-09-25',status:'NeedsReview',facts:[],coverage:{allSelectedChunksProcessed:true}}]});
+    h.render(B);await tick();let tree=h.render(B);
+    find(tree,n=>n.type==='input').props.onChange({target:{value:'Next hearing kab hai?'}});
+    tree=h.render(B);await find(tree,n=>n.type==='form').props.onSubmit({preventDefault(){}});
+    const html=renderToStaticMarkup(h.render(B));
+    assert.match(html,/I could not confirm this from the orders processed/);
+    assert.match(html,/Some AI briefs require review/);
+    assert.doesNotMatch(html,/still needs? source verification/);
   }finally{h.close();globalThis.fetch=previous;}
 });

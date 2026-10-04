@@ -263,6 +263,27 @@ public sealed class CourtIntelligenceIntegrationTests
     }
 
     [Fact]
+    public async Task Exact_date_lazy_answer_validates_newly_published_evidence_and_forwards_initial_coverage()
+    {
+        using var env = new Harness();
+        var courtCase = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        env.Transport.BeforeAnswer = () => env.Write(courtCase.Id, Artifact(courtCase.Id, category: "PETITIONER_SUBMISSION"));
+        env.Transport.Answer = new JsonObject
+        {
+            ["caseId"] = courtCase.Id.ToString(), ["claims"] = new JsonArray(new JsonObject
+            {
+                ["text"] = "Compensation is unpaid", ["attribution"] = "Petitioner submission (not an established Court fact)",
+                ["source"] = new JsonObject { ["orderDate"] = "2026-01-01", ["officialUrl"] = Url,
+                    ["page"] = 1, ["evidence"] = "The petitioner submits that compensation is unpaid." }
+            })
+        };
+        using var response = await env.Client.PostAsJsonAsync($"/api/court-cases/{courtCase.Id}/intelligence/ask",
+            new { question = "What happened on 1 January 2026?" });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, env.Transport.Requests.Single().Body.GetProperty("courtCoverage").GetProperty("pendingProcessing").GetInt32());
+    }
+
+    [Fact]
     public async Task Partial_sources_keep_verified_history_but_newest_unprocessed_source_is_not_current_position()
     {
         using var env = new Harness();
@@ -375,6 +396,7 @@ public sealed class CourtIntelligenceIntegrationTests
         public ConcurrentQueue<(string Host, string Path, JsonElement Body)> Requests { get; } = new();
         public ConcurrentQueue<long?> RequestContentLengths { get; } = new();
         public JsonObject? Answer { get; set; }
+        public Func<Task>? BeforeAnswer { get; set; }
         public bool Unavailable { get; set; }
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("http://127.0.0.1:8097/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -384,6 +406,7 @@ public sealed class CourtIntelligenceIntegrationTests
             Requests.Enqueue((request.RequestUri!.Host, request.RequestUri.AbsolutePath, body));
             if (Unavailable) throw new HttpRequestException("Synthetic local model outage");
             var refreshing = request.RequestUri.AbsolutePath == "/refresh";
+            if (!refreshing && BeforeAnswer is not null) await BeforeAnswer();
             var response = refreshing ? new JsonObject { ["caseId"] = body.GetProperty("caseId").GetString(), ["status"] = "Running" }
                 : Answer ?? new JsonObject { ["caseId"] = body.GetProperty("caseId").GetString(), ["claims"] = new JsonArray(), ["insufficientEvidence"] = true };
             return new HttpResponseMessage(refreshing ? HttpStatusCode.Accepted : HttpStatusCode.OK)

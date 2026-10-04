@@ -106,7 +106,7 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
                 if failed_without_facts and source.get('sha256'):
                     record['previousAttemptSha256']=source['sha256']
                 if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256'] and not failed_without_facts:
-                    record.update(status='NeedsSourceReview',facts=[],failureMessage='Known official source bytes changed; source-version review required')
+                    record.update(status='NeedsSourceReview',facts=[],sourceReasonCode='SourceBytesChanged',failureMessage='Known official source bytes changed; source-version review required')
                 record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256','sourceKind')})
                 record.update(caseNumber=case_number,processedObservationId=source.get('sourceObservationId'),
                               processedEvidenceSha256=source_version,processedAt=datetime.now(timezone.utc).isoformat())

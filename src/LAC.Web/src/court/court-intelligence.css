@@ -1,4 +1,22 @@
 /* Court Intelligence - officer case workspace */
+.court-history-toolbar { display: flex; gap: 16px; align-items: center; }
+.court-intelligence .court-history-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 1; margin: 0; }
+.court-case-health { padding: 10px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+.court-case-health > strong { font-size: 14px; display: block; }
+.court-case-health > small { display: block; margin-top: 3px; }
+.court-primary-notice { color: #854d0e; }
+.court-processing-controls { margin-top: 5px; }
+.court-intelligence .court-intelligence-working-grid { display: block; }
+.court-intelligence .court-intelligence-ask { border-left: 0; border-top: 1px solid #e2e8f0; }
+.court-source-pipeline { padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
+.court-source-pipeline > summary { display: grid; grid-template-columns: 100px minmax(0, 1fr) 100px 125px; gap: 7px 12px; align-items: start; }
+.court-source-reason { grid-column: 2 / -1; color: #475569; font-weight: 400; }
+.court-source-stages { display: flex; flex-wrap: wrap; gap: 24px; }
+.court-source-stages dd { margin: 4px 0; font-weight: 600; }
+.court-source-technical pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; max-height: 260px; overflow-y: auto; }
+.court-answer-coverage { color: #854d0e; font-size: 12px; }
+.court-action-conclusion { font-weight: 600; }
+@media (max-width: 700px) { .court-history-toolbar { flex-wrap: wrap; } .court-source-pipeline > summary { grid-template-columns: 85px minmax(0, 1fr); } .court-source-reason { grid-column: 1 / -1; } }
 .court-history-toolbar { padding: 12px 16px; border-bottom: 1px solid #cbd5e1; background: #f8fafc; }
 .court-history-metrics { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin: 0 0 12px; }
 .court-history-metrics dt { font-size: 11px; color: #475569; }

@@ -9,7 +9,8 @@ public sealed record AskCourtIntelligenceRequest(string Question, IReadOnlyList<
 public sealed record CourtAssistantContext(string? DisplayName, string? Designation);
 public sealed record CourtIntelligenceKnownOrder(Guid CourtCaseId, string NormalizedCaseIdentity,
     DateOnly? OrderDate, string? OfficialUrl, string? CorrigendumUrl, DateOnly? UploadDate, Guid SourceObservationId,
-    string? SourceEvidenceSha256 = null, string? SourceKind = null);
+    string? SourceEvidenceSha256 = null, string? SourceKind = null, string? RawCaseNumber = null,
+    string? RawOrderDate = null, string? SourceUrl = null, string? RawEvidenceText = null);
 
 public static class CourtIntelligenceQuestions
 {
@@ -23,7 +24,11 @@ public static class CourtIntelligenceQuestions
         {
             // Fixed literal loopback origin; the Python service retrieves only this GUID.
             var boundedHistory = history?.TakeLast(4).Where(x => x is { Question.Length: <= 600, Answer.Length: <= 1200 }).ToArray();
-            using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber, orderIndex, appContext, history = boundedHistory }, ct);
+            JsonElement? currentView = extractionRoot is not null ? await CourtIntelligenceCaseData.ViewAsync(extractionRoot,
+                new CourtIntelligenceCaseIndex(caseId, caseNumber!, orderIndex!), ct) : null;
+            JsonElement? courtCoverage = currentView is { } view && view.TryGetProperty("pipelineSummary", out var summary) ? summary : null;
+            using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber,
+                orderIndex = ProcessingSources(orderIndex), appContext, courtCoverage, history = boundedHistory }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
@@ -39,8 +44,10 @@ public static class CourtIntelligenceQuestions
                 if (document.RootElement.GetProperty("caseId").GetGuid() != caseId) return Unavailable();
                 if (claims.GetArrayLength() > 0)
                 {
-                    var index = new CourtIntelligenceCaseIndex(caseId, caseNumber!, orderIndex!);
-                    var artifact = await CourtIntelligenceCaseData.ViewAsync(extractionRoot, index, ct);
+                    // An exact-date question may process its one known source lazily.
+                    // Validate citations against the artifact published by that request.
+                    var artifact = await CourtIntelligenceCaseData.ViewAsync(extractionRoot,
+                        new CourtIntelligenceCaseIndex(caseId, caseNumber!, orderIndex!), ct);
                     CourtIntelligenceCaseData.ValidateAnswer(document.RootElement, caseId, artifact);
                 }
             }
@@ -64,7 +71,7 @@ public static class CourtIntelligenceQuestions
         try
         {
             using var response = await PostLocalAsync(clients, "refresh",
-                new { caseId = index.CaseId, caseNumber = index.CaseNumber, orderIndex = index.Orders }, ct);
+                new { caseId = index.CaseId, caseNumber = index.CaseNumber, orderIndex = ProcessingSources(index.Orders) }, ct);
             if ((int)response.StatusCode == 409) return Results.Conflict(new { error = "Another local Court intelligence check is in progress." });
             if ((int)response.StatusCode != 202) return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
@@ -74,6 +81,11 @@ public static class CourtIntelligenceQuestions
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException
             or IOException or InvalidDataException or InvalidOperationException or KeyNotFoundException or FormatException) { return Unavailable(); }
     }
+
+    private static object? ProcessingSources(IReadOnlyList<CourtIntelligenceKnownOrder>? orders) => orders?.Select(source => new {
+        source.CourtCaseId, source.NormalizedCaseIdentity, source.OrderDate, source.OfficialUrl, source.CorrigendumUrl,
+        source.UploadDate, source.SourceObservationId, source.SourceEvidenceSha256, source.SourceKind
+    }).ToArray();
 
     private static async Task<HttpResponseMessage> PostLocalAsync<T>(IHttpClientFactory clients, string path, T payload, CancellationToken ct)
     {

@@ -76,7 +76,7 @@ def main():
                         # of one exact date remains optional while a refresh runs.
                         if not refresh.lock.locked():
                             artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
-                        result=answer(artifact,case_id,question,provider)
+                        result=answer(artifact,case_id,question,provider,request.get('courtCoverage'))
                     result['mode']='CourtGrounded'
                 result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()

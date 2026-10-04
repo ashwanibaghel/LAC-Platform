@@ -25,6 +25,11 @@ from completeness import recover
 class StopRequested(BaseException):
     pass
 
+class SourceVerificationError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code=code
+
 def check_stop(stop_file):
     if stop_file and Path(stop_file).is_file():
         raise StopRequested()
@@ -43,19 +48,23 @@ def download(url, directory):
     try:
         with session.get(url, stream=True, timeout=(10, 90), allow_redirects=False) as response:
             if response.status_code != 200:
-                raise ValueError('Official direct PDF unavailable')
+                raise SourceVerificationError('OfficialPdfUnavailable','NeedsSourceReview: official direct PDF unavailable')
             size = 0
             with path.open('wb') as output:
                 for chunk in response.iter_content(65536):
                     size += len(chunk)
                     if size > 30 * 1024 * 1024:
-                        raise ValueError('Official PDF exceeds bounded size')
+                        raise SourceVerificationError('OfficialPdfTooLarge','NeedsSourceReview: official PDF exceeds bounded size')
                     output.write(chunk)
                     digest.update(chunk)
         with path.open('rb') as stream:
             if stream.read(5) != b'%PDF-':
-                raise ValueError('Official source is not a PDF')
+                raise SourceVerificationError('OfficialSourceNotPdf','NeedsSourceReview: official source is not a PDF')
         return path, digest.hexdigest()
+    except requests.Timeout as error:
+        raise SourceVerificationError('OfficialPdfDownloadTimeout','NeedsSourceReview: official PDF download timed out; retry source retrieval') from error
+    except requests.ConnectionError as error:
+        raise SourceVerificationError('OfficialPdfUnavailable','NeedsSourceReview: official PDF connection unavailable; retry source retrieval') from error
     finally:
         session.close()
 
@@ -67,7 +76,7 @@ def native_pages(path):
         for number, page in enumerate(document, 1):
             text = page.get_text(sort=True)
             if len(re.sub(r'[^A-Za-z]', '', text)) < 100:
-                raise ValueError(f'NeedsSourceReview: page {number} has insufficient native text; no OCR used')
+                raise SourceVerificationError('InsufficientNativeText',f'NeedsSourceReview: page {number} has insufficient native text; no OCR used')
             pages[number] = normalized(text)
     return pages
 
@@ -84,19 +93,20 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             pages = native_pages(path)
             headers,bodies=source_header(pages)
             if bodies is None:
-                raise ValueError('NeedsSourceReview: no reliable Court caption/body boundary')
+                raise SourceVerificationError('PdfCaptionUnverified','NeedsSourceReview: no reliable Court caption/body boundary')
             date_context = pages[1][:1800] + ' ' + pages[len(pages)][-1800:]
             if not record['orderDate'] or record['orderDate'] not in dates_in(date_context):
-                raise ValueError('Source-confirmed order date required')
+                raise SourceVerificationError('PdfOrderDateMismatch','Source-confirmed order date required')
             expected = identity(case_number)
             matches=[(page,match.group()) for page,text in headers.items() for match in CASE_REFERENCES.finditer(text)]
             exact=[(page,raw) for page,raw in matches if identity(raw)==expected]
             if not exact:
-                raise ValueError('Exact requested case identity absent from Court caption')
+                raise SourceVerificationError('PdfAttributionMismatch','Exact requested case identity absent from Court caption')
             record['rawIdentity']=exact[0][1]
             record['identityPage']=exact[0][0]
             if len({identity(raw) for page,raw in matches})>1:
-                raise ValueError('NeedsSourceReview: connected-case PDF needs case-specific attribution; no cross-case facts inferred')
+                raise SourceVerificationError('ConnectedCasePdf','NeedsSourceReview: connected-case PDF needs case-specific attribution; no cross-case facts inferred')
+            record['sourceVerificationComplete']=True
             record['court']='Delhi High Court' if 'HIGH COURT OF DELHI' in pages[1].upper() else None
             record['caption'] = caption_context(headers, source['officialUrl'], record['orderDate'])
             record['bench'] = record['caption'].get('bench', {}).get('text')
@@ -152,6 +162,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
         record['facts'] = [] # partial chunks cannot masquerade as a complete order
         record['status'] = 'NeedsSourceReview' if str(error).startswith('NeedsSourceReview:') else 'NeedsReview'
         record['failureMessage'] = str(error) if isinstance(error, ValueError) else 'Local extraction unavailable: ' + type(error).__name__
+        if isinstance(error, SourceVerificationError): record['sourceReasonCode']=error.code
     return record
 
 def atomic_json(path, value):

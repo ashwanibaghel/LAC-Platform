@@ -202,7 +202,21 @@ def retrieve(artifact, question, intent=None, complete=False):
     for index, entry in enumerate(found): entry['factId']=index
     return found
 
-def answer(artifact, case_id, question, provider):
+def action_coverage(artifact, coverage=None):
+    orders=artifact.get('orders',[])
+    if coverage is not None and isinstance(coverage,dict):
+        review=coverage.get('blockedBeforeAi',0)+coverage.get('processedButReviewRequired',0)+coverage.get('extractionIncomplete',0)
+        pending=coverage.get('pendingProcessing',0)
+    else:
+        review=sum(o.get('status') not in ('Validated','Unprocessed','Processing') or bool(o.get('refreshFailure')) for o in orders)
+        pending=sum(o.get('status') in ('Unprocessed','Processing') for o in orders)
+    if review:
+        return 'Some discovered orders are still under source review, so no conclusion is drawn from those sources.'
+    if pending:
+        return 'Some discovered orders are still awaiting AI processing, so no conclusion is drawn from those sources.'
+    return ''
+
+def answer(artifact, case_id, question, provider, coverage=None):
     if artifact.get('caseId') != case_id:
         raise ValueError('Current-matter artifact identity mismatch')
     if re.search(r'other case|another case|across cases|all cases|compare cases|dusre case|doosre case|दूसरे केस|सभी मामलों',question,re.I):
@@ -217,6 +231,20 @@ def answer(artifact, case_id, question, provider):
         return {'answer':ORDER_UNAVAILABLE,'reason':'OrderUnavailable','claims':[],'insufficientEvidence':True}
     complete='timeline' in intent['topics'] or bool(re.search(r'\ball\b|\bevery\b|\bsabhi\b|\bsare\b|\bsaare\b|सभी|सारे|ab tak|अब तक',question,re.I))
     evidence = retrieve(artifact,question,intent,complete=complete)
+    if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics']:
+        note=action_coverage(artifact,coverage)
+        if evidence:
+            result=compose(evidence)
+            conditional=all(entry.get('actionClass')=='Conditional' for entry in evidence)
+            result.update(reason='VerifiedConditionalDirections' if conditional else 'VerifiedLacActions',
+                actionConclusion='These verified directions are conditional; they are not mandatory LAC tasks.' if conditional else 'Verified mandatory LAC actions from the currently processed evidence:',coverageNote=note)
+            result['answer']=result['actionConclusion']+'\n'+result['answer']+ ('\n'+note if note else '')
+            return result
+        has_usable=any(usable_facts(order) for order in artifact.get('orders',[]))
+        conclusion='No verified LAC-specific mandatory action is established in the currently processed evidence.' if has_usable else 'No usable Court evidence is currently available for this matter.'
+        return {'answer':conclusion+ ('\n'+note if note else ''),'actionConclusion':conclusion,
+            'coverageNote':note,'reason':'LacActionNotEstablished' if has_usable else 'NoUsableCourtEvidence',
+            'claims':[],'insufficientEvidence':not has_usable}
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
     if complete and (len(evidence)>8 or len(json.dumps(evidence))>6500):

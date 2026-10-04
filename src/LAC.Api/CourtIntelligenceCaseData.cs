@@ -20,7 +20,8 @@ public static class CourtIntelligenceCaseData
         var orders = await db.CourtExternalOrderObservations.AsNoTracking()
             .Where(x => x.CourtCaseId == id).OrderByDescending(x => x.ObservedAt).ThenBy(x => x.Id)
             .Select(x => new CourtIntelligenceKnownOrder(x.CourtCaseId, x.NormalizedCaseIdentity,
-                x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id, x.EvidenceSha256)).Take(1001).ToListAsync(ct);
+                x.OrderDate, x.OfficialUrl, x.CorrigendumUrl, x.UploadDate, x.Id, x.EvidenceSha256, null,
+                x.RawCaseNumber, x.RawOrderDate, x.SourceUrl, x.RawEvidenceText)).Take(1001).ToListAsync(ct);
         if (orders.Count > 1000) throw new InvalidDataException("Known-order index exceeds safety limit.");
         orders = orders.SelectMany(o => OfficialPdf(o.CorrigendumUrl) && o.CorrigendumUrl != o.OfficialUrl
             ? new[] { o, o with { OfficialUrl = o.CorrigendumUrl, CorrigendumUrl = null, SourceKind = "Corrigendum" } }
@@ -59,10 +60,21 @@ public static class CourtIntelligenceCaseData
         order.CourtCaseId == index.CaseId
         && order.NormalizedCaseIdentity.StartsWith("delhihighcourt|", StringComparison.Ordinal)
         && order.NormalizedCaseIdentity.Split('|').Length == 4
-        && string.Concat(order.NormalizedCaseIdentity.Split('|').Skip(1)) == Identity(index.CaseNumber);
+        && order.NormalizedCaseIdentity == CourtImportService.Identity(index.CourtName ?? "Delhi High Court", index.CaseNumber);
 
     public static bool Eligible(CourtIntelligenceCaseIndex index, CourtIntelligenceKnownOrder order) =>
-        ExactIdentity(index, order) && order.OrderDate.HasValue && OfficialPdf(order.OfficialUrl);
+        EligibilityReason(index, order) == "Eligible";
+
+    public static string EligibilityReason(CourtIntelligenceCaseIndex index, CourtIntelligenceKnownOrder order)
+    {
+        if (!ExactIdentity(index, order)) return "CaseIdentityMismatch";
+        if (!order.OrderDate.HasValue) return string.IsNullOrWhiteSpace(order.RawOrderDate) ? "MissingOrderDate" : "UnparseableOfficialDate";
+        if (!OfficialPdf(order.OfficialUrl))
+            return Uri.TryCreate(order.OfficialUrl, UriKind.Absolute, out var uri) && uri.Scheme == "https" &&
+                uri.Host == "delhihighcourt.nic.in" && uri.Port == 443 && uri.UserInfo.Length == 0 &&
+                uri.Query.Length == 0 && uri.Fragment.Length == 0 ? "UnsupportedOfficialPdfRoute" : "UnsafeOfficialUrl";
+        return "Eligible";
+    }
 
     public static async Task<JsonElement> ViewAsync(string extractionRoot, CourtIntelligenceCaseIndex index, CancellationToken ct)
     {
@@ -120,6 +132,19 @@ public static class CourtIntelligenceCaseData
                     ["officialUrl"] = o["officialUrl"]!.DeepClone(), ["reason"] = o["refreshFailure"]?.GetValue<string>() ?? o["status"]!.GetValue<string>() })
                 .Concat(reviewSources.Select(o => (JsonNode)new JsonObject { ["orderDate"] = null,
                     ["officialUrl"] = o.OfficialUrl, ["reason"] = o.Reason })).ToArray()) };
+        var diagnostics = index.Orders.Select(source => CourtSourceDiagnostics.Evaluate(index, source,
+            sorted.FirstOrDefault(o => o?["officialUrl"]?.GetValue<string>() == source.OfficialUrl &&
+                o?["orderDate"]?.GetValue<string>() == source.OrderDate?.ToString("yyyy-MM-dd")))).ToList();
+        view["sourceDiagnostics"] = JsonSerializer.SerializeToNode(diagnostics, JsonSerializerOptions.Web);
+        view["pipelineSummary"] = JsonSerializer.SerializeToNode(new {
+            officialOrdersFound = diagnostics.Count,
+            usableAiBriefs = diagnostics.Count(d => d.UsableFactCount > 0),
+            blockedBeforeAi = diagnostics.Count(d => d.AiState == "BlockedBeforeAI"),
+            processedButReviewRequired = diagnostics.Count(d => d.AiState == "ProcessedWithReview" || d.ReasonCode == "RefreshFailed"),
+            pendingProcessing = diagnostics.Count(d => d.AiState is "Waiting" or "Processing"),
+            extractionIncomplete = diagnostics.Count(d => d.AiState == "Incomplete"),
+            usableBriefsWithReview = diagnostics.Count(d => d.UsableFactCount > 0 && d.ReviewRequired)
+        }, JsonSerializerOptions.Web);
         var statePath = Path.Combine(extractionRoot, "court-intelligence", "v1", index.CaseId.ToString(), "refresh.json");
         if (File.Exists(statePath))
         {
@@ -147,7 +172,8 @@ public static class CourtIntelligenceCaseData
         if (artifact.GetProperty("caseNumber").ValueKind != JsonValueKind.String
             || string.IsNullOrWhiteSpace(artifact.GetProperty("caseNumber").GetString())
             || artifact.GetProperty("caseId").GetGuid() != index.CaseId
-            || Identity(artifact.GetProperty("caseNumber").GetString()!) != Identity(index.CaseNumber))
+            || CourtImportService.Identity(index.CourtName ?? "Delhi High Court", index.CaseNumber) is not { } expectedIdentity
+            || CourtImportService.Identity(index.CourtName ?? "Delhi High Court", artifact.GetProperty("caseNumber").GetString()) != expectedIdentity)
             throw new InvalidDataException("Court intelligence case identity mismatch.");
         foreach (var key in new[] { "orders", "currentPosition", "beforeNextHearing" })
             if (artifact.GetProperty(key).ValueKind != JsonValueKind.Array) throw new InvalidDataException("Invalid intelligence shape.");

@@ -46,6 +46,9 @@ def normalized(text):
     return re.sub(r'\s+', ' ', text).strip()
 
 def identity(text):
+    # NO./NUMBER is a display label between a legal case type and its number,
+    # never part of the registered case identity. Keep digits/year/type exact.
+    text = re.sub(r'(?i)\b(?:no\.?|number)\s*(?=\d+\s*/\s*\d{4}\b)', '', text)
     return re.sub('[^a-z0-9]', '', text.lower())
 
 def dates_in(text):

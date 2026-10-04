@@ -8,8 +8,10 @@ type Order = { orderDate: string | null; officialUrl: string; corrigendumUrl?: s
 type Action = { id: string; type?: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
 type CaptionEntry = { text: string; source: Source };
 type Intelligence = { caseNumber?: string; status: string; processingComplete: boolean; currentPosition: { text: string; source: Source; attribution?: string; role?: string; scope?: string }[]; beforeNextHearing: Action[]; latestOrder: Order | null; finalOrder?: Order | null; latestMeaningfulOrder?: Order | null; chronologyWarnings?: string[]; orders: Order[]; caption?: Record<string, CaptionEntry | string>; lacCaptionAppearances?: CaptionEntry[]; factualChronology?: { dates: string[]; text: string; role: string; source: Source }[]; sourceCoverage?: { basis: string; knownSources: number; checkedSources: number; gaps: { orderDate: string | null; officialUrl: string; reason: string }[] } };
-type Answer = { answer: string; mode?: "CourtGrounded" | "GeneralLocal"; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
-type RegisteredIntelligence = Intelligence & { caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string } };
+type SourceDiagnostic = { orderDate: string | null; rawOrderDate: string | null; officialUrl: string | null; sourceObservationId: string; sourceState: string; reasonCode: string; officerMessage: string; aiState: string; usableFactCount: number; reviewRequired: boolean; sourceLabel: string; aiLabel: string; technical: Record<string, unknown> };
+type PipelineSummary = { officialOrdersFound: number; usableAiBriefs: number; blockedBeforeAi: number; processedButReviewRequired: number; pendingProcessing: number; extractionIncomplete: number; usableBriefsWithReview: number };
+type Answer = { answer: string; actionConclusion?: string; coverageNote?: string; mode?: "CourtGrounded" | "GeneralLocal"; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
+type RegisteredIntelligence = Intelligence & { sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string } };
 
 const IconCourt: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = "" }) => (
   <svg
@@ -568,10 +570,24 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     }
   };
 
-  const reviewCount = (data?.orders.filter(order => !["Validated", "Unprocessed", "Processing"].includes(order.status)).length ?? 0) + (data?.sourceReviewOrders?.length ?? 0);
   const pendingCount = data?.orders.filter(order => ["Unprocessed", "Processing"].includes(order.status)).length ?? 0;
-  const aiProcessedCount = data?.orders.filter(order => order.status === "Validated" ||
-    order.status === "NeedsReview" && order.coverage?.allSelectedChunksProcessed === true && !order.failureMessage).length ?? 0;
+  const pipeline = data?.pipelineSummary ?? {
+    officialOrdersFound: data?.knownOrderCount ?? data?.orders.length ?? 0,
+    usableAiBriefs: data?.orders.filter(order => safeOrderFacts(order).length > 0).length ?? 0,
+    blockedBeforeAi: (data?.orders.filter(order => order.status === "NeedsSourceReview").length ?? 0) + (data?.unusableKnownOrderCount ?? 0),
+    processedButReviewRequired: data?.orders.filter(order => order.status === "NeedsReview" && order.coverage?.allSelectedChunksProcessed === true && !order.failureMessage).length ?? 0,
+    pendingProcessing: pendingCount,
+    extractionIncomplete: data?.orders.filter(order => order.status === "NeedsReview" && (!order.coverage?.allSelectedChunksProcessed || !!order.failureMessage)).length ?? 0,
+    usableBriefsWithReview: data?.orders.filter(order => safeOrderFacts(order).length > 0 && (order.status !== "Validated" || order.refreshFailure)).length ?? 0
+  };
+  const latestVerified = data?.sourceDiagnostics ? [...data.orders].reverse().find(order =>
+    data.sourceDiagnostics!.some(source => source.officialUrl === order.officialUrl && source.orderDate === order.orderDate && source.usableFactCount > 0)) ?? null : data?.latestOrder ?? null;
+  const primaryNotice = refreshError || (pipeline.blockedBeforeAi > 0
+    ? pipeline.officialOrdersFound === 1 ? data?.sourceDiagnostics?.[0]?.officerMessage ?? "This official source is not yet verified for AI. Review its source details below."
+      : `${pipeline.blockedBeforeAi} official sources are withheld pending source verification. Their facts are not used; see each source's reason below.`
+    : pipeline.extractionIncomplete > 0 ? "AI extraction is incomplete for some sources. Partial facts are withheld; see source details below."
+    : pipeline.processedButReviewRequired > 0 ? "Some AI briefs require review. Only individually verified facts are used; see source details below."
+    : pipeline.pendingProcessing > 0 ? "Some official sources are waiting for AI processing. Completed briefs remain available." : null);
   const principalOutcome = data?.latestOrder && safeOrderFacts(data.latestOrder).find(fact => fact.category === "DISPOSITION" && fact.scope === "Current" && /\b(?:petition|appeal|suit)\b.{0,100}\b(?:allowed|dismissed|disposed)\b/i.test(fact.value));
   const positionLines = principalOutcome && data?.latestOrder ? [{ text: principalOutcome.value, role: "DISPOSITION", scope: "Current", source: { orderDate: data.latestOrder.orderDate, officialUrl: data.latestOrder.officialUrl, page: principalOutcome.page, evidence: principalOutcome.evidence, evidenceParts: principalOutcome.evidenceParts } },
     ...data.currentPosition.filter(line => line.text !== principalOutcome.value && !(line.role === "DISPOSITION" && line.scope !== "Historical" && line.source.orderDate === data.latestOrder?.orderDate))] : data?.currentPosition ?? [];
@@ -618,16 +634,12 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
       </header>
       <div className="court-history-toolbar">
         <dl className="court-history-metrics">
-          <div><dt>Official DHC status</dt><dd>{data?.officialStatus?.rawStatus ?? "Not checked"}</dd>{data?.officialStatus && <small>Verified {new Date(data.officialStatus.observedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</small>}</div>
-          <div><dt>Office register</dt><dd>{data?.officeStatus ?? "See case record"}</dd>{data?.officeNdoh && <small>Office NDOH: {shownDate(data.officeNdoh)}</small>}{data?.officialStatus?.listingDate && <small>Official listing: {shownDate(data.officialStatus.listingDate)}</small>}</div>
-          <div><dt>Latest official order</dt><dd>{data?.latestOrder ? shownDate(data.latestOrder.orderDate) : "Not available"}</dd></div>
-          <div><dt>Orders found</dt><dd>{data?.knownOrderCount ?? data?.orders.length ?? 0}</dd></div>
-          <div><dt>AI processed</dt><dd>{aiProcessedCount}</dd></div>
-          <div><dt>Needs Review</dt><dd>{(data?.orders.filter(order => !["Validated", "Unprocessed", "Processing"].includes(order.status) || order.refreshFailure).length ?? 0) + (data?.unusableKnownOrderCount ?? 0)}</dd></div>
+          <div><dt>Official DHC status</dt><dd>{data?.officialStatus?.rawStatus ?? "Not checked"}</dd>{data?.officialStatus?.listingDate && <small>Official listing: {shownDate(data.officialStatus.listingDate)}</small>}</div>
+          <div><dt>Office register</dt><dd>{data?.officeStatus ?? "See case record"}</dd>{data?.officeNdoh && <small>Office NDOH: {shownDate(data.officeNdoh)}</small>}</div>
+          <div><dt>Latest verified order</dt><dd>{latestVerified ? shownDate(latestVerified.orderDate) : pipeline.officialOrdersFound > 0 ? "Awaiting source verification" : "No verified order yet"}</dd></div>
           <div><dt>Last synced</dt><dd>{data?.historySync?.completedAt ? new Date(data.historySync.completedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "Not yet"}</dd></div>
         </dl>
         <button className="court-intelligence-btn-action" type="button" disabled={running || startingSync} onClick={startHistory}>Sync Full DHC History</button>
-        {syncRunning && <p role="status">{data?.historySync?.status.includes("Captcha") ? "CAPTCHA required · continue verification" : data?.historySync?.phase === "OrderLookup" ? "Discovering order history…" : "Checking official status…"}</p>}
       </div>
       {syncOpen && <DhcHistoryWizard key={caseId} caseId={caseId} existingRun={syncRun?.caseId === caseId ? syncRun.runId : undefined} startError={syncError} onClose={() => { setSyncOpen(false); setReload(value => value + 1); }} onUpdated={() => setReload(value => value + 1)} />}
 
@@ -641,69 +653,13 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         </div>
       ) : (
         <>
-          {data.knownOrderCount !== undefined && (
-            <div role="status" className="court-intelligence-status-bar">
-              <div className="court-intelligence-status-message">
-                {data.knownOrderCount === 0 ? (
-                  <p>{data.historySync?.status === "Completed" ? "Official DHC case status was checked. No official order PDF was returned for this case." : "DHC history has not been checked yet."}</p>
-                ) : (
-                  <>
-                    {!!data.unprocessedOrderCount && (
-                      <p className="court-intelligence-status-pending">
-                        <span className="court-status-pill pending">Pending</span>
-                        Intelligence not processed yet for {data.unprocessedOrderCount} known order{data.unprocessedOrderCount === 1 ? "" : "s"}. Only verified evidence is shown below.
-                      </p>
-                    )}
-                    {!!data.unusableKnownOrderCount && (
-                      <p className="court-intelligence-status-review">
-                        <span className="court-status-pill review">Needs Review</span>
-                        {data.unusableKnownOrderCount} known source{data.unusableKnownOrderCount === 1 ? " needs" : "s need"} case/date/source verification before processing.
-                      </p>
-                    )}
-                    {!data.unprocessedOrderCount && !data.unusableKnownOrderCount && (
-                      <p className="court-intelligence-status-indexed">
-                        <span className="court-status-pill neutral">Official Index</span>
-                        {data.knownOrderCount} official Court {data.knownOrderCount === 1 ? "order" : "orders"} indexed.
-                      </p>
-                    )}
-                    {data.orders.length > 0 && (
-                      <button
-                        type="button"
-                        className="court-intelligence-btn-action"
-                        onClick={refresh}
-                        disabled={refreshing || running}
-                      >
-                        {refreshing || running
-                          ? "Processing intelligence…"
-                          : data.unprocessedOrderCount
-                          ? "Process known orders"
-                          : "Refresh intelligence"}
-                      </button>
-                    )}
-                  </>
-                )}
-                {running && (
-                  <p className="court-intelligence-status-running">
-                    <span className="court-intelligence-spinner" aria-hidden="true" />
-                    AI processing {(data.refreshState?.checked ?? 0) + 1 > (data.refreshState?.total ?? data.orders.length) ? data.refreshState?.total : (data.refreshState?.checked ?? 0) + 1} of {data.refreshState?.total ?? data.orders.length}… Completed orders remain available.
-                  </p>
-                )}
-                {["Failed", "Interrupted"].includes(data.refreshState?.status ?? "") && (
-                  <p className="court-intelligence-status-alert">
-                    Intelligence processing did not finish. Existing verified evidence is unchanged; you can retry explicitly.
-                  </p>
-                )}
-                {data.refreshState?.status === "CompletedWithReview" && (
-                  <p className="court-intelligence-status-review">
-                    <span className="court-status-pill review">Review Required</span>
-                    Intelligence checked · {data.refreshState.needsReview ?? 0} sources need review. Unverified material contributes no facts.
-                  </p>
-                )}
-                {refreshError && <p className="court-intelligence-status-alert">{refreshError}</p>}
-              </div>
-            </div>
-          )}
-
+          <div className="court-case-health" role="status">
+            <strong>{pipeline.officialOrdersFound ? `${pipeline.officialOrdersFound} official ${pipeline.officialOrdersFound === 1 ? "source found" : "orders"} · ${pipeline.usableAiBriefs} usable AI ${pipeline.usableAiBriefs === 1 ? "brief" : "briefs"}${pipeline.blockedBeforeAi ? ` · ${pipeline.blockedBeforeAi} source-blocked` : ""}${pipeline.pendingProcessing ? ` · ${pipeline.pendingProcessing} awaiting AI` : ""}${pipeline.extractionIncomplete ? ` · ${pipeline.extractionIncomplete} extraction incomplete` : ""}` : data.historySync?.status === "Completed" ? "Official DHC search returned no order PDF." : "DHC history has not been checked yet."}</strong>
+            {pipeline.usableBriefsWithReview > 0 && <small>{pipeline.usableBriefsWithReview} of the {pipeline.usableAiBriefs} usable briefs also require review; this is not an additional source.</small>}
+            {primaryNotice && <p className="court-primary-notice">{primaryNotice}</p>}
+            {(running || syncRunning) && <p>{syncRunning ? data.historySync?.status.includes("Captcha") ? "CAPTCHA required · continue verification" : "Checking official DHC history…" : `AI processing · ${data.refreshState?.checked ?? 0} of ${data.refreshState?.total ?? data.orders.length} sources checked`}</p>}
+            {data.orders.length > 0 && <details className="court-processing-controls"><summary>Processing controls</summary><button type="button" disabled={refreshing || running} onClick={refresh}>{refreshing || running ? "Processing intelligence…" : data.unprocessedOrderCount ? "Process known orders" : "Refresh intelligence"}</button></details>}
+          </div>
           {showMatterHeader && (
             <div className="court-intelligence-matter">
               <h2>{data.caseNumber ?? "Court matter"}</h2>
@@ -722,16 +678,6 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                 </p>
               )}
             </div>
-          )}
-
-          {data.orders.length > 0 && (reviewCount > 0 || !data.processingComplete) && (
-            <details className="court-intelligence-verification">
-              <summary>
-                Some source material still needs verification.
-                {reviewCount > 0 ? ` · ${reviewCount} order${reviewCount === 1 ? "" : "s"}` : ""}
-              </summary>
-              <p>Actions and summaries shown here use only verified evidence.</p>
-            </details>
           )}
 
           <article className="court-intelligence-position">
@@ -786,7 +732,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             }`}
           >
             <div className="court-intelligence-region-heading">
-              <h4>{data.beforeNextHearing.length ? "What needs attention" : "Office action check"}</h4>
+              <h4>What LAC needs to do</h4>
               {data.beforeNextHearing.length > 0 && (
                 <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>
               )}
@@ -811,9 +757,14 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               </>
             ) : (
               <p>
-                  {actionCheckIncomplete
-                    ? data.orders.length === 0 ? data.knownOrderCount ? "Office actions cannot be checked until the discovered sources are processed and verified." : "Office actions cannot be checked until official orders are discovered and processed." : "Office action check is incomplete because one or more Court orders could not be fully processed. Review the source order before concluding whether any LAC action is outstanding."
-                  : "No direct LAC action was identified in the processed orders. This does not establish that all office duties are complete."}
+                  {pipeline.usableAiBriefs > 0
+                    ? "No verified LAC-specific mandatory action is established in the currently processed evidence."
+                    : "No usable Court evidence is currently available for this matter. Office actions cannot be checked until a source is processed and verified."}
+                  {pipeline.usableAiBriefs > 0 && (pipeline.blockedBeforeAi > 0
+                    ? " Some discovered orders are still under source review, so no conclusion is drawn from those sources."
+                    : pipeline.pendingProcessing > 0 ? " Some discovered orders are still awaiting AI processing, so no conclusion is drawn from those sources."
+                    : actionCheckIncomplete ? " The evidence retains review conditions; this does not establish that all office duties are complete."
+                    : " This does not establish that all office duties are complete.")}
               </p>
             )}
           </article>
@@ -836,18 +787,18 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
           <div className="court-intelligence-working-grid">
             <article className="court-intelligence-latest">
               <div className="court-intelligence-region-heading">
-                <h4>Latest order</h4>
-                {data.latestOrder && <time>{shownDate(data.latestOrder.orderDate)}</time>}
+                <h4>Latest verified order</h4>
+                {latestVerified && <time>{shownDate(latestVerified.orderDate)}</time>}
               </div>
-              {data.latestOrder ? (
-                <OrderSummary order={data.latestOrder} />
+              {latestVerified ? (
+                <OrderSummary order={latestVerified} />
               ) : (
-                <p className="court-intelligence-muted">No processed order is available yet.</p>
+                <p className="court-intelligence-muted">No verified AI brief is available yet. Review each official source state in the history below.</p>
               )}
             </article>
 
             <article className="court-intelligence-ask">
-              <h4>Ask Court Intelligence</h4>
+              <h4>Ask Court AI</h4>
               <p className="court-intelligence-muted">English, हिन्दी or Hinglish · this matter only</p>
               <form onSubmit={ask} className="court-intelligence-ask-form">
                 <label className="court-intelligence-question-label" htmlFor={`case-question-${caseId}`}>
@@ -888,6 +839,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               </details>}
               {answer && (
                 <div className="court-intelligence-answer" aria-live="polite">
+                  {answer.actionConclusion && <p className="court-action-conclusion">{answer.actionConclusion}</p>}
+                  {answer.coverageNote && <p className="court-answer-coverage">{answer.coverageNote}</p>}
                   {answer.claims.length ? (
                     answer.claims.map((claim, index) => (
                       <div key={index} className="court-answer-claim">
@@ -898,7 +851,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                         <Evidence source={claim.source} />
                       </div>
                     ))
-                  ) : answer.mode === "GeneralLocal" ? <p className="court-local-chat-answer">{answer.answer}<small>General local chat</small></p> : (
+                  ) : answer.actionConclusion ? null : answer.mode === "GeneralLocal" ? <p className="court-local-chat-answer">{answer.answer}<small>General local chat</small></p> : (
                     <>
                       <p className="court-answer-unconfirmed">
                         {answer.reason === "OrderUnavailable"
@@ -906,11 +859,6 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                           : answer.reason === "HistoryTooLong" ? "This history is too long for one reply. Please ask for a narrower date range or review the complete order history."
                           : "I could not confirm this from the orders processed for this matter."}
                       </p>
-                      {reviewCount > 0 && (
-                        <small className="court-answer-review-warning">
-                          {reviewCount} order{reviewCount === 1 ? "" : "s"} still need{reviewCount === 1 ? "s" : ""} source verification.
-                        </small>
-                      )}
                       <div className="court-intelligence-answer-actions">
                         <button type="button" onClick={() => setHistoryOpen(true)}>
                           Review available order history
@@ -944,14 +892,18 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               <span>View timeline</span>
             </summary>
 
-            {data.sourceCoverage && (
-              <p className="court-intelligence-muted court-coverage-caption">
-                {data.sourceCoverage.knownSources > 0 ? `${aiProcessedCount} of ${data.sourceCoverage.knownSources} official orders AI processed · ${reviewCount} need source review${pendingCount ? ` · ${pendingCount} awaiting AI processing` : ""}. Processed orders can still need review. This is not a claim that every Court order is available.` : data.historySync?.status === "Completed" ? "No official order PDF was returned for this case." : "DHC history has not been checked yet."}
-              </p>
-            )}
-
+            <p className="court-intelligence-muted court-coverage-caption">Every discovered source is listed below with its verification, AI state and usable fact count. Completeness beyond these returned sources is not established.</p>
             <div className="court-timeline-container">
-              {data.orders.map((order, index) => (
+              {data.sourceDiagnostics?.map(source => {
+                const order = data.orders.find(order => order.officialUrl === source.officialUrl && order.orderDate === source.orderDate);
+                return <details className="court-source-pipeline" key={`${source.sourceObservationId}-${source.officialUrl}`}>
+                  <summary><time>{source.orderDate ? shownDate(source.orderDate) : source.rawOrderDate || "Date unverified"}</time><span className={`court-status-pill ${source.reviewRequired ? "review" : "verified"}`}>{source.sourceLabel} · {source.aiLabel}</span><strong>{source.usableFactCount} usable facts</strong>{source.officialUrl && officialLink(source.officialUrl) && <a href={source.officialUrl} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>Open official PDF ↗</a>}<span className="court-source-reason">{source.officerMessage}</span></summary>
+                  <dl className="court-source-stages"><div><dt>Source verification</dt><dd>{source.sourceLabel}</dd></div><div><dt>AI processing</dt><dd>{source.aiLabel}</dd></div><div><dt>Usable facts</dt><dd>{source.usableFactCount}</dd></div></dl>
+                  {order && source.usableFactCount > 0 && <div className="court-history-expanded"><OrderSummary order={order} /><FullOrderFacts order={order} /></div>}
+                  <details className="court-source-technical"><summary>Technical source details</summary><p>Reason code: {source.reasonCode}</p><p>Observation: {source.sourceObservationId}</p><p>Raw official date: {source.rawOrderDate ?? "Not supplied"}</p><pre>{JSON.stringify(source.technical, null, 2)}</pre></details>
+                </details>;
+              })}
+              {!data.sourceDiagnostics && data.orders.map((order, index) => (
                 <details className="court-intelligence-history-row" key={`${order.officialUrl}-${index}`}>
                   <summary>
                     <time>{shownDate(order.orderDate)}{order.sourceKind === "Corrigendum" && <small> · Corrigendum</small>}</time>
@@ -986,7 +938,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                   </div>
                 </details>
               ))}
-              {data.sourceReviewOrders?.map((order, index) => <div className="court-intelligence-history-row" key={`review-${index}`}>
+              {!data.sourceDiagnostics && data.sourceReviewOrders?.map((order, index) => <div className="court-intelligence-history-row" key={`review-${index}`}>
                 <p>Order date needs review · <span className="court-status-pill review">Needs Review</span> · {order.reason}</p>
                 {officialLink(order.officialUrl) && <a href={order.officialUrl} target="_blank" rel="noreferrer">Open official PDF ↗</a>}
                 {order.corrigendumUrl && officialLink(order.corrigendumUrl) && <a href={order.corrigendumUrl} target="_blank" rel="noreferrer">Open official corrigendum ↗</a>}

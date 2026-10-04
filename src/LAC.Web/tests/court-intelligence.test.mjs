@@ -44,7 +44,7 @@ test('Court intelligence renders calmly with AI off and makes no render-time act
   assert.doesNotMatch(html,/tokens|RAM|latency|confidence|raw JSON|Qwen|llama/i);
 });
 test('officer headings and evidence are present without developer metrics',()=>{
-  for(const text of ['Current position','Before next hearing','Latest order','Complete order history','View timeline','Ask Court Intelligence','View evidence','What happened in this order'])assert.ok(source.includes(text));
+  for(const text of ['Current position','Before next hearing','Latest verified order','Complete order history','View timeline','Ask Court AI','View evidence','What happened in this order'])assert.ok(source.includes(text));
   assert.doesNotMatch(source,/modelVersion|inferenceTime|confidencePercent|JSON\.stringify\(data/);
   assert.match(source,/source\.orderDate/);assert.match(source,/source\.page/);assert.match(source,/source\.evidence/);
 });
@@ -76,7 +76,7 @@ test('final outcome preserves history, caption evidence, factual date separation
   assert.match(html,/Mr\. A, Advocate for LAC/);
   assert.match(html,/Factual dates mentioned in orders · not Court hearing dates/);
   assert.match(html,/Chronology gaps \(1\)/);
-  assert.match(html,/not a claim that every Court order is available/);
+  assert.match(html,/Completeness beyond these returned sources is not established/);
 });
 test('multi-page evidence displays original fragments and both page numbers',()=>{
   const src={...evidence,evidenceParts:[{page:6,evidence:'The Respondents shall file details of'},{page:7,evidence:'the compensation deposited.'}]};
@@ -135,8 +135,8 @@ test('officer summaries strip paragraph prefixes but evidence stays verbatim',()
   assert.equal(presentation.officerText('A. Gupta appeared.'),'A. Gupta appeared.');
 });
 test('review warning uses officer wording without altering verified evidence',()=>{
-  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/Some source material still needs verification\./);
-  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/Actions and summaries shown here use only verified evidence/);
+  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/AI extraction is incomplete for some sources/);
+  assert.match(officerMarkup({...data,orders:[data.latestOrder]}),/Partial facts are withheld/);
   assert.doesNotMatch(officerMarkup(data),/Some source orders need checking|Do not rely on an older summary/);
 });
 test('zero-action order still renders rich attributed facts, not an empty action detector',()=>{
@@ -148,7 +148,7 @@ test('zero-action order still renders rich attributed facts, not an empty action
   assert.match(html,/LAC\/respondent submission/);
   assert.match(html,/Court observation/);
   assert.match(html,/No direct LAC action was identified in this order/);
-  assert.match(html,/<h4>Office action check<\/h4>/);
+  assert.match(html,/<h4>What LAC needs to do<\/h4>/);
   assert.doesNotMatch(html,/<span>Outstanding LAC action<\/span>/);
   assert.doesNotMatch(html,/No useful intelligence|No confirmed operative summary/);
   assert.match(html,/court-intelligence-timeline-fact/);
@@ -167,7 +167,7 @@ test('conditional permission is visible separately and preserves adjacent source
   assert.doesNotMatch(html,/Preferred period ended|Overdue/);
 });
 
-test('incomplete or review-required processing never claims there is no direct LAC action',()=>{
+test('incomplete or review-required processing limits the action conclusion to usable evidence',()=>{
   for(const change of [
     {processingComplete:false},
     {orders:[{...data.latestOrder,status:'NeedsReview',facts:[],failureMessage:'Local processing failed'}]},
@@ -176,20 +176,20 @@ test('incomplete or review-required processing never claims there is no direct L
     {orders:[{...data.latestOrder,status:'Validated',facts:[],refreshFailure:'Latest check failed'}]},
   ]){
     const html=officerMarkup({...data,beforeNextHearing:[],orders:[{...data.latestOrder,status:'Validated'}],...change});
-    assert.match(html,/Office action check is incomplete/);
+    assert.match(html,/No verified LAC-specific mandatory action is established in the currently processed evidence|No usable Court evidence is currently available/);
     assert.doesNotMatch(html,/No direct LAC action was identified in the processed orders/);
   }
 });
 
-test('complete verified zero-action evidence retains the genuine no-action outcome',()=>{
+test('completed extraction with zero usable facts does not establish a no-action outcome',()=>{
   const latest={...data.latestOrder,status:'Validated',facts:[],summaryFacts:[],officeActionCount:0,coverage:{allSelectedChunksProcessed:true}};
   const html=officerMarkup({...data,status:'Validated',processingComplete:true,beforeNextHearing:[],latestOrder:latest,orders:[latest]});
-  assert.match(html,/No direct LAC action was identified in the processed orders/);
+  assert.match(html,/No usable Court evidence is currently available/);
   assert.doesNotMatch(html,/Office action check is incomplete/);
 });
 test('current position retains role distinctions and review warning appears only once',()=>{
   const html=officerMarkup({...data,orders:[data.latestOrder],currentPosition:[{role:'COURT_FINDING',text:'The reference was in time.',source:evidence},{role:'PETITIONER_SUBMISSION',text:'The petitioner disputes payment.',source:evidence}]});
   assert.match(html,/Court finding/);assert.match(html,/Petitioner submission/);
-  assert.equal((html.match(/Some source material still needs verification/g)||[]).length,1);
+  assert.equal((html.match(/AI extraction is incomplete for some sources/g)||[]).length,1);
   assert.match(html,/English, हिन्दी or Hinglish/);
 });

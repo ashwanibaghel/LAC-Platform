@@ -155,7 +155,7 @@ def prepare_question(root, artifact, case_id, question, provider, processor=None
         if failed_without_facts and source.get('sha256'):
             record['previousAttemptSha256']=source['sha256']
         if source.get('sha256') and record.get('sha256') and source['sha256']!=record['sha256'] and not failed_without_facts:
-            record.update(status='NeedsSourceReview',facts=[],failureMessage='Known official source bytes changed; explicit source-version review required')
+            record.update(status='NeedsSourceReview',facts=[],sourceReasonCode='SourceBytesChanged',failureMessage='Known official source bytes changed; explicit source-version review required')
         record.update({key:source.get(key) for key in ('courtCaseId','normalizedCaseIdentity','sourceObservationId','corrigendumUrl','uploadDate','sourceEvidenceSha256')})
         if record.get('failureMessage') and source.get('status')=='Validated':
             record=dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')

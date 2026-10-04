@@ -40,7 +40,10 @@ def normalize(question, provider=None):
     outcome=bool(re.search(r'final (?:outcome|disposition|order)|अंतिम (?:आदेश|निर्णय)|(?:case|petition|appeal|matter|मामला|याचिका|अपील).*(?:dispos\w*|pending|निस्तारित|लंबित)',text))
     office_pending=bool(re.search(r'pending|लंबित',text) and re.search(r'\blac\b|action|compliance|work|task|hearing|अनुपालन|कार्य',text))
     if office_pending and not outcome: topics=['lac_action']+topics
-    if party=='LAC' and re.search(r'need to do|kya.*(?:karna|action|direction)|क्या.*(?:करना|निर्देश)',text):
+    action_request=bool(re.search(r'what\s+to\s+do|what\s+should\s+lac\s+do|what\s+does\s+lac\s+have\s+to\s+do|what\s+is\s+required\s+from\s+lac|what\s+action\s+should\s+lac\s+take|next\s+step\s+for\s+lac|need to do|must do|kya.*(?:karna|kare|action|direction)|क्या.*(?:करना|करे|करें|निर्देश)',text))
+    office_actor=party=='LAC' or bool(re.search(r'\bhume(?:in)?\b|\bhum\b|हमें|एल\.?\s*ए\.?\s*सी|शाखा',text))
+    if office_actor and action_request:
+        party='LAC'
         topics=['lac_action']+[topic for topic in topics if topic!='direction']
     # Relief sought is a party position, never proof that the Court granted it.
     # Require a named party so generic wants/seeks wording cannot redirect
