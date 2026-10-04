@@ -47,6 +47,8 @@ import { CalculatorProvider } from "./calculator/CalculatorContext";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
 import { VillagesDirectory } from "./land/VillagesDirectory";
 import { AwardsDirectory } from "./land/AwardsDirectory";
+import { VillageOverviewWorkspace } from "./land/VillageOverviewWorkspace";
+import { VillageCoreRecordsWorkspace } from "./land/VillageCoreRecordsWorkspace";
 import "./land/land.css";
 import "./attention/attention.css";
 import "./work/work.css";
@@ -787,8 +789,8 @@ function Village() {
         )}
       </div>
       <div className="section-tabs">{(["overview", "khasras", "core", "lr", "documents", "matters"] as const).map(value => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{value === "core" ? "Awards / Core" : value === "lr" ? "LR Registers" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-      {section==="overview"&&<VillageOverview id={id} />}
-      {section==="core"&&<VillageCoreRecords id={id} />}
+      {section==="overview"&&<VillageOverviewWorkspace id={id} />}
+      {section==="core"&&<VillageCoreRecordsWorkspace id={id} />}
       {section==="matters"&&<VillageMatters id={id} />}
       {section==="khasras"&&<VillageKhasras id={id} />}
       {section==="lr"&&<VillageLrs id={id} />}
