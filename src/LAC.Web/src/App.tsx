@@ -749,9 +749,37 @@ function Villages() {
 
 function Village() {
   const { id = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawSection = searchParams.get("section");
+  const validSection: "overview" | "khasras" | "core" | "matters" =
+    rawSection === "khasras" || rawSection === "core" || rawSection === "matters"
+      ? rawSection
+      : "overview";
   const [section, setSection] = useState<
-    "overview" | "khasras" | "core" | "lr" | "documents" | "matters"
-  >("overview");
+    "overview" | "khasras" | "core" | "matters"
+  >(validSection);
+
+  useEffect(() => {
+    const s = searchParams.get("section");
+    if (s === "khasras" || s === "core" || s === "matters") {
+      setSection(s);
+    } else {
+      setSection("overview");
+    }
+  }, [searchParams]);
+
+  const handleTabClick = (tab: "overview" | "khasras" | "core" | "matters") => {
+    setSection(tab);
+    if (tab === "overview") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("section");
+      setSearchParams(next, { replace: true });
+    } else {
+      const next = new URLSearchParams(searchParams);
+      next.set("section", tab);
+      setSearchParams(next, { replace: true });
+    }
+  };
   const village = useApi<any>(`/villages/${id}`);
   if (village.loading) return <LoadingState />;
   if (village.error) return <ErrorState message={village.error} />;
@@ -784,17 +812,12 @@ function Village() {
         {data.linkedAwards > 0 && (
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
-        {data.lrAvailable && (
-          <Metric label="LR register" value="Available" />
-        )}
       </div>
-      <div className="section-tabs">{(["overview", "khasras", "core", "lr", "documents", "matters"] as const).map(value => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{value === "core" ? "Awards / Core" : value === "lr" ? "LR Registers" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-      {section==="overview"&&<VillageOverviewWorkspace id={id} />}
-      {section==="core"&&<VillageCoreRecordsWorkspace id={id} />}
-      {section==="matters"&&<VillageMatters id={id} />}
-      {section==="khasras"&&<VillageKhasras id={id} />}
-      {section==="lr"&&<VillageLrs id={id} />}
-      {section==="documents"&&<VillageDocuments id={id} />}
+      <div className="section-tabs">{(["overview", "khasras", "core", "matters"] as const).map(value => <button key={value} className={section === value ? "active" : ""} onClick={() => handleTabClick(value)}>{value === "core" ? "Awards / Core" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+      {(section === "overview" || (section !== "khasras" && section !== "core" && section !== "matters")) && <VillageOverviewWorkspace id={id} />}
+      {section === "khasras" && <VillageKhasras id={id} />}
+      {section === "core" && <VillageCoreRecordsWorkspace id={id} />}
+      {section === "matters" && <VillageMatters id={id} />}
     </>
   );
 }
