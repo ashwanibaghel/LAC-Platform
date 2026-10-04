@@ -1851,3 +1851,317 @@
   margin-bottom: 0;
   border-bottom: none;
 }
+
+/* ═══════════════════════════════════════════════════════
+   ACQUISITION HISTORY (Award-wise Explicit Groups)
+   ═══════════════════════════════════════════════════════ */
+
+.village-history-scope-notice {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.village-history-award-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.village-history-award-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.village-history-award-group:hover {
+  border-color: #cbd5e1;
+}
+
+.village-history-award-group.expanded {
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.village-history-award-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.village-history-award-header:hover {
+  background: #f1f5f9;
+}
+
+.village-history-award-group.expanded .village-history-award-header {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.village-history-award-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.village-history-toggle-icon {
+  font-size: 11px;
+  color: #64748b;
+  width: 14px;
+  display: inline-block;
+  user-select: none;
+}
+
+.village-history-award-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.village-history-award-date {
+  font-size: 12.5px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.village-history-award-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.village-history-milestone-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  background: #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 12px;
+}
+
+.village-history-award-body {
+  padding: 16px 20px;
+  background: #ffffff;
+}
+
+.village-history-milestones-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.village-history-milestone-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+.village-history-milestone-date {
+  width: 95px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  text-align: right;
+  padding-top: 1px;
+}
+
+.village-history-milestone-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.village-history-track-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+  z-index: 2;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.village-history-track-dot.green {
+  background: #10b981;
+  box-shadow: 0 0 0 2px #d1fae5;
+}
+
+.village-history-track-dot.blue {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+
+.village-history-track-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px #fef3c7;
+}
+
+.village-history-track-dot.purple {
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px #ede9fe;
+}
+
+.village-history-track-line {
+  width: 2px;
+  background: #e2e8f0;
+  flex-grow: 1;
+  margin-top: 2px;
+  margin-bottom: -4px;
+}
+
+.village-history-milestone-detail {
+  flex-grow: 1;
+  padding-bottom: 16px;
+}
+
+.village-history-milestone-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.village-history-milestone-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.village-history-shared-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+
+.village-history-milestone-ref {
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.village-history-award-footer {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.village-history-open-award-btn {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  transition: all 0.15s ease;
+}
+
+.village-history-open-award-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+/* ── Unassigned Section ── */
+.village-history-unassigned-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.village-history-unassigned-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.village-history-unassigned-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin: 0;
+}
+
+.village-history-unassigned-subtitle {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.village-history-unassigned-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.village-history-unassigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.village-history-unassigned-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.village-history-unassigned-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.village-history-unassigned-item-name {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.village-history-unassigned-item-ref {
+  color: #64748b;
+  font-size: 11.5px;
+}
+
+.village-history-unassigned-item-date {
+  font-size: 11.5px;
+  color: #475569;
+  font-weight: 500;
+}

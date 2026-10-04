@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { formatTitleCase } from "./VillagesDirectory";
+import { VillageAcquisitionHistorySection } from "./VillageAcquisitionHistorySection";
 import "./land.css";
 
 interface VillageOverviewProps {
@@ -153,67 +154,6 @@ export const VillageOverviewWorkspace: React.FC<VillageOverviewProps> = ({ id })
   const totalAwardKhasras = useMemo(() => {
     if (!data?.awards) return 0;
     return data.awards.reduce((sum, a) => sum + (a.khasraCount || 0), 0);
-  }, [data]);
-
-  // Build Chronological Acquisition Timeline from real, authoritative records
-  const timelineEvents = useMemo(() => {
-    if (!data) return [];
-    const events: Array<{
-      dateIso: string;
-      dateFormatted: string;
-      category: "Notification" | "Award";
-      categoryBadge: string;
-      badgeTone: string;
-      title: string;
-      subtitle: string;
-      awardId?: string;
-    }> = [];
-
-    // Add dated Notifications
-    if (data.notifications) {
-      data.notifications.forEach((notif) => {
-        if (notif.notificationDate) {
-          const sec = notif.sectionType || "Statutory";
-          let tone = "blue";
-          if (sec.includes("4")) tone = "green";
-          else if (sec.includes("6")) tone = "blue";
-          else if (sec.includes("17")) tone = "amber";
-
-          events.push({
-            dateIso: notif.notificationDate,
-            dateFormatted: formatDate(notif.notificationDate),
-            category: "Notification",
-            categoryBadge: sec,
-            badgeTone: tone,
-            title: `${sec} Notification Issued`,
-            subtitle: `Gazette Reference: ${notif.notificationNumber}`,
-          });
-        }
-      });
-    }
-
-    // Add dated Awards
-    if (data.awards) {
-      data.awards.forEach((award) => {
-        if (award.awardDate) {
-          events.push({
-            dateIso: award.awardDate,
-            dateFormatted: formatDate(award.awardDate),
-            category: "Award",
-            categoryBadge: "Award Pronounced",
-            badgeTone: "purple",
-            title: `Award ${award.awardNumber}`,
-            subtitle: `${award.khasraCount || 0} Khasras registered${
-              award.documentCount ? " · Source document loaded" : " · Pending document upload"
-            }`,
-            awardId: award.id,
-          });
-        }
-      });
-    }
-
-    // Sort chronologically (earliest milestone to latest milestone)
-    return events.sort((a, b) => (a.dateIso > b.dateIso ? 1 : -1));
   }, [data]);
 
   // Group Pending Review sessions by sourceDocumentName to distinguish multiple extraction batches
@@ -369,60 +309,8 @@ export const VillageOverviewWorkspace: React.FC<VillageOverviewProps> = ({ id })
         )}
       </section>
 
-      {/* 3. Acquisition Timeline — PAUSED: backend attribution correction pending.
-              Do not infer notification→Award relation in frontend.
-              Code preserved below; suppress render until backend is authoritative. */}
-      {false && (
-      <section className="village-card">
-        <div className="village-card-header">
-          <div>
-            <h3 className="village-card-title">Acquisition Timeline</h3>
-            <p className="village-card-subtitle">
-              Chronological milestones constructed exclusively from authoritative dated notifications and awards.
-            </p>
-          </div>
-        </div>
-
-        {timelineEvents.length === 0 ? (
-          <div className="village-empty-state">
-            <p className="village-empty-title">No dated statutory milestones</p>
-            <p className="village-empty-desc">
-              Dated acquisition notifications and award pronouncements will appear here chronologically.
-            </p>
-          </div>
-        ) : (
-          <div className="village-timeline">
-            {timelineEvents.map((event, idx) => (
-              <div key={idx} className="village-timeline-item">
-                <div className="village-timeline-date-col">
-                  <span className="village-timeline-date">{event.dateFormatted}</span>
-                </div>
-                <div className="village-timeline-marker-col">
-                  <div className={`village-timeline-dot ${event.badgeTone}`} />
-                  {idx < timelineEvents.length - 1 && <div className="village-timeline-line" />}
-                </div>
-                <div className="village-timeline-content-col">
-                  <div className="village-timeline-card">
-                    <div className="village-timeline-card-header">
-                      <span className={`village-timeline-badge ${event.badgeTone}`}>
-                        {event.categoryBadge}
-                      </span>
-                      {event.awardId && (
-                        <Link to={`/awards/${event.awardId}`} className="village-timeline-link">
-                          Open Award &rarr;
-                        </Link>
-                      )}
-                    </div>
-                    <div className="village-timeline-card-title">{event.title}</div>
-                    <div className="village-timeline-card-sub">{event.subtitle}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-      )}
+      {/* 3. Acquisition History (Award-wise explicit canonical relationships) */}
+      <VillageAcquisitionHistorySection villageId={id} />
 
       {/* 4. Compact Pending Review Section */}
       {groupedPendingSessions.length > 0 && (
