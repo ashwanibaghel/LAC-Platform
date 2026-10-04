@@ -45,6 +45,9 @@ import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
 import { CalculatorProvider } from "./calculator/CalculatorContext";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
+import { VillagesDirectory } from "./land/VillagesDirectory";
+import { AwardsDirectory } from "./land/AwardsDirectory";
+import "./land/land.css";
 import "./attention/attention.css";
 import "./work/work.css";
 import "./court/court.css";
@@ -744,7 +747,9 @@ function Villages() {
 
 function Village() {
   const { id = "" } = useParams();
-  const [section,setSection]=useState<"overview"|"core"|"matters"|"khasras">("overview");
+  const [section, setSection] = useState<
+    "overview" | "khasras" | "core" | "lr" | "documents" | "matters"
+  >("overview");
   const village = useApi<any>(`/villages/${id}`);
   if (village.loading) return <LoadingState />;
   if (village.error) return <ErrorState message={village.error} />;
@@ -777,12 +782,17 @@ function Village() {
         {data.linkedAwards > 0 && (
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
+        {data.lrAvailable && (
+          <Metric label="LR register" value="Available" />
+        )}
       </div>
-      <div className="section-tabs">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
+      <div className="section-tabs">{(["overview", "khasras", "core", "lr", "documents", "matters"] as const).map(value => <button key={value} className={section === value ? "active" : ""} onClick={() => setSection(value)}>{value === "core" ? "Awards / Core" : value === "lr" ? "LR Registers" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
       {section==="overview"&&<VillageOverview id={id} />}
       {section==="core"&&<VillageCoreRecords id={id} />}
       {section==="matters"&&<VillageMatters id={id} />}
       {section==="khasras"&&<VillageKhasras id={id} />}
+      {section==="lr"&&<VillageLrs id={id} />}
+      {section==="documents"&&<VillageDocuments id={id} />}
     </>
   );
 }
@@ -3782,7 +3792,7 @@ function AuthenticatedApp() {
         <Route path="/land-records" element={<LandRecordsHierarchy />} />
         <Route path="/districts/:id" element={<District />} />
         <Route path="/subdivisions/:id" element={<Subdivision />} />
-        <Route path="/villages" element={<Villages />} />
+        <Route path="/villages" element={<VillagesDirectory />} />
         <Route path="/villages/:id" element={<Village />} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
@@ -3801,7 +3811,7 @@ function AuthenticatedApp() {
         <Route path="/khatauni/:id" element={<Khatauni />} />
         <Route path="/khatas/:id" element={<Khata />} />
         <Route path="/parties/:id" element={<Party />} />
-        <Route path="/awards" element={<Awards />} />
+        <Route path="/awards" element={<AwardsDirectory />} />
         <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
         <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
         <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
@@ -4607,6 +4617,8 @@ function LrReview() {
 }
 // Kept as internal compatibility views while they are intentionally absent from the Village workspace.
 void [
+  Villages,
+  Awards,
   VillageAwards,
   VillageNotifications,
   VillageKhatauni,

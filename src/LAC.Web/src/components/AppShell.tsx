@@ -155,10 +155,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       description: "Villages, khasras, awards, and khatauni registers",
       icon: <IconLand size={20} />,
       links: [
-        { label: "Administrative Hierarchy", to: "/land-records" },
-        { label: "Village Directory", to: "/villages" },
-        { label: "Awards Register", to: "/awards" },
-        { label: "LR Import Registers", to: "/imports/lr" }
+        { label: "Overview", to: "/land-records" },
+        { label: "Villages", to: "/villages" },
+        { label: "Awards", to: "/awards" }
       ]
     },
     {
@@ -198,6 +197,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Oversight",
       description: "Branch pulse, handler workloads, and team activity",
       icon: <IconPulse size={20} />,
+      checkPermission: canAccessOversight,
       links: [
         { label: "Branch Pulse", to: "/branch-pulse", checkPermission: () => hasPermission("WorkItem.View") },
         { label: "My History", to: "/my-history" },
@@ -226,10 +226,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     contextualNav = {
       categoryTitle: "Land Records",
       links: [
-        { label: "Hierarchy Overview", to: "/land-records" },
+        { label: "Overview", to: "/land-records" },
         { label: "Villages", to: "/villages" },
-        { label: "Awards", to: "/awards" },
-        { label: "LR Registers", to: "/imports/lr" }
+        { label: "Awards", to: "/awards" }
       ]
     };
   } else if (path.startsWith("/dak") || path.startsWith("/my-desk") || path.startsWith("/outward")) {
@@ -477,7 +476,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       )}
 
       {/* Main Workspace Content */}
-      <main className="lac-body-content" id="main-content" tabIndex={-1}>
+      <main
+        className={`lac-body-content ${location.pathname.startsWith("/court-cases") ? "full-width-page" : ""}`}
+        id="main-content"
+        tabIndex={-1}
+      >
         {children}
       </main>
     </div>
