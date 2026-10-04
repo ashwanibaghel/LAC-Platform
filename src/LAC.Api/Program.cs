@@ -119,6 +119,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddHostedService<DhcHistoryIntelligenceBridge>();
 builder.Services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<CourtQuestionConversation>();
 builder.Services.AddSingleton<IOfficeClock, OfficeClock>();
 ApiStartupPolicy.RegisterBackgroundWorkers(builder.Services, builder.Configuration,
     builder.Environment.IsEnvironment("Testing"));

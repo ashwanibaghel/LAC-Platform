@@ -303,7 +303,7 @@ public static class CourtEndpoints
         group.MapPost("/{id:guid}/intelligence/ask", async (
             Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients, LacDbContext db,
             ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser,
-            HttpContext context, LocalStoragePaths paths, CancellationToken ct) =>
+            HttpContext context, LocalStoragePaths paths, CourtQuestionConversation conversation, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -312,9 +312,15 @@ public static class CourtEndpoints
             {
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
-                return await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct,
+                var lease = conversation.Enter(currentUser.UserId.Value, context.Request.Cookies["lac_session"], id);
+                var result = await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct,
                     index.CaseNumber, index.Orders, paths.ExtractionRoot,
-                    new(currentUser.DisplayName, currentUser.DesignationName), request.History);
+                    new(currentUser.DisplayName, currentUser.DesignationName), request.History,
+                    request.Language, lease.Context);
+                if (result is IValueHttpResult { Value: System.Text.Json.JsonElement answer }
+                    && result is IStatusCodeHttpResult { StatusCode: 200 })
+                    conversation.Remember(lease, request.Question, answer);
+                return result;
             }
             catch (InvalidDataException) { return Results.Problem("This matter's known-order index needs verification.", statusCode: 503); }
         });
@@ -334,7 +340,7 @@ public static class CourtEndpoints
         });
         group.MapGet("/{id:guid}/intelligence", async (
             Guid id, LocalStoragePaths paths, LacDbContext db, ICourtAuthorizationService courtAuth,
-            ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+            ICurrentUserContext currentUser, HttpContext context, CourtQuestionConversation conversation, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -343,6 +349,7 @@ public static class CourtEndpoints
             {
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
+                conversation.Enter(currentUser.UserId.Value, context.Request.Cookies["lac_session"], id);
                 return Results.Ok(await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or UnauthorizedAccessException)

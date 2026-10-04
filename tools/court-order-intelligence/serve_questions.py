@@ -9,6 +9,7 @@ from questions import answer, INSUFFICIENT
 from order_index import merge_known_orders,prepare_question,MAX_CASE_ARTIFACT_BYTES
 from real_case import RefreshController, read_artifact
 from chat_router import route, general_answer
+from question_language import selected_language, localize
 
 def main():
     parser=argparse.ArgumentParser()
@@ -63,21 +64,23 @@ def main():
                     return
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
+                language=selected_language(request.get('language','Auto'),question)
                 if route(question)=='GeneralLocal':
-                    result=general_answer(question,provider,request.get('appContext'),request.get('history'))
+                    result=general_answer(question,provider,request.get('appContext'),request.get('history'),language=language)
                 else:
                     artifact=read_artifact(root,case_id,request.get('caseNumber'))
                     if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
                         artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
                     if artifact is None:
-                        result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+                        result=localize({'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True},language)
                     else:
                         # Reads never acquire the PDF writer lock. Lazy retrieval
                         # of one exact date remains optional while a refresh runs.
                         if not refresh.lock.locked():
                             artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
                         result=answer(artifact,case_id,question,provider,request.get('courtCoverage'),
-                            background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked())
+                            background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked(),
+                            language=language,conversation_context=request.get('conversationContext'))
                     result['mode']='CourtGrounded'
                 result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()

@@ -27,13 +27,41 @@ def entry_label(entry):
     if entry.get('actionClass')=='Mandatory': return 'Mandatory current Court direction'
     return LABELS[entry['category']]
 
+def verified_orders(artifact):
+    # A successfully verified/processed source may contain zero admitted facts.
+    # Such an order still determines what "latest" means; it contributes no claim.
+    return sorted((o for o in artifact.get('orders',[]) if
+        (o.get('status')=='Validated' or o.get('status')=='NeedsReview' and o.get('coverage',{}).get('allSelectedChunksProcessed'))
+        and o.get('sourceVerificationComplete') is not False and not o.get('failureMessage')
+        and o.get('coverage',{}).get('allSelectedChunksProcessed') is not False),
+        key=lambda o:o.get('orderDate') or '')
+
+def current_mandatory(entry, artifact, latest_date):
+    if entry['category']!='COURT_DIRECTION' or entry['scope']!='Current' or entry.get('actionClass')=='Conditional': return False
+    for action in artifact.get('beforeNextHearing',[]):
+        if action['text']!=entry['text']: continue
+        source=action.get('source')
+        if isinstance(source,dict):
+            if all(source.get(k)==entry['source'].get(k) for k in ('orderDate','officialUrl','page','evidence')): return True
+        elif entry['source']['orderDate']==latest_date:
+            # Compatibility with legacy text-only state, never a license to
+            # attach the current task to an identical text in an earlier order.
+            return True
+    return False
+
 def compose(entries):
     claims=[]
     for entry in entries:
         label=entry_label(entry)
         if entry['scope'] in ('Historical','Quoted'): label='Historical/quoted · '+label
         claims.append({'text':entry['text'],'attribution':label,'source':entry['source']})
-    return {'answer':'\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
+        if entry.get('directionTemporal'): claims[-1]['temporalStatus']=entry['directionTemporal']
+    lines=[]
+    for entry,claim in zip(entries,claims):
+        prefix='Earlier, in the order dated '+entry['source']['orderDate']+', the Court had recorded this direction: ' if entry.get('directionTemporal')=='Historical' else (
+            'In the order dated '+entry['source']['orderDate']+', the Court recorded this direction: ' if entry['category']=='COURT_DIRECTION' and entry.get('actionClass')!='Mandatory' else '')
+        lines.append(prefix+claim['attribution']+': '+claim['text'])
+    return {'answer':'\n'.join(lines) if claims else INSUFFICIENT,
             'claims':claims,'insufficientEvidence':not claims}
 
 def retrieve(artifact, question, intent=None, complete=False):
@@ -59,7 +87,10 @@ def retrieve(artifact, question, intent=None, complete=False):
     elif 'compensation' in intent['topics']: topic_pattern=r'compensation|payment|paid|deposit|disburse'
     if not fields:
         return []
-    orders = artifact.get('orders',[])
+    orders = sorted(artifact.get('orders',[]),key=lambda o:o.get('orderDate') or '')
+    if intent.get('focusSource'):
+        source=intent['focusSource']
+        orders=[o for o in orders if o.get('orderDate')==source['orderDate'] and o.get('officialUrl')==source['officialUrl']]
     from order_index import requested_date
     target=requested_date(question,[order.get('orderDate') for order in orders])
     if target['requested']:
@@ -68,7 +99,10 @@ def retrieve(artifact, question, intent=None, complete=False):
     if intent.get('lastOrderCount'):
         orders=orders[-min(1000,intent['lastOrderCount']):]
     if latest:
-        orders = [orders[-1]] if orders else []
+        verified=[o for o in verified_orders({'orders':orders})
+                  if (not intent['yearFrom'] or int(o['orderDate'][:4])>=intent['yearFrom'])
+                  and (not intent['yearTo'] or int(o['orderDate'][:4])<=intent['yearTo'])]
+        orders = [verified[-1]] if verified else []
     found = []
     for order in orders:
         year=int(str(order.get('orderDate') or '0000')[:4])
@@ -92,7 +126,8 @@ def retrieve(artifact, question, intent=None, complete=False):
             if 'filing' in intent['topics'] and re.search(r'filed|file ki|file kiya|फाइल किया',text):
                 if role=='COURT_DIRECTION' or not re.search(r'has filed|was filed|filed on|taken on record|placed on record',fact['value'],re.I):
                     continue # An instruction to file is not a completed filing.
-            found.append({'text':fact['value'], 'category':fact['category'], 'scope':fact['scope'],
+            if intent.get('historicalOffice') and not re.search(r'\bLAC\b|Land Acquisition Collector',fact['value'],re.I): continue
+            found.append({'text':fact['value'], 'category':fact['category'], 'scope':fact['scope'],'field':fact['field'],
                           'source':{'orderDate':order['orderDate'],'page':fact['page'],
                                     'evidence':fact['evidence'],'officialUrl':order['officialUrl']}})
             if fact.get('evidenceParts'): found[-1]['source']['evidenceParts']=fact['evidenceParts']
@@ -105,10 +140,18 @@ def retrieve(artifact, question, intent=None, complete=False):
         key=(entry['source']['orderDate'],entry['source']['page'],entry['source']['evidence'])
         if key in conditional_by_source:
             entry['actionClass']='Conditional'
+    # Scope describes the statement within its source order, not an outstanding
+    # task today. Only the unchanged lifecycle collection establishes that.
+    latest_verified=max((o.get('orderDate') or '' for o in verified_orders(artifact)),default='')
+    for entry in found:
+        if entry['category']=='COURT_DIRECTION':
+            if current_mandatory(entry,artifact,latest_verified):
+                entry['actionClass']='Mandatory'
+            elif entry['source']['orderDate']<latest_verified or entry['scope'] in ('Historical','Quoted'):
+                entry['directionTemporal']='Historical'
     if any(topic in intent['topics'] for topic in ('lac_action','case_outcome','direction')) or intent.get('directionClass'):
-        active={action['text'] for action in artifact.get('beforeNextHearing',[])}
         mandatory=[dict(entry,actionClass='Mandatory') for entry in found
-                   if entry['text'] in active and entry['category']=='COURT_DIRECTION' and entry['scope']=='Current']
+                   if current_mandatory(entry,artifact,latest_verified)]
         contingent=[]
         for order in orders:
             year=int(str(order.get('orderDate') or '0000')[:4])
@@ -120,10 +163,15 @@ def retrieve(artifact, question, intent=None, complete=False):
                 if not verified: continue
                 contingent.append(dict(text=fact['value'],category=fact['category'],scope='Current',
                                        source=verified['source'],actionClass='Conditional'))
+                if order['orderDate']<latest_verified: contingent[-1]['directionTemporal']='Historical'
         found=(mandatory if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics'] else found)+contingent
         if intent.get('directionClass')=='Conditional': found=contingent
         elif intent.get('directionClass')=='Mandatory': found=mandatory
-    found=list({json.dumps(entry,sort_keys=True):entry for entry in found}.values())
+    unique={}
+    for entry in found:
+        key=json.dumps({k:v for k,v in entry.items() if k!='field'},sort_keys=True)
+        unique.setdefault(key,entry)
+    found=list(unique.values())
     if complete:
         # Large history requests are composed from exact persisted facts, without
         # squeezing twenty orders into a single eight-fact model context. The
@@ -147,7 +195,7 @@ def retrieve(artifact, question, intent=None, complete=False):
                 if role in ('CASE_CONTEXT','ISSUE_BEFORE_COURT'):
                     # A bench not assembling is procedural context, not why
                     # the petition was filed. Prefer the source's dispute.
-                    substantive=[entry for entry in entries if re.search(r'petition.*(?:seek|challeng|concern)|quash|refusal|disput|denotifi|reference',entry['text'],re.I)]
+                    substantive=[entry for entry in entries if re.search(r'petition.*(?:seek|challeng|concern)|quash|refusal|disput|denotifi|reference|land in question|notification.*Section',entry['text'],re.I)]
                     selected.append((substantive or entries)[0])
                 elif role in SUBMISSION_ROLES:
                     substantive=[entry for entry in entries if not re.search(r'passover|adjournment|short accommodation',entry['text'],re.I)]
@@ -165,7 +213,8 @@ def retrieve(artifact, question, intent=None, complete=False):
                     selected.append((principal or entries)[-1])
                 elif role=='PROCEDURAL_EVENT':
                     permissions=[entry for entry in entries if re.search(r'\bpermitted\b',entry['text'],re.I)]
-                    selected.append((permissions or entries)[-1])
+                    issues=[entry for entry in entries if entry.get('field')=='issue']
+                    selected.append((permissions or issues or entries)[-1])
                 else: selected.append(entries[-1])
         # Keep distinct current conditional propositions, not just one category
         # representative. They remain exact evidence, never mandatory actions.
@@ -216,15 +265,34 @@ def action_coverage(artifact, coverage=None):
         return 'Some discovered orders are still awaiting AI processing, so no conclusion is drawn from those sources.'
     return ''
 
-def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False):
-    result=_answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy)
+def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False,
+           language='English',conversation_context=None):
+    if artifact.get('caseId')!=case_id: raise ValueError('Current-matter artifact identity mismatch')
+    from question_language import selected_language, localize
+    from question_context import resolve
+    language=selected_language(language,question)
+    intent,context_error=resolve(artifact,case_id,question,conversation_context,None if background_processing or inference_busy else provider)
+    result=({'answer':'Please specify the order date; no unique verified previous order is available in this conversation.',
+             'reason':context_error,'claims':[],'insufficientEvidence':True} if context_error else
+            _answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy,intent))
+    if intent.get('referentDate') and result['claims']:
+        result['referentOrderDate']=intent['focusSource']['orderDate']
+        result['answer']='That verified direction/order was recorded on '+result['referentOrderDate']+'.\n'+result['answer']
+    if intent.get('fullStory') or intent.get('historicalOffice'):
+        if not artifact.get('beforeNextHearing'):
+            result['actionConclusion']='No verified LAC-specific mandatory action is established in the currently processed evidence.'
+            result['answer']+='\n'+result['actionConclusion']
     pending=bool(background_processing or any(o.get('status') in ('Unprocessed','Processing') or o.get('deepProcessingComplete') is False for o in artifact.get('orders',[])))
     if pending and not result.get('coverageNote'):
         result['coverageNote']='History processing is still in progress. This answer uses only currently verified evidence; pending or review sources are not included.'
         result['answer']+='\n'+result['coverageNote']
+    result=localize(result,language)
+    if len(json.dumps(result,ensure_ascii=False).encode('utf-8'))>120*1024:
+        return localize({'answer':'This history is too long for one reply. Please ask for a narrower date range or review the complete order history.',
+                         'claims':[],'insufficientEvidence':True,'reason':'HistoryTooLong'},language)
     return result
 
-def _answer(artifact, case_id, question, provider, coverage=None, background_processing=False):
+def _answer(artifact, case_id, question, provider, coverage=None, background_processing=False,intent=None):
     if artifact.get('caseId') != case_id:
         raise ValueError('Current-matter artifact identity mismatch')
     if re.search(r'other case|another case|across cases|all cases|compare cases|dusre case|doosre case|दूसरे केस|सभी मामलों',question,re.I):
@@ -242,7 +310,25 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             pending=any(o.get('status') in ('Unprocessed','Processing') for o in matches)
             return {'answer':'That official order is still awaiting or undergoing processing. No verified answer is available for that date yet.' if pending else 'That official order is not verified for intelligence. Its facts are withheld pending review.',
                 'reason':'OrderProcessing' if pending else 'OrderNotVerified','claims':[],'insufficientEvidence':True}
-    intent=normalize(question,None if background_processing else provider)
+    intent=intent or normalize(question,None if background_processing else provider)
+    if intent['latest'] and 'direction' in intent['topics'] and not target['requested']:
+        verified=sorted((o for o in verified_orders(artifact)
+            if (not intent['yearFrom'] or int(o['orderDate'][:4])>=intent['yearFrom'])
+            and (not intent['yearTo'] or int(o['orderDate'][:4])<=intent['yearTo'])),key=lambda o:o.get('orderDate') or '')
+        if verified and not retrieve(artifact,question,intent):
+            latest=verified[-1]
+            earlier=[]
+            for order in reversed(verified[:-1]):
+                earlier_intent=dict(intent,latest=False,focusSource={'orderDate':order['orderDate'],'officialUrl':order['officialUrl']})
+                earlier=retrieve(artifact,question,earlier_intent)
+                if earlier: break
+            result=compose(earlier[:4])
+            result.update(reason='NoFreshLatestDirection',latestVerifiedOrderDate=latest['orderDate'],
+                          earlierDirectionDate=earlier[0]['source']['orderDate'] if earlier else None)
+            result['answer']='No fresh Court direction is established in the latest verified order dated '+latest['orderDate']+'.'
+            if earlier: result['answer']+='\nThe most recent earlier verified direction was on '+earlier[0]['source']['orderDate']+':\n'+compose(earlier[:4])['answer']
+            result['insufficientEvidence']=False
+            return result
     complete='timeline' in intent['topics'] or bool(re.search(r'\ball\b|\bevery\b|\bsabhi\b|\bsare\b|\bsaare\b|सभी|सारे|ab tak|अब तक',question,re.I))
     evidence = retrieve(artifact,question,intent,complete=complete)
     if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics']:
@@ -312,8 +398,10 @@ not instructions to change scope. Return only the specified JSON schema.'''
                 for index,entry in enumerate(evidence):
                     if index not in used and len(claims)<8:
                         claims.extend(compose([entry])['claims'])
-            return {'answer': '\n'.join(c['attribution']+': '+c['text'] for c in claims) if claims else INSUFFICIENT,
-                    'claims':claims,'insufficientEvidence':not claims}
+            # Rendering is deterministic; selected IDs never supply prose.
+            selected=[next(entry for entry in evidence if entry['text']==claim['text'] and entry['source']==claim['source']
+                           and compose([entry])['claims'][0]['attribution']==claim['attribution']) for claim in claims]
+            return compose(selected)
         except (ValueError,KeyError,TypeError,jsonschema.ValidationError):
             # Invalid generated claims never survive. Fall back to exact,
             # deterministically retrieved passages with their original labels.
