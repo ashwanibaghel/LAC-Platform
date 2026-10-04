@@ -25,8 +25,9 @@ def route(question):
     if GENERAL.search(question): return 'GeneralLocal'
     return 'GeneralLocal' if STANDALONE.search(question) and not AMBIGUOUS.search(question) else 'CourtGrounded'
 
-def general_answer(question, provider, context=None, history=None):
-    if route(question) != 'GeneralLocal': raise ValueError('Court question cannot use general chat')
+def general_answer(question, provider, context=None, history=None, standalone=False):
+    if route(question) != 'GeneralLocal' and (not standalone or COURT.search(question) or normalize(question)['topics'] != ['unknown']):
+        raise ValueError('Court question cannot use general chat')
     context=context if isinstance(context,dict) else {}
     safe_context={key:str(context[key])[:100] for key in ('displayName','designation') if context.get(key)}
     if safe_context.get('displayName') and re.fullmatch(r'\s*(?:mera naam(?: kya hai)?|what(?:\x27s| is) my name|who am i|मेरा नाम(?: क्या है)?)\s*[?!.]*\s*',question,re.I):
@@ -38,7 +39,8 @@ def general_answer(question, provider, context=None, history=None):
     for turn in (history or [])[-4:]:
         if (isinstance(turn,dict) and isinstance(turn.get('question'),str) and isinstance(turn.get('answer'),str)
             and len(turn['question'])<=600 and len(turn['answer'])<=1200
-            and route(turn['question'])=='GeneralLocal' and not COURT.search(turn['answer']) and not repetitive(turn['answer'])):
+            and (route(turn['question'])=='GeneralLocal' or standalone and not COURT.search(turn['question']) and normalize(turn['question'])['topics']==['unknown'])
+            and not COURT.search(turn['answer']) and not repetitive(turn['answer'])):
             turns.append(turn)
     instructions=('You are a friendly local office assistant. Reply naturally in the user language. '
         'For a greeting or sentence meaning, use one or two clear short sentences. Do not repeat phrases. '

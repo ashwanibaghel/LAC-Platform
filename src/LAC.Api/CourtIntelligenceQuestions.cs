@@ -16,7 +16,8 @@ public static class CourtIntelligenceQuestions
 {
     public static async Task<IResult> AskAsync(Guid caseId, string question, IHttpClientFactory clients, CancellationToken ct,
         string? caseNumber = null, IReadOnlyList<CourtIntelligenceKnownOrder>? orderIndex = null,
-        string? extractionRoot = null, CourtAssistantContext? appContext = null, IReadOnlyList<CourtChatTurn>? history = null)
+        string? extractionRoot = null, CourtAssistantContext? appContext = null, IReadOnlyList<CourtChatTurn>? history = null,
+        bool structuredOnly = false, bool groundedOnly = false, bool deterministicOnly = false, IReadOnlyList<string>? conversationQuestions = null)
     {
         if (string.IsNullOrWhiteSpace(question) || question.Length > 600)
             return Results.BadRequest(new { error = "Please ask a question of up to 600 characters." });
@@ -28,11 +29,14 @@ public static class CourtIntelligenceQuestions
                 new CourtIntelligenceCaseIndex(caseId, caseNumber!, orderIndex!), ct) : null;
             JsonElement? courtCoverage = currentView is { } view && view.TryGetProperty("pipelineSummary", out var summary) ? summary : null;
             using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber,
-                orderIndex = ProcessingSources(orderIndex), appContext, courtCoverage, history = boundedHistory }, ct);
+                orderIndex = ProcessingSources(orderIndex), appContext, courtCoverage, history = boundedHistory,
+                structuredOnly, groundedOnly, deterministicOnly, conversationQuestions = conversationQuestions?.TakeLast(4).Where(q => q.Length <= 600).ToArray() }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
             if (!document.RootElement.TryGetProperty("claims", out var claims) || claims.ValueKind != JsonValueKind.Array)
+                return Unavailable();
+            if (groundedOnly && (!document.RootElement.TryGetProperty("mode", out var requiredMode) || requiredMode.GetString() != "CourtGrounded"))
                 return Unavailable();
             if (document.RootElement.TryGetProperty("mode", out var mode) && mode.GetString() == "GeneralLocal"
                 && (claims.GetArrayLength() != 0 || IsCourtQuestion(question) ||
@@ -60,7 +64,7 @@ public static class CourtIntelligenceQuestions
         }
     }
 
-    private static bool IsCourtQuestion(string text) => System.Text.RegularExpressions.Regex.IsMatch(text,
+    internal static bool IsCourtQuestion(string text) => System.Text.RegularExpressions.Regex.IsMatch(text,
         @"\b(court|case|matter|order|hearing|petition\w*|respondent|party|parties|lac|dhc|compensation|payment|paid|deposit|possession|reference|section|award|khasra|status|directions?|compliance|disposed|deadline|ndoh|muaw\w*|kab[zj]\w*|tarikh|tareekh)\b|केस|मामल|कोर्ट|न्यायालय|आदेश|सुनवाई|मुआव|भुगतान|कब्ज|निर्देश|याचिका|प्रतिवादी|खसरा|अवार्ड|तारीख|अनुपालन",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -87,7 +91,7 @@ public static class CourtIntelligenceQuestions
         source.UploadDate, source.SourceObservationId, source.SourceEvidenceSha256, source.SourceKind
     }).ToArray();
 
-    private static async Task<HttpResponseMessage> PostLocalAsync<T>(IHttpClientFactory clients, string path, T payload, CancellationToken ct)
+    internal static async Task<HttpResponseMessage> PostLocalAsync<T>(IHttpClientFactory clients, string path, T payload, CancellationToken ct)
     {
         // The bounded local Python HTTP receiver reads Content-Length. JsonContent
         // streams chunked JSON with no length; buffer the same Web JSON contract
@@ -100,7 +104,7 @@ public static class CourtIntelligenceQuestions
         return await client.PostAsync(path, content, ct);
     }
 
-    private static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response, CancellationToken ct)
+    internal static async Task<JsonDocument> ReadResponseAsync(HttpResponseMessage response, CancellationToken ct)
     {
         await using var body = await response.Content.ReadAsStreamAsync(ct);
         using var buffer = new MemoryStream();

@@ -216,15 +216,19 @@ def action_coverage(artifact, coverage=None):
         return 'Some discovered orders are still awaiting AI processing, so no conclusion is drawn from those sources.'
     return ''
 
-def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False):
-    result=_answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy)
+def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False,conversation_questions=None):
+    intent=None
+    if conversation_questions:
+        from conversation_context import resolve
+        question,intent=resolve(question,conversation_questions,[o.get('orderDate') for o in artifact.get('orders',[])])
+    result=_answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy,intent)
     pending=bool(background_processing or any(o.get('status') in ('Unprocessed','Processing') or o.get('deepProcessingComplete') is False for o in artifact.get('orders',[])))
     if pending and not result.get('coverageNote'):
         result['coverageNote']='History processing is still in progress. This answer uses only currently verified evidence; pending or review sources are not included.'
         result['answer']+='\n'+result['coverageNote']
     return result
 
-def _answer(artifact, case_id, question, provider, coverage=None, background_processing=False):
+def _answer(artifact, case_id, question, provider, coverage=None, background_processing=False,intent=None):
     if artifact.get('caseId') != case_id:
         raise ValueError('Current-matter artifact identity mismatch')
     if re.search(r'other case|another case|across cases|all cases|compare cases|dusre case|doosre case|दूसरे केस|सभी मामलों',question,re.I):
@@ -242,7 +246,7 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             pending=any(o.get('status') in ('Unprocessed','Processing') for o in matches)
             return {'answer':'That official order is still awaiting or undergoing processing. No verified answer is available for that date yet.' if pending else 'That official order is not verified for intelligence. Its facts are withheld pending review.',
                 'reason':'OrderProcessing' if pending else 'OrderNotVerified','claims':[],'insufficientEvidence':True}
-    intent=normalize(question,None if background_processing else provider)
+    intent=intent or normalize(question,None if background_processing else provider)
     complete='timeline' in intent['topics'] or bool(re.search(r'\ball\b|\bevery\b|\bsabhi\b|\bsare\b|\bsaare\b|सभी|सारे|ab tak|अब तक',question,re.I))
     evidence = retrieve(artifact,question,intent,complete=complete)
     if 'lac_action' in intent['topics'] and 'case_outcome' not in intent['topics']:
@@ -261,10 +265,6 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             'claims':[],'insufficientEvidence':not has_usable}
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
-    if background_processing:
-        # Serve checked extractive evidence immediately, without waiting behind
-        # the single background inference slot or inventing missing history.
-        return compose(evidence[:8] if complete or intent.get('fullStory') else evidence[:4])
     if complete and (len(evidence)>8 or len(json.dumps(evidence))>6500):
         result=compose(evidence)
         # Keep the authenticated API's response bound. Never silently advertise
@@ -274,6 +274,11 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             return {'answer':'This history is too long for one reply. Please ask for a narrower date range or review the complete order history.',
                     'claims':[],'insufficientEvidence':True,'reason':'HistoryTooLong'}
         return result
+    if background_processing:
+        # Serve checked extractive evidence immediately, without waiting behind
+        # the single background inference slot or inventing missing history.
+        # Complete chronology above is never silently reduced to eight claims.
+        return compose(evidence[:8] if complete or intent.get('fullStory') else evidence[:4])
     prompt = json.dumps({'currentCase':artifact.get('caseNumber'), 'question':question,
                          'availableEvidence':evidence},ensure_ascii=False)
     instructions = '''Answer ONLY the CURRENT MATTER question using supplied structured evidence.

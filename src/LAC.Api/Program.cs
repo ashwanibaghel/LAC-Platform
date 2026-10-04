@@ -49,6 +49,7 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddSingleton<LocalStoragePaths>();
+builder.Services.AddAssistantFoundation();
 builder.Services.AddHttpClient("CourtCaseQuestions", client =>
     {
         client.BaseAddress = new Uri("http://127.0.0.1:8097/");
@@ -201,6 +202,7 @@ api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
 api.MapAttentionEndpoints();
 api.MapCourtEndpoints();
+api.MapAssistantEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)

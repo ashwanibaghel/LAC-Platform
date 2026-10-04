@@ -10,6 +10,18 @@ from order_index import merge_known_orders,prepare_question,MAX_CASE_ARTIFACT_BY
 from real_case import RefreshController, read_artifact
 from chat_router import route, general_answer
 
+def registered_answer(root,case_id,request,provider,refresh,demo=False):
+    question=request['question']
+    artifact=read_artifact(root,case_id,request.get('caseNumber'))
+    if not demo and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
+        artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
+    if artifact is None: return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
+    if not request.get('structuredOnly') and not refresh.lock.locked():
+        artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not demo)
+    return answer(artifact,case_id,question,provider,request.get('courtCoverage'),
+        background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked() or bool(request.get('deterministicOnly')),
+        conversation_questions=request.get('conversationQuestions') if request.get('groundedOnly') else None)
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--extraction-root',required=True)
@@ -48,11 +60,19 @@ def main():
         def do_POST(self):
             import re
             demo_route=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-0000000000(?:0[1-9]|1[0123]))/intelligence/ask',self.path) if args.demo else None
-            if self.path not in ('/ask','/refresh') and not demo_route: self.send_error(404); return
+            if self.path not in ('/ask','/refresh','/assistant/general') and not demo_route: self.send_error(404); return
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=512*1024: raise ValueError('Request size') # bounded trusted known-order metadata
                 request=json.loads(self.rfile.read(length))
+                if self.path=='/assistant/general':
+                    question=request['question']
+                    if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
+                    result=general_answer(question,provider,request.get('appContext'),request.get('history'),standalone=True)
+                    body=json.dumps(result,ensure_ascii=False).encode()
+                    self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
+                    self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+                    return
                 case_id=demo_route[1] if demo_route else str(uuid.UUID(request['caseId']))
                 if self.path=='/refresh':
                     result=refresh.start(case_id,request['caseNumber'],request['orderIndex'])
@@ -63,21 +83,12 @@ def main():
                     return
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
-                if route(question)=='GeneralLocal':
+                if not request.get('groundedOnly') and route(question)=='GeneralLocal':
                     result=general_answer(question,provider,request.get('appContext'),request.get('history'))
                 else:
-                    artifact=read_artifact(root,case_id,request.get('caseNumber'))
-                    if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
-                        artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
-                    if artifact is None:
-                        result={'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
-                    else:
-                        # Reads never acquire the PDF writer lock. Lazy retrieval
-                        # of one exact date remains optional while a refresh runs.
-                        if not refresh.lock.locked():
-                            artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
-                        result=answer(artifact,case_id,question,provider,request.get('courtCoverage'),
-                            background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked())
+                    # Global conversations forbid implicit source processing;
+                    # accepted legacy explicit-retry behavior remains optional.
+                    result=registered_answer(root,case_id,request,provider,refresh,bool(demo_route))
                     result['mode']='CourtGrounded'
                 result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()
