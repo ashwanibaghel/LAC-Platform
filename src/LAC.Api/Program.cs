@@ -49,6 +49,11 @@ if (!builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddDbContext<LacDbContext>(options => options.UseNpgsql(connection.ConnectionString, npgsql => { npgsql.EnableRetryOnFailure(2); npgsql.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery); }));
 }
 builder.Services.AddSingleton<LocalStoragePaths>();
+builder.Services.AddSingleton<CourtRuntimeService>();
+builder.Services.AddHttpClient("CourtLocalModel", client => {
+    client.BaseAddress = new Uri("http://127.0.0.1:8096/"); client.Timeout = TimeSpan.FromSeconds(3);
+    client.MaxResponseContentBufferSize = 8192;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false }).RemoveAllLoggers();
 builder.Services.AddHttpClient("CourtCaseQuestions", client =>
     {
         client.BaseAddress = new Uri("http://127.0.0.1:8097/");

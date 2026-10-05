@@ -22,6 +22,46 @@ public sealed class CourtIntelligenceIntegrationTests
     private const string Url = "https://delhihighcourt.nic.in/app/showlogo/synthetic-422026.pdf/2026";
 
     [Fact]
+    public async Task Zero_briefs_disclose_offline_runtime_and_unavailable_action_semantics_without_mutating_records()
+    {
+        using var env = new Harness();
+        var item = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        var before = await env.Snapshot(item.Id); env.Transport.Unavailable = true;
+        using var get = await env.Client.GetAsync($"/api/court-cases/{item.Id}/intelligence");
+        get.EnsureSuccessStatusCode(); var view = await get.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("QuestionServiceOffline", view.GetProperty("runtime").GetProperty("runtimeState").GetString());
+        Assert.Equal("UnavailableUntilVerifiedIntelligenceReady", view.GetProperty("actionStatus").GetString());
+        Assert.Contains("unavailable", view.GetProperty("notice").GetString());
+        using var refresh = await env.Client.PostAsync($"/api/court-cases/{item.Id}/intelligence/refresh", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, refresh.StatusCode);
+        Assert.Empty(env.Transport.Requests); Assert.Equal(before, await env.Snapshot(item.Id));
+    }
+
+    [Fact]
+    public async Task Recovery_is_explicit_and_disabled_until_hash_pinned_configuration_exists()
+    {
+        using var env = new Harness();
+        var item = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        using var result = await env.Client.PostAsync($"/api/court-cases/{item.Id}/intelligence/runtime/recover", null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, result.StatusCode);
+        var state=await result.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("RecoveryNotConfigured",state.GetProperty("reasonCode").GetString());
+    }
+
+    [Fact]
+    public async Task Runtime_with_wrong_canonical_root_is_failed_and_cannot_trigger_refresh()
+    {
+        using var env = new Harness();
+        var item = await env.Register("W.P.(C) 42/2026", "delhihighcourt|wpc|42|2026");
+        env.Transport.Root = "different-root";
+        using var result = await env.Client.PostAsync($"/api/court-cases/{item.Id}/intelligence/refresh",null);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable,result.StatusCode);
+        var state=await result.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("QuestionRuntimeMismatch",state.GetProperty("reasonCode").GetString());
+        Assert.Empty(env.Transport.Requests);
+    }
+
+    [Fact]
     public async Task Fast_verified_brief_is_readable_without_claiming_complete_processing_or_starting_inference()
     {
         using var env = new Harness();
@@ -380,11 +420,14 @@ public sealed class CourtIntelligenceIntegrationTests
                     ["Storage:DocumentRoot"] = Path.Combine(Root, "documents"),
                     ["Storage:ExtractionRoot"] = Root,
                     ["Storage:BackupRoot"] = Path.Combine(Root, "backups"),
+                    ["CourtRuntime:ModelVersion"] = "synthetic",
+                    ["CourtRuntime:PackageSha256"] = "synthetic-package",
                     ["BackgroundWorkers:Enabled"] = "false"
                 }));
                 builder.ConfigureServices(services => { services.RemoveAll<IHttpClientFactory>(); services.AddSingleton<IHttpClientFactory>(Transport); });
             });
             Client = Factory.CreateClient();
+            Transport.Root = Root;
         }
         public async Task<CourtCase> Register(string number, string identity)
         {
@@ -421,16 +464,29 @@ public sealed class CourtIntelligenceIntegrationTests
         public JsonObject? Answer { get; set; }
         public Func<Task>? BeforeAnswer { get; set; }
         public bool Unavailable { get; set; }
+        public string Root { get; set; } = "";
         public HttpClient CreateClient(string name) => new(this, false) { BaseAddress = new Uri("http://127.0.0.1:8097/") };
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (request.RequestUri!.AbsolutePath == "/health")
+                return new(HttpStatusCode.OK) { Content = new StringContent("{\"status\":\"ok\"}", Encoding.UTF8,"application/json") };
+            if (request.RequestUri.AbsolutePath == "/status")
+            {
+                if (Unavailable) throw new HttpRequestException("Synthetic local outage");
+                var metadata=JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync(ct));
+                return new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(new {
+                    caseId=metadata.GetProperty("caseId").GetString(),runtimeState="CaseNotReady",modelState="Ready",questionServiceState="Ready",
+                    modelVersion="synthetic",questionPackageSha256="synthetic-package",
+                    extractionRootFingerprint=Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(Root).ToLowerInvariant())))
+                }),Encoding.UTF8,"application/json") };
+            }
             RequestContentLengths.Enqueue(request.Content!.Headers.ContentLength);
             var body = JsonSerializer.Deserialize<JsonElement>(await request.Content!.ReadAsStringAsync(ct));
             Requests.Enqueue((request.RequestUri!.Host, request.RequestUri.AbsolutePath, body));
             if (Unavailable) throw new HttpRequestException("Synthetic local model outage");
             var refreshing = request.RequestUri.AbsolutePath == "/refresh";
             if (!refreshing && BeforeAnswer is not null) await BeforeAnswer();
-            var response = refreshing ? new JsonObject { ["caseId"] = body.GetProperty("caseId").GetString(), ["status"] = "Running" }
+            var response = refreshing ? new JsonObject { ["caseId"] = body.GetProperty("caseId").GetString(), ["status"] = "Running",["runtimeState"]="Processing" }
                 : Answer ?? new JsonObject { ["caseId"] = body.GetProperty("caseId").GetString(), ["claims"] = new JsonArray(), ["insufficientEvidence"] = true };
             return new HttpResponseMessage(refreshing ? HttpStatusCode.Accepted : HttpStatusCode.OK)
                 { Content = new StringContent(response.ToJsonString(), Encoding.UTF8, "application/json") };

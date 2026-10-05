@@ -146,6 +146,9 @@ public static class CourtIntelligenceCaseData
             extractionIncomplete = diagnostics.Count(d => d.AiState == "Incomplete"),
             usableBriefsWithReview = diagnostics.Count(d => d.UsableFactCount > 0 && d.ReviewRequired)
         }, JsonSerializerOptions.Web);
+        var usableEvidence = diagnostics.Any(d => d.UsableFactCount > 0);
+        view["actionStatus"] = usableEvidence ? "VerifiedEvidenceAvailable" : "UnavailableUntilVerifiedIntelligenceReady";
+        if (!usableEvidence) view["notice"] = "Action status unavailable until verified intelligence is ready.";
         var statePath = Path.Combine(extractionRoot, "court-intelligence", "v1", index.CaseId.ToString(), "refresh.json");
         if (File.Exists(statePath))
         {

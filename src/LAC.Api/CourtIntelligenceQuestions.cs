@@ -81,11 +81,11 @@ public static class CourtIntelligenceQuestions
         {
             using var response = await PostLocalAsync(clients, "refresh",
                 new { caseId = index.CaseId, caseNumber = index.CaseNumber, orderIndex = ProcessingSources(index.Orders) }, ct);
-            if ((int)response.StatusCode == 409) return Results.Conflict(new { error = "Another local Court intelligence check is in progress." });
-            if ((int)response.StatusCode != 202) return Unavailable();
+            if ((int)response.StatusCode is not (202 or 409 or 503)) return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
             if (document.RootElement.GetProperty("caseId").GetGuid() != index.CaseId) return Unavailable();
-            return Results.Json(document.RootElement.Clone(), statusCode: 202);
+            if (!document.RootElement.TryGetProperty("runtimeState", out var state) || !CourtRuntimeService.States.Contains(state.GetString())) return Unavailable();
+            return Results.Json(document.RootElement.Clone(), statusCode: (int)response.StatusCode);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException
             or IOException or InvalidDataException or InvalidOperationException or KeyNotFoundException or FormatException) { return Unavailable(); }

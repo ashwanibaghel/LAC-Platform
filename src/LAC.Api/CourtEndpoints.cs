@@ -326,7 +326,7 @@ public static class CourtEndpoints
         });
         group.MapPost("/{id:guid}/intelligence/refresh", async (
             Guid id, IHttpClientFactory clients, LacDbContext db, ICourtAuthorizationService courtAuth,
-            ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+            ICurrentUserContext currentUser, HttpContext context, LocalStoragePaths paths, CourtRuntimeService runtime, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -334,13 +334,20 @@ public static class CourtEndpoints
             try
             {
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
-                return index is null ? Results.NotFound() : await CourtIntelligenceQuestions.RefreshAsync(index, clients, ct);
+                if (index is null) return Results.NotFound();
+                var view = await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct);
+                var state = await runtime.StatusAsync(index, view, ct);
+                if (state["runtimeState"]?.GetValue<string>() is "QuestionServiceOffline" or "Starting"
+                    || state["runtimeState"]?.GetValue<string>() == "ModelOffline" && state["caseState"]?.GetValue<string>() != "Ready"
+                    || state["questionServiceState"]?.GetValue<string>() == "Failed")
+                    return Results.Json(state, statusCode: state["runtimeState"]!.GetValue<string>() == "Starting" ? 202 : 503);
+                return await CourtIntelligenceQuestions.RefreshAsync(index, clients, ct);
             }
             catch (InvalidDataException) { return Results.Problem("This matter's known-order index needs verification.", statusCode: 503); }
         });
         group.MapGet("/{id:guid}/intelligence", async (
             Guid id, LocalStoragePaths paths, LacDbContext db, ICourtAuthorizationService courtAuth,
-            ICurrentUserContext currentUser, HttpContext context, CourtQuestionConversation conversation, CancellationToken ct) =>
+            ICurrentUserContext currentUser, HttpContext context, CourtQuestionConversation conversation, CourtRuntimeService runtime, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -350,12 +357,32 @@ public static class CourtEndpoints
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
                 conversation.Enter(currentUser.UserId.Value, context.Request.Cookies["lac_session"], id);
-                return Results.Ok(await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct));
+                var view = await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct);
+                return Results.Ok(CourtRuntimeService.Attach(view, await runtime.StatusAsync(index, view, ct)));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or UnauthorizedAccessException)
             {
                 return Results.Problem("Court intelligence is unavailable. Canonical court records remain unchanged.", statusCode: 503);
             }
+        });
+        group.MapGet("/{id:guid}/intelligence/runtime", async (Guid id, CourtRuntimeService runtime, LocalStoragePaths paths,
+            LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            context.Response.Headers.CacheControl = "no-store";
+            var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
+            if (index is null) return Results.NotFound();
+            return Results.Ok(await runtime.StatusAsync(index, await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct), ct));
+        });
+        group.MapPost("/{id:guid}/intelligence/runtime/recover", async (Guid id, CourtRuntimeService runtime,
+            LacDbContext db, ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser, HttpContext context, CancellationToken ct) =>
+        {
+            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
+            if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
+            context.Response.Headers.CacheControl = "no-store";
+            if (await CourtIntelligenceCaseData.LoadAsync(db, id, ct) is null) return Results.NotFound();
+            return runtime.Recover();
         });
         group.MapGet("/{id:guid}/import-provenance", async (
             Guid id, LacDbContext db, ICourtAuthorizationService courtAuth,

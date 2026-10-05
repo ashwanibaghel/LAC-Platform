@@ -266,22 +266,25 @@ def action_coverage(artifact, coverage=None):
     return ''
 
 def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False,
-           language='English',conversation_context=None):
+           language='English',conversation_context=None,model_available=True):
     if artifact.get('caseId')!=case_id: raise ValueError('Current-matter artifact identity mismatch')
     from question_language import selected_language, localize
     from question_context import resolve
     language=selected_language(language,question)
-    intent,context_error=resolve(artifact,case_id,question,conversation_context,None if background_processing or inference_busy else provider)
+    intent,context_error=resolve(artifact,case_id,question,conversation_context,None if background_processing or inference_busy or not model_available else provider)
     result=({'answer':'Please specify the order date; no unique verified previous order is available in this conversation.',
              'reason':context_error,'claims':[],'insufficientEvidence':True} if context_error else
-            _answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy,intent))
+            _answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy or not model_available,intent))
     if intent.get('referentDate') and result['claims']:
         result['referentOrderDate']=intent['focusSource']['orderDate']
         result['answer']='That verified direction/order was recorded on '+result['referentOrderDate']+'.\n'+result['answer']
     if intent.get('fullStory') or intent.get('historicalOffice'):
         if not artifact.get('beforeNextHearing'):
-            result['actionConclusion']='No verified LAC-specific mandatory action is established in the currently processed evidence.'
+            has_usable=any(usable_facts(o) for o in artifact.get('orders',[]))
+            result['actionConclusion']='No verified LAC-specific mandatory action is established in the currently processed evidence.' if has_usable else 'No usable Court evidence is currently available for this matter.'
             result['answer']+='\n'+result['actionConclusion']
+    if not any(usable_facts(o) for o in artifact.get('orders',[])):
+        result['actionStatus']='UnavailableUntilVerifiedIntelligenceReady'
     pending=bool(background_processing or any(o.get('status') in ('Unprocessed','Processing') or o.get('deepProcessingComplete') is False for o in artifact.get('orders',[])))
     if pending and not result.get('coverageNote'):
         result['coverageNote']='History processing is still in progress. This answer uses only currently verified evidence; pending or review sources are not included.'

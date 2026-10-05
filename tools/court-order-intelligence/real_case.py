@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from order_index import merge_known_orders, pdf_lock, MAX_CASE_ARTIFACT_BYTES, MAX_ORDER_ARTIFACT_BYTES
+from order_index import merge_known_orders, pdf_lock, worker_busy, MAX_CASE_ARTIFACT_BYTES, MAX_ORDER_ARTIFACT_BYTES
 from semantics import identity, synthesize
 from worker import process_order, atomic_json
 
@@ -27,6 +27,17 @@ def read_artifact(root, case_id, case_number=None):
             or not isinstance(artifact.get('orders'),list)):
         raise ValueError('Registered-case artifact identity/shape mismatch')
     return artifact
+
+def reusable_record(source,expected_versions):
+    same_publication=(source.get('sourceEvidenceSha256')==source.get('processedEvidenceSha256')
+        if source.get('sourceEvidenceSha256') and source.get('processedEvidenceSha256')
+        else bool(source.get('sourceObservationId') and source.get('processedObservationId')==source.get('sourceObservationId')))
+    complete=(source.get('status')=='Validated' or source.get('status')=='NeedsReview'
+        and source.get('coverage',{}).get('allSelectedChunksProcessed') and not source.get('failureMessage')
+        and source.get('deepProcessingComplete') is not False)
+    blocked=source.get('status')=='NeedsSourceReview'
+    return bool((complete or blocked) and not source.get('refreshFailure') and source.get('sha256')
+        and source.get('versions')==expected_versions and same_publication)
 
 
 def refresh_case(root, case_id, case_number, sources, provider, processor=process_order, progress=None,
@@ -67,15 +78,7 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
                 finally:
                     if previous is not None: provider.request_timeout=previous
         def reusable(source):
-            same_publication=(source.get('sourceEvidenceSha256')==source.get('processedEvidenceSha256')
-                if source.get('sourceEvidenceSha256') and source.get('processedEvidenceSha256')
-                else bool(source.get('sourceObservationId') and source.get('processedObservationId')==source.get('sourceObservationId')))
-            complete=(source.get('status')=='Validated' or source.get('status')=='NeedsReview'
-                and source.get('coverage',{}).get('allSelectedChunksProcessed') and not source.get('failureMessage')
-                and source.get('deepProcessingComplete') is not False)
-            blocked=source.get('status')=='NeedsSourceReview'
-            return bool((complete or blocked) and not source.get('refreshFailure') and source.get('sha256')
-                and source.get('versions')==expected_versions and same_publication)
+            return reusable_record(source,expected_versions)
 
         def persisted(source):
             digest=hashlib.sha256((source['officialUrl']+str(source['orderDate'])).encode()).hexdigest()
@@ -163,6 +166,7 @@ class RefreshController:
         self.root=Path(root); self.provider_factory=provider_factory
         self.lock=threading.Lock()
         self.active_case_id=None
+        self.state=None
         # Restart never resumes downloads. Disclose lost runtime work only.
         folder=self.root/'court-intelligence'/'v1'
         if folder.is_dir():
@@ -172,7 +176,7 @@ class RefreshController:
                     state=json.loads(path.read_text(encoding='utf-8'))
                     if str(uuid.UUID(path.parent.name))!=state.get('caseId'): continue
                     if state.get('status')=='Running':
-                        state.update(status='Interrupted',message='Local processing session ended; retry explicitly.')
+                        state.update(status='Interrupted',runtimeState='Failed',reasonCode='Interrupted',message='Local processing session ended; retry explicitly.')
                         atomic_json(path,state)
                 except (ValueError,TypeError,KeyError): continue
 
@@ -182,13 +186,26 @@ class RefreshController:
             raise ValueError('Explicit bounded registered-case index required')
         # Validate scope and existence before starting any thread or model call.
         existing=read_artifact(self.root,case_id,case_number)
-        if not merge_known_orders(existing,case_id,case_number,sources,strict_index=True)['orders']:
+        indexed=merge_known_orders(existing,case_id,case_number,sources,strict_index=True)
+        if not indexed['orders']:
             raise ValueError('No exact official sources')
-        if not self.lock.acquire(blocking=False): return None
+        if not self.lock.acquire(blocking=False):
+            if self.active_case_id==case_id: return self.snapshot(case_id)
+            return dict(caseId=case_id,status='Busy',runtimeState='BusyWithOtherCase',reasonCode='InferenceSlotOwned',
+                        message='Another case owns the single local inference slot.',checked=0,total=len(indexed['orders']))
+        try: busy=worker_busy(self.root/'court-intelligence'/'v1')
+        except BaseException:
+            self.lock.release();raise
+        if busy:
+            self.lock.release()
+            return dict(caseId=case_id,status='Busy',runtimeState='BusyWithOtherCase',reasonCode='WorkerLockOwned',
+                message='Another verified local worker owns the processing slot.',checked=0,total=len(indexed['orders']))
         self.active_case_id=case_id
         status_path=self.root/'court-intelligence'/'v1'/case_id/'refresh.json'
-        state=dict(caseId=case_id,status='Running',checked=0,total=len(merge_known_orders(existing,case_id,case_number,sources,strict_index=True)['orders']),needsReview=0,
-                   startedAt=datetime.now(timezone.utc).isoformat())
+        state=dict(caseId=case_id,status='Running',checked=0,total=len(indexed['orders']),needsReview=0,
+                   startedAt=datetime.now(timezone.utc).isoformat(),runtimeState='Processing',reasonCode='RefreshAccepted',
+                   message='Checking saved intelligence and processing eligible remaining orders.')
+        self.state=state
         try:
             atomic_json(status_path,state)
             def run():
@@ -199,13 +216,19 @@ class RefreshController:
                     def started(day,checked,total):
                         state.update(processingCurrentOrderDate=day,checked=checked,total=total)
                         atomic_json(status_path,state)
-                    _,reviews=refresh_case(self.root,case_id,case_number,sources,self.provider_factory(),progress=progress,
+                    result,reviews=refresh_case(self.root,case_id,case_number,sources,self.provider_factory(),progress=progress,
                                            timeout_seconds=self.timeout_seconds,on_order_started=started)
-                    state.update(status='CompletedWithReview' if reviews else 'Completed',processingCurrentOrderDate=None)
+                    from semantics import usable_facts
+                    usable=sum(bool(usable_facts(o)) for o in result.get('orders',[]))
+                    blocked=any(o.get('status')=='NeedsSourceReview' for o in result.get('orders',[]))
+                    state.update(status='CompletedWithReview' if reviews else 'Completed',processingCurrentOrderDate=None,
+                        runtimeState='Ready' if usable else 'SourceBlocked' if blocked else 'CaseNotReady',
+                        reasonCode='UsableBriefPublished' if usable else 'SourceVerificationRequired' if blocked else 'NoUsableBrief',
+                        message='Verified intelligence is available.' if usable else 'No usable verified brief; inspect source diagnostics.')
                 except Exception:
                     # Provider errors can contain URLs; status never stores raw
                     # exception strings, prompts, questions or credentials.
-                    state.update(status='Failed',message='Local processing stopped. Completed orders are saved; resume to process remaining orders.')
+                    state.update(status='Failed',runtimeState='Failed',reasonCode='RefreshFailed',message='Local processing stopped. Completed orders are saved; resume to process remaining orders.')
                 finally:
                     try:
                         state['completedAt']=datetime.now(timezone.utc).isoformat()
@@ -217,4 +240,16 @@ class RefreshController:
         except BaseException:
             self.active_case_id=None
             self.lock.release(); raise
-        return dict(caseId=case_id,status='Running')
+        return self.snapshot(case_id)
+
+    def snapshot(self,case_id):
+        case_id=str(uuid.UUID(case_id))
+        if self.active_case_id==case_id and self.state is not None: result=dict(self.state)
+        else:
+            path=self.root/'court-intelligence'/'v1'/case_id/'refresh.json'
+            result=json.loads(path.read_text(encoding='utf-8')) if path.is_file() and path.stat().st_size<=8192 else dict(caseId=case_id,status='Idle',checked=0,total=0)
+            if result.get('caseId')!=case_id: raise ValueError('Refresh scope mismatch')
+        if result.get('startedAt'):
+            end=datetime.fromisoformat(result['completedAt']) if result.get('completedAt') else datetime.now(timezone.utc)
+            result['elapsedSeconds']=max(0,round((end-datetime.fromisoformat(result['startedAt'])).total_seconds(),1))
+        return result

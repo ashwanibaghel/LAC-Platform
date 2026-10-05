@@ -107,6 +107,17 @@ def pdf_lock(folder):
         finally:
             lock.seek(0); msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
 
+def worker_busy(folder):
+    """Probe an existing OS lock; a stale file/PID alone never means busy."""
+    import msvcrt
+    path=Path(folder)/'.worker.lock'
+    if not path.is_file():return False
+    with path.open('r+b')as lock:
+        try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
+        except OSError:return True
+        lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1)
+    return False
+
 def prepare_question(root, artifact, case_id, question, provider, processor=None, strict_index=False):
     """Only a unique requested actual order may fetch. No render/timeline bulk fetch."""
     from anchors import CASE_REFERENCES

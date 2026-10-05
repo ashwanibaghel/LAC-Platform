@@ -6,6 +6,8 @@ public sealed record CourtProgressSummary(int OfficialSources, int UsableBriefs,
     int PendingSources, bool LatestBriefReady, string? LatestOrderDate, string? ProcessingCurrentOrderDate,
     int ProcessingChecked, int ProcessingTotal, bool BackgroundProcessing, bool CoverageComplete)
 {
+    public string ActionStatus => UsableBriefs > 0 ? "VerifiedEvidenceAvailable" : "UnavailableUntilVerifiedIntelligenceReady";
+    public string ActionStatusMessage => UsableBriefs > 0 ? "See verified current-action evidence." : "Action status unavailable until verified intelligence is ready.";
     public static CourtProgressSummary Build(IReadOnlyList<CourtSourceDiagnostic> sources,
         IEnumerable<JsonNode?> orders, JsonNode? refresh)
     {
