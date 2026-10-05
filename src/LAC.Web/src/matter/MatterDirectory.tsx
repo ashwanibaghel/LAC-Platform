@@ -72,12 +72,24 @@ export const MatterDirectory: React.FC = () => {
   // New Matter Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createTitle, setCreateTitle] = useState("");
-  const [createVillageId, setCreateVillageId] = useState(""); // Intentional explicit selection
-  const [createWorkstreamId, setCreateWorkstreamId] = useState(""); // Intentional explicit selection
+  const [createVillageId, setCreateVillageId] = useState(""); // Explicit selection required
+  const [createWorkstreamId, setCreateWorkstreamId] = useState(""); // Explicit selection required
   const [createMatterType, setCreateMatterType] = useState("Court Case");
   const [createRefNo, setCreateRefNo] = useState("");
   const [createKhasraRef, setCreateKhasraRef] = useState("");
   const [createRemarks, setCreateRemarks] = useState("");
+
+  // Canonical Relational Selection State
+  const [villageAwards, setVillageAwards] = useState<any[]>([]);
+  const [villageKhasras, setVillageKhasras] = useState<any[]>([]);
+  const [selectedAwardIds, setSelectedAwardIds] = useState<string[]>([]);
+  const [selectedPrimaryAwardId, setSelectedPrimaryAwardId] = useState<string>("");
+  const [selectedKhasraIds, setSelectedKhasraIds] = useState<string[]>([]);
+  const [courtSearchQuery, setCourtSearchQuery] = useState("");
+  const [courtSearchResults, setCourtSearchResults] = useState<any[]>([]);
+  const [selectedCourtCaseIds, setSelectedCourtCaseIds] = useState<string[]>([]);
+  const [selectedCourtCasesList, setSelectedCourtCasesList] = useState<any[]>([]);
+
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -109,6 +121,46 @@ export const MatterDirectory: React.FC = () => {
       })
       .catch(() => {});
   }, []);
+
+  // Fetch Village Awards & Khasras when createVillageId changes
+  useEffect(() => {
+    if (!createVillageId) {
+      setVillageAwards([]);
+      setVillageKhasras([]);
+      setSelectedAwardIds([]);
+      setSelectedPrimaryAwardId("");
+      setSelectedKhasraIds([]);
+      return;
+    }
+
+    fetch(`/api/villages/${createVillageId}/core-records`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setVillageAwards(Array.isArray(d) ? d : []))
+      .catch(() => setVillageAwards([]));
+
+    fetch(`/api/villages/${createVillageId}/khasras?pageSize=250`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setVillageKhasras(d?.items || (Array.isArray(d) ? d : [])))
+      .catch(() => setVillageKhasras([]));
+  }, [createVillageId]);
+
+  // Search Court Cases for Create Modal
+  const handleSearchCourtCases = async (q: string) => {
+    setCourtSearchQuery(q);
+    if (!q.trim()) {
+      setCourtSearchResults([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/court-cases?search=${encodeURIComponent(q.trim())}&pageSize=10`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setCourtSearchResults(data.items || (Array.isArray(data) ? data : []));
+      }
+    } catch {
+      setCourtSearchResults([]);
+    }
+  };
 
   const loadMatters = useCallback(async () => {
     try {
@@ -195,7 +247,11 @@ export const MatterDirectory: React.FC = () => {
           matterType: createMatterType,
           referenceNumber: createRefNo.trim() || null,
           remarks: createRemarks.trim() || null,
-          khasraReferenceText: createKhasraRef.trim() || null
+          khasraReferenceText: createKhasraRef.trim() || null,
+          awardIds: selectedAwardIds,
+          primaryAwardId: selectedPrimaryAwardId || null,
+          khasraIds: selectedKhasraIds,
+          courtCaseIds: selectedCourtCaseIds
         })
       });
 
@@ -212,6 +268,11 @@ export const MatterDirectory: React.FC = () => {
       setCreateRefNo("");
       setCreateKhasraRef("");
       setCreateRemarks("");
+      setSelectedAwardIds([]);
+      setSelectedPrimaryAwardId("");
+      setSelectedKhasraIds([]);
+      setSelectedCourtCaseIds([]);
+      setSelectedCourtCasesList([]);
       navigate(`/matters/${created.id}`);
     } catch (err: any) {
       setCreateError(err.message || "Could not create matter.");
@@ -225,7 +286,6 @@ export const MatterDirectory: React.FC = () => {
   const endCount = Math.min(page * pageSize, totalCount);
   const hasActiveFilters = Boolean(searchTerm.trim() || status !== "all" || workstreamFilter);
 
-  // Operational-readiness fix: Matter.Create only required for creation
   const canCreate = hasPermission("Matter.Create");
 
   return (
@@ -282,7 +342,6 @@ export const MatterDirectory: React.FC = () => {
           ))}
         </select>
 
-        {/* TODO: Re-introduce "Archived" status filter when backend list/read surfaces support browsing archived records (currently backend queries query RecordStatus.Active only). */}
         <select
           className="matter-filter-select"
           value={status}
@@ -450,11 +509,11 @@ export const MatterDirectory: React.FC = () => {
       {/* New Matter Modal */}
       {showCreateModal && (
         <div className="matter-modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="matter-modal-card" onClick={(e) => e.stopPropagation()}>
+          <div className="matter-modal-card" style={{ maxWidth: 640 }} onClick={(e) => e.stopPropagation()}>
             <div className="matter-modal-header">
               <div>
                 <h3 className="matter-modal-title">Create Official Matter</h3>
-                <span className="hint">Register a new case file into official village & workstream context.</span>
+                <span className="hint">Register a new operational matter into official village & workstream context.</span>
               </div>
               <button
                 type="button"
@@ -520,13 +579,19 @@ export const MatterDirectory: React.FC = () => {
                   </select>
                 </label>
 
+                {workstreams.length === 0 && (
+                  <div style={{ gridColumn: "span 2", background: "#fffbe6", border: "1px solid #ffe58f", color: "#873800", padding: "6px 10px", borderRadius: "6px", fontSize: "12px" }}>
+                    Warning: You do not have permissions for any active workstream. Contact administrator.
+                  </div>
+                )}
+
                 <label style={{ gridColumn: "span 2" }}>
-                  Matter Title *
+                  Matter Operational Title *
                   <input
                     type="text"
                     value={createTitle}
                     onChange={(e) => setCreateTitle(e.target.value)}
-                    placeholder="e.g. WP (C) 1042/2026 Ram Lal vs Union of India"
+                    placeholder="e.g. Prepare response and compile evidence for WP(C) 1042/2026"
                     required
                   />
                 </label>
@@ -552,13 +617,202 @@ export const MatterDirectory: React.FC = () => {
                   />
                 </label>
 
+                {/* Court Case Selector when MatterType is Court Case */}
+                {createMatterType === "Court Case" && (
+                  <div style={{ gridColumn: "span 2", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "12px", borderRadius: "6px" }}>
+                    <label style={{ fontWeight: 600, fontSize: "13px", color: "#0369a1" }}>
+                      Link Authoritative Court Case (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      className="matter-search-input"
+                      placeholder="Search court cases by case number or title..."
+                      value={courtSearchQuery}
+                      onChange={(e) => void handleSearchCourtCases(e.target.value)}
+                      style={{ marginTop: 4, background: "#ffffff" }}
+                    />
+
+                    {selectedCourtCasesList.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        {selectedCourtCasesList.map((c) => (
+                          <span
+                            key={c.id}
+                            style={{
+                              background: "#e0f2fe",
+                              color: "#0369a1",
+                              padding: "4px 8px",
+                              borderRadius: "4px",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 6
+                            }}
+                          >
+                            {c.caseNumber} ({c.caseTitle})
+                            <button
+                              type="button"
+                              style={{ border: "none", background: "transparent", cursor: "pointer", color: "#dc2626", fontWeight: 700 }}
+                              onClick={() => {
+                                setSelectedCourtCaseIds((prev) => prev.filter((id) => id !== c.id));
+                                setSelectedCourtCasesList((prev) => prev.filter((x) => x.id !== c.id));
+                              }}
+                            >
+                              &times;
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {courtSearchResults.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8, maxHeight: 140, overflowY: "auto", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 4, padding: 6 }}>
+                        {courtSearchResults
+                          .filter((cc) => !selectedCourtCaseIds.includes(cc.id))
+                          .map((cc) => (
+                            <div
+                              key={cc.id}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 6px", fontSize: "12px" }}
+                            >
+                              <span><strong>{cc.caseNumber}</strong> · {cc.caseTitle}</span>
+                              <button
+                                type="button"
+                                className="btn-action-secondary"
+                                style={{ padding: "2px 6px", fontSize: "11px" }}
+                                onClick={() => {
+                                  setSelectedCourtCaseIds((prev) => [...prev, cc.id]);
+                                  setSelectedCourtCasesList((prev) => [...prev, cc]);
+                                }}
+                              >
+                                Select
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Canonical Award & Primary Selector */}
+                {createVillageId && (
+                  <div style={{ gridColumn: "span 2", background: "#f8fafc", border: "1px solid #e2e8f0", padding: "12px", borderRadius: "6px" }}>
+                    <label style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a" }}>
+                      Select Linked Awards for Canonical Context
+                    </label>
+                    <div style={{ fontSize: "11px", color: "#64748b", marginBottom: 8 }}>
+                      (Canonical links associate metadata. Select an Award and optionally designate it as Primary.)
+                    </div>
+
+                    {villageAwards.length === 0 ? (
+                      <div style={{ fontSize: "12px", color: "#94a3b8" }}>No Awards registered for this village.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 150, overflowY: "auto" }}>
+                        {villageAwards.map((va: any) => {
+                          const aId = va.id || va.awardId;
+                          const isSelected = selectedAwardIds.includes(aId);
+                          const isPrimary = selectedPrimaryAwardId === aId;
+
+                          return (
+                            <div
+                              key={aId}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 8px", background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 4, fontSize: "12px" }}
+                            >
+                              <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0, fontWeight: 500 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedAwardIds((prev) => [...prev, aId]);
+                                      if (!selectedPrimaryAwardId) setSelectedPrimaryAwardId(aId);
+                                    } else {
+                                      setSelectedAwardIds((prev) => prev.filter((id) => id !== aId));
+                                      if (selectedPrimaryAwardId === aId) setSelectedPrimaryAwardId("");
+                                    }
+                                  }}
+                                />
+                                Award #{va.awardNumber} ({va.awardType || "Standard"})
+                              </label>
+
+                              {isSelected && (
+                                <button
+                                  type="button"
+                                  className="btn-action-secondary"
+                                  style={{
+                                    padding: "2px 6px",
+                                    fontSize: "11px",
+                                    background: isPrimary ? "#fef3c7" : "#ffffff",
+                                    borderColor: isPrimary ? "#fde68a" : "#cbd5e1",
+                                    color: isPrimary ? "#92400e" : "#475569",
+                                    fontWeight: isPrimary ? 700 : 500
+                                  }}
+                                  onClick={() => setSelectedPrimaryAwardId(isPrimary ? "" : aId)}
+                                >
+                                  {isPrimary ? "★ Primary Award" : "Set as Primary"}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Canonical Khasra Selector */}
+                {createVillageId && (
+                  <div style={{ gridColumn: "span 2", background: "#f8fafc", border: "1px solid #e2e8f0", padding: "12px", borderRadius: "6px" }}>
+                    <label style={{ fontWeight: 600, fontSize: "13px", color: "#0f172a" }}>
+                      Select Canonical Khasras ({selectedKhasraIds.length} selected)
+                    </label>
+                    <div style={{ fontSize: "11px", color: "#64748b", marginBottom: 8 }}>
+                      Link authoritative village Khasras directly to this matter context.
+                    </div>
+
+                    {villageKhasras.length === 0 ? (
+                      <div style={{ fontSize: "12px", color: "#94a3b8" }}>No Khasras registered for this village.</div>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 140, overflowY: "auto" }}>
+                        {villageKhasras.map((vk: any) => {
+                          const kId = vk.id || vk.khasraId;
+                          const kn = vk.displayNumber || vk.khasraNumber;
+                          const isSel = selectedKhasraIds.includes(kId);
+
+                          return (
+                            <button
+                              key={kId}
+                              type="button"
+                              style={{
+                                padding: "3px 8px",
+                                borderRadius: "4px",
+                                fontSize: "12px",
+                                fontWeight: 600,
+                                border: isSel ? "1px solid #0284c7" : "1px solid #cbd5e1",
+                                background: isSel ? "#e0f2fe" : "#ffffff",
+                                color: isSel ? "#0369a1" : "#334155",
+                                cursor: "pointer"
+                              }}
+                              onClick={() => {
+                                if (isSel) setSelectedKhasraIds((prev) => prev.filter((id) => id !== kId));
+                                else setSelectedKhasraIds((prev) => [...prev, kId]);
+                              }}
+                            >
+                              Khasra #{kn}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <label style={{ gridColumn: "span 2" }}>
-                  Optional Khasra Reference
+                  Legacy Khasra Reference (Optional Text)
                   <input
                     type="text"
                     value={createKhasraRef}
                     onChange={(e) => setCreateKhasraRef(e.target.value)}
-                    placeholder="e.g. Khasra No. 12/4, 12/5 min"
+                    placeholder="e.g. Khasra No. 12/4, 12/5 min (Text unverified)"
                   />
                 </label>
 
@@ -567,7 +821,7 @@ export const MatterDirectory: React.FC = () => {
                   <textarea
                     value={createRemarks}
                     onChange={(e) => setCreateRemarks(e.target.value)}
-                    placeholder="Administrative background or context notes..."
+                    placeholder="Administrative background or operational notes..."
                     rows={3}
                   />
                 </label>
