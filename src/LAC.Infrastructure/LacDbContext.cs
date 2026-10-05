@@ -94,6 +94,9 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
  }
  public override async Task<int> SaveChangesAsync(CancellationToken ct=default) {
+  if (!Database.IsRelational())
+   foreach (var entry in ChangeTracker.Entries<Dak>().Where(e => e.State is EntityState.Added or EntityState.Modified))
+    entry.Entity.DiaryNumberKey = DakDiaryNumber.Normalize(entry.Entity.DiaryNumber);
   if (ChangeTracker.Entries<DakMovement>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("Dak movements are strictly immutable. Official movement history cannot be modified or deleted.");
   if (ChangeTracker.Entries<OutwardEvent>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))

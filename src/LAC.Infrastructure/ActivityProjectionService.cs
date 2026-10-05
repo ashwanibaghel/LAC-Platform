@@ -1312,7 +1312,7 @@ public sealed class ActivityProjectionService(
     {
         return action switch
         {
-            DakMovementAction.Registered => $"Registered and marked to {toDesk ?? "desk"}",
+            DakMovementAction.Registered => "Registered in inward correspondence",
             DakMovementAction.Marked => $"Marked from {fromDesk ?? "desk"} to {toDesk ?? "desk"}",
             DakMovementAction.Forwarded => $"Forwarded from {fromDesk ?? "desk"} to {toDesk ?? "desk"}",
             DakMovementAction.Returned => $"Returned to {toDesk ?? "desk"}",

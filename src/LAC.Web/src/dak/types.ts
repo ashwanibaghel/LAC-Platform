@@ -1,4 +1,5 @@
 export interface DakListItem {
+  recordStatus: string;
   id: string;
   diaryNumber: string;
   receivedDate: string;
@@ -46,12 +47,14 @@ export interface DakAttachment {
 
 export interface DakLinkItem {
   linkId: string;
-  entityId: string;
+  entityId: string | null;
+  canOpen: boolean;
   displayName: string;
   entityType: "Village" | "Award" | "Matter" | "Khasra";
 }
 
 export interface DakDetail {
+  recordStatus: string;
   id: string;
   diaryNumber: string;
   receivedDate: string;
