@@ -77,8 +77,14 @@ public sealed class DakIntakeTests(DakTestFactory factory) : IClassFixture<DakTe
         Assert.Equal(JsonValueKind.Null, detail.GetProperty("currentAssignment").ValueKind);
     }
 
-    [Fact]
-    public async Task Replayed_request_returns_original_and_changed_payload_conflicts()
+    [Theory]
+    [InlineData(RecordStatus.Archived, DakStatus.Registered)]
+    [InlineData(RecordStatus.Active, DakStatus.Disposed)]
+    [InlineData(RecordStatus.Active, DakStatus.Cancelled)]
+    [InlineData(RecordStatus.Archived, DakStatus.Disposed)]
+    [InlineData(RecordStatus.Archived, DakStatus.Cancelled)]
+    [InlineData(RecordStatus.Inactive, DakStatus.Registered)]
+    public async Task Permanent_diary_rejects_reuse_but_same_request_replays_original(RecordStatus recordStatus, DakStatus status)
     {
         using var client = await AdminAsync();
         client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
@@ -90,10 +96,22 @@ public sealed class DakIntakeTests(DakTestFactory factory) : IClassFixture<DakTe
         using (var archiveScope = factory.Services.CreateScope())
         {
             var archiveDb = archiveScope.ServiceProvider.GetRequiredService<LacDbContext>();
-            (await archiveDb.Daks.SingleAsync(d => d.Id == id)).RecordStatus = RecordStatus.Archived;
+            var dak = await archiveDb.Daks.SingleAsync(d => d.Id == id);
+            dak.RecordStatus = recordStatus;
+            dak.Status = status;
             await archiveDb.SaveChangesAsync();
         }
-        // Replays remain bound to the original receipt, even after archival.
+        // A new intake cannot reuse the stamped identity after archival or closure.
+        var originalKey = client.DefaultRequestHeaders.GetValues("Idempotency-Key").Single();
+        client.DefaultRequestHeaders.Remove("Idempotency-Key");
+        using var duplicate = Form($" \t{diary.ToUpperInvariant()}\r\n", file: true);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync("/api/dak", duplicate)).StatusCode);
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var newRequest = Form(diary, file: true);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync("/api/dak", newRequest)).StatusCode);
+        client.DefaultRequestHeaders.Remove("Idempotency-Key");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", originalKey);
+        // Matching replays remain bound to the original receipt in every lifecycle state.
         using var again = Form(diary, file: true);
         var replay = await client.PostAsync("/api/dak", again);
         Assert.Equal(HttpStatusCode.Created, replay.StatusCode);
