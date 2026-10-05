@@ -1,0 +1,366 @@
+{
+    "status":  "VERIFIED_TRANSFER_READY",
+    "createdUtc":  "2026-10-05T08:08:15.6806846Z",
+    "sourceManifest":  "D:\\LAC-CourtAI-V3-20261003-r1\\court-model-manifest.json",
+    "sourceManifestSha256":  "926a2dc2002941987c40b4ddd656e5e4b12d5c5e2fa74423fb3500b8f026631b",
+    "sourceFiles":  [
+                        {
+                            "sourcePath":  "E:\\LAC-CourtAI-V1-Packaging-20261003\\qwen3-4b-pinned-Q4_K_M-recovered-r1.gguf",
+                            "path":  "qwen3-4b-pinned-Q4_K_M-recovered-r1.gguf",
+                            "sha256":  "9657e9d21175ed290fa4ec3662fffb61a001463ac4ec1abd62deaa509b440710",
+                            "bytes":  2497279072
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V3-20261003-r1\\pilot-v3-lora-f32.gguf",
+                            "path":  "pilot-v3-lora-f32.gguf",
+                            "sha256":  "f002c12aef178431cd56bc482350f3733e92f51972a668ed119a7d946e68daf1",
+                            "bytes":  23613280
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml.dll",
+                            "path":  "bin/ggml.dll",
+                            "sha256":  "f46e57a5a48685300599952b5495242d8cadc5691bdc3a267945ad4c288295e0",
+                            "bytes":  79872
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-base.dll",
+                            "path":  "bin/ggml-base.dll",
+                            "sha256":  "12818ea417eb4e134aa91c55902ee035db91fa6bbfece068f411b47ed0f6dedd",
+                            "bytes":  801280
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-alderlake.dll",
+                            "path":  "bin/ggml-cpu-alderlake.dll",
+                            "sha256":  "8bee8fc82a92a736c0e6360210e24146a6482945c72ee8a219b99dc46ebcdf0c",
+                            "bytes":  1431552
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-cannonlake.dll",
+                            "path":  "bin/ggml-cpu-cannonlake.dll",
+                            "sha256":  "473e6d2c4e143f38c16c632551c6519cf136a512d02a2ff502223e80f67e2ad3",
+                            "bytes":  1657856
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-cascadelake.dll",
+                            "path":  "bin/ggml-cpu-cascadelake.dll",
+                            "sha256":  "09190755f73c6dceb9300ab7efd74ae63e6cd234460095942799857be2c61f7a",
+                            "bytes":  1642496
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-cooperlake.dll",
+                            "path":  "bin/ggml-cpu-cooperlake.dll",
+                            "sha256":  "3160edb6a608ee67e7a9460b25e2f35e7fffa9ff180cb17ec323e92760f0d75d",
+                            "bytes":  1643520
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-haswell.dll",
+                            "path":  "bin/ggml-cpu-haswell.dll",
+                            "sha256":  "f163f84ce6e6cd65fe8971fec38cf14f4b5efa3a4398ea9d36bae38baf526ffe",
+                            "bytes":  1436160
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-icelake.dll",
+                            "path":  "bin/ggml-cpu-icelake.dll",
+                            "sha256":  "0795a8974620050410ed00d4e5eba87d96551a93a86f92798da83042dfaf1b32",
+                            "bytes":  1649152
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-ivybridge.dll",
+                            "path":  "bin/ggml-cpu-ivybridge.dll",
+                            "sha256":  "8ad1d4079efd95749ccca5167b31dc2b591ebd4ea8cfa2b363781b8f5c1cabe0",
+                            "bytes":  1307136
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-piledriver.dll",
+                            "path":  "bin/ggml-cpu-piledriver.dll",
+                            "sha256":  "de3ba68a327aba38f9986e583757ea5c176d5398b1de8bb0d8096c753711eb68",
+                            "bytes":  1310208
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-sandybridge.dll",
+                            "path":  "bin/ggml-cpu-sandybridge.dll",
+                            "sha256":  "58ede3a14faa39957493d6c17b7e537e10e0bfc0155eea858843f8993c6202ff",
+                            "bytes":  1286656
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-sapphirerapids.dll",
+                            "path":  "bin/ggml-cpu-sapphirerapids.dll",
+                            "sha256":  "b4193e533382f1f285154f4c3385712ef0fce018b5583ea656da734e3d1d18b5",
+                            "bytes":  1920000
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-skylakex.dll",
+                            "path":  "bin/ggml-cpu-skylakex.dll",
+                            "sha256":  "435bcc871e0fd3c213a5b2111c8242a9f1251f32438817d3b9821f786381a644",
+                            "bytes":  1651712
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-sse42.dll",
+                            "path":  "bin/ggml-cpu-sse42.dll",
+                            "sha256":  "a1704a6146a99bf3aabf3e98d768668688be2e75b6f57b9b9e752269d9debc3c",
+                            "bytes":  916480
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-x64.dll",
+                            "path":  "bin/ggml-cpu-x64.dll",
+                            "sha256":  "35f5ecfc2bf6229d90bda00853745227556cf7cb00bc2ef7f51811a123f9dc98",
+                            "bytes":  908800
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-cpu-zen4.dll",
+                            "path":  "bin/ggml-cpu-zen4.dll",
+                            "sha256":  "022de524b1724b8522f96f096364613516c5bd5b20e72420994d689520450766",
+                            "bytes":  1649664
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-rpc.dll",
+                            "path":  "bin/ggml-rpc.dll",
+                            "sha256":  "c22a6b42d89e870c10a2e508c1e5047ca74392d9321cecf8ea21f32ada5a765d",
+                            "bytes":  168448
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\ggml-rpc-server.exe",
+                            "path":  "bin/ggml-rpc-server.exe",
+                            "sha256":  "dd6d48dafa5638df7b01a9c51b091bab041efe04b53b52d9fc5ddc2899cd075a",
+                            "bytes":  117248
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\libomp.dll",
+                            "path":  "bin/libomp.dll",
+                            "sha256":  "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c",
+                            "bytes":  768000
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\LICENSE-LLVM-OpenMP",
+                            "path":  "bin/LICENSE-LLVM-OpenMP",
+                            "sha256":  "fdad1758a9e1f9d5a81e18879b3406772115edc92c24bfa36b70c654f325e8e4",
+                            "bytes":  19741
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama.dll",
+                            "path":  "bin/llama.dll",
+                            "sha256":  "13407472d7459edaa5fec976db146d8d1973eaad1857702a268d5d774fd8b537",
+                            "bytes":  3270656
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama.exe",
+                            "path":  "bin/llama.exe",
+                            "sha256":  "a0d324b6ec8e5b36681864e709a5764173493639a750d5166be899599bd1b35b",
+                            "bytes":  104448
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-batched-bench.exe",
+                            "path":  "bin/llama-batched-bench.exe",
+                            "sha256":  "c8579fb22da3f02e31b68a32f3ccd14cac0febf2dab1d052435715d8de3f421a",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-batched-bench-impl.dll",
+                            "path":  "bin/llama-batched-bench-impl.dll",
+                            "sha256":  "63b380ec6721de9187eb3228cf493c12a1fb423fe7104b0b17bd3eb364723719",
+                            "bytes":  61952
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-bench.exe",
+                            "path":  "bin/llama-bench.exe",
+                            "sha256":  "87c5300097c2f029b76a140aadea1ebef60b9d095110ebbe46e0fad27b922212",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-bench-impl.dll",
+                            "path":  "bin/llama-bench-impl.dll",
+                            "sha256":  "efa464daa8b11a7f3018270484ebdabca72a6633dd4cdbd330da03282203045b",
+                            "bytes":  403968
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-cli.exe",
+                            "path":  "bin/llama-cli.exe",
+                            "sha256":  "0ad685b9da1314c367af1b510c236603e7d00f7fa2efc52cec990be70313d3ab",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-cli-impl.dll",
+                            "path":  "bin/llama-cli-impl.dll",
+                            "sha256":  "dfb68daa72e3525b655d66eddb2a9b9224e9eaa410d07939ac1c671e51e92c27",
+                            "bytes":  3302912
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-common.dll",
+                            "path":  "bin/llama-common.dll",
+                            "sha256":  "7ce8f1a423d643b8bfaeadaa35e27cd7605c736ddd490f1d02a44b9b9375e1cf",
+                            "bytes":  7891968
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-completion.exe",
+                            "path":  "bin/llama-completion.exe",
+                            "sha256":  "515b77a518a21136a12c8456de82a14751b16c072a07797820d2551fb8fe5812",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-completion-impl.dll",
+                            "path":  "bin/llama-completion-impl.dll",
+                            "sha256":  "09ae8a9dbdb98a1bc7b0bc971dac14a82cbf813d88205e7f6c6baa334e7fa538",
+                            "bytes":  136192
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-fit-params.exe",
+                            "path":  "bin/llama-fit-params.exe",
+                            "sha256":  "da242c7498d6101f2bb753c576da6d6e0955bafb68cef9c543696e2c65f36302",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-fit-params-impl.dll",
+                            "path":  "bin/llama-fit-params-impl.dll",
+                            "sha256":  "ab0efed317bc599b814b20fb751713e6f50bdd053ec4ece96c5ec23038bc4c51",
+                            "bytes":  43008
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-gemma3-cli.exe",
+                            "path":  "bin/llama-gemma3-cli.exe",
+                            "sha256":  "2f6a30b95bd0b1e21e412f9846c21e564d12d0d063ce2847947e765e1579dec1",
+                            "bytes":  27136
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-gguf-split.exe",
+                            "path":  "bin/llama-gguf-split.exe",
+                            "sha256":  "3683529b4e07c4f15950ff7a25e758c7b0c1a4d4c269a71bc3098845427d7929",
+                            "bytes":  60416
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-imatrix.exe",
+                            "path":  "bin/llama-imatrix.exe",
+                            "sha256":  "161cb3d5b8b8ca5c50435d6fa02347c149c6911146c57123236a71b4eacdc9f4",
+                            "bytes":  256000
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-llava-cli.exe",
+                            "path":  "bin/llama-llava-cli.exe",
+                            "sha256":  "2f6a30b95bd0b1e21e412f9846c21e564d12d0d063ce2847947e765e1579dec1",
+                            "bytes":  27136
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-minicpmv-cli.exe",
+                            "path":  "bin/llama-minicpmv-cli.exe",
+                            "sha256":  "2f6a30b95bd0b1e21e412f9846c21e564d12d0d063ce2847947e765e1579dec1",
+                            "bytes":  27136
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-mtmd-cli.exe",
+                            "path":  "bin/llama-mtmd-cli.exe",
+                            "sha256":  "08b0363d3ba2532bf99c51106a0a48eefe5790c4660d7c03021f71e636f5861f",
+                            "bytes":  92160
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-mtmd-debug.exe",
+                            "path":  "bin/llama-mtmd-debug.exe",
+                            "sha256":  "f2b576b27a12caa83b863b103094fd0a08ccbd1fc6a2bd5a543673b8abead2e8",
+                            "bytes":  55808
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-perplexity.exe",
+                            "path":  "bin/llama-perplexity.exe",
+                            "sha256":  "649076bd7bedd4def431e3014c93924647b59df331a246c21e039bf723afeffb",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-perplexity-impl.dll",
+                            "path":  "bin/llama-perplexity-impl.dll",
+                            "sha256":  "97c70321e917138e0c1e5c73d9df2be6f42c3f3c8ee32b2651cc0c6009f697bc",
+                            "bytes":  197632
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-quantize.exe",
+                            "path":  "bin/llama-quantize.exe",
+                            "sha256":  "cd26a3e2ec1cfb392785132740f856d7353e6a77ab7c5cccae1f6d0035a87b44",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-quantize-impl.dll",
+                            "path":  "bin/llama-quantize-impl.dll",
+                            "sha256":  "01a8e0d616a26f7264d5aecd1542f5eb25dcb634b517fc84bba2c5749a6a41c4",
+                            "bytes":  137216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-qwen2vl-cli.exe",
+                            "path":  "bin/llama-qwen2vl-cli.exe",
+                            "sha256":  "2f6a30b95bd0b1e21e412f9846c21e564d12d0d063ce2847947e765e1579dec1",
+                            "bytes":  27136
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-results.exe",
+                            "path":  "bin/llama-results.exe",
+                            "sha256":  "0b8201615d292ee926bd19d8eca4972d8a7a6f3f594a7cb25e26f42a07f3dac7",
+                            "bytes":  46592
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-server.exe",
+                            "path":  "bin/llama-server.exe",
+                            "sha256":  "9c2cfb0c15c3acca4587aa0c877f27b342c3c4ee4e1d2a6a5e68316064142ebe",
+                            "bytes":  9216
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-server-impl.dll",
+                            "path":  "bin/llama-server-impl.dll",
+                            "sha256":  "f0b31e4eef9a816d706fb0dd49c33cd2da5063ccd575f0a5ba8adf5d131530ef",
+                            "bytes":  8946688
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-tokenize.exe",
+                            "path":  "bin/llama-tokenize.exe",
+                            "sha256":  "69a44971e5d5bb9a873843c9654b1f89cb63791093045f84c286d0a9017693d3",
+                            "bytes":  58880
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\llama-tts.exe",
+                            "path":  "bin/llama-tts.exe",
+                            "sha256":  "4a9702177605cd17b63236589f4eba693376166ef8f3da0ec0dd0f769c47f9d2",
+                            "bytes":  41984
+                        },
+                        {
+                            "sourcePath":  "D:\\LAC-CourtAI-V1-20261003\\bin\\mtmd.dll",
+                            "path":  "bin/mtmd.dll",
+                            "sha256":  "1e1bab3556abfe2b8d08aabe9fa5aaebfc827b94cf4fd117bacaa6a41df55083",
+                            "bytes":  1794560
+                        }
+                    ],
+    "portableManifestSha256":  "36fc8c63794e566df7fecfd2588130c9c295d145b49d7015055171f154e2fb4f",
+    "runtimeControllerSha256":  "dd2638ed49685a4e47a2e61c91352e6f9b8d4b8353e51fa12394ddf9147c0102",
+    "transferManifestSha256":  "fe212ae33eaa44ded1c3898c51409f1e4f75592d42db283b554c1250d431551d",
+    "tar":  {
+                "name":  "court-v3-office.tar",
+                "bytes":  2570396672,
+                "sha256":  "eed1ced95df9e92114bbef506e7bc0dda6cdd3b7dc843bbc5a6534523ae4d863"
+            },
+    "parts":  [
+                  {
+                      "index":  1,
+                      "name":  "court-v3-office.tar.part0001",
+                      "bytes":  786432000,
+                      "sha256":  "c334a0ba012ab47f4cd33d1e62c32be7140b00151d93d17d828180601c6f185c"
+                  },
+                  {
+                      "index":  2,
+                      "name":  "court-v3-office.tar.part0002",
+                      "bytes":  786432000,
+                      "sha256":  "e730019ffffc008ec9ee54a02aae81758fd62798654a98f7f492555b0b8cdcb4"
+                  },
+                  {
+                      "index":  3,
+                      "name":  "court-v3-office.tar.part0003",
+                      "bytes":  786432000,
+                      "sha256":  "f7621023101103cca6608aef63977f2df608b5f447a0bbb40acd5cb45b417f3b"
+                  },
+                  {
+                      "index":  4,
+                      "name":  "court-v3-office.tar.part0004",
+                      "bytes":  211100672,
+                      "sha256":  "0d71276fc9659a0d6982783971a00197579d39b517af40b1b7b2d80eb6ec450e"
+                  }
+              ],
+    "installedBinaryBytes":  2570343645,
+    "estimatedOfficePeakBytes":  7979572445,
+    "modelStarted":  false,
+    "weightsModified":  false,
+    "laptopCommand":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\prepare-court-v3-office-transfer.ps1 -OutputDirectory \"D:\\LAC-CourtAI-Office-Transfer\"",
+    "officeCommand":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\restore-court-v3-office-transfer.ps1 -IncomingDirectory D:\\LAC-CourtAI-Incoming -ExpectedTransferManifestSha256 fe212ae33eaa44ded1c3898c51409f1e4f75592d42db283b554c1250d431551d"
+}

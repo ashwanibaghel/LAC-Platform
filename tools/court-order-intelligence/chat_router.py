@@ -25,22 +25,24 @@ def route(question):
     if GENERAL.search(question): return 'GeneralLocal'
     return 'GeneralLocal' if STANDALONE.search(question) and not AMBIGUOUS.search(question) else 'CourtGrounded'
 
-def general_answer(question, provider, context=None, history=None):
+def general_answer(question, provider, context=None, history=None, language='Auto'):
     if route(question) != 'GeneralLocal': raise ValueError('Court question cannot use general chat')
+    from question_language import selected_language
+    language=selected_language(language,question)
     context=context if isinstance(context,dict) else {}
     safe_context={key:str(context[key])[:100] for key in ('displayName','designation') if context.get(key)}
     if safe_context.get('displayName') and re.fullmatch(r'\s*(?:mera naam(?: kya hai)?|what(?:\x27s| is) my name|who am i|मेरा नाम(?: क्या है)?)\s*[?!.]*\s*',question,re.I):
         # This is an authenticated app fact, not a generated identity. Preserve
         # the user's perspective and avoid a model inventing/echoing a name.
-        prefix,suffix=('आपका नाम ', ' है।') if re.search('[\u0900-\u097f]',question) else ('Aapka naam ', ' hai.') if re.search('mera naam',question,re.I) else ('Your name is ', '.')
-        return dict(mode='GeneralLocal',answer=prefix+safe_context['displayName']+suffix,claims=[],insufficientEvidence=False)
+        prefix,suffix=('आपका नाम ', ' है।') if language=='Hindi' else ('Aapka naam ', ' hai.') if language=='Hinglish' else ('Your name is ', '.')
+        return dict(mode='GeneralLocal',answer=prefix+safe_context['displayName']+suffix,claims=[],insufficientEvidence=False,language=language)
     turns=[]
     for turn in (history or [])[-4:]:
         if (isinstance(turn,dict) and isinstance(turn.get('question'),str) and isinstance(turn.get('answer'),str)
             and len(turn['question'])<=600 and len(turn['answer'])<=1200
             and route(turn['question'])=='GeneralLocal' and not COURT.search(turn['answer']) and not repetitive(turn['answer'])):
             turns.append(turn)
-    instructions=('You are a friendly local office assistant. Reply naturally in the user language. '
+    instructions=(f'You are a friendly local office assistant. Reply in {language}; Hindi uses natural Devanagari and Hinglish uses Roman Hindi. '
         'For a greeting or sentence meaning, use one or two clear short sentences. Do not repeat phrases. '
         'Use authenticated displayName/designation only for questions about the user. '
         'They describe the human user, never you. Do not introduce yourself with the user name or designation. '
@@ -64,4 +66,4 @@ def general_answer(question, provider, context=None, history=None):
         response='Hello! How can I help you?' if re.search(r'hello|\bhi\b|\bhey\b',question,re.I) else 'I can help you. What would you like to discuss?'
     elif not response or COURT.search(response):
         response='I can help with ordinary conversation. Please ask a specific evidence question for judicial information.'
-    return dict(mode='GeneralLocal',answer=response,claims=[],insufficientEvidence=False)
+    return dict(mode='GeneralLocal',answer=response,claims=[],insufficientEvidence=False,language=language)

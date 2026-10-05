@@ -11,17 +11,15 @@ import { CourtImportProvenance } from "./CourtImportProvenance";
 import { DhcCaseListings } from "./DhcCaseListings";
 import { DhcOfficialVerification } from "./DhcOfficialVerification";
 import { CourtIntelligence } from "./CourtIntelligence";
-import { useAuth } from "../auth/AuthProvider";
 import "./court.css";
 
 export const CourtCaseWorkspace: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
 
   const [courtCase, setCourtCase] = useState<CourtCaseDetailDto | null>(null);
   const [filterOptions, setFilterOptions] = useState<CourtFilterOptionsDto | null>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "proceedings" | "documents" | "records" | "work" | "timeline">("overview");
+  const [activeTab, setActiveTab] = useState<"intelligence" | "overview" | "proceedings" | "documents" | "records" | "work" | "timeline">("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,6 +53,9 @@ export const CourtCaseWorkspace: React.FC = () => {
       if (res.ok) {
         const data: CourtCaseDetailDto = await res.json();
         setCourtCase(data);
+        if (data.courtName === "Delhi High Court") {
+          setActiveTab(prev => prev === "overview" ? "intelligence" : prev);
+        }
       } else if (res.status === 404) {
         setError("Court Case not found");
       } else if (res.status === 403) {
@@ -272,6 +273,14 @@ export const CourtCaseWorkspace: React.FC = () => {
 
       {/* Tabs */}
       <div className="court-tabs">
+        {courtCase.courtName === "Delhi High Court" && (
+          <button
+            className={`court-tab-button ${activeTab === "intelligence" ? "active" : ""}`}
+            onClick={() => setActiveTab("intelligence")}
+          >
+            Intelligence
+          </button>
+        )}
         <button
           className={`court-tab-button ${activeTab === "overview" ? "active" : ""}`}
           onClick={() => setActiveTab("overview")}
@@ -282,7 +291,7 @@ export const CourtCaseWorkspace: React.FC = () => {
           className={`court-tab-button ${activeTab === "proceedings" ? "active" : ""}`}
           onClick={() => setActiveTab("proceedings")}
         >
-          Proceedings & Orders ({courtCase.proceedingsCount})
+          Orders & Proceedings ({courtCase.proceedingsCount})
         </button>
         <button
           className={`court-tab-button ${activeTab === "documents" ? "active" : ""}`}
@@ -312,13 +321,21 @@ export const CourtCaseWorkspace: React.FC = () => {
 
       {/* Tab Contents */}
       <div className="court-tab-content">
-        {activeTab === "overview" && <><CourtOverviewTab courtCase={courtCase} />
-          {courtCase.courtName === "Delhi High Court" && <>
-            <DhcCaseListings caseId={courtCase.id} />
-            <DhcOfficialVerification caseId={courtCase.id} canonicalStatus={courtCase.currentStatus} />
-            <CourtIntelligence key={courtCase.id} caseId={courtCase.id} />
-          </>}
-          <CourtImportProvenance caseId={courtCase.id} /></>}
+        {activeTab === "intelligence" && courtCase.courtName === "Delhi High Court" && (
+          <CourtIntelligence key={courtCase.id} caseId={courtCase.id} />
+        )}
+        {activeTab === "overview" && (
+          <>
+            <CourtOverviewTab courtCase={courtCase} />
+            {courtCase.courtName === "Delhi High Court" && (
+              <>
+                <DhcCaseListings caseId={courtCase.id} />
+                <DhcOfficialVerification caseId={courtCase.id} canonicalStatus={courtCase.currentStatus} />
+              </>
+            )}
+            <CourtImportProvenance caseId={courtCase.id} />
+          </>
+        )}
         {activeTab === "proceedings" && <CourtProceedingsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "documents" && <CourtDocumentsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}
         {activeTab === "records" && <CourtLinkedRecordsTab courtCase={courtCase} onRefresh={fetchCaseDetail} />}

@@ -108,7 +108,8 @@ test('no confirmed hearing uses outstanding action, not next-hearing language',(
   assert.equal(false,presentation.confirmedNextHearing({...data.latestOrder,nextHearingDate:'2026-10-05'}));
 });
 test('source-confirmed next hearing enables the before-next-hearing heading',()=>{
-  const latest={...data.latestOrder,nextHearingDate:'2026-10-05',summaryFacts:[direction,{...direction,field:'nextHearing',value:'Renotify on 05.10.2026.'}]};
+  const nextYear=new Date().getFullYear()+1;
+  const latest={...data.latestOrder,nextHearingDate:`${nextYear}-10-05`,summaryFacts:[direction,{...direction,field:'nextHearing',value:`Renotify on 05.10.${nextYear}.`}]};
   assert.match(officerMarkup({...data,latestOrder:latest}),/<span>Before next hearing<\/span>/);
   assert.equal(false,presentation.confirmedNextHearing({...latest,summaryFacts:[]}));
 });
@@ -176,17 +177,51 @@ test('incomplete or review-required processing limits the action conclusion to u
     {orders:[{...data.latestOrder,status:'Validated',facts:[],refreshFailure:'Latest check failed'}]},
   ]){
     const html=officerMarkup({...data,beforeNextHearing:[],orders:[{...data.latestOrder,status:'Validated'}],...change});
-    assert.match(html,/No verified LAC-specific mandatory action is established in the currently processed evidence|No usable Court evidence is currently available/);
+    assert.match(html,/Action status will be available after verified Court intelligence is ready|No verified LAC-specific mandatory action/);
     assert.doesNotMatch(html,/No direct LAC action was identified in the processed orders/);
   }
 });
 
-test('completed extraction with zero usable facts does not establish a no-action outcome',()=>{
+test('completed extraction with zero usable facts cannot render No Action Pending',()=>{
   const latest={...data.latestOrder,status:'Validated',facts:[],summaryFacts:[],officeActionCount:0,coverage:{allSelectedChunksProcessed:true}};
   const html=officerMarkup({...data,status:'Validated',processingComplete:true,beforeNextHearing:[],latestOrder:latest,orders:[latest]});
-  assert.match(html,/No usable Court evidence is currently available/);
+  assert.match(html,/Action status pending/);
+  assert.match(html,/Action status will be available after verified Court intelligence is ready/);
+  assert.doesNotMatch(html,/No action pending|NO ACTION PENDING/);
   assert.doesNotMatch(html,/Office action check is incomplete/);
 });
+
+test('BusyWithOtherCase passive state surfaces officer message',()=>{
+  const html=officerMarkup({...data,runtime:{runtimeState:'BusyWithOtherCase',reasonCode:'BusyWithOtherCase'}});
+  assert.match(html,/Local AI is processing another matter/);
+});
+
+test('QuestionServiceOffline passive state surfaces officer message',()=>{
+  const html=officerMarkup({...data,runtime:{questionServiceState:'QuestionServiceOffline',reasonCode:'QuestionServiceOffline'}});
+  assert.match(html,/Local Court Q(?:&amp;|&)A service is unavailable/);
+  assert.match(html,/Verified Court intelligence remains available/);
+});
+
+test('memory allocation reason takes precedence over generic offline model notice',()=>{
+  for(const runtime of [
+    {runtimeState:'Failed',reasonCode:'ModelInsufficientMemory',modelState:'ModelOffline',questionServiceState:'Ready'},
+    {runtimeState:'ModelOffline',reasonCode:'ModelOffline',modelState:'ModelOffline',recovery:{reasonCode:'ModelInsufficientMemory'}},
+  ]) {
+    const html=officerMarkup({...data,runtime});
+    assert.match(html,/Local AI service needs recovery due to system memory allocation/);
+    assert.doesNotMatch(html,/Local AI processing for new orders is currently unavailable/);
+    assert.match(html,/Reference was declined/);
+  }
+});
+
+test('language selector and request param are present',()=>{
+  assert.match(source,/language:\s*selectedLanguage/);
+  assert.match(source,/Auto/);
+  assert.match(source,/Hinglish/);
+  assert.match(source,/Hindi/);
+  assert.match(source,/English/);
+});
+
 test('current position retains role distinctions and review warning appears only once',()=>{
   const html=officerMarkup({...data,orders:[data.latestOrder],currentPosition:[{role:'COURT_FINDING',text:'The reference was in time.',source:evidence},{role:'PETITIONER_SUBMISSION',text:'The petitioner disputes payment.',source:evidence}]});
   assert.match(html,/Court finding/);assert.match(html,/Petitioner submission/);

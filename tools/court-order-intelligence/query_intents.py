@@ -77,7 +77,7 @@ def normalize(question, provider=None):
         intent['topics']=['lac_action']
     if re.search(r'kab start|when.*(?:start|begin)|kis date|which date|किस तारीख|कब शुरू',text):
         intent['factualDates']=True
-    if re.search(r'poori kahani|puri kahani|poore matter|pure matter|\b(?:poora|pura)\s+(?:scene|case|matter)\b|\boverall case\b|\bcomplete case summary\b|full (?:story|case)|actual demand|case.*(?:start|shuru)|version.*(?:difference|farq)|पूरी कहानी|पूरा\s+(?:मामला|केस)',text):
+    if re.search(r'poori kahani|puri kahani|poore matter|pure matter|\b(?:poora|pura)\s+(?:scene|case|matter)\b|\boverall case\b|\bcomplete case summary\b|full (?:story|case)|actual demand|case.*(?:start|shuru)|version.*(?:difference|farq)|पूरी कहानी|पूरा\s+(?:मामला|केस)|(?:case|matter|केस|मामला).*(?:simple|samjha|samjhao|समझा|सरल)|explain.*(?:case|matter)',text):
         intent['topics']=['general_case']; intent['latest']=False; intent['party']=None
         intent['fullStory']=True
         return intent

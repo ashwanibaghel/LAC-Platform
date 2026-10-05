@@ -1,0 +1,1375 @@
+{
+  "caseId": "665ec7ce-c31b-4320-9c74-45b69e14327a",
+  "caseNumber": "WPC NO. 6203/2026",
+  "beforeNextHearing": [],
+  "acceptedArtifactSha256": "9a7f7e3d2ee55acc264373d73d45e5d8c03619061e24388f13a95cfbb4859b51",
+  "orders": [
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1778239354_dc539e4745899eea_pms_62032026.pdf/2026",
+      "orderDate": "2026-05-06",
+      "facts": [
+        {
+          "category": "CASE_CONTEXT",
+          "field": "context",
+          "scope": "Current",
+          "value": "Allowed, subject to all just exceptions.",
+          "evidence": "Allowed, subject to all just exceptions.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "DISPOSITION",
+          "field": "disposition",
+          "scope": "Current",
+          "value": "Application is disposed of.",
+          "evidence": "Application is disposed of.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "LAND_FACT",
+          "field": "land",
+          "scope": "Historical",
+          "value": "This is a writ petition under Article 226 of the Constitution of India filed by the Petitioners namely Mr. Yudhvir Singh and Mr. Lakhbir Singh, inter alia, challenging the Notifications bearing F. No. ADM/LAC/SW/2015/12966 dated 25th February, 2025 issued under Section 11(1) of the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation, Resettlement Act, 2013 (hereinafter ‘the Act’) and notification bearing F. No.ADM/LAC/SW/2015/13599 dated 18th February, 2026 issued under Section 19 of the Act.",
+          "evidence": "This is a writ petition under Article 226 of the Constitution of India filed by the Petitioners namely Mr. Yudhvir Singh and Mr. Lakhbir Singh, inter alia, challenging the Notifications bearing F. No. ADM/LAC/SW/2015/12966 dated 25th February, 2025 issued under Section 11(1) of the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation, Resettlement Act, 2013 (hereinafter ‘the Act’) and notification bearing F. No.ADM/LAC/SW/2015/13599 dated 18th February, 2026 issued under Section 19 of the Act.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "CASE_CONTEXT",
+          "field": "context",
+          "scope": "Current",
+          "value": "4. The land in question as described in the notification issued under Section 11 of the Act is as under:",
+          "evidence": "4. The land in question as described in the notification issued under Section 11 of the Act is as under:",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "5. Under Section 4(1) of the Act, a notification was issued on 14th March, 2022 initiating a Social Impact Assessment (hereinafter, ‘SIA’) study.",
+          "evidence": "5. Under Section 4(1) of the Act, a notification was issued on 14th March, 2022 initiating a Social Impact Assessment (hereinafter, ‘SIA’) study.",
+          "page": 3,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "The Petitioners filed their objections/representations on 5th August, 2022 and 16th August 2022.",
+          "evidence": "The Petitioners filed their objections/representations on 5th August, 2022 and 16th August 2022.",
+          "page": 3,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PETITIONER_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "8. Submission of Ms. Maan, ld. Counsel appearing for the Petitioners, is that without the final SIA report, notifications under Sections 11 and 19 of the Act could not have been issued.",
+          "evidence": "8. Submission of Ms. Maan, ld. Counsel appearing for the Petitioners, is that without the final SIA report, notifications under Sections 11 and 19 of the Act could not have been issued.",
+          "page": 3,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PETITIONER_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "According to her, the notification under Section 11 of the Act relies upon the final SIA report dated 08th March 2024, which has not been uploaded and has also not been supplied to the Petitioners pursuant to the RTI application.",
+          "evidence": "According to her, the notification under Section 11 of the Act relies upon the final SIA report dated 08th March 2024, which has not been uploaded and has also not been supplied to the Petitioners pursuant to the RTI application.",
+          "page": 3,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PETITIONER_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "It is her submission that, therefore, the notifications under Sections 11 and 19 of the Act deserve to be quashed.",
+          "evidence": "It is her submission that, therefore, the notifications under Sections 11 and 19 of the Act deserve to be quashed.",
+          "page": 3,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "LAC_OR_RESPONDENT_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "9. On the other hand, Mr. Pathak, ld. Counsel appearing for the LAC submits that the notifications under Sections 11 and 19 of the Act having been issued, the Petitioners will get another opportunity before the award is passed, in respect of any submission that the Petitioners wish to make including the objections, that can be filed.",
+          "evidence": "9. On the other hand, Mr. Pathak, ld. Counsel appearing for the LAC submits that the notifications under Sections 11 and 19 of the Act having been issued, the Petitioners will get another opportunity before the award is passed, in respect of any submission that the Petitioners wish to make including the objections, that can be filed.",
+          "page": 3,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null,
+          "evidenceParts": [
+            {
+              "page": 3,
+              "evidence": "9. On the other hand, Mr. Pathak, ld. Counsel appearing for the LAC submits that the notifications under Sections 11 and 19 of the Act having been issued, the Petitioners will get another opportunity before the award is passed, in respect of any submission that the Petitioners wish to make including the"
+            },
+            {
+              "page": 4,
+              "evidence": "objections, that can be filed."
+            }
+          ]
+        },
+        {
+          "category": "OTHER_PARTY_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "10. Ms. Kapila, ld. Counsel appearing for the DDA also has pointed out that upon the issuance of the notification under Section 11 of the Act, the Petitioners have an opportunity to file objections under Section 15 of the Act, which the Petitioners did not file.",
+          "evidence": "10. Ms. Kapila, ld. Counsel appearing for the DDA also has pointed out that upon the issuance of the notification under Section 11 of the Act, the Petitioners have an opportunity to file objections under Section 15 of the Act, which the Petitioners did not file.",
+          "page": 4,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "OTHER_PARTY_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "Various grounds, on which the objections could be filed, are set out in Section 15(1) of the Act.",
+          "evidence": "Various grounds, on which the objections could be filed, are set out in Section 15(1) of the Act.",
+          "page": 4,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "filing",
+          "scope": "Current",
+          "value": "14. Accordingly, the LAC and Delhi Jal Board, which is the agency for whom the land has been acquired, shall obtain instructions in this matter on these two aspects and file short affidavits by the next date of hearing.",
+          "evidence": "14. Accordingly, the LAC and Delhi Jal Board, which is the agency for whom the land has been acquired, shall obtain instructions in this matter on these two aspects and file short affidavits by the next date of hearing.",
+          "page": 5,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "LAND_FACT",
+          "field": "land",
+          "scope": "Historical",
+          "value": "12. Another concern, on behalf of the Petitioners is that the land in question is notified as an agricultural land whereas under the Master Plan published by the DDA in 2017 and revised in 2021, the land in question falls in Zone K1 and has been declared as urban land.",
+          "evidence": "12. Another concern, on behalf of the Petitioners is that the land in question is notified as an agricultural land whereas under the Master Plan published by the DDA in 2017 and revised in 2021, the land in question falls in Zone K1 and has been declared as urban land.",
+          "page": 4,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PETITIONER_SUBMISSION",
+          "field": "context",
+          "scope": "Uncertain",
+          "value": "It is submitted that it is extremely inequitable and unfair that such a land has now been declared as an agricultural land and is sought to be acquired at a very low price, depriving the Petitioners of enjoyment of the land as also fair market value of the land.",
+          "evidence": "It is submitted that it is extremely inequitable and unfair that such a land has now been declared as an agricultural land and is sought to be acquired at a very low price, depriving the Petitioners of enjoyment of the land as also fair market value of the land.",
+          "page": 4,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "issue",
+          "scope": "Current",
+          "value": "The first and the foremost question would be whether the final SIA report was, in fact, prepared and whether the same was published and the copy was given to the Petitioners or not.",
+          "evidence": "The first and the foremost question would be whether the final SIA report was, in fact, prepared and whether the same was published and the copy was given to the Petitioners or not.",
+          "page": 4,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "OTHER_PARTY_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "Ld. Counsel submits that the Petitioners, having not availed the said opportunity, cannot today challenge the same.",
+          "evidence": "Ld. Counsel submits that the Petitioners, having not availed the said opportunity, cannot today challenge the same.",
+          "page": 4,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "OTHER_PARTY_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "15. Insofar as the DDA is concerned, the DDA’s submissions would be taken into consideration even though the same is not the land acquiring authority.",
+          "evidence": "15. Insofar as the DDA is concerned, the DDA’s submissions would be taken into consideration even though the same is not the land acquiring authority.",
+          "page": 5,
+          "actor": "DDA",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "16. List on 28th May, 2026.",
+          "evidence": "16. List on 28th May, 2026.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "NeedsReview",
+      "coverage": {
+        "pageCount": 5,
+        "selectedPages": [
+          2,
+          3,
+          4,
+          5
+        ],
+        "chunkCount": 4,
+        "anchorCount": 25,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 25,
+          "selectedAnchorCount": 20,
+          "omittedAnchorCount": 5,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24
+          ],
+          "omittedAnchorIds": [
+            6,
+            7,
+            8,
+            9,
+            10
+          ],
+          "selectionReasons": {
+            "0": [
+              "operative-language"
+            ],
+            "1": [
+              "operative-language"
+            ],
+            "2": [
+              "case-topic"
+            ],
+            "3": [],
+            "4": [],
+            "5": [],
+            "11": [
+              "source-speaker"
+            ],
+            "12": [
+              "source-speaker"
+            ],
+            "13": [
+              "source-speaker"
+            ],
+            "14": [
+              "case-topic",
+              "source-speaker"
+            ],
+            "15": [
+              "final-pages",
+              "source-speaker"
+            ],
+            "16": [
+              "final-pages",
+              "source-speaker"
+            ],
+            "17": [
+              "final-pages",
+              "source-speaker"
+            ],
+            "18": [
+              "final-pages"
+            ],
+            "19": [
+              "final-pages"
+            ],
+            "20": [
+              "final-pages"
+            ],
+            "21": [
+              "final-pages"
+            ],
+            "22": [
+              "operative-language",
+              "case-topic",
+              "final-pages",
+              "judicial-narrative"
+            ],
+            "23": [
+              "final-pages",
+              "source-speaker"
+            ],
+            "24": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": false,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 19,
+        "unrepresentedNonquotedAnchors": 6
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "9f4e7d4340d328e4b96e18a2270ae60c135b86edcf2c40fdc9f5008343af51b1",
+      "nextHearingDate": "2026-05-28"
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1780317622_95605be6b2e69452_755_62032026.pdf/2026",
+      "orderDate": "2026-05-29",
+      "facts": [
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "2. This matter has been taken up today as 28th May, 2026 was declared a holiday on account of Id-ul-Zuha (Bakrid) vide Notification No. 77/I-G- 4/Genl.-I/DHC dated 26th May, 2026.",
+          "evidence": "2. This matter has been taken up today as 28th May, 2026 was declared a holiday on account of Id-ul-Zuha (Bakrid) vide Notification No. 77/I-G- 4/Genl.-I/DHC dated 26th May, 2026.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "3. The LAC and Delhi Jal Board have not obtained instructions in this matter and have also not filed any affidavit.",
+          "evidence": "3. The LAC and Delhi Jal Board have not obtained instructions in this matter and have also not filed any affidavit.",
+          "page": 1,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "direction",
+          "scope": "Current",
+          "value": "5. If any action is taken by the LAC and the Delhi Jal Board, the same shall be subject to the outcome to this writ petition.",
+          "evidence": "5. If any action is taken by the LAC and the Delhi Jal Board, the same shall be subject to the outcome to this writ petition.",
+          "page": 1,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "6. List on 21st August, 2026.",
+          "evidence": "6. List on 21st August, 2026.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 2,
+        "selectedPages": [
+          1,
+          2
+        ],
+        "chunkCount": 1,
+        "anchorCount": 4,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 4,
+          "selectedAnchorCount": 4,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "final-pages"
+            ],
+            "1": [
+              "case-topic",
+              "final-pages"
+            ],
+            "2": [
+              "operative-language",
+              "final-pages"
+            ],
+            "3": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 4,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "0d4638a980e7329cf6d653fdbb140eaab20c0926706b10eaf097669e5a532816",
+      "nextHearingDate": "2026-08-21"
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1787577436_ae76a2a50a36e1ad_pms_62032026.pdf/2026",
+      "orderDate": "2026-08-21",
+      "facts": [
+        {
+          "category": "COURT_DIRECTION",
+          "field": "filing",
+          "scope": "Quoted",
+          "value": "14. Accordingly, the LAC and Delhi Jal Board, which is the agency for whom the land has been acquired, shall obtain instructions in this matter on these two aspects and file short affidavits by the next date of hearing.",
+          "evidence": "14. Accordingly, the LAC and Delhi Jal Board, which is the agency for whom the land has been acquired, shall obtain instructions in this matter on these two aspects and file short affidavits by the next date of hearing.",
+          "page": 2,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "LAND_FACT",
+          "field": "land",
+          "scope": "Historical",
+          "value": "4. Secondly, the question, as to whether the subject land would be considered as agricultural land or urban land, was also to be answered by way of affidavits by the LAC and the DJB.",
+          "evidence": "4. Secondly, the question, as to whether the subject land would be considered as agricultural land or urban land, was also to be answered by way of affidavits by the LAC and the DJB.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "5. On 6th May, 2026, the matter was then adjourned to 28th May, 2026, for LAC and DJB to obtain instructions and file affidavits.",
+          "evidence": "5. On 6th May, 2026, the matter was then adjourned to 28th May, 2026, for LAC and DJB to obtain instructions and file affidavits.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "CASE_CONTEXT",
+          "field": "context",
+          "scope": "Current",
+          "value": "6. On 29th May, 2026, last opportunity was granted to LAC and DJB to file the same by 10th July, 2026, and it was directed as under: “[...]3.",
+          "evidence": "6. On 29th May, 2026, last opportunity was granted to LAC and DJB to file the same by 10th July, 2026, and it was directed as under: “[...]3.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": "by 10th July, 2026, and it was directed as under: “[...]3",
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "filing",
+          "scope": "Quoted",
+          "value": "The LAC and Delhi Jal Board have not obtained instructions in this matter and have also not filed any affidavit.",
+          "evidence": "The LAC and Delhi Jal Board have not obtained instructions in this matter and have also not filed any affidavit.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "direction",
+          "scope": "Quoted",
+          "value": "5. If any action is taken by the LAC and the Delhi Jal Board, the same shall be subject to the outcome to this writ petition.",
+          "evidence": "5. If any action is taken by the LAC and the Delhi Jal Board, the same shall be subject to the outcome to this writ petition.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "filing",
+          "scope": "Current",
+          "value": "Today, the stand of Mr. Pathak, ld. Counsel appearing for the LAC is that he has received certain instructions, however, the affidavit could not be filed.",
+          "evidence": "Today, the stand of Mr. Pathak, ld. Counsel appearing for the LAC is that he has received certain instructions, however, the affidavit could not be filed.",
+          "page": 3,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "observation",
+          "scope": "Quoted",
+          "value": "The complete information of the same has not been disclosed by the landowners so the complete data regarding the impact of the land acquisition on the families of the workers could not be accessed.",
+          "evidence": "The complete information of the same has not been disclosed by the landowners so the complete data regarding the impact of the land acquisition on the families of the workers could not be accessed.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COMPENSATION_FACT",
+          "field": "compensation",
+          "scope": "Current",
+          "value": "A perusal of the above would show that the compensation amount had to be based on the fair market value of the land, and the same is to be treated as urban area land, though it is presently being used for agriculture.",
+          "evidence": "A perusal of the above would show that the compensation amount had to be based on the fair market value of the land, and the same is to be treated as urban area land, though it is presently being used for agriculture.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COMPENSATION_FACT",
+          "field": "compensation",
+          "scope": "Current",
+          "value": "12. The SIA report also states clearly that the compensation for the subject land is twice the market value of the acquired property.",
+          "evidence": "12. The SIA report also states clearly that the compensation for the subject land is twice the market value of the acquired property.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "finding",
+          "scope": "Current",
+          "value": "14. Certain notices dated 1st June, 2026 and 14th August, 2026 issued by the District Magistrate, South West have also been placed on record.",
+          "evidence": "14. Certain notices dated 1st June, 2026 and 14th August, 2026 issued by the District Magistrate, South West have also been placed on record.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "15. A perusal of the aforesaid notices reveals that on one hand, the concerned agency i.e., DJB is proceeding further, and calling the Appellants for hearing in terms of Section 21 of the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation and Resettlement Act, 2013 (hereinafter, ‘the Act, 2013’) and on the other hand, all the authorities have not filed affidavits in this matter, despite specific directions to do so.",
+          "evidence": "15. A perusal of the aforesaid notices reveals that on one hand, the concerned agency i.e., DJB is proceeding further, and calling the Appellants for hearing in terms of Section 21 of the Right to Fair Compensation and Transparency in Land Acquisition, Rehabilitation and Resettlement Act, 2013 (hereinafter, ‘the Act, 2013’) and on the other hand, all the authorities have not filed affidavits in this matter, despite specific directions to do so.",
+          "page": 5,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null,
+          "evidenceParts": [
+            {
+              "page": 5,
+              "evidence": "15. A perusal of the aforesaid notices reveals that on one hand, the concerned agency i.e., DJB is proceeding further, and calling the Appellants for hearing in terms of Section 21 of the Right to Fair Compensation and"
+            },
+            {
+              "page": 6,
+              "evidence": "Transparency in Land Acquisition, Rehabilitation and Resettlement Act, 2013 (hereinafter, ‘the Act, 2013’) and on the other hand, all the authorities have not filed affidavits in this matter, despite specific directions to do so."
+            }
+          ]
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "16. The clear impression being gathered by the Court is that on the one hand, the authorities wish to proceed for passing award, and on the other hand, they do not wish to answer the question being raised as to whether the land is being treated as agricultural land or urban land.",
+          "evidence": "16. The clear impression being gathered by the Court is that on the one hand, the authorities wish to proceed for passing award, and on the other hand, they do not wish to answer the question being raised as to whether the land is being treated as agricultural land or urban land.",
+          "page": 6,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "This would be a crucial issue for the determination of compensation.",
+          "evidence": "This would be a crucial issue for the determination of compensation.",
+          "page": 6,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "17. Such a course of action completely defeats the rights of land owners under the 2014 Act, where a proper scheme, in accordance with due process, have to be followed by the authorities for payment of compensation before even possession of the land can be taken from the Petitioners.",
+          "evidence": "17. Such a course of action completely defeats the rights of land owners under the 2014 Act, where a proper scheme, in accordance with due process, have to be followed by the authorities for payment of compensation before even possession of the land can be taken from the Petitioners.",
+          "page": 6,
+          "actor": "Petitioners",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "filing",
+          "scope": "Current",
+          "value": "19. The LAC, DJB as also the DDA shall file their affidavits by 10th September, 2026, if they wish to do so, along with the final SIA report.",
+          "evidence": "19. The LAC, DJB as also the DDA shall file their affidavits by 10th September, 2026, if they wish to do so, along with the final SIA report.",
+          "page": 6,
+          "actor": "DDA",
+          "deadlineText": "by 10th September, 2026, if they wish to do so, along with the final SIA report",
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_OBSERVATION",
+          "field": "observation",
+          "scope": "Current",
+          "value": "20. If the affidavits are not filed, this Court would not hesitate in quashing the acquisition proceedings in respect of the subject land.",
+          "evidence": "20. If the affidavits are not filed, this Court would not hesitate in quashing the acquisition proceedings in respect of the subject land.",
+          "page": 6,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "21. List on 14th September, 2026 as Item No.1.",
+          "evidence": "21. List on 14th September, 2026 as Item No.1.",
+          "page": 6,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "direction",
+          "scope": "Current",
+          "value": "18. Under these circumstances, any further proceedings pursuant to the impugned Notification under Section 11 of the Act, 2013 shall remain stayed.",
+          "evidence": "18. Under these circumstances, any further proceedings pursuant to the impugned Notification under Section 11 of the Act, 2013 shall remain stayed.",
+          "page": 6,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "NeedsReview",
+      "coverage": {
+        "pageCount": 6,
+        "selectedPages": [
+          2,
+          3,
+          5,
+          6
+        ],
+        "chunkCount": 4,
+        "anchorCount": 31,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 31,
+          "selectedAnchorCount": 20,
+          "omittedAnchorCount": 11,
+          "selectedAnchorIds": [
+            5,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            14,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30
+          ],
+          "omittedAnchorIds": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            6,
+            13,
+            15,
+            16,
+            17,
+            18
+          ],
+          "selectionReasons": {
+            "5": [
+              "operative-language",
+              "case-topic",
+              "judicial-narrative"
+            ],
+            "7": [
+              "lac-respondent-position"
+            ],
+            "8": [
+              "case-topic",
+              "lac-respondent-position"
+            ],
+            "9": [
+              "case-topic",
+              "lac-respondent-position"
+            ],
+            "10": [],
+            "11": [
+              "case-topic"
+            ],
+            "12": [
+              "operative-language"
+            ],
+            "14": [
+              "case-topic",
+              "lac-respondent-position"
+            ],
+            "19": [
+              "final-pages"
+            ],
+            "20": [
+              "case-topic",
+              "final-pages"
+            ],
+            "21": [
+              "case-topic",
+              "final-pages"
+            ],
+            "22": [
+              "final-pages"
+            ],
+            "23": [
+              "case-topic",
+              "final-pages"
+            ],
+            "24": [
+              "case-topic",
+              "final-pages"
+            ],
+            "25": [
+              "case-topic",
+              "final-pages"
+            ],
+            "26": [
+              "operative-language",
+              "case-topic",
+              "final-pages"
+            ],
+            "27": [
+              "operative-language",
+              "final-pages"
+            ],
+            "28": [
+              "operative-language",
+              "case-topic",
+              "final-pages",
+              "lac-respondent-position"
+            ],
+            "29": [
+              "case-topic",
+              "final-pages"
+            ],
+            "30": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": false,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": true,
+          "needsReview": false,
+          "uncoveredAnchorIds": [
+            27
+          ],
+          "remainingAnchorIds": [],
+          "attemptedAnchorIds": [
+            27
+          ]
+        },
+        "representedAnchorCount": 19,
+        "unrepresentedNonquotedAnchors": 4
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "9929575f0594c69b1d314acc80adffa6e0801c3342120d1553063432fa2d7069",
+      "nextHearingDate": null
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1788443113_edd702a66a6e6085_pms_62032026.pdf/2026",
+      "orderDate": "2026-09-02",
+      "facts": [
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "The present application has been filed by the Applicants seeking correction of order dated 21st August, 2026.",
+          "evidence": "The present application has been filed by the Applicants seeking correction of order dated 21st August, 2026.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "The case of the Applicants is that in the order dated 21st August, 2026, he appeared for Respondent No.6-Union of India but inadvertently his appearance could not be marked.",
+          "evidence": "The case of the Applicants is that in the order dated 21st August, 2026, he appeared for Respondent No.6-Union of India but inadvertently his appearance could not be marked.",
+          "page": 1,
+          "actor": "Respondent No.6",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "DISPOSITION",
+          "field": "disposition",
+          "scope": "Current",
+          "value": "4. Application is disposed of.",
+          "evidence": "4. Application is disposed of.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 2,
+        "selectedPages": [
+          1,
+          2
+        ],
+        "chunkCount": 1,
+        "anchorCount": 3,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 3,
+          "selectedAnchorCount": 3,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "final-pages"
+            ],
+            "1": [
+              "final-pages"
+            ],
+            "2": [
+              "operative-language",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 3,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "edda10d5ea68338aca82e0f4dbc42db6d7cdad036aaa8712af64dbb10c3ec0dd",
+      "nextHearingDate": null
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1788442503_2a504237702e2bba_593_62032026.pdf/2026",
+      "orderDate": "2026-09-02",
+      "facts": [
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "The present application has been filed by the Applicants seeking correction of order dated 21st August, 2026.",
+          "evidence": "The present application has been filed by the Applicants seeking correction of order dated 21st August, 2026.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "The case of the Applicants is that in the order dated 21st August, 2026, he appeared for Respondent No.6-Union of India but inadvertently his appearance could not be marked.",
+          "evidence": "The case of the Applicants is that in the order dated 21st August, 2026, he appeared for Respondent No.6-Union of India but inadvertently his appearance could not be marked.",
+          "page": 1,
+          "actor": "Respondent No.6",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "DISPOSITION",
+          "field": "disposition",
+          "scope": "Current",
+          "value": "4. Application is disposed of.",
+          "evidence": "4. Application is disposed of.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 2,
+        "selectedPages": [
+          1,
+          2
+        ],
+        "chunkCount": 1,
+        "anchorCount": 3,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 3,
+          "selectedAnchorCount": 3,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "final-pages"
+            ],
+            "1": [
+              "final-pages"
+            ],
+            "2": [
+              "operative-language",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 3,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "6affb7663397f06b46078956cb90f7138cfbae29f35caa30fc3436c4b9f7bed9",
+      "nextHearingDate": null
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1789474568_f5e6e042b1e5ca1d_pms_62032026.pdf/2026",
+      "orderDate": "2026-09-14",
+      "facts": [
+        {
+          "category": "LAC_OR_RESPONDENT_SUBMISSION",
+          "field": "context",
+          "scope": "Current",
+          "value": "2. The LAC and DJB are stated to have filed their respective affidavits recently.",
+          "evidence": "2. The LAC and DJB are stated to have filed their respective affidavits recently.",
+          "page": 1,
+          "actor": "LAC",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "CASE_CONTEXT",
+          "field": "context",
+          "scope": "Current",
+          "value": "4. Petitioner is permitted to file rejoinder, if so advised, by the next date of hearing.",
+          "evidence": "4. Petitioner is permitted to file rejoinder, if so advised, by the next date of hearing.",
+          "page": 1,
+          "actor": "Petitioner",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "5. Since the Regular Bench is not available and the pleadings are not on record, list for consideration on 09th October, 2026 on top of the board.",
+          "evidence": "5. Since the Regular Bench is not available and the pleadings are not on record, list for consideration on 09th October, 2026 on top of the board.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 1,
+        "selectedPages": [
+          1
+        ],
+        "chunkCount": 1,
+        "anchorCount": 3,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 3,
+          "selectedAnchorCount": 3,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "case-topic",
+              "final-pages",
+              "lac-respondent-position",
+              "source-speaker"
+            ],
+            "1": [
+              "operative-language",
+              "case-topic",
+              "final-pages"
+            ],
+            "2": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 3,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "a7f74c08432496acda177068c03227d42f21286ba0d861c99d004ac57706c563",
+      "nextHearingDate": "2026-10-09"
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1789971883_77feb4744dcb6b69_pms_62032026.pdf/2026",
+      "orderDate": "2026-09-18",
+      "facts": [
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "context",
+          "scope": "Current",
+          "value": "2. Hon’ble Division Bench could not assemble as HMJ Madhu Jain is on leave today.",
+          "evidence": "2. Hon’ble Division Bench could not assemble as HMJ Madhu Jain is on leave today.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_DIRECTION",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "3. List on 23rd September, 2026.",
+          "evidence": "3. List on 23rd September, 2026.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 1,
+        "selectedPages": [
+          1
+        ],
+        "chunkCount": 1,
+        "anchorCount": 2,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 2,
+          "selectedAnchorCount": 2,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "final-pages"
+            ],
+            "1": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 2,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "745b6beda2dd83a7ea9147b8eac266a578d54072bcbdeab560f83b682587e5e2",
+      "nextHearingDate": "2026-09-23"
+    },
+    {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/1790336524_9e38a72e640937d2_pms_62032026.pdf/2026",
+      "orderDate": "2026-09-23",
+      "facts": [
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "filing",
+          "scope": "Current",
+          "value": "The present application has been filed under Section 151 of the Code of Civil Procedure, 1908, for marking appearance of Mr. Raktim Gogoi, CGSC with Mr. Kanhaiya Singla, ld. Counsels for Respondent No.6 in the order dated 29th May, 2026.",
+          "evidence": "The present application has been filed under Section 151 of the Code of Civil Procedure, 1908, for marking appearance of Mr. Raktim Gogoi, CGSC with Mr. Kanhaiya Singla, ld. Counsels for Respondent No.6 in the order dated 29th May, 2026.",
+          "page": 1,
+          "actor": "Respondent No.6",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "COURT_OBSERVATION",
+          "field": "observation",
+          "scope": "Current",
+          "value": "4. Accordingly, the appearance of Mr. Raktim Gogoi, CGSC with Mr. Kanhaiya Singla, ld. Counsel for Respondent No.6 in the order dated 29th May, 2026 be read as marked.",
+          "evidence": "4. Accordingly, the appearance of Mr. Raktim Gogoi, CGSC with Mr. Kanhaiya Singla, ld. Counsel for Respondent No.6 in the order dated 29th May, 2026 be read as marked.",
+          "page": 1,
+          "actor": "Respondent No.6",
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "DISPOSITION",
+          "field": "disposition",
+          "scope": "Current",
+          "value": "5. Application is disposed of.",
+          "evidence": "5. Application is disposed of.",
+          "page": 1,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        },
+        {
+          "category": "PROCEDURAL_EVENT",
+          "field": "nextHearing",
+          "scope": "Current",
+          "value": "List on the date fixed i.e., 9th October, 2026.",
+          "evidence": "List on the date fixed i.e., 9th October, 2026.",
+          "page": 2,
+          "actor": null,
+          "deadlineText": null,
+          "targetOrderDate": null,
+          "targetActionText": null
+        }
+      ],
+      "status": "Validated",
+      "coverage": {
+        "pageCount": 2,
+        "selectedPages": [
+          1,
+          2
+        ],
+        "chunkCount": 1,
+        "anchorCount": 4,
+        "preselection": {
+          "policy": "high-signal-candidates-v1",
+          "originalAnchorCount": 4,
+          "selectedAnchorCount": 4,
+          "omittedAnchorCount": 0,
+          "selectedAnchorIds": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "omittedAnchorIds": [],
+          "selectionReasons": {
+            "0": [
+              "final-pages"
+            ],
+            "1": [
+              "final-pages",
+              "judicial-narrative"
+            ],
+            "2": [
+              "operative-language",
+              "final-pages"
+            ],
+            "3": [
+              "case-topic",
+              "final-pages"
+            ]
+          },
+          "wholeDocumentCoverage": true,
+          "criticalBudgetOverflow": false
+        },
+        "allSelectedChunksProcessed": true,
+        "completenessRetry": {
+          "used": false,
+          "needsReview": false,
+          "uncoveredAnchorIds": [],
+          "remainingAnchorIds": []
+        },
+        "representedAnchorCount": 4,
+        "unrepresentedNonquotedAnchors": 0
+      },
+      "versions": {
+        "extraction": "court-native-v3-chronology",
+        "rulebook": "2",
+        "model": "Pilot-V3-Qwen3-4B-Instruct-2507-Q4_K_M-LoRA-F32-b11321"
+      },
+      "sourceVerificationComplete": true,
+      "sha256": "770c4c324a86ba67028f357a0a0a69107032e3d3648e5f28edcee7b6c5b1fdc5",
+      "nextHearingDate": "2026-10-09"
+    }
+  ]
+}

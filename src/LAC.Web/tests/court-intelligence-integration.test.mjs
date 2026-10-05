@@ -77,7 +77,7 @@ test('unprocessed real sources have explicit processing action; no automatic POS
     globalThis.fetch=async(url,options)=>{requests.push({url,options});return response({...payload(B),knownOrderCount:1,unprocessedOrderCount:1,orders:[{orderDate:'2026-01-01',officialUrl:'https://delhihighcourt.nic.in/app/showlogo/fixture.pdf/2026',status:'Unprocessed',facts:[]}]});};
     h.render(B);await tick();const html=renderToStaticMarkup(h.render(B));
     assert.match(html,/awaiting AI/);assert.match(html,/Process known orders/);
-    assert.match(html,/No usable Court evidence is currently available/);assert.equal(requests.length,1);assert.ok(!requests[0].options.method);
+    assert.match(html,/Action status pending/);assert.match(html,/Action status will be available after verified Court intelligence is ready/);assert.equal(requests.length,1);assert.ok(!requests[0].options.method);
   }finally{h.close();globalThis.fetch=previous;}
 });
 test('official order links reject arbitrary paths, credentials, query, ports and other origins',()=>{

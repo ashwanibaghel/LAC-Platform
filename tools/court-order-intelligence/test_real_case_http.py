@@ -17,6 +17,31 @@ from test_questions import SelectAll
 
 
 class RegisteredHttpTests(unittest.TestCase):
+    def test_offline_cached_answers_and_retry_question_never_redownload_or_invoke_inference(self):
+        case=str(uuid.uuid4());ready=threading.Event();servers=[]
+        actual_server_type=serve_questions.HTTPServer
+        def server(_address,handler):
+            actual=actual_server_type(('127.0.0.1',0),handler);servers.append(actual);ready.set();return actual
+        class Never(SelectAll):
+            def extract(self,*args):raise AssertionError('Offline inference invoked')
+        with tempfile.TemporaryDirectory()as root:
+            refresh_case(root,case,NUMBER,[source(case=case)],SelectAll(),
+                processor=lambda metadata,*args:order([fact()],officialUrl=metadata['officialUrl'],orderDate=metadata['orderDate']))
+            with patch.object(serve_questions,'HTTPServer',server),patch.object(serve_questions,'LlamaCppProvider',lambda *a,**k:Never()), \
+                    patch.object(serve_questions,'model_state',return_value='ModelOffline'), \
+                    patch.object(serve_questions,'prepare_question',side_effect=AssertionError('Offline retrieval attempted'))as prepare, \
+                    patch('sys.argv',['serve_questions','--extraction-root',root,'--model-version','test','--require-model-health']):
+                thread=threading.Thread(target=serve_questions.main,daemon=True);thread.start();self.assertTrue(ready.wait(3))
+                try:
+                    base='http://127.0.0.1:'+str(servers[0].server_port)
+                    for question in ['Latest Court direction','Retry order 20 September 2026']:
+                        response=requests.post(base+'/ask',json=dict(caseId=case,caseNumber=NUMBER,
+                            question=question,orderIndex=[source(case=case)]),timeout=3)
+                        self.assertEqual(200,response.status_code)
+                        self.assertEqual(case,response.json()['caseId'])
+                    prepare.assert_not_called()
+                finally:servers[0].shutdown();servers[0].server_close();thread.join(3)
+
     def test_authenticated_name_remains_available_while_court_answer_waits_for_inference(self):
         case=str(uuid.uuid4()); ready=threading.Event(); entered=threading.Event(); release=threading.Event(); servers=[]; responses=[]
         actual_server_type=serve_questions.HTTPServer

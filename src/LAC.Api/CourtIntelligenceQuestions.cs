@@ -5,7 +5,8 @@ using System.Text;
 namespace LAC.Api;
 
 public sealed record CourtChatTurn(string Question, string Answer);
-public sealed record AskCourtIntelligenceRequest(string Question, IReadOnlyList<CourtChatTurn>? History = null);
+public sealed record AskCourtIntelligenceRequest(string Question, IReadOnlyList<CourtChatTurn>? History = null,
+    string Language = "Auto");
 public sealed record CourtAssistantContext(string? DisplayName, string? Designation);
 public sealed record CourtIntelligenceKnownOrder(Guid CourtCaseId, string NormalizedCaseIdentity,
     DateOnly? OrderDate, string? OfficialUrl, string? CorrigendumUrl, DateOnly? UploadDate, Guid SourceObservationId,
@@ -16,10 +17,17 @@ public static class CourtIntelligenceQuestions
 {
     public static async Task<IResult> AskAsync(Guid caseId, string question, IHttpClientFactory clients, CancellationToken ct,
         string? caseNumber = null, IReadOnlyList<CourtIntelligenceKnownOrder>? orderIndex = null,
-        string? extractionRoot = null, CourtAssistantContext? appContext = null, IReadOnlyList<CourtChatTurn>? history = null)
+        string? extractionRoot = null, CourtAssistantContext? appContext = null, IReadOnlyList<CourtChatTurn>? history = null,
+        string language = "Auto", CourtQuestionContext? conversationContext = null)
     {
         if (string.IsNullOrWhiteSpace(question) || question.Length > 600)
             return Results.BadRequest(new { error = "Please ask a question of up to 600 characters." });
+        var selectedLanguage = new[] { "Auto", "English", "Hindi", "Hinglish" }
+            .FirstOrDefault(x => string.Equals(x, language, StringComparison.OrdinalIgnoreCase));
+        if (selectedLanguage is null)
+            return Results.BadRequest(new { error = "Language must be Auto, English, Hindi or Hinglish." });
+        if (conversationContext is not null && conversationContext.CaseId != caseId)
+            return Results.BadRequest(new { error = "Conversation context belongs to another case." });
         try
         {
             // Fixed literal loopback origin; the Python service retrieves only this GUID.
@@ -28,7 +36,8 @@ public static class CourtIntelligenceQuestions
                 new CourtIntelligenceCaseIndex(caseId, caseNumber!, orderIndex!), ct) : null;
             JsonElement? courtCoverage = currentView is { } view && view.TryGetProperty("pipelineSummary", out var summary) ? summary : null;
             using var response = await PostLocalAsync(clients, "ask", new { caseId, question, caseNumber,
-                orderIndex = ProcessingSources(orderIndex), appContext, courtCoverage, history = boundedHistory }, ct);
+                orderIndex = ProcessingSources(orderIndex), appContext, courtCoverage, history = boundedHistory,
+                language = selectedLanguage, conversationContext }, ct);
             if (!response.IsSuccessStatusCode || response.Content.Headers.ContentLength > 128 * 1024)
                 return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
@@ -72,11 +81,11 @@ public static class CourtIntelligenceQuestions
         {
             using var response = await PostLocalAsync(clients, "refresh",
                 new { caseId = index.CaseId, caseNumber = index.CaseNumber, orderIndex = ProcessingSources(index.Orders) }, ct);
-            if ((int)response.StatusCode == 409) return Results.Conflict(new { error = "Another local Court intelligence check is in progress." });
-            if ((int)response.StatusCode != 202) return Unavailable();
+            if ((int)response.StatusCode is not (202 or 409 or 503)) return Unavailable();
             using var document = await ReadResponseAsync(response, ct);
             if (document.RootElement.GetProperty("caseId").GetGuid() != index.CaseId) return Unavailable();
-            return Results.Json(document.RootElement.Clone(), statusCode: 202);
+            if (!document.RootElement.TryGetProperty("runtimeState", out var state) || !CourtRuntimeService.States.Contains(state.GetString())) return Unavailable();
+            return Results.Json(document.RootElement.Clone(), statusCode: (int)response.StatusCode);
         }
         catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException
             or IOException or InvalidDataException or InvalidOperationException or KeyNotFoundException or FormatException) { return Unavailable(); }
