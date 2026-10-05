@@ -25,8 +25,9 @@ def route(question):
     if GENERAL.search(question): return 'GeneralLocal'
     return 'GeneralLocal' if STANDALONE.search(question) and not AMBIGUOUS.search(question) else 'CourtGrounded'
 
-def general_answer(question, provider, context=None, history=None, language='Auto'):
-    if route(question) != 'GeneralLocal': raise ValueError('Court question cannot use general chat')
+def general_answer(question, provider, context=None, history=None, language='Auto', standalone=False):
+    if route(question) != 'GeneralLocal' and (not standalone or COURT.search(question) or normalize(question)['topics'] != ['unknown']):
+        raise ValueError('Court question cannot use general chat')
     from question_language import selected_language
     language=selected_language(language,question)
     context=context if isinstance(context,dict) else {}
@@ -40,7 +41,8 @@ def general_answer(question, provider, context=None, history=None, language='Aut
     for turn in (history or [])[-4:]:
         if (isinstance(turn,dict) and isinstance(turn.get('question'),str) and isinstance(turn.get('answer'),str)
             and len(turn['question'])<=600 and len(turn['answer'])<=1200
-            and route(turn['question'])=='GeneralLocal' and not COURT.search(turn['answer']) and not repetitive(turn['answer'])):
+            and (route(turn['question'])=='GeneralLocal' or standalone and not COURT.search(turn['question']) and normalize(turn['question'])['topics']==['unknown'])
+            and not COURT.search(turn['answer']) and not repetitive(turn['answer'])):
             turns.append(turn)
     instructions=(f'You are a friendly local office assistant. Reply in {language}; Hindi uses natural Devanagari and Hinglish uses Roman Hindi. '
         'For a greeting or sentence meaning, use one or two clear short sentences. Do not repeat phrases. '

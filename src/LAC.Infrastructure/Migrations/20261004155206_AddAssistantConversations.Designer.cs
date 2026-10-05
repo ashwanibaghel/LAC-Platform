@@ -3,6 +3,7 @@ using System;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LAC.Infrastructure.Migrations
 {
     [DbContext(typeof(LacDbContext))]
-    partial class LacDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261004155206_AddAssistantConversations")]
+    partial class AddAssistantConversations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1229,86 +1232,6 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("ClaimKhasra");
-                });
-
-            modelBuilder.Entity("LAC.Domain.CoreDocumentIntake", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ClassifierVersion")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("ConfirmationJson")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("ConfirmedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ConfirmedAwardId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConfirmedBy")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("ConfirmedDocumentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ConfirmedRole")
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("DocumentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ProposalJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Revision")
-                        .IsConcurrencyToken()
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Sha256Hash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<string>("SourcePagesJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<Guid>("VillageId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ConfirmedAwardId");
-
-                    b.HasIndex("ConfirmedDocumentId");
-
-                    b.HasIndex("DocumentId")
-                        .IsUnique();
-
-                    b.HasIndex("VillageId", "CreatedAt");
-
-                    b.HasIndex("VillageId", "Sha256Hash")
-                        .IsUnique();
-
-                    b.ToTable("CoreDocumentIntakes");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCase", b =>
@@ -4025,10 +3948,6 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("AwardId");
 
-                    b.HasIndex("MatterId")
-                        .IsUnique()
-                        .HasFilter("\"IsPrimary\" = TRUE");
-
                     b.HasIndex("MatterId", "AwardId")
                         .IsUnique();
 
@@ -4248,13 +4167,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid>("ActionByUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ContextEntityId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContextEntityType")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
                     b.Property<Guid?>("DocumentId")
                         .HasColumnType("uuid");
 
@@ -4293,28 +4205,6 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("MatterEvents");
-                });
-
-            modelBuilder.Entity("LAC.Domain.MatterKhasra", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("KhasraId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("MatterId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("KhasraId");
-
-                    b.HasIndex("MatterId", "KhasraId")
-                        .IsUnique();
-
-                    b.ToTable("MatterKhasras");
                 });
 
             modelBuilder.Entity("LAC.Domain.NmDocument", b =>
@@ -7374,39 +7264,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("Khasra");
                 });
 
-            modelBuilder.Entity("LAC.Domain.CoreDocumentIntake", b =>
-                {
-                    b.HasOne("LAC.Domain.Award", "ConfirmedAward")
-                        .WithMany()
-                        .HasForeignKey("ConfirmedAwardId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("LAC.Domain.Document", "ConfirmedDocument")
-                        .WithMany()
-                        .HasForeignKey("ConfirmedDocumentId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("LAC.Domain.Document", "Document")
-                        .WithMany()
-                        .HasForeignKey("DocumentId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.Village", "Village")
-                        .WithMany()
-                        .HasForeignKey("VillageId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("ConfirmedAward");
-
-                    b.Navigation("ConfirmedDocument");
-
-                    b.Navigation("Document");
-
-                    b.Navigation("Village");
-                });
-
             modelBuilder.Entity("LAC.Domain.CourtCase", b =>
                 {
                     b.HasOne("LAC.Domain.AppUser", "AssignedUser")
@@ -8328,25 +8185,6 @@ namespace LAC.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("ActionByUser");
-
-                    b.Navigation("Matter");
-                });
-
-            modelBuilder.Entity("LAC.Domain.MatterKhasra", b =>
-                {
-                    b.HasOne("LAC.Domain.Khasra", "Khasra")
-                        .WithMany()
-                        .HasForeignKey("KhasraId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.Matter", "Matter")
-                        .WithMany("KhasraLinks")
-                        .HasForeignKey("MatterId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Khasra");
 
                     b.Navigation("Matter");
                 });
@@ -9460,8 +9298,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("Drafts");
 
                     b.Navigation("Events");
-
-                    b.Navigation("KhasraLinks");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterDocument", b =>

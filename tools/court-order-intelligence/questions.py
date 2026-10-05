@@ -266,12 +266,19 @@ def action_coverage(artifact, coverage=None):
     return ''
 
 def answer(artifact, case_id, question, provider, coverage=None, background_processing=False,inference_busy=False,
-           language='English',conversation_context=None,model_available=True):
+           language='English',conversation_context=None,model_available=True,conversation_questions=None):
     if artifact.get('caseId')!=case_id: raise ValueError('Current-matter artifact identity mismatch')
     from question_language import selected_language, localize
     from question_context import resolve
     language=selected_language(language,question)
-    intent,context_error=resolve(artifact,case_id,question,conversation_context,None if background_processing or inference_busy or not model_available else provider)
+    if conversation_questions and conversation_context is None:
+        # Global Assistant inherits bounded user intent only, never answer text
+        # or claims. Court UI context retains its newer verified-source guard.
+        from conversation_context import resolve as resolve_user_intent
+        question,intent=resolve_user_intent(question,conversation_questions,[o.get('orderDate') for o in artifact.get('orders',[])])
+        context_error=None
+    else:
+        intent,context_error=resolve(artifact,case_id,question,conversation_context,None if background_processing or inference_busy or not model_available else provider)
     result=({'answer':'Please specify the order date; no unique verified previous order is available in this conversation.',
              'reason':context_error,'claims':[],'insufficientEvidence':True} if context_error else
             _answer(artifact,case_id,question,provider,coverage,background_processing or inference_busy or not model_available,intent))
@@ -350,10 +357,6 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             'claims':[],'insufficientEvidence':not has_usable}
     if not evidence:
         return {'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True}
-    if background_processing:
-        # Serve checked extractive evidence immediately, without waiting behind
-        # the single background inference slot or inventing missing history.
-        return compose(evidence[:8] if complete or intent.get('fullStory') else evidence[:4])
     if complete and (len(evidence)>8 or len(json.dumps(evidence))>6500):
         result=compose(evidence)
         # Keep the authenticated API's response bound. Never silently advertise
@@ -363,6 +366,11 @@ def _answer(artifact, case_id, question, provider, coverage=None, background_pro
             return {'answer':'This history is too long for one reply. Please ask for a narrower date range or review the complete order history.',
                     'claims':[],'insufficientEvidence':True,'reason':'HistoryTooLong'}
         return result
+    if background_processing:
+        # Serve checked extractive evidence immediately, without waiting behind
+        # the single background inference slot or inventing missing history.
+        # Complete chronology above is never silently reduced to eight claims.
+        return compose(evidence[:8] if complete or intent.get('fullStory') else evidence[:4])
     prompt = json.dumps({'currentCase':artifact.get('caseNumber'), 'question':question,
                          'availableEvidence':evidence},ensure_ascii=False)
     instructions = '''Answer ONLY the CURRENT MATTER question using supplied structured evidence.

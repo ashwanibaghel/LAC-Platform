@@ -54,6 +54,7 @@ builder.Services.AddHttpClient("CourtLocalModel", client => {
     client.BaseAddress = new Uri("http://127.0.0.1:8096/"); client.Timeout = TimeSpan.FromSeconds(3);
     client.MaxResponseContentBufferSize = 8192;
 }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false, UseProxy = false }).RemoveAllLoggers();
+builder.Services.AddAssistantFoundation();
 builder.Services.AddHttpClient("CourtCaseQuestions", client =>
     {
         client.BaseAddress = new Uri("http://127.0.0.1:8097/");
@@ -213,6 +214,7 @@ api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
 api.MapAttentionEndpoints();
 api.MapCourtEndpoints();
+api.MapAssistantEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
     if (context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() is not null)

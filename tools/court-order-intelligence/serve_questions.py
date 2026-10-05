@@ -13,6 +13,21 @@ from question_language import selected_language, localize
 from runtime_health import model_state, root_fingerprint, case_state
 from runtime_recovery import package_digest
 
+def registered_answer(root,case_id,request,provider,refresh,demo=False,require_model_health=False):
+    question=request['question']
+    language=selected_language(request.get('language','Auto'),question)
+    artifact=read_artifact(root,case_id,request.get('caseNumber'))
+    if not demo and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
+        artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
+    if artifact is None: return localize({'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True},language)
+    inference_ready=not require_model_health or model_state()=='Ready'
+    if inference_ready and not request.get('structuredOnly') and not request.get('deterministicOnly') and not refresh.lock.locked():
+        artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not demo)
+    return answer(artifact,case_id,question,provider,request.get('courtCoverage'),
+        background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked() or bool(request.get('deterministicOnly')),
+        language=language,conversation_context=request.get('conversationContext'),model_available=inference_ready,
+        conversation_questions=request.get('conversationQuestions') if request.get('groundedOnly') else None)
+
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--extraction-root',required=True)
@@ -62,11 +77,19 @@ def main():
         def do_POST(self):
             import re
             demo_route=re.fullmatch(r'/api/court-cases/(a1000000-0000-4000-8000-0000000000(?:0[1-9]|1[0123]))/intelligence/ask',self.path) if args.demo else None
-            if self.path not in ('/ask','/refresh','/status') and not demo_route: self.send_error(404); return
+            if self.path not in ('/ask','/refresh','/status','/assistant/general') and not demo_route: self.send_error(404); return
             try:
                 length=int(self.headers.get('Content-Length','0'))
                 if not 0<length<=512*1024: raise ValueError('Request size') # bounded trusted known-order metadata
                 request=json.loads(self.rfile.read(length))
+                if self.path=='/assistant/general':
+                    question=request['question']
+                    if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
+                    result=general_answer(question,provider,request.get('appContext'),request.get('history'),language=request.get('language','Auto'),standalone=True)
+                    body=json.dumps(result,ensure_ascii=False).encode()
+                    self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Cache-Control','no-store')
+                    self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
+                    return
                 case_id=demo_route[1] if demo_route else str(uuid.UUID(request['caseId']))
                 if self.path=='/status':
                     artifact=read_artifact(root,case_id,request.get('caseNumber'))
@@ -92,24 +115,12 @@ def main():
                 question=request['question']
                 if not isinstance(question,str) or not 1<=len(question.strip())<=600: raise ValueError('Question length')
                 language=selected_language(request.get('language','Auto'),question)
-                if route(question)=='GeneralLocal':
+                if not request.get('groundedOnly') and route(question)=='GeneralLocal':
                     result=general_answer(question,provider,request.get('appContext'),request.get('history'),language=language)
                 else:
-                    artifact=read_artifact(root,case_id,request.get('caseNumber'))
-                    if not demo_route and request.get('caseNumber') and isinstance(request.get('orderIndex'),list):
-                        artifact=merge_known_orders(artifact,case_id,request['caseNumber'],request['orderIndex'][:1000],strict_index=True)
-                    if artifact is None:
-                        result=localize({'answer':INSUFFICIENT,'claims':[],'insufficientEvidence':True},language)
-                    else:
-                        # Reads never acquire the PDF writer lock. Lazy retrieval
-                        # of one exact date remains optional while a refresh runs.
-                        inference_ready=not args.require_model_health or model_state()=='Ready'
-                        if inference_ready and not refresh.lock.locked():
-                            artifact=prepare_question(root,artifact,case_id,question,provider,strict_index=not bool(demo_route))
-                        result=answer(artifact,case_id,question,provider,request.get('courtCoverage'),
-                             background_processing=refresh.active_case_id==case_id,inference_busy=refresh.lock.locked(),
-                             language=language,conversation_context=request.get('conversationContext'),
-                              model_available=inference_ready)
+                    # Global conversations forbid implicit source processing;
+                    # Court UI retains verified context, language and health.
+                    result=registered_answer(root,case_id,request,provider,refresh,bool(demo_route),args.require_model_health)
                     result['mode']='CourtGrounded'
                 result['caseId']=case_id
                 body=json.dumps(result,ensure_ascii=False).encode()
