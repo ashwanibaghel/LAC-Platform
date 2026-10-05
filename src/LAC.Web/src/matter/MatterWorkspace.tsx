@@ -5,22 +5,16 @@ import { useParams, Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { MatterDrafts } from "../editor/MatterDraftEditor";
 import {
-  IconLock,
   IconMoreVertical,
   IconUpload,
   IconLink,
   IconDownload,
   IconClose,
   IconEdit,
-  IconArchive,
   IconPlus,
   IconFileText,
-  IconFile,
   IconBuilding,
-  IconArrowRight,
-  IconHistory,
-  IconSearch,
-  IconFilter
+  IconHistory
 } from "../components/Icons";
 import "./matter.css";
 
@@ -60,18 +54,36 @@ interface EligibleDocumentItem {
 interface MatterEventItem {
   id: string;
   sequenceNumber: number;
-  action: number;
-  actionName: string;
-  workstreamId: string | null;
-  workstreamName: string | null;
-  targetWorkstreamId: string | null;
-  targetWorkstreamName: string | null;
-  reason: string | null;
+  action: string | number;
   actionAt: string;
-  actionByUserId: string;
-  actionByUserName: string;
+  actionByDisplayNameSnapshot?: string | null;
   contextEntityType?: string | null;
   contextEntityId?: string | null;
+}
+
+function formatEventAction(action: string | number): string {
+  if (typeof action === "string") {
+    const map: Record<string, string> = {
+      MatterCreated: "Matter created",
+      AwardLinked: "Award linked",
+      AwardUnlinked: "Award unlinked",
+      PrimaryAwardChanged: "Primary Award changed",
+      KhasraLinked: "Khasra linked",
+      KhasraUnlinked: "Khasra unlinked",
+      CourtCaseLinked: "Court Case linked",
+      CourtCaseUnlinked: "Court Case unlinked",
+      DakLinked: "Dak linked",
+      DakUnlinked: "Dak unlinked",
+      DocumentLinked: "Document linked",
+      DocumentUnlinked: "Document unlinked",
+      WorkstreamReclassified: "Workstream reclassified",
+      MetadataUpdated: "Metadata updated",
+      StatusUpdated: "Status updated"
+    };
+    if (map[action]) return map[action];
+    return action.replace(/([A-Z])/g, " $1").trim();
+  }
+  return `Action ${action}`;
 }
 
 interface MatterDetail {
@@ -134,7 +146,7 @@ interface MatterContextWorkItem {
   priority: string;
   dueAt?: string | null;
   responsibleDesk?: { deskId: string; name: string } | null;
-  assignedUser?: { userId: string; name: string } | null;
+  assignedUser?: { userId: string; displayName: string } | null;
 }
 
 interface MatterContextData {
@@ -207,7 +219,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [editCustomType, setEditCustomType] = useState("");
   const [editRefNo, setEditRefNo] = useState("");
   const [editRemarks, setEditRemarks] = useState("");
-  const [editKhasraRef, setEditKhasraRef] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -325,13 +336,10 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
       .then((data) => {
         if (data?.workstreams) {
           setWorkstreams(data.workstreams);
-          if (data.workstreams.length > 0 && !reclassifyTargetId) {
-            setReclassifyTargetId(data.workstreams[0].id);
-          }
         }
       })
       .catch(() => {});
-  }, [reclassifyTargetId]);
+  }, []);
 
   // Load Eligible Documents when drawer opened
   useEffect(() => {
@@ -435,9 +443,46 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         throw new Error(errData?.message || errData?.title || `Failed to ${method === "PUT" ? "link" : "unlink"} record.`);
       }
 
-      setRefresh((r) => r + 1);
     } catch (err: any) {
       setManageLinkError(err.message || "Operation failed.");
+    } finally {
+      setLinkingRecord(false);
+    }
+  };
+
+  // Clear Primary Award Helper
+  const handleClearPrimaryAward = async () => {
+    if (!contextData) return;
+    setLinkingRecord(true);
+    setManageLinkError(null);
+    try {
+      const res = await fetch(`/api/matters/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          title: contextData.matter.title,
+          matterType: contextData.matter.matterType,
+          status: contextData.matter.status,
+          referenceNumber: contextData.matter.referenceNumber,
+          remarks: contextData.matter.remarks,
+          khasraReferenceText: contextData.matter.khasraReferenceText,
+          primaryAwardId: "00000000-0000-0000-0000-000000000000",
+          expectedRevision: contextData.matter.revision
+        })
+      });
+      if (!res.ok) {
+        if (res.status === 409) {
+          setManageLinkError("Conflict: Matter was updated by another process. Refreshing...");
+          setRefresh((r) => r + 1);
+          return;
+        }
+        const errData = await res.json().catch(() => null);
+        throw new Error(errData?.message || errData?.title || "Failed to clear primary award.");
+      }
+      setRefresh((r) => r + 1);
+    } catch (err: any) {
+      setManageLinkError(err.message || "Failed to clear primary award.");
     } finally {
       setLinkingRecord(false);
     }
@@ -473,7 +518,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           status: editStatus.trim() || null,
           referenceNumber: editRefNo.trim() || null,
           remarks: editRemarks.trim() || null,
-          khasraReferenceText: editKhasraRef.trim() || null,
+          khasraReferenceText: contextData.matter.khasraReferenceText,
           expectedRevision: contextData.matter.revision
         })
       });
@@ -747,7 +792,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const canEdit = !isArchived && hasPermission("Matter.Edit");
   const canManageDocs = !isArchived && hasPermission("Matter.Document.Manage");
 
-  const recentEvents = events.slice(0, 5);
+  const recentEvents = [...events].sort((a, b) => b.sequenceNumber - a.sequenceNumber).slice(0, 5);
 
   return (
     <div className="matter-workspace-shell">
@@ -1062,7 +1107,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
                     {matter.khasraReferenceText && (
                       <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", padding: "6px 10px", borderRadius: "6px", fontSize: "12px", color: "#475569", marginTop: 4 }}>
-                        <strong>Legacy text reference:</strong> {matter.khasraReferenceText}
+                        <strong>Legacy reference:</strong> {matter.khasraReferenceText}
                         <span style={{ fontSize: "11px", color: "#94a3b8", display: "block" }}>
                           (Unverified text string from legacy entry)
                         </span>
@@ -1092,7 +1137,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   </h3>
 
                   {contextData.courtContextState !== "Linked" || contextData.courtCases.length === 0 ? (
-                    <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", padding: "16px", textAlgin: "center" as any, display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                    <div style={{ background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: "6px", padding: "16px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: "13px", fontWeight: 600, color: "#64748b" }}>
                         Court case not linked
                       </span>
@@ -1271,7 +1316,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontSize: "11px", color: "#64748b" }}>
                             <span>
                               Desk: <strong>{w.responsibleDesk?.name || "Unassigned"}</strong>
-                              {w.assignedUser ? ` (${w.assignedUser.name})` : ""}
+                              {w.assignedUser ? ` (${w.assignedUser.displayName})` : ""}
                             </span>
                             <span>Status: <strong>{w.status}</strong></span>
                           </div>
@@ -1312,9 +1357,9 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                           <div key={ev.id} className="matter-timeline-item">
                             <div className="matter-timeline-dot" />
                             <div className="matter-timeline-content">
-                              <div className="matter-timeline-header">{ev.actionName}</div>
+                              <div className="matter-timeline-header">{formatEventAction(ev.action)}</div>
                               <div className="matter-timeline-meta">
-                                By {ev.actionByUserName} · {new Date(ev.actionAt).toLocaleDateString()}
+                                By {ev.actionByDisplayNameSnapshot || "Officer"} · {new Date(ev.actionAt).toLocaleDateString()}
                               </div>
                             </div>
                           </div>
@@ -1391,7 +1436,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                             {w.responsibleDesk?.name || "Unassigned"}
                           </span>
                           {w.assignedUser && (
-                            <div style={{ fontSize: "11px", color: "#64748b" }}>{w.assignedUser.name}</div>
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>{w.assignedUser.displayName}</div>
                           )}
                         </td>
                         <td>
@@ -1629,16 +1674,15 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                           <span style={{ color: "#0284c7", fontWeight: 700, marginRight: 6 }}>
                             #{ev.sequenceNumber}
                           </span>
-                          {ev.actionName}
+                          {formatEventAction(ev.action)}
                           {ev.contextEntityType && (
                             <span style={{ fontWeight: 600, color: "#0369a1", marginLeft: 6 }}>
                               [{ev.contextEntityType}]
                             </span>
                           )}
                         </div>
-                        {ev.reason && <div className="matter-timeline-reason">&ldquo;{ev.reason}&rdquo;</div>}
                         <div className="matter-timeline-meta">
-                          Action by <strong>{ev.actionByUserName}</strong> on {new Date(ev.actionAt).toLocaleString()}
+                          Action by <strong>{ev.actionByDisplayNameSnapshot || "Officer"}</strong> on {new Date(ev.actionAt).toLocaleString()}
                         </div>
                       </div>
                     </div>
@@ -1731,7 +1775,18 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                         )}
                       </div>
                       <div style={{ display: "flex", gap: 6 }}>
-                        {!a.isPrimary && (
+                        {a.isPrimary ? (
+                          <button
+                            type="button"
+                            className="btn-action-secondary"
+                            style={{ padding: "3px 8px", fontSize: "11px", color: "#92400e", borderColor: "#fde68a", background: "#fef3c7" }}
+                            disabled={linkingRecord}
+                            onClick={() => void handleClearPrimaryAward()}
+                            title="Clear Primary Award designation while retaining link"
+                          >
+                            Clear Primary
+                          </button>
+                        ) : (
                           <button
                             type="button"
                             className="btn-action-secondary"
@@ -2559,18 +2614,11 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   />
                 </label>
 
-                <label style={{ gridColumn: "span 2" }}>
-                  Legacy Khasra Text Reference
-                  <input
-                    type="text"
-                    value={editKhasraRef}
-                    onChange={(e) => setEditKhasraRef(e.target.value)}
-                    placeholder="e.g. 12/1, 14/2"
-                  />
-                  <span style={{ fontSize: "11px", color: "#64748b" }}>
-                    Text only; use Manage Linked Records for canonical Khasra chips.
-                  </span>
-                </label>
+                {contextData.matter.khasraReferenceText && (
+                  <div style={{ gridColumn: "span 2", fontSize: "12px", color: "#64748b", background: "#f8fafc", padding: "6px 10px", borderRadius: "4px", border: "1px solid #e2e8f0" }}>
+                    Legacy reference: <strong>{contextData.matter.khasraReferenceText}</strong> (read-only)
+                  </div>
+                )}
 
                 <label style={{ gridColumn: "span 2" }}>
                   Remarks / Operational Notes
@@ -2636,6 +2684,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                     onChange={(e) => setReclassifyTargetId(e.target.value)}
                     required
                   >
+                    <option value="" disabled>Select Target Workstream...</option>
                     {workstreams.map((w) => (
                       <option key={w.id} value={w.id}>
                         {w.name} ({w.code})
@@ -2667,7 +2716,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 <button
                   type="submit"
                   className="btn-action-primary"
-                  disabled={savingReclassify || !reclassifyReason.trim()}
+                  disabled={savingReclassify || !reclassifyTargetId || !reclassifyReason.trim()}
                 >
                   {savingReclassify ? "Reclassifying..." : "Confirm Reclassification"}
                 </button>

@@ -5,7 +5,6 @@ import {
   IconSearch,
   IconPlus,
   IconClose,
-  IconBuilding,
   IconMatters,
   IconFilter
 } from "../components/Icons";
@@ -76,7 +75,6 @@ export const MatterDirectory: React.FC = () => {
   const [createWorkstreamId, setCreateWorkstreamId] = useState(""); // Explicit selection required
   const [createMatterType, setCreateMatterType] = useState("Court Case");
   const [createRefNo, setCreateRefNo] = useState("");
-  const [createKhasraRef, setCreateKhasraRef] = useState("");
   const [createRemarks, setCreateRemarks] = useState("");
 
   // Canonical Relational Selection State
@@ -247,7 +245,7 @@ export const MatterDirectory: React.FC = () => {
           matterType: createMatterType,
           referenceNumber: createRefNo.trim() || null,
           remarks: createRemarks.trim() || null,
-          khasraReferenceText: createKhasraRef.trim() || null,
+          khasraReferenceText: null,
           awardIds: selectedAwardIds,
           primaryAwardId: selectedPrimaryAwardId || null,
           khasraIds: selectedKhasraIds,
@@ -266,7 +264,6 @@ export const MatterDirectory: React.FC = () => {
       setCreateVillageId("");
       setCreateWorkstreamId("");
       setCreateRefNo("");
-      setCreateKhasraRef("");
       setCreateRemarks("");
       setSelectedAwardIds([]);
       setSelectedPrimaryAwardId("");
@@ -437,7 +434,7 @@ export const MatterDirectory: React.FC = () => {
                       </Link>
                       {m.khasraReferenceText && (
                         <span className="matter-identity-sub" title={m.khasraReferenceText}>
-                          Khasra: {m.khasraReferenceText}
+                          Legacy reference: {m.khasraReferenceText}
                         </span>
                       )}
                     </div>
@@ -724,7 +721,6 @@ export const MatterDirectory: React.FC = () => {
                                   onChange={(e) => {
                                     if (e.target.checked) {
                                       setSelectedAwardIds((prev) => [...prev, aId]);
-                                      if (!selectedPrimaryAwardId) setSelectedPrimaryAwardId(aId);
                                     } else {
                                       setSelectedAwardIds((prev) => prev.filter((id) => id !== aId));
                                       if (selectedPrimaryAwardId === aId) setSelectedPrimaryAwardId("");
@@ -806,15 +802,6 @@ export const MatterDirectory: React.FC = () => {
                   </div>
                 )}
 
-                <label style={{ gridColumn: "span 2" }}>
-                  Legacy Khasra Reference (Optional Text)
-                  <input
-                    type="text"
-                    value={createKhasraRef}
-                    onChange={(e) => setCreateKhasraRef(e.target.value)}
-                    placeholder="e.g. Khasra No. 12/4, 12/5 min (Text unverified)"
-                  />
-                </label>
 
                 <label style={{ gridColumn: "span 2" }}>
                   Remarks / Administrative Notes

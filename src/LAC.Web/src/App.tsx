@@ -839,10 +839,7 @@ function VillageMatters({ id }: { id: string }) {
     title: "",
     workstreamId: "", // Explicit selection required
     matterType: "Court Case",
-    courtCasePrefix: "W.P.(C)",
-    courtCaseNumber: "",
-    status: "Open",
-    khasraReferenceText: ""
+    status: "Open"
   });
 
   // Relational Canonical Selection State
@@ -895,20 +892,9 @@ function VillageMatters({ id }: { id: string }) {
       return;
     }
 
-    let finalTitle = form.title.trim();
-    let refNum: string | null = null;
-
-    if (form.matterType === "Court Case" && form.courtCaseNumber.trim()) {
-      refNum = `${form.courtCasePrefix} ${form.courtCaseNumber.trim()}`;
-      if (!finalTitle) {
-        finalTitle = refNum;
-      } else if (!finalTitle.includes(refNum)) {
-        finalTitle = `${refNum} - ${finalTitle}`;
-      }
-    }
-
+    const finalTitle = form.title.trim();
     if (!finalTitle) {
-      setErrorMessage("Please enter a title or court case number.");
+      setErrorMessage("Please enter a Matter Operational Title.");
       return;
     }
 
@@ -922,9 +908,9 @@ function VillageMatters({ id }: { id: string }) {
         matterType: resolvedType,
         workstreamId: form.workstreamId,
         status: form.status || "Open",
-        referenceNumber: refNum,
+        referenceNumber: null,
         remarks: null,
-        khasraReferenceText: form.khasraReferenceText.trim() || null,
+        khasraReferenceText: null,
         awardIds: selectedAwardIds,
         primaryAwardId: selectedPrimaryAwardId || null,
         khasraIds: selectedKhasraIds,
@@ -937,10 +923,7 @@ function VillageMatters({ id }: { id: string }) {
         title: "",
         workstreamId: "",
         matterType: "Court Case",
-        courtCasePrefix: "W.P.(C)",
-        courtCaseNumber: "",
-        status: "Open",
-        khasraReferenceText: ""
+        status: "Open"
       });
       setSelectedAwardIds([]);
       setSelectedPrimaryAwardId("");
@@ -965,7 +948,7 @@ function VillageMatters({ id }: { id: string }) {
     grouped[typeKey].push(m);
   });
 
-  const villageKhasraList = khasras.data?.items || (Array.isArray(khasras.data) ? khasras.data : []);
+  const villageKhasraList = (khasras.data as any)?.items || (Array.isArray(khasras.data) ? khasras.data : []);
 
   return (
     <section className="section">
@@ -996,7 +979,7 @@ function VillageMatters({ id }: { id: string }) {
               <div key={groupKey} className="matter-group-section">
                 <div className="matter-group-header">
                   <div className="matter-group-title">
-                    <span>{groupKey === "Court Case" ? "⚖️ Court Cases" : groupKey === "Compensation" ? "💰 Compensation Matters" : groupKey === "Demarcation" ? "📐 Demarcation Matters" : groupKey === "Possession" ? "🏞️ Possession Matters" : `📁 ${groupKey}`}</span>
+                    <span>{groupKey === "Court Case" ? "Court Cases" : groupKey === "Compensation" ? "Compensation Matters" : groupKey === "Demarcation" ? "Demarcation Matters" : groupKey === "Possession" ? "Possession Matters" : `${groupKey} Matters`}</span>
                     <span className="matter-group-count">{groupItems.length}</span>
                   </div>
                 </div>
@@ -1014,16 +997,14 @@ function VillageMatters({ id }: { id: string }) {
                           </div>
                         )}
                         <div className="matter-item-meta">
-                          {m.award?.awardNumber ? (
+                          {m.award?.awardNumber && (
                             <span className="matter-item-badge" style={{ background: "#dbeafe", color: "#1e40af" }}>
                               Award {m.award.awardNumber}
                             </span>
-                          ) : (
-                            <span className="matter-item-badge">No Award</span>
                           )}
                           {m.khasraReferenceText && (
                             <span className="matter-item-badge" style={{ background: "#f1f5f9" }}>
-                              Khasra {m.khasraReferenceText}
+                              Legacy reference: {m.khasraReferenceText}
                             </span>
                           )}
                         </div>
@@ -1031,7 +1012,7 @@ function VillageMatters({ id }: { id: string }) {
 
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", paddingTop: "8px", borderTop: "1px solid #f1f5f9", fontSize: "11px", color: "#64748b" }}>
                         <span>Status: <strong style={{ color: "#0f172a" }}>{m.status || "Open"}</strong></span>
-                        <EntityLink to={`/matters/${m.id}`} style={{ fontSize: "12px" }}>
+                        <EntityLink to={`/matters/${m.id}`}>
                           Open Workspace &rarr;
                         </EntityLink>
                       </div>
@@ -1116,34 +1097,6 @@ function VillageMatters({ id }: { id: string }) {
                 </div>
               )}
 
-              {form.matterType === "Court Case" && (
-                <div style={{ display: "grid", gridTemplateColumns: "130px 1fr", gap: "10px", background: "#f8fafc", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
-                  <div className="form-group">
-                    <label style={{ fontWeight: 650, fontSize: "12px" }}>Case Type</label>
-                    <select
-                      value={form.courtCasePrefix}
-                      onChange={(e) => setForm({ ...form, courtCasePrefix: e.target.value })}
-                      style={{ width: "100%", padding: "7px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                    >
-                      <option value="W.P.(C)">W.P.(C)</option>
-                      <option value="LA.APP.">LA.APP.</option>
-                      <option value="RFA">RFA</option>
-                      <option value="CS">CS</option>
-                      <option value="CONT.CAS(C)">CONT.CAS(C)</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontWeight: 650, fontSize: "12px" }}>Case No. / Year (e.g. 223/2026)</label>
-                    <input
-                      placeholder="e.g. 223/2026"
-                      value={form.courtCaseNumber}
-                      onChange={(e) => setForm({ ...form, courtCaseNumber: e.target.value })}
-                      style={{ width: "100%", padding: "7px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
-                    />
-                  </div>
-                </div>
-              )}
-
               {/* Canonical Court Case selector */}
               {form.matterType === "Court Case" && (
                 <div className="form-group" style={{ background: "#f0f9ff", border: "1px solid #bae6fd", padding: "10px", borderRadius: "6px" }}>
@@ -1224,7 +1177,7 @@ function VillageMatters({ id }: { id: string }) {
                   Matter Operational Title *
                 </label>
                 <input
-                  placeholder={form.matterType === "Court Case" ? "e.g. Prepare response and compile evidence for WP(C) 223/2026" : "e.g. Acquisition Compensation Claim"}
+                  placeholder="e.g. WP(C) 223/2026 Response & Evidence Compilation"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
@@ -1260,7 +1213,6 @@ function VillageMatters({ id }: { id: string }) {
                               onChange={(e) => {
                                 if (e.target.checked) {
                                   setSelectedAwardIds((prev) => [...prev, a.id]);
-                                  if (!selectedPrimaryAwardId) setSelectedPrimaryAwardId(a.id);
                                 } else {
                                   setSelectedAwardIds((prev) => prev.filter((id) => id !== a.id));
                                   if (selectedPrimaryAwardId === a.id) setSelectedPrimaryAwardId("");
@@ -1333,18 +1285,6 @@ function VillageMatters({ id }: { id: string }) {
                   </div>
                 )}
               </div>
-
-              <div className="form-group">
-                <label style={{ fontWeight: 650, fontSize: "13px" }}>
-                  Legacy Khasra Reference (Optional Text)
-                </label>
-                <input
-                  placeholder="e.g. 12/1, 14/2 min"
-                  value={form.khasraReferenceText}
-                  onChange={(e) => setForm({ ...form, khasraReferenceText: e.target.value })}
-                  style={{ width: "100%", padding: "8px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
-                />
-              </div>
             </div>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "20px", paddingTop: "14px", borderTop: "1px solid #e2e8f0" }}>
@@ -1354,7 +1294,7 @@ function VillageMatters({ id }: { id: string }) {
               <button
                 className="primary-button"
                 onClick={() => void create()}
-                disabled={submitting || !form.workstreamId || (!form.title.trim() && !form.courtCaseNumber.trim())}
+                disabled={submitting || !form.workstreamId || !form.title.trim()}
                 style={{ background: "#2563eb", borderColor: "#2563eb", color: "#fff" }}
               >
                 {submitting ? "Creating…" : "Create Matter"}
