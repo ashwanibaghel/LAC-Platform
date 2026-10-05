@@ -27,11 +27,13 @@ type RuntimeInfo = {
   elapsedSeconds?: number;
   actionStatus?: "VerifiedEvidenceAvailable" | "UnavailableUntilVerifiedIntelligenceReady" | string;
   actionStatusMessage?: string;
+  officerMessage?: string;
   message?: string;
   error?: string;
   recovery?: {
     runtimeState?: string;
     reasonCode?: string;
+    officerMessage?: string;
     message?: string;
     startedAt?: string;
     completedAt?: string;
@@ -587,13 +589,39 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const isRuntimeProcessing = runtimeState === "Processing";
   const isRuntimeStarting = runtimeState === "Starting" || recovering;
 
-  const isRecoverable = runtime?.modelState === "ModelOffline" ||
+  const isRecoverable =
+    runtime?.modelState === "ModelOffline" ||
     runtime?.questionServiceState === "QuestionServiceOffline" ||
     reasonCode === "ModelInsufficientMemory" ||
     reasonCode === "ModelOffline" ||
     reasonCode === "QuestionServiceOffline" ||
     runtime?.recovery?.reasonCode === "ModelInsufficientMemory" ||
-    (runtimeState === "Failed" && (reasonCode === "ModelInsufficientMemory" || reasonCode === "QuestionServiceOffline" || runtime?.modelState === "ModelOffline"));
+    (runtimeState === "Failed" &&
+      (reasonCode === "ModelInsufficientMemory" ||
+        reasonCode === "QuestionServiceOffline" ||
+        runtime?.modelState === "ModelOffline"));
+
+  const modelState = runtime?.modelState;
+  const questionServiceState = runtime?.questionServiceState;
+
+  const passiveRuntimeNotice = (() => {
+    if (reasonCode === "BusyWithOtherCase" || runtimeState === "BusyWithOtherCase") {
+      return "Local AI is processing another matter.";
+    }
+    if (questionServiceState === "QuestionServiceOffline" || reasonCode === "QuestionServiceOffline") {
+      return "Local Court Q&A service is unavailable. Verified Court intelligence remains available.";
+    }
+    if (modelState === "ModelOffline" || reasonCode === "ModelOffline") {
+      return "Local AI processing for new orders is currently unavailable. Verified Court intelligence remains available.";
+    }
+    if (reasonCode === "ModelInsufficientMemory" || runtime?.recovery?.reasonCode === "ModelInsufficientMemory") {
+      return "Local AI service needs recovery due to system memory allocation.";
+    }
+    if (runtimeState === "Failed") {
+      return "Local AI processing for this matter stopped. Verified Court intelligence remains available.";
+    }
+    return null;
+  })();
 
   useEffect(() => {
     const isRuntimeActive = isRuntimeProcessing || isRuntimeStarting;
@@ -673,8 +701,11 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     } catch (err) {
       if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
         const errMsg = (err as Error).message;
+        const specificRuntimeMsg = passiveRuntimeNotice || runtime?.officerMessage || runtime?.recovery?.officerMessage;
         if (errMsg && errMsg !== "Unavailable" && errMsg !== "Failed to fetch" && errMsg !== "Wrong case response") {
           setAskError(errMsg);
+        } else if (specificRuntimeMsg) {
+          setAskError(specificRuntimeMsg);
         } else {
           setAskError("Question answering is temporarily unavailable. Case intelligence remains available.");
         }
@@ -798,16 +829,29 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     }
   };
 
-  const pendingCount = data?.orders.filter(order => ["Unprocessed", "Processing"].includes(order.status)).length ?? 0;
+  const pendingCount = data?.orders ? data.orders.filter(order => ["Unprocessed", "Processing"].includes(order.status)).length : 0;
   const pipeline = data?.pipelineSummary ?? {
-    officialOrdersFound: data?.knownOrderCount ?? data?.orders.length ?? 0,
-    usableAiBriefs: data?.orders.filter(order => safeOrderFacts(order).length > 0).length ?? 0,
-    blockedBeforeAi: (data?.orders.filter(order => order.status === "NeedsSourceReview").length ?? 0) + (data?.unusableKnownOrderCount ?? 0),
-    processedButReviewRequired: data?.orders.filter(order => order.status === "NeedsReview" && order.coverage?.allSelectedChunksProcessed === true && !order.failureMessage).length ?? 0,
+    officialOrdersFound: data?.knownOrderCount ?? data?.orders?.length ?? 0,
+    usableAiBriefs: data?.orders ? data.orders.filter(order => safeOrderFacts(order).length > 0).length : 0,
+    blockedBeforeAi: (data?.orders ? data.orders.filter(order => order.status === "NeedsSourceReview").length : 0) + (data?.unusableKnownOrderCount ?? 0),
+    processedButReviewRequired: data?.orders ? data.orders.filter(order => order.status === "NeedsReview" && order.coverage?.allSelectedChunksProcessed === true && !order.failureMessage).length : 0,
     pendingProcessing: pendingCount,
-    extractionIncomplete: data?.orders.filter(order => order.status === "NeedsReview" && (!order.coverage?.allSelectedChunksProcessed || !!order.failureMessage)).length ?? 0,
-    usableBriefsWithReview: data?.orders.filter(order => safeOrderFacts(order).length > 0 && (order.status !== "Validated" || order.refreshFailure)).length ?? 0
+    extractionIncomplete: data?.orders ? data.orders.filter(order => order.status === "NeedsReview" && (!order.coverage?.allSelectedChunksProcessed || !!order.failureMessage)).length : 0,
+    usableBriefsWithReview: data?.orders ? data.orders.filter(order => safeOrderFacts(order).length > 0 && (order.status !== "Validated" || order.refreshFailure)).length : 0
   };
+
+  const rawActionStatus =
+    runtime?.actionStatus ??
+    data?.progressSummary?.actionStatus ??
+    data?.actionStatus ??
+    (pipeline.usableAiBriefs > 0 ? "VerifiedEvidenceAvailable" : "UnavailableUntilVerifiedIntelligenceReady");
+
+  const isZeroEvidence = pipeline.usableAiBriefs === 0;
+
+  const isActionPendingUnavailable =
+    isZeroEvidence ||
+    rawActionStatus === "UnavailableUntilVerifiedIntelligenceReady" ||
+    rawActionStatus !== "VerifiedEvidenceAvailable";
 
   const latestVerified = data?.sourceDiagnostics ? [...data.orders].reverse().find(order =>
     data.sourceDiagnostics!.some(source => source.officialUrl === order.officialUrl && source.orderDate === order.orderDate && source.usableFactCount > 0)) ?? null : data?.latestOrder ?? null;
@@ -909,10 +953,10 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         />
       )}
 
-      {/* Amber Runtime Notice for Offline Model with Ready Intelligence */}
-      {(runtime?.modelState === "ModelOffline" || reasonCode === "ModelInsufficientMemory" || reasonCode === "ModelOffline") && pipeline.usableAiBriefs > 0 && (
+      {/* Amber Runtime Notice for Passive Runtime States */}
+      {passiveRuntimeNotice && (
         <div className="court-runtime-notice-amber" role="status">
-          <span className="court-amber-text">ℹ Verified intelligence is ready. Local AI processing for new orders is currently unavailable.</span>
+          <span className="court-amber-text">ℹ {passiveRuntimeNotice}</span>
           {isRecoverable && (
             <button
               type="button"
@@ -1085,7 +1129,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                 <h4>What LAC needs to do</h4>
                 {data.beforeNextHearing.length > 0 ? (
                   <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>
-                ) : (runtime?.actionStatus ?? data?.actionStatus) === "UnavailableUntilVerifiedIntelligenceReady" ? (
+                ) : isActionPendingUnavailable ? (
                   <span className="court-attention-indicator neutral">Action status pending</span>
                 ) : (
                   <span className="court-attention-indicator">No action pending</span>
@@ -1109,17 +1153,13 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                       </details>
                     )}
                   </div>
-                ) : (runtime?.actionStatus ?? data?.actionStatus) === "UnavailableUntilVerifiedIntelligenceReady" ? (
+                ) : isActionPendingUnavailable ? (
                   <div className="court-no-action-box neutral-box">
                     <p>Action status will be available after verified Court intelligence is ready.</p>
                   </div>
                 ) : (
                   <div className="court-no-action-box">
-                    <p>
-                      {pipeline.usableAiBriefs > 0
-                        ? "No verified LAC-specific mandatory action is established in the currently processed evidence."
-                        : "No usable Court evidence is currently available for this matter. Office actions cannot be checked until a source is processed and verified."}
-                    </p>
+                    <p>No verified LAC-specific mandatory action is established in the currently processed evidence.</p>
                   </div>
                 )}
 
