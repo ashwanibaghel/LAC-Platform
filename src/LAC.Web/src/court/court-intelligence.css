@@ -2581,3 +2581,92 @@
   color: #0f172a;
 }
 
+/* Language Selector */
+.court-language-selector {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  align-items: center;
+}
+
+.court-lang-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.court-lang-pill:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.court-lang-pill.active {
+  background: #1e40af;
+  color: #ffffff;
+  border-color: #1e40af;
+}
+
+/* Amber Runtime Notice */
+.court-runtime-notice-amber {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.court-amber-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.court-retry-recovery-btn,
+.court-inline-retry-btn {
+  background: #d97706;
+  color: #ffffff;
+  border: none;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.court-retry-recovery-btn:hover,
+.court-inline-retry-btn:hover {
+  background: #b45309;
+}
+
+.court-retry-recovery-btn:disabled,
+.court-inline-retry-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Neutral Action State */
+.court-attention-indicator.neutral {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.court-no-action-box.neutral-box {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+

@@ -11,8 +11,36 @@ type Intelligence = { caseNumber?: string; status: string; processingComplete: b
 type SourceDiagnostic = { orderDate: string | null; rawOrderDate: string | null; officialUrl: string | null; sourceObservationId: string; sourceState: string; reasonCode: string; officerMessage: string; aiState: string; usableFactCount: number; reviewRequired: boolean; sourceLabel: string; aiLabel: string; technical: Record<string, unknown> };
 type PipelineSummary = { officialOrdersFound: number; usableAiBriefs: number; blockedBeforeAi: number; processedButReviewRequired: number; pendingProcessing: number; extractionIncomplete: number; usableBriefsWithReview: number };
 type Answer = { answer: string; actionConclusion?: string; coverageNote?: string; mode?: "CourtGrounded" | "GeneralLocal"; claims: { text: string; attribution: string; source: Source }[]; insufficientEvidence: boolean; reason?: string };
-type ProgressSummary = { officialSources: number; usableBriefs: number; blockedSources: number; pendingSources: number; latestBriefReady: boolean; latestOrderDate: string | null; processingCurrentOrderDate: string | null; processingChecked: number; processingTotal: number; backgroundProcessing: boolean; coverageComplete: boolean };
-type RegisteredIntelligence = Intelligence & { progressSummary?: ProgressSummary; sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string } };
+type RuntimeInfo = {
+  caseId?: string;
+  runtimeState?: string;
+  reasonCode?: string;
+  caseState?: string;
+  modelState?: string;
+  questionServiceState?: string;
+  checked?: number;
+  total?: number;
+  usableBriefs?: number;
+  processingCurrentOrderDate?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  elapsedSeconds?: number;
+  actionStatus?: "VerifiedEvidenceAvailable" | "UnavailableUntilVerifiedIntelligenceReady" | string;
+  actionStatusMessage?: string;
+  message?: string;
+  error?: string;
+  recovery?: {
+    runtimeState?: string;
+    reasonCode?: string;
+    message?: string;
+    startedAt?: string;
+    completedAt?: string;
+    manifestSha256?: string;
+    [key: string]: unknown;
+  };
+};
+type ProgressSummary = { officialSources: number; usableBriefs: number; blockedSources: number; pendingSources: number; latestBriefReady: boolean; latestOrderDate: string | null; processingCurrentOrderDate: string | null; processingChecked: number; processingTotal: number; backgroundProcessing: boolean; coverageComplete: boolean; runtimeState?: string; reasonCode?: string; actionStatus?: string; actionStatusMessage?: string };
+type RegisteredIntelligence = Intelligence & { progressSummary?: ProgressSummary; runtime?: RuntimeInfo; sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; actionStatus?: string; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string; runtimeState?: string; reasonCode?: string } };
 
 const IconCourt: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = "" }) => (
   <svg
@@ -135,6 +163,37 @@ const timelineLabel = (order: Order) => {
   if (order.status === "NeedsReview") return "Individually usable summary facts";
   if (order.failureMessage) return "Official order PDF requires review";
   return "Verified order facts";
+};
+
+const officerRuntimeReasonMessage = (reasonCode?: string | null, backendMessage?: string | null): string | null => {
+  if (reasonCode === "ModelInsufficientMemory") {
+    return "Local AI could not start because enough memory is not currently available. Existing verified intelligence remains usable.";
+  }
+  if (reasonCode === "BusyWithOtherCase") {
+    return "Local AI is processing another matter. This case will be available after that work finishes.";
+  }
+  if (reasonCode === "SourceBlocked") {
+    return "This order needs source verification before AI processing can continue.";
+  }
+  if (reasonCode === "QuestionServiceOffline") {
+    return "Local Q&A service is offline. Existing verified intelligence remains usable.";
+  }
+  if (reasonCode === "ModelOffline") {
+    return "Local AI processing for new orders is currently unavailable. Existing verified intelligence remains usable.";
+  }
+  if (reasonCode === "RecoveryConfigurationInvalid") {
+    return "Recovery configuration is invalid or services could not start.";
+  }
+  if (reasonCode === "RecoveryNotConfigured") {
+    return "Local runtime recovery is not configured.";
+  }
+  if (reasonCode === "QuestionRuntimeMismatch") {
+    return "Question service runtime requires verification.";
+  }
+  if (backendMessage) {
+    return backendMessage;
+  }
+  return null;
 };
 
 const orderDigest = (order: Order): Proposition[] =>
@@ -458,6 +517,10 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const [chatOpen, setChatOpen] = useState(false);
   const [fullOrderModal, setFullOrderModal] = useState<Order | null>(null);
   const [expandedHistoryRow, setExpandedHistoryRow] = useState<number | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<"Auto" | "English" | "Hindi" | "Hinglish">("Auto");
+  const [recovering, setRecovering] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+  const [runtimeData, setRuntimeData] = useState<RuntimeInfo | null>(null);
 
   const activeCase = React.useRef(caseId);
   activeCase.current = caseId;
@@ -482,6 +545,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     setRefreshError("");
     setConversation([]);
     setExpandedHistoryRow(null);
+    setRuntimeData(null);
+    setRecovering(false);
+    setRecoveryError("");
 
     fetch(`/api/court-cases/${caseId}/intelligence`, { signal: controller.signal, cache: "no-store" })
       .then(async response => {
@@ -494,6 +560,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
       .then(result => {
         if (!controller.signal.aborted && epoch.current === generation && activeCase.current === caseId) {
           setData(result);
+          if (result?.runtime) {
+            setRuntimeData(result.runtime);
+          }
           setHistoryOpen((result?.orders.length ?? 0) > (result?.historySync ? 0 : 1));
         }
       })
@@ -512,8 +581,23 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const syncRunning = !!data?.historySync && ["Started", "Running", "Queued", "WaitingForCaptcha", "PausedForCaptcha"].includes(data.historySync.status);
   const awaitingAi = !!data?.orders.some(order => ["Unprocessed", "Processing"].includes(order.status));
 
+  const runtime = runtimeData ?? data?.runtime ?? null;
+  const runtimeState = runtime?.runtimeState ?? data?.refreshState?.runtimeState ?? (running ? "Processing" : undefined);
+  const reasonCode = runtime?.reasonCode ?? data?.refreshState?.reasonCode;
+  const isRuntimeProcessing = runtimeState === "Processing";
+  const isRuntimeStarting = runtimeState === "Starting" || recovering;
+
+  const isRecoverable = runtime?.modelState === "ModelOffline" ||
+    runtime?.questionServiceState === "QuestionServiceOffline" ||
+    reasonCode === "ModelInsufficientMemory" ||
+    reasonCode === "ModelOffline" ||
+    reasonCode === "QuestionServiceOffline" ||
+    runtime?.recovery?.reasonCode === "ModelInsufficientMemory" ||
+    (runtimeState === "Failed" && (reasonCode === "ModelInsufficientMemory" || reasonCode === "QuestionServiceOffline" || runtime?.modelState === "ModelOffline"));
+
   useEffect(() => {
-    if (!running && !syncRunning && !awaitingAi && reload === 0 && !["WaitingForCaptcha", "PausedForCaptcha"].includes(data?.historySync?.status ?? "")) return;
+    const isRuntimeActive = isRuntimeProcessing || isRuntimeStarting;
+    if (!running && !syncRunning && !awaitingAi && !isRuntimeActive && reload === 0 && !["WaitingForCaptcha", "PausedForCaptcha"].includes(data?.historySync?.status ?? "")) return;
 
     const controller = new AbortController();
     const generation = epoch.current;
@@ -532,6 +616,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
           const result: unknown = await response.json();
           if (registeredPayload(result, requestedCase) && !controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
             setData(result);
+            if ((result as RegisteredIntelligence).runtime) {
+              setRuntimeData((result as RegisteredIntelligence).runtime!);
+            }
           }
         }
       } catch {
@@ -540,13 +627,13 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         inFlight = false;
         if (!controller.signal.aborted) setReload(0);
       }
-    }, 5000);
+    }, isRuntimeActive ? 2500 : 5000);
 
     return () => {
       clearInterval(timer);
       controller.abort();
     };
-  }, [caseId, running, syncRunning, awaitingAi, reload, data?.historySync?.status]);
+  }, [caseId, running, syncRunning, awaitingAi, reload, data?.historySync?.status, isRuntimeProcessing, isRuntimeStarting]);
 
   const submitQuestion = async (qText: string) => {
     if (asking || !qText.trim()) return;
@@ -565,22 +652,32 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         credentials: "include",
         body: JSON.stringify({
           question: currentQuestion,
-          history: conversation.filter(turn => turn.answer.mode === "GeneralLocal").slice(-4).map(turn => ({ question: turn.question, answer: turn.answer.answer }))
+          history: conversation.filter(turn => turn.answer.mode === "GeneralLocal").slice(-4).map(turn => ({ question: turn.question, answer: turn.answer.answer })),
+          language: selectedLanguage
         }),
         signal: controller.signal,
         cache: "no-store"
       });
-      if (!response.ok) throw new Error("Unavailable");
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => null);
+        const specificError = errPayload?.error ?? errPayload?.detail ?? errPayload?.message;
+        throw new Error(specificError || "Unavailable");
+      }
       const result = (await response.json()) as Answer & { caseId: string };
-      if (result.caseId !== requestedCase || !Array.isArray(result.claims)) throw new Error("Wrong case response");
+      if (result.caseId !== requestedCase || !Array.isArray(result.claims)) throw new Error("Unavailable");
       if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
         setAnswer(result);
         setConversation(previous => [...previous, { question: currentQuestion, answer: result }].slice(-10));
         setQuestion("");
       }
-    } catch {
+    } catch (err) {
       if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
-        setAskError("Question answering is temporarily unavailable. Case intelligence remains available.");
+        const errMsg = (err as Error).message;
+        if (errMsg && errMsg !== "Unavailable" && errMsg !== "Failed to fetch" && errMsg !== "Wrong case response") {
+          setAskError(errMsg);
+        } else {
+          setAskError("Question answering is temporarily unavailable. Case intelligence remains available.");
+        }
       }
     } finally {
       if (generation === epoch.current && activeCase.current === requestedCase) setAsking(false);
@@ -593,7 +690,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   };
 
   const refresh = async () => {
-    if (refreshing || running) return;
+    if (refreshing || running || isRuntimeProcessing || isRuntimeStarting) return;
     const generation = epoch.current;
     const requestedCase = caseId;
     const controller = new AbortController();
@@ -608,11 +705,20 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         credentials: "include",
         cache: "no-store"
       });
-      if (response.status !== 202) throw new Error("Unavailable");
-      const state = await response.json();
-      if (state.caseId !== requestedCase) throw new Error("Wrong case");
-      if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
-        setData(previous => (previous ? { ...previous, refreshState: state } : previous));
+      const state = await response.json().catch(() => null);
+      if (response.status === 202) {
+        if (state?.caseId !== requestedCase) throw new Error("Wrong case");
+        if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
+          setData(previous => (previous ? { ...previous, refreshState: state, runtime: state } : previous));
+          setRuntimeData(state);
+          setReload(v => v + 1);
+        }
+      } else {
+        const errReason = state?.reasonCode;
+        const errMsg = officerRuntimeReasonMessage(errReason, state?.message) ?? (state?.error ?? "Local intelligence processing could not start.");
+        if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
+          setRefreshError(errMsg);
+        }
       }
     } catch {
       if (!controller.signal.aborted && generation === epoch.current && activeCase.current === requestedCase) {
@@ -620,6 +726,49 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
       }
     } finally {
       if (generation === epoch.current && activeCase.current === requestedCase) setRefreshing(false);
+    }
+  };
+
+  const retryRecovery = async () => {
+    if (recovering) return;
+    const generation = epoch.current;
+    const requestedCase = caseId;
+    setRecovering(true);
+    setRecoveryError("");
+
+    try {
+      const response = await fetch(`/api/court-cases/${caseId}/intelligence/runtime/recover`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store"
+      });
+      const result = await response.json().catch(() => null);
+      if (response.status === 202) {
+        if (generation === epoch.current && activeCase.current === requestedCase) {
+          setRuntimeData(prev => ({
+            ...prev,
+            ...result,
+            runtimeState: "Starting",
+            reasonCode: result?.reasonCode || "VerifyingAndStartingPinnedServices"
+          }));
+          setReload(v => v + 1);
+        }
+      } else {
+        const msg = officerRuntimeReasonMessage(result?.reasonCode, result?.message ?? result?.error) ?? "Local AI service recovery could not start.";
+        if (generation === epoch.current && activeCase.current === requestedCase) {
+          setRecoveryError(msg);
+        }
+      }
+    } catch (err) {
+      if (generation === epoch.current && activeCase.current === requestedCase) {
+        setRecoveryError((err as Error).message);
+      }
+    } finally {
+      if (generation === epoch.current && activeCase.current === requestedCase) {
+        setTimeout(() => {
+          if (generation === epoch.current) setRecovering(false);
+        }, 2000);
+      }
     }
   };
 
@@ -689,6 +838,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const aiReadyStr = `${pipeline.usableAiBriefs}/${pipeline.officialOrdersFound || data?.orders.length || 0} AI ready${pipeline.usableBriefsWithReview ? "*" : ""}`;
   const lastSyncStr = data?.historySync?.completedAt ? new Date(data.historySync.completedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true }) : "Not yet";
 
+  const checkedCount = runtime?.checked ?? data?.refreshState?.checked ?? 1;
+  const totalCount = runtime?.total ?? data?.refreshState?.total ?? (pipeline.officialOrdersFound || 1);
+
   return (
     <section className="court-intelligence" aria-label="Court Intelligence">
       {/* Hidden text/buttons ensuring test suite and accessibility regression coverage */}
@@ -739,7 +891,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             className="court-sync-btn"
             onClick={startHistory}
             disabled={running || startingSync}
-            title="Sync Full DHC History"
+            title="Sync DHC = discover/check official DHC records"
           >
             {running || startingSync ? "Syncing…" : "Sync DHC"}
           </button>
@@ -757,32 +909,76 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         />
       )}
 
+      {/* Amber Runtime Notice for Offline Model with Ready Intelligence */}
+      {(runtime?.modelState === "ModelOffline" || reasonCode === "ModelInsufficientMemory" || reasonCode === "ModelOffline") && pipeline.usableAiBriefs > 0 && (
+        <div className="court-runtime-notice-amber" role="status">
+          <span className="court-amber-text">ℹ Verified intelligence is ready. Local AI processing for new orders is currently unavailable.</span>
+          {isRecoverable && (
+            <button
+              type="button"
+              className="court-retry-recovery-btn"
+              disabled={recovering}
+              onClick={retryRecovery}
+            >
+              {recovering ? "Retrying AI service…" : "Retry AI service"}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Subtle Notice / Background Processing Bar */}
-      {(primaryNotice || running || syncRunning || !!data?.progressSummary?.backgroundProcessing || data?.progressSummary?.latestBriefReady) && (
+      {(primaryNotice || running || syncRunning || isRuntimeProcessing || isRuntimeStarting || !!data?.progressSummary?.backgroundProcessing || data?.progressSummary?.latestBriefReady || recoveryError) && (
         <div className="court-status-notice-bar" role="status">
-          {primaryNotice && <span className="court-notice-text">ℹ {primaryNotice}</span>}
+          {recoveryError && <span className="court-notice-text alert-text">⚠️ {recoveryError}</span>}
+          {primaryNotice && !recoveryError && <span className="court-notice-text">ℹ {primaryNotice}</span>}
           {data?.progressSummary?.latestBriefReady && (
             <span className="court-notice-fast">
               {data.progressSummary.backgroundProcessing ? "Fast brief ready" : "Latest brief ready"} · {shownDate(data.progressSummary.latestOrderDate)}
             </span>
           )}
-          {(running || syncRunning || !!data?.progressSummary?.backgroundProcessing) && (
+          {(running || syncRunning || isRuntimeProcessing || isRuntimeStarting || !!data?.progressSummary?.backgroundProcessing) && (
             <span className="court-notice-running">
               {syncRunning
                 ? data?.historySync?.status.includes("Captcha")
                   ? "CAPTCHA required · continue verification"
                   : "Checking official DHC history…"
+                : isRuntimeProcessing || refreshing
+                ? `Checking AI… Checking order ${checkedCount} of ${totalCount}` + (runtime?.processingCurrentOrderDate ? " · Processing " + shownDate(runtime.processingCurrentOrderDate) : "")
+                : isRuntimeStarting
+                ? "Checking AI services and verifying runtime…"
+                : reasonCode === "BusyWithOtherCase"
+                ? "Local AI is processing another matter. This case will be available after that work finishes."
                 : data?.progressSummary
-                ? `Background history · ${data.progressSummary.processingChecked} / ${data.progressSummary.processingTotal} sources checked${data.progressSummary.processingCurrentOrderDate ? ` · Processing ${shownDate(data.progressSummary.processingCurrentOrderDate)}` : ""}`
+                ? `Background history · ${data.progressSummary.processingChecked} / ${data.progressSummary.processingTotal} sources checked` + (data.progressSummary.processingCurrentOrderDate ? " · Processing " + shownDate(data.progressSummary.processingCurrentOrderDate) : "")
                 : `AI processing · ${data?.refreshState?.checked ?? 0} of ${data?.refreshState?.total ?? data?.orders.length ?? 0} sources checked`}
             </span>
           )}
           {data && data.orders.length > 0 && (
             <details className="court-processing-controls">
               <summary>Processing controls</summary>
-              <button type="button" disabled={refreshing || running} onClick={refresh}>
-                {refreshing || running ? "Processing intelligence…" : data.unprocessedOrderCount ? "Process known orders" : "Refresh intelligence"}
+              <button
+                type="button"
+                disabled={refreshing || running || isRuntimeProcessing || isRuntimeStarting}
+                onClick={refresh}
+                title="Refresh intelligence = process/revalidate Court AI"
+              >
+                {refreshing || running || isRuntimeProcessing || isRuntimeStarting
+                  ? "Checking AI…"
+                  : data.unprocessedOrderCount
+                  ? "Process known orders"
+                  : "Refresh intelligence"}
               </button>
+              {isRecoverable && (
+                <button
+                  type="button"
+                  className="court-inline-retry-btn"
+                  disabled={recovering}
+                  onClick={retryRecovery}
+                  title="Retry AI service"
+                >
+                  {recovering ? "Retrying AI…" : "Retry AI service"}
+                </button>
+              )}
             </details>
           )}
         </div>
@@ -889,6 +1085,8 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                 <h4>What LAC needs to do</h4>
                 {data.beforeNextHearing.length > 0 ? (
                   <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>
+                ) : (runtime?.actionStatus ?? data?.actionStatus) === "UnavailableUntilVerifiedIntelligenceReady" ? (
+                  <span className="court-attention-indicator neutral">Action status pending</span>
                 ) : (
                   <span className="court-attention-indicator">No action pending</span>
                 )}
@@ -910,6 +1108,10 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
                         </div>
                       </details>
                     )}
+                  </div>
+                ) : (runtime?.actionStatus ?? data?.actionStatus) === "UnavailableUntilVerifiedIntelligenceReady" ? (
+                  <div className="court-no-action-box neutral-box">
+                    <p>Action status will be available after verified Court intelligence is ready.</p>
                   </div>
                 ) : (
                   <div className="court-no-action-box">
@@ -1398,9 +1600,19 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               <span className="court-chat-case-ctx">
                 {data?.caseNumber ?? "WPC NO. 6203/2026"} · this matter
               </span>
-              <p className="court-intelligence-muted" style={{ margin: "2px 0 0", fontSize: "10px" }}>
-                English, हिन्दी or Hinglish · this matter only
-              </p>
+              <div className="court-language-selector" role="radiogroup" aria-label="Select response language">
+                {(["Auto", "Hinglish", "Hindi", "English"] as const).map(lang => (
+                  <button
+                    key={lang}
+                    type="button"
+                    className={`court-lang-pill ${selectedLanguage === lang ? "active" : ""}`}
+                    onClick={() => setSelectedLanguage(lang)}
+                    title={`Response language: ${lang}`}
+                  >
+                    {lang === "Hindi" ? "हिन्दी" : lang}
+                  </button>
+                ))}
+              </div>
             </div>
             <button
               type="button"
@@ -1417,7 +1629,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             {conversation.length === 0 ? (
               <div className="court-chat-welcome-state">
                 <p className="court-welcome-desc">
-                  Ask questions grounded strictly in official Delhi High Court orders for this matter.
+                  Ask questions in English, हिन्दी or Hinglish grounded strictly in official Delhi High Court orders for this matter.
                 </p>
                 <div className="court-chips-container">
                   <span className="court-chips-label">Suggested questions:</span>
