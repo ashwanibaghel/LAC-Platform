@@ -108,7 +108,8 @@ test('no confirmed hearing uses outstanding action, not next-hearing language',(
   assert.equal(false,presentation.confirmedNextHearing({...data.latestOrder,nextHearingDate:'2026-10-05'}));
 });
 test('source-confirmed next hearing enables the before-next-hearing heading',()=>{
-  const latest={...data.latestOrder,nextHearingDate:'2026-10-05',summaryFacts:[direction,{...direction,field:'nextHearing',value:'Renotify on 05.10.2026.'}]};
+  const nextYear=new Date().getFullYear()+1;
+  const latest={...data.latestOrder,nextHearingDate:`${nextYear}-10-05`,summaryFacts:[direction,{...direction,field:'nextHearing',value:`Renotify on 05.10.${nextYear}.`}]};
   assert.match(officerMarkup({...data,latestOrder:latest}),/<span>Before next hearing<\/span>/);
   assert.equal(false,presentation.confirmedNextHearing({...latest,summaryFacts:[]}));
 });
@@ -199,6 +200,18 @@ test('QuestionServiceOffline passive state surfaces officer message',()=>{
   const html=officerMarkup({...data,runtime:{questionServiceState:'QuestionServiceOffline',reasonCode:'QuestionServiceOffline'}});
   assert.match(html,/Local Court Q(?:&amp;|&)A service is unavailable/);
   assert.match(html,/Verified Court intelligence remains available/);
+});
+
+test('memory allocation reason takes precedence over generic offline model notice',()=>{
+  for(const runtime of [
+    {runtimeState:'Failed',reasonCode:'ModelInsufficientMemory',modelState:'ModelOffline',questionServiceState:'Ready'},
+    {runtimeState:'ModelOffline',reasonCode:'ModelOffline',modelState:'ModelOffline',recovery:{reasonCode:'ModelInsufficientMemory'}},
+  ]) {
+    const html=officerMarkup({...data,runtime});
+    assert.match(html,/Local AI service needs recovery due to system memory allocation/);
+    assert.doesNotMatch(html,/Local AI processing for new orders is currently unavailable/);
+    assert.match(html,/Reference was declined/);
+  }
 });
 
 test('language selector and request param are present',()=>{

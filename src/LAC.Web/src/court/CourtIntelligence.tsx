@@ -611,11 +611,11 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     if (questionServiceState === "QuestionServiceOffline" || reasonCode === "QuestionServiceOffline") {
       return "Local Court Q&A service is unavailable. Verified Court intelligence remains available.";
     }
-    if (modelState === "ModelOffline" || reasonCode === "ModelOffline") {
-      return "Local AI processing for new orders is currently unavailable. Verified Court intelligence remains available.";
-    }
     if (reasonCode === "ModelInsufficientMemory" || runtime?.recovery?.reasonCode === "ModelInsufficientMemory") {
       return "Local AI service needs recovery due to system memory allocation.";
+    }
+    if (modelState === "ModelOffline" || reasonCode === "ModelOffline") {
+      return "Local AI processing for new orders is currently unavailable. Verified Court intelligence remains available.";
     }
     if (runtimeState === "Failed") {
       return "Local AI processing for this matter stopped. Verified Court intelligence remains available.";
