@@ -1,4 +1,4 @@
 # Preserve the accepted recovery-controller fingerprint on Windows Git checkouts.
 tools/court-order-intelligence/runtime_recovery.py text eol=crlf
 # This checksum-bound receipt must remain byte-for-byte identical to the transport file.
-docs/receipts/court-v3-office-transfer-manifest.json -text
+docs/receipts/court-v3-office-transfer-manifest.json -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
