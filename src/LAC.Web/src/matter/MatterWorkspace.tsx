@@ -443,6 +443,8 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         throw new Error(errData?.message || errData?.title || `Failed to ${method === "PUT" ? "link" : "unlink"} record.`);
       }
 
+      setRefresh((r) => r + 1);
+
     } catch (err: any) {
       setManageLinkError(err.message || "Operation failed.");
     } finally {
@@ -1087,8 +1089,9 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                     ) : (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
                         {contextData.khasras.map((k) => (
-                          <span
+                          <Link
                             key={k.khasraId}
+                            to={`/khasras/${k.khasraId}`}
                             style={{
                               background: "#e0f2fe",
                               color: "#0369a1",
@@ -1096,11 +1099,12 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                               padding: "2px 8px",
                               borderRadius: "4px",
                               fontSize: "12px",
-                              fontWeight: 600
+                              fontWeight: 600,
+                              textDecoration: "none"
                             }}
                           >
                             Khasra #{k.displayNumber}
-                          </span>
+                          </Link>
                         ))}
                       </div>
                     )}

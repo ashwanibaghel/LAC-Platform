@@ -51,3 +51,14 @@ test("6. Workstream reclassification requires explicit selection", () => {
 test("7. Village matter cards avoid false No Award badge", () => {
   assert.ok(!appTsx.includes('<span className="matter-item-badge">No Award</span>'), "Village cards do not show false No Award badge");
 });
+
+test("8. executeLinkMutation triggers post-success context refresh", () => {
+  const match = matterWsTsx.match(/executeLinkMutation[\s\S]*?fetch\([\s\S]*?\);([\s\S]*?)\}/);
+  assert.ok(match, "Found executeLinkMutation definition");
+  assert.ok(match[1].includes("setRefresh((r) => r + 1)"), "executeLinkMutation triggers setRefresh((r) => r + 1) upon success");
+});
+
+test("9. Canonical Khasra chips are clickable links to /khasras/{khasraId}", () => {
+  assert.ok(matterWsTsx.includes('to={`/khasras/${k.khasraId}`}'), "Canonical Khasra chips link to /khasras/{khasraId}");
+});
+
