@@ -123,7 +123,7 @@ export const DakDetailWorkspace: React.FC = () => {
     try {
       const res = await fetch(`/api/dak/${dak.id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "If-Match": `"${dak.revision}"` },
         credentials: "include",
         body: JSON.stringify({
           subject: editSubject.trim(),
@@ -166,6 +166,7 @@ export const DakDetailWorkspace: React.FC = () => {
 
       const res = await fetch(`/api/dak/${dak.id}/attachments`, {
         method: "POST",
+        headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
         body: fd,
       });
@@ -191,6 +192,7 @@ export const DakDetailWorkspace: React.FC = () => {
     try {
       const res = await fetch(`/api/dak/${dak.id}/attachments/${attachmentId}`, {
         method: "DELETE",
+        headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to delete attachment.");
@@ -208,7 +210,7 @@ export const DakDetailWorkspace: React.FC = () => {
       const endpointType = linkType.toLowerCase() + "s";
       const res = await fetch(`/api/dak/${dak.id}/links/${endpointType}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "If-Match": `"${dak.revision}"` },
         credentials: "include",
         body: JSON.stringify({ entityId: linkEntityId.trim() }),
       });
@@ -234,6 +236,7 @@ export const DakDetailWorkspace: React.FC = () => {
       const endpointType = linkTypeParam.toLowerCase() + "s";
       const res = await fetch(`/api/dak/${dak.id}/links/${endpointType}/${linkId}`, {
         method: "DELETE",
+        headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to remove link.");
@@ -246,7 +249,7 @@ export const DakDetailWorkspace: React.FC = () => {
   if (loading) return <div className="state"><strong>Loading Dak record...</strong></div>;
   if (error || !dak) return <div className="state error"><strong>Error:</strong> {error || "Dak not found."}</div>;
 
-  const isTerminal = dak.status === "Disposed" || dak.status === "Cancelled";
+  const isTerminal = dak.recordStatus !== "Active" || dak.status === "Disposed" || dak.status === "Cancelled";
   const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
   const canMove = hasPermission("Dak.Move") && !isTerminal;
   const canDispose = hasPermission("Dak.Dispose") && !isTerminal;
@@ -587,7 +590,7 @@ export const DakDetailWorkspace: React.FC = () => {
               ) : (
                 dak.awardLinks.map((l) => (
                   <span key={l.linkId} className="dak-link-badge">
-                    <Link to={`/awards/${l.entityId}`}>Award: {l.displayName}</Link>
+                    {l.canOpen && l.entityId ? <Link to={`/awards/${l.entityId}`}> Award: {l.displayName}</Link> : <span>Restricted record</span>}
                     {canEdit && (
                       <button className="dak-link-remove" onClick={() => void handleDeleteLink("awards", l.linkId)}>
                         ✕
@@ -603,7 +606,7 @@ export const DakDetailWorkspace: React.FC = () => {
               ) : (
                 dak.villageLinks.map((l) => (
                   <span key={l.linkId} className="dak-link-badge">
-                    <Link to={`/villages/${l.entityId}`}>Village: {l.displayName}</Link>
+                    {l.canOpen && l.entityId ? <Link to={`/villages/${l.entityId}`}> Village: {l.displayName}</Link> : <span>Restricted record</span>}
                     {canEdit && (
                       <button className="dak-link-remove" onClick={() => void handleDeleteLink("villages", l.linkId)}>
                         ✕
@@ -621,7 +624,7 @@ export const DakDetailWorkspace: React.FC = () => {
               ) : (
                 dak.matterLinks.map((l) => (
                   <span key={l.linkId} className="dak-link-badge">
-                    <Link to={`/matters/${l.entityId}`}>Matter: {l.displayName}</Link>
+                    {l.canOpen && l.entityId ? <Link to={`/matters/${l.entityId}`}> Matter: {l.displayName}</Link> : <span>Restricted record</span>}
                     {canEdit && (
                       <button className="dak-link-remove" onClick={() => void handleDeleteLink("matters", l.linkId)}>
                         ✕
@@ -637,7 +640,7 @@ export const DakDetailWorkspace: React.FC = () => {
               ) : (
                 dak.khasraLinks.map((l) => (
                   <span key={l.linkId} className="dak-link-badge">
-                    <Link to={`/khasras/${l.entityId}`}>Khasra: {l.displayName}</Link>
+                    {l.canOpen && l.entityId ? <Link to={`/khasras/${l.entityId}`}> Khasra: {l.displayName}</Link> : <span>Restricted record</span>}
                     {canEdit && (
                       <button className="dak-link-remove" onClick={() => void handleDeleteLink("khasras", l.linkId)}>
                         ✕

@@ -8,11 +8,19 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 
-public static class DakEndpoints
+public static partial class DakEndpoints
 {
     public static RouteGroupBuilder MapDakEndpoints(this RouteGroupBuilder api)
     {
         var dak = api.MapGroup("/dak");
+        dak.AddEndpointFilter(async (context, next) =>
+        {
+            try { return await next(context); }
+            catch (DakWorkflowException ex)
+            {
+                return Results.Problem(statusCode: ex.StatusCode, title: ex.Message, detail: ex.Message);
+            }
+        });
 
         // 1. Register Inward Dak
         dak.MapPost("/", async (
@@ -109,6 +117,14 @@ public static class DakEndpoints
             var inwardMode = form["inwardMode"].ToString().Trim();
             if (string.IsNullOrWhiteSpace(inwardMode)) inwardMode = "Physical";
 
+            Guid? requestId = null;
+            var requestKey = request.Headers["Idempotency-Key"].ToString();
+            if (!string.IsNullOrEmpty(requestKey))
+            {
+                if (!Guid.TryParse(requestKey, out var parsedKey) || parsedKey == Guid.Empty)
+                    return Results.BadRequest(new { message = "Idempotency-Key must be a non-empty UUID." });
+                requestId = parsedKey;
+            }
             var file = form.Files.GetFile("file");
             Stream? stream = null;
             string? fileName = null;
@@ -143,7 +159,8 @@ public static class DakEndpoints
                 WorkstreamId: workstreamId,
                 DocumentStream: stream,
                 DocumentFileName: fileName,
-                DocumentContentType: contentType
+                DocumentContentType: contentType,
+                RequestId: requestId
             );
 
             try
@@ -208,6 +225,7 @@ public static class DakEndpoints
 
         // 2. Collection Query with Union-of-Scopes Filtering
         dak.MapGet("/", async (
+            bool? includeArchived,
             int? page,
             int? pageSize,
             string? q,
@@ -239,6 +257,7 @@ public static class DakEndpoints
                 return Results.Forbid();
 
             var query = authResult.Query;
+            if (includeArchived != true) query = query.Where(d => d.RecordStatus == RecordStatus.Active);
 
             // Apply search/filters
             if (!string.IsNullOrWhiteSpace(q))
@@ -286,7 +305,8 @@ public static class DakEndpoints
                 d.CurrentAssignment != null && d.CurrentAssignment.IsActive && d.CurrentAssignment.AssignedUser != null ? d.CurrentAssignment.AssignedUser.DisplayName : null,
                 d.MainDocumentId != null,
                 d.Revision,
-                d.CreatedAt
+                d.CreatedAt,
+                d.RecordStatus.ToString()
             )).ToListAsync(ct);
 
             return Results.Ok(new { items, totalCount, page = p, pageSize = ps });
@@ -528,6 +548,8 @@ public static class DakEndpoints
             Guid id,
             LacDbContext db,
             IDakAuthorizationService dakAuth,
+            IMatterAuthorizationService matterAuth,
+            IAccessControlService accessControl,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
         {
@@ -582,6 +604,21 @@ public static class DakEndpoints
                               && dakRecord.CurrentAssignment.IsActive
                               && (!isDeskActive || !isUserEligible);
 
+            var villageLinks = await ProjectLinksAsync(dakRecord.VillageLinks.Select(l => new DakLinkItemDto(l.Id, l.VillageId, l.Village.Name, "Village")),
+                () => accessControl.CanAsync(PermissionCodes.VillageView, cancellationToken: ct));
+            var awardLinks = await ProjectLinksAsync(dakRecord.AwardLinks.Select(l => new DakLinkItemDto(l.Id, l.AwardId, l.Award.AwardNumber, "Award")),
+                () => accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct));
+            var khasraLinks = await ProjectLinksAsync(dakRecord.KhasraLinks.Select(l => new DakLinkItemDto(l.Id, l.KhasraId, l.Khasra.DisplayNumber, "Khasra")),
+                () => accessControl.CanAsync(PermissionCodes.KhasraView, cancellationToken: ct));
+            var matterLinks = new List<DakLinkItemDto>();
+            foreach (var link in dakRecord.MatterLinks)
+            {
+                var canRead = await matterAuth.CanAccessMatterAsync(link.MatterId, PermissionCodes.MatterView, userId, ct);
+                matterLinks.Add(canRead
+                    ? new DakLinkItemDto(link.Id, link.MatterId, link.Matter.Title, "Matter")
+                    : new DakLinkItemDto(link.Id, null, "Restricted record", "Matter", false));
+            }
+
             var detailDto = new DakDetailDto(
                 dakRecord.Id,
                 dakRecord.DiaryNumber,
@@ -620,14 +657,15 @@ public static class DakEndpoints
                     needsAttention
                 ),
                 dakRecord.Attachments.Select(a => new DakAttachmentDto(a.Id, a.DocumentId, a.Document.OriginalFileName, a.Title, a.AttachmentType, a.SequenceOrder, a.CreatedAt)).ToList(),
-                dakRecord.VillageLinks.Select(v => new DakLinkItemDto(v.Id, v.VillageId, v.Village.Name, "Village")).ToList(),
-                dakRecord.AwardLinks.Select(a => new DakLinkItemDto(a.Id, a.AwardId, a.Award.AwardNumber, "Award")).ToList(),
-                dakRecord.MatterLinks.Select(m => new DakLinkItemDto(m.Id, m.MatterId, m.Matter.Title, "Matter")).ToList(),
-                dakRecord.KhasraLinks.Select(k => new DakLinkItemDto(k.Id, k.KhasraId, k.Khasra.DisplayNumber, "Khasra")).ToList(),
+                villageLinks,
+                awardLinks,
+                matterLinks,
+                khasraLinks,
                 dakRecord.CreatedAt,
                 dakRecord.CreatedBy,
                 dakRecord.UpdatedAt,
-                dakRecord.UpdatedBy
+                dakRecord.UpdatedBy,
+                dakRecord.RecordStatus.ToString()
             );
 
             return Results.Ok(detailDto);
@@ -638,6 +676,7 @@ public static class DakEndpoints
             Guid id,
             UpdateDakMetadataRequest request,
             LacDbContext db,
+            DakWorkflowService workflow,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -648,50 +687,36 @@ public static class DakEndpoints
             if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct))
                 return Results.Forbid();
 
-            var dak = await db.Daks.FirstOrDefaultAsync(d => d.Id == id, ct);
-            if (dak is null) return Results.NotFound();
-
-            if (dak.Status == DakStatus.Disposed || dak.Status == DakStatus.Cancelled)
-                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "Bad Request", detail: $"Cannot modify metadata of a Dak in terminal status '{dak.Status}'.");
-
-            if (dak.Revision != request.ExpectedRevision)
-                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Conflict", detail: "This Dak was modified elsewhere. Refresh before saving.");
-
-            if (request.CategoryId.HasValue)
+            await workflow.MutateIntakeAsync(id, request.ExpectedRevision, userId, "MetadataUpdated", async (dak, mutationCt) =>
             {
-                var catExists = await db.DakCategories.AsNoTracking().AnyAsync(c => c.Id == request.CategoryId.Value && c.IsActive && c.RecordStatus == RecordStatus.Active, ct);
-                if (!catExists) return Results.BadRequest(new { message = "Category does not exist or is inactive." });
-            }
+                if (request.CategoryId.HasValue)
+                {
+                    var catExists = await db.DakCategories.AsNoTracking().AnyAsync(c => c.Id == request.CategoryId.Value && c.IsActive && c.RecordStatus == RecordStatus.Active, mutationCt);
+                    if (!catExists) throw new DakWorkflowException("Category does not exist or is inactive.");
+                }
 
-            if (request.WorkstreamId.HasValue)
-            {
-                var wsExists = await db.Workstreams.AsNoTracking().AnyAsync(w => w.Id == request.WorkstreamId.Value && w.IsActive && w.RecordStatus == RecordStatus.Active, ct);
-                if (!wsExists) return Results.BadRequest(new { message = "Workstream does not exist or is inactive." });
-            }
+                if (request.WorkstreamId.HasValue)
+                {
+                    var wsExists = await db.Workstreams.AsNoTracking().AnyAsync(w => w.Id == request.WorkstreamId.Value && w.IsActive && w.RecordStatus == RecordStatus.Active, mutationCt);
+                    if (!wsExists) throw new DakWorkflowException("Workstream does not exist or is inactive.");
+                }
 
-            dak.Subject = string.IsNullOrWhiteSpace(request.Subject) ? dak.Subject : request.Subject.Trim();
-            dak.SenderName = string.IsNullOrWhiteSpace(request.SenderName) ? dak.SenderName : request.SenderName.Trim();
-            dak.SenderDesignation = request.SenderDesignation?.Trim();
-            dak.SenderDepartment = request.SenderDepartment?.Trim();
-            dak.SenderAddress = request.SenderAddress?.Trim();
-            dak.SenderReferenceNumber = request.SenderReferenceNumber?.Trim();
-            dak.SenderLetterDate = request.SenderLetterDate;
-            dak.InwardMode = string.IsNullOrWhiteSpace(request.InwardMode) ? dak.InwardMode : request.InwardMode.Trim();
-            dak.Priority = request.Priority;
-            dak.DueDate = request.DueDate;
-            dak.CategoryId = request.CategoryId;
-            dak.WorkstreamId = request.WorkstreamId;
-            dak.Revision++;
-
-            try
-            {
-                await db.SaveChangesAsync(ct);
-                return Results.Ok(new { id = dak.Id, revision = dak.Revision, updatedAt = dak.UpdatedAt });
-            }
-            catch (DbUpdateConcurrencyException)
-            {
-                return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: "Conflict", detail: "This Dak was modified elsewhere. Refresh before saving.");
-            }
+                dak.Subject = string.IsNullOrWhiteSpace(request.Subject) ? dak.Subject : request.Subject.Trim();
+                dak.SenderName = string.IsNullOrWhiteSpace(request.SenderName) ? dak.SenderName : request.SenderName.Trim();
+                dak.SenderDesignation = request.SenderDesignation?.Trim();
+                dak.SenderDepartment = request.SenderDepartment?.Trim();
+                dak.SenderAddress = request.SenderAddress?.Trim();
+                dak.SenderReferenceNumber = request.SenderReferenceNumber?.Trim();
+                dak.SenderLetterDate = request.SenderLetterDate;
+                dak.InwardMode = string.IsNullOrWhiteSpace(request.InwardMode) ? dak.InwardMode : request.InwardMode.Trim();
+                dak.Priority = request.Priority;
+                dak.DueDate = request.DueDate;
+                dak.CategoryId = request.CategoryId;
+                dak.WorkstreamId = request.WorkstreamId;
+                return true;
+            }, ct);
+            var updated = await db.Daks.AsNoTracking().SingleAsync(d => d.Id == id, ct);
+            return Results.Ok(new { id, revision = updated.Revision, updatedAt = updated.UpdatedAt });
         }).RequirePermission(PermissionCodes.DakEdit);
 
         // 4b. Operational Lookup: Edit Categories & Workstreams
@@ -897,294 +922,119 @@ public static class DakEndpoints
             }
         }).RequirePermission(PermissionCodes.DakCancel);
 
-        // 9. Attachments
-        dak.MapPost("/{id:guid}/attachments", async (
-            Guid id,
-            HttpRequest request,
-            LacDbContext db,
-            IDocumentStorage storage,
-            IDakAuthorizationService dakAuth,
-            ICurrentUserContext currentUser,
-            CancellationToken ct) =>
+        // Intake mutations serialize against marking/disposal on the same Dak row.
+        dak.MapPost("/{id:guid}/attachments", async (Guid id, HttpRequest request, DakWorkflowService workflow,
+            IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
-
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct))
-                return Results.Forbid();
-
-            if (!request.HasFormContentType)
-                return Results.BadRequest(new { message = "Request must be multipart/form-data." });
-
+            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct)) return Results.Forbid();
+            if (!request.HasFormContentType) return Results.BadRequest(new { message = "Request must be multipart/form-data." });
             var form = await request.ReadFormAsync(ct);
             var file = form.Files.GetFile("file");
-            if (file is null || file.Length == 0)
-                return Results.BadRequest(new { message = "A valid document file is required." });
-
-            var title = form["title"].ToString();
-            var attachmentType = form["attachmentType"].ToString();
-
+            if (file is null || file.Length == 0) return Results.BadRequest(new { message = "A valid document file is required." });
             await using var stream = file.OpenReadStream();
-            if (!TryValidateAndDeriveMime(stream, file.FileName, out var derivedMime, out var mimeError))
-            {
-                return Results.BadRequest(new { message = mimeError });
-            }
-
-            var actionUser = await db.AppUsers.AsNoTracking().SingleAsync(u => u.Id == userId, ct);
-
-            string? savedStoragePath = null;
-            var fileResult = await storage.SaveAndHashAsync(stream, file.FileName, ct);
-            savedStoragePath = fileResult.StoragePath;
-
-            try
-            {
-                var doc = new Document
-                {
-                    OriginalFileName = file.FileName,
-                    StoragePath = fileResult.StoragePath,
-                    Sha256Hash = fileResult.Sha256Hash,
-                    FileSize = fileResult.FileSize,
-                    MimeType = derivedMime,
-                    DocumentType = "DakAttachment",
-                    UploadedBy = actionUser.DisplayName
-                };
-                db.Documents.Add(doc);
-
-                var maxSeq = await db.DakAttachments.Where(a => a.DakId == id).MaxAsync(a => (int?)a.SequenceOrder, ct);
-                var att = new DakAttachment
-                {
-                    DakId = id,
-                    Document = doc,
-                    Title = string.IsNullOrWhiteSpace(title) ? file.FileName : title.Trim(),
-                    AttachmentType = string.IsNullOrWhiteSpace(attachmentType) ? "Annexure" : attachmentType.Trim(),
-                    SequenceOrder = (maxSeq ?? 0) + 1,
-                    RecordStatus = RecordStatus.Active
-                };
-                db.DakAttachments.Add(att);
-
-                await db.SaveChangesAsync(ct);
-                return Results.Created($"/api/dak/{id}/attachments/{att.Id}", new { id = att.Id, documentId = doc.Id, title = att.Title });
-            }
-            catch
-            {
-                if (savedStoragePath is not null)
-                {
-                    try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { }
-                }
-                throw;
-            }
+            if (!TryValidateAndDeriveMime(stream, file.FileName, out var mime, out var error))
+                return Results.BadRequest(new { message = error });
+            var attachment = await workflow.AddIntakeAttachmentAsync(id, ReadRevision(request), userId, stream,
+                file.FileName, mime, form["title"].ToString(), form["attachmentType"].ToString(), ct);
+            return Results.Created($"/api/dak/{id}/attachments/{attachment.Id}",
+                new { id = attachment.Id, documentId = attachment.DocumentId, title = attachment.Title });
         }).RequirePermission(PermissionCodes.DakEdit);
 
-        dak.MapDelete("/{id:guid}/attachments/{attachmentId:guid}", async (
-            Guid id,
-            Guid attachmentId,
-            LacDbContext db,
-            IDakAuthorizationService dakAuth,
-            ICurrentUserContext currentUser,
-            CancellationToken ct) =>
+        dak.MapDelete("/{id:guid}/attachments/{attachmentId:guid}", async (Guid id, Guid attachmentId,
+            HttpRequest request, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth,
+            ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
-
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct))
-                return Results.Forbid();
-
-            var att = await db.DakAttachments.FirstOrDefaultAsync(a => a.Id == attachmentId && a.DakId == id && a.RecordStatus == RecordStatus.Active, ct);
-            if (att is null) return Results.NotFound();
-
-            att.RecordStatus = RecordStatus.Archived;
-            await db.SaveChangesAsync(ct);
-
+            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, userId, ct)) return Results.Forbid();
+            await workflow.MutateIntakeAsync(id, ReadRevision(request), userId, "AttachmentArchived", async (_, c) =>
+            {
+                var attachment = await db.DakAttachments.SingleOrDefaultAsync(a => a.Id == attachmentId && a.DakId == id && a.RecordStatus == RecordStatus.Active, c)
+                    ?? throw new DakWorkflowException("Attachment not found.", 404);
+                attachment.RecordStatus = RecordStatus.Archived;
+                return true;
+            }, ct);
             return Results.NoContent();
         }).RequirePermission(PermissionCodes.DakEdit);
 
-        // 10. Strongly-Typed Domain Links
-        // Village Links
-        async Task<IResult> LinkVillageInternal(Guid id, Guid villageId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
+        dak.MapPost("/{id:guid}/villages/{villageId:guid}", (Guid id, Guid villageId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, villageId, "Village", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/links/villages", (Guid id, LinkEntityRequest request, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, request.EntityId, "Village", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/villages/{villageId:guid}", (Guid id, Guid villageId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, villageId, "Village", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/links/villages/{villageId:guid}", (Guid id, Guid villageId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, villageId, "Village", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/awards/{awardId:guid}", (Guid id, Guid awardId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, awardId, "Award", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/links/awards", (Guid id, LinkEntityRequest request, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, request.EntityId, "Award", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/awards/{awardId:guid}", (Guid id, Guid awardId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, awardId, "Award", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/links/awards/{awardId:guid}", (Guid id, Guid awardId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, awardId, "Award", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, matterId, "Matter", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/links/matters", (Guid id, LinkEntityRequest request, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, request.EntityId, "Matter", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, matterId, "Matter", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/links/matters/{matterId:guid}", (Guid id, Guid matterId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, matterId, "Matter", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/khasras/{khasraId:guid}", (Guid id, Guid khasraId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, khasraId, "Khasra", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapPost("/{id:guid}/links/khasras", (Guid id, LinkEntityRequest request, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, request.EntityId, "Khasra", false, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/khasras/{khasraId:guid}", (Guid id, Guid khasraId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, khasraId, "Khasra", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+        dak.MapDelete("/{id:guid}/links/khasras/{khasraId:guid}", (Guid id, Guid khasraId, HttpRequest http, LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, IAccessControlService accessControl, ICurrentUserContext currentUser, CancellationToken ct) =>
+            LinkContextAsync(id, khasraId, "Khasra", true, http, db, workflow, dakAuth, matterAuth, accessControl, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+
+        dak.MapGet("/{id:guid}/physical-original", async (Guid id, LacDbContext db, IDakAuthorizationService auth,
+            ICurrentUserContext user, CancellationToken ct) =>
         {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            if (!await auth.CanAccessDakAsync(id, PermissionCodes.DakView, user.UserId.Value, ct)) return Results.Forbid();
+            return Results.Ok(await db.Daks.AsNoTracking().Where(d => d.Id == id).Select(d => new
+            {
+                d.HasPhysicalOriginal, deskId = d.PhysicalOriginalDeskId, userId = d.PhysicalOriginalUserId,
+                locationNote = d.PhysicalOriginalLocationNote, provenanceNote = d.PhysicalOriginalProvenanceNote,
+                updatedAt = d.PhysicalOriginalUpdatedAt, updatedByUserId = d.PhysicalOriginalUpdatedByUserId, d.Revision
+            }).SingleAsync(ct));
+        }).RequirePermission(PermissionCodes.DakView);
 
-            var villageExists = await db.Villages.AsNoTracking().AnyAsync(v => v.Id == villageId && v.RecordStatus == RecordStatus.Active, ct);
-            if (!villageExists) return Results.BadRequest(new { message = "Village does not exist or is inactive." });
-
-            var existingActive = await db.DakVillageLinks.AnyAsync(l => l.DakId == id && l.VillageId == villageId && l.RecordStatus == RecordStatus.Active, ct);
-            if (existingActive) return Results.Conflict(new { message = "Village is already actively linked." });
-
-            var link = new DakVillageLink { DakId = id, VillageId = villageId, RecordStatus = RecordStatus.Active };
-            db.DakVillageLinks.Add(link);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/dak/{id}/links/villages/{link.Id}", new { linkId = link.Id, id = link.Id, villageId });
-        }
-
-        async Task<IResult> UnlinkVillageInternal(Guid id, Guid targetId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
+        dak.MapPut("/{id:guid}/physical-original", async (Guid id, PhysicalOriginalRequest request,
+            LacDbContext db, DakWorkflowService workflow, IDakAuthorizationService auth,
+            ICurrentUserContext user, CancellationToken ct) =>
         {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var link = await db.DakVillageLinks.FirstOrDefaultAsync(l => l.DakId == id && (l.Id == targetId || l.VillageId == targetId) && l.RecordStatus == RecordStatus.Active, ct);
-            if (link is null) return Results.NotFound();
-
-            link.RecordStatus = RecordStatus.Archived;
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        }
-
-        dak.MapPost("/{id:guid}/villages/{villageId:guid}", (Guid id, Guid villageId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkVillageInternal(id, villageId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapPost("/{id:guid}/links/villages", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkVillageInternal(id, request.EntityId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/villages/{villageId:guid}", (Guid id, Guid villageId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkVillageInternal(id, villageId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/links/villages/{linkId:guid}", (Guid id, Guid linkId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkVillageInternal(id, linkId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        // Award Links
-        async Task<IResult> LinkAwardInternal(Guid id, Guid awardId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var awardExists = await db.Awards.AsNoTracking().AnyAsync(a => a.Id == awardId && a.RecordStatus == RecordStatus.Active, ct);
-            if (!awardExists) return Results.BadRequest(new { message = "Award does not exist or is inactive." });
-
-            var existingActive = await db.DakAwardLinks.AnyAsync(l => l.DakId == id && l.AwardId == awardId && l.RecordStatus == RecordStatus.Active, ct);
-            if (existingActive) return Results.Conflict(new { message = "Award is already actively linked." });
-
-            var link = new DakAwardLink { DakId = id, AwardId = awardId, RecordStatus = RecordStatus.Active };
-            db.DakAwardLinks.Add(link);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/dak/{id}/links/awards/{link.Id}", new { linkId = link.Id, id = link.Id, awardId });
-        }
-
-        async Task<IResult> UnlinkAwardInternal(Guid id, Guid targetId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var link = await db.DakAwardLinks.FirstOrDefaultAsync(l => l.DakId == id && (l.Id == targetId || l.AwardId == targetId) && l.RecordStatus == RecordStatus.Active, ct);
-            if (link is null) return Results.NotFound();
-
-            link.RecordStatus = RecordStatus.Archived;
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        }
-
-        dak.MapPost("/{id:guid}/awards/{awardId:guid}", (Guid id, Guid awardId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkAwardInternal(id, awardId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapPost("/{id:guid}/links/awards", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkAwardInternal(id, request.EntityId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/awards/{awardId:guid}", (Guid id, Guid awardId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkAwardInternal(id, awardId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/links/awards/{linkId:guid}", (Guid id, Guid linkId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkAwardInternal(id, linkId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        // Matter Links
-        async Task<IResult> LinkMatterInternal(Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var matterExists = await db.Matters.AsNoTracking().AnyAsync(m => m.Id == matterId && m.RecordStatus == RecordStatus.Active, ct);
-            if (!matterExists) return Results.BadRequest(new { message = "Matter does not exist or is inactive." });
-
-            if (!await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterView, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var existingActive = await db.DakMatterLinks.AnyAsync(l => l.DakId == id && l.MatterId == matterId && l.RecordStatus == RecordStatus.Active, ct);
-            if (existingActive) return Results.Conflict(new { message = "Matter is already actively linked." });
-
-            var link = new DakMatterLink { DakId = id, MatterId = matterId, RecordStatus = RecordStatus.Active };
-            db.DakMatterLinks.Add(link);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/dak/{id}/links/matters/{link.Id}", new { linkId = link.Id, id = link.Id, matterId });
-        }
-
-        async Task<IResult> UnlinkMatterInternal(Guid id, Guid targetId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var link = await db.DakMatterLinks.FirstOrDefaultAsync(l => l.DakId == id && (l.Id == targetId || l.MatterId == targetId) && l.RecordStatus == RecordStatus.Active, ct);
-            if (link is null) return Results.NotFound();
-
-            link.RecordStatus = RecordStatus.Archived;
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        }
-
-        dak.MapPost("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkMatterInternal(id, matterId, db, dakAuth, matterAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapPost("/{id:guid}/links/matters", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, IMatterAuthorizationService matterAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkMatterInternal(id, request.EntityId, db, dakAuth, matterAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/matters/{matterId:guid}", (Guid id, Guid matterId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkMatterInternal(id, matterId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/links/matters/{linkId:guid}", (Guid id, Guid linkId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkMatterInternal(id, linkId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        // Khasra Links
-        async Task<IResult> LinkKhasraInternal(Guid id, Guid khasraId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var khasraExists = await db.Khasras.AsNoTracking().AnyAsync(k => k.Id == khasraId && k.RecordStatus == RecordStatus.Active, ct);
-            if (!khasraExists) return Results.BadRequest(new { message = "Khasra does not exist or is inactive." });
-
-            var existingActive = await db.DakKhasraLinks.AnyAsync(l => l.DakId == id && l.KhasraId == khasraId && l.RecordStatus == RecordStatus.Active, ct);
-            if (existingActive) return Results.Conflict(new { message = "Khasra is already actively linked." });
-
-            var link = new DakKhasraLink { DakId = id, KhasraId = khasraId, RecordStatus = RecordStatus.Active };
-            db.DakKhasraLinks.Add(link);
-            await db.SaveChangesAsync(ct);
-
-            return Results.Created($"/api/dak/{id}/links/khasras/{link.Id}", new { linkId = link.Id, id = link.Id, khasraId });
-        }
-
-        async Task<IResult> UnlinkKhasraInternal(Guid id, Guid targetId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct)
-        {
-            if (!currentUser.UserId.HasValue) return Results.Unauthorized();
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakEdit, currentUser.UserId.Value, ct))
-                return Results.Forbid();
-
-            var link = await db.DakKhasraLinks.FirstOrDefaultAsync(l => l.DakId == id && (l.Id == targetId || l.KhasraId == targetId) && l.RecordStatus == RecordStatus.Active, ct);
-            if (link is null) return Results.NotFound();
-
-            link.RecordStatus = RecordStatus.Archived;
-            await db.SaveChangesAsync(ct);
-            return Results.NoContent();
-        }
-
-        dak.MapPost("/{id:guid}/khasras/{khasraId:guid}", (Guid id, Guid khasraId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkKhasraInternal(id, khasraId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapPost("/{id:guid}/links/khasras", (Guid id, LinkEntityRequest request, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            LinkKhasraInternal(id, request.EntityId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/khasras/{khasraId:guid}", (Guid id, Guid khasraId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkKhasraInternal(id, khasraId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
-
-        dak.MapDelete("/{id:guid}/links/khasras/{linkId:guid}", (Guid id, Guid linkId, LacDbContext db, IDakAuthorizationService dakAuth, ICurrentUserContext currentUser, CancellationToken ct) =>
-            UnlinkKhasraInternal(id, linkId, db, dakAuth, currentUser, ct)).RequirePermission(PermissionCodes.DakEdit);
+            if (!user.UserId.HasValue) return Results.Unauthorized();
+            if (!await auth.CanAccessDakAsync(id, PermissionCodes.DakEdit, user.UserId.Value, ct)) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(request.ProvenanceNote) || request.ProvenanceNote.Length > 1000 || request.LocationNote?.Length > 1000)
+                return Results.BadRequest(new { message = "A provenance note (up to 1000 characters) is required; location note must not exceed 1000 characters." });
+            if (request.HasPhysicalOriginal != true && (request.DeskId.HasValue || request.UserId.HasValue || !string.IsNullOrWhiteSpace(request.LocationNote)))
+                return Results.BadRequest(new { message = "A location can only be recorded when physical original existence is confirmed." });
+            await workflow.MutateIntakeAsync(id, request.ExpectedRevision, user.UserId.Value, "PhysicalOriginalUpdated", async (dak, c) =>
+            {
+                if (request.DeskId.HasValue && !await db.OfficeDesks.AnyAsync(d => d.Id == request.DeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, c))
+                    throw new DakWorkflowException("Physical location desk is inactive or missing.");
+                if (request.UserId.HasValue && !await db.AppUsers.AnyAsync(u => u.Id == request.UserId && u.IsActive && u.RecordStatus == RecordStatus.Active, c))
+                    throw new DakWorkflowException("Physical custodian user is inactive or missing.");
+                if (request.DeskId.HasValue && request.UserId.HasValue && !await db.UserDeskMemberships.AnyAsync(m =>
+                    m.OfficeDeskId == request.DeskId && m.UserId == request.UserId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active, c))
+                    throw new DakWorkflowException("Physical custodian is not an active member of the specified desk.");
+                dak.HasPhysicalOriginal = request.HasPhysicalOriginal;
+                dak.PhysicalOriginalDeskId = request.DeskId;
+                dak.PhysicalOriginalUserId = request.UserId;
+                dak.PhysicalOriginalLocationNote = request.LocationNote?.Trim();
+                dak.PhysicalOriginalProvenanceNote = request.ProvenanceNote.Trim();
+                dak.PhysicalOriginalUpdatedAt = DateTimeOffset.UtcNow;
+                dak.PhysicalOriginalUpdatedByUserId = user.UserId;
+                return true;
+            }, ct);
+            return Results.Ok(new { id, revision = await db.Daks.Where(d => d.Id == id).Select(d => d.Revision).SingleAsync(ct) });
+        }).RequirePermission(PermissionCodes.DakEdit);
 
         // 11. Scoped Document Content Stream
         // Primary main document
@@ -1510,7 +1360,8 @@ public sealed record DakListItemDto(
     string? AssignedUserDisplayName,
     bool HasDocument,
     int Revision,
-    DateTimeOffset CreatedAt
+    DateTimeOffset CreatedAt,
+    string RecordStatus
 );
 
 public sealed record DakDetailDto(
@@ -1544,7 +1395,8 @@ public sealed record DakDetailDto(
     DateTimeOffset CreatedAt,
     string? CreatedBy,
     DateTimeOffset UpdatedAt,
-    string? UpdatedBy
+    string? UpdatedBy,
+    string RecordStatus
 );
 
 public sealed record DakAssignmentDto(
@@ -1573,7 +1425,7 @@ public sealed record DakAttachmentDto(
     DateTimeOffset CreatedAt
 );
 
-public sealed record DakLinkItemDto(Guid LinkId, Guid EntityId, string DisplayName, string EntityType);
+public sealed record DakLinkItemDto(Guid LinkId, Guid? EntityId, string DisplayName, string EntityType, bool CanOpen = true);
 
 public sealed record DakMovementDto(
     Guid Id,
@@ -1710,3 +1562,6 @@ public sealed record MyDeskResponseDto(
     int PageSize
 );
 
+
+public sealed record PhysicalOriginalRequest(bool? HasPhysicalOriginal, Guid? DeskId, Guid? UserId,
+    string? LocationNote, string ProvenanceNote, int ExpectedRevision);

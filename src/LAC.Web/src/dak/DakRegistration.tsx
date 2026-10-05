@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import type { DakCategory } from "./types";
 import "./dak.css";
+import { officeCalendarDate } from "./officeDate.js";
 
 interface WorkstreamOption {
   id: string;
@@ -14,7 +15,8 @@ export const DakRegistration: React.FC = () => {
   const navigate = useNavigate();
 
   const [diaryNumber, setDiaryNumber] = useState("");
-  const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [receivedDate, setReceivedDate] = useState(() => officeCalendarDate());
+  const [requestId] = useState(() => crypto.randomUUID());
   const [subject, setSubject] = useState("");
   const [senderName, setSenderName] = useState("");
   const [senderDesignation, setSenderDesignation] = useState("");
@@ -97,6 +99,7 @@ export const DakRegistration: React.FC = () => {
 
       const res = await fetch("/api/dak", {
         method: "POST",
+        headers: { "Idempotency-Key": requestId },
         credentials: "include",
         body: formData,
       });

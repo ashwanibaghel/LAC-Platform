@@ -3,6 +3,7 @@ namespace LAC.Infrastructure;
 using System.IO;
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 public class DakWorkflowException(string message, int statusCode = 400) : Exception(message)
 {
@@ -26,7 +27,8 @@ public sealed record RegisterDakCommand(
     Guid? WorkstreamId,
     Stream? DocumentStream,
     string? DocumentFileName,
-    string? DocumentContentType
+    string? DocumentContentType,
+    Guid? RequestId = null
 );
 
 public sealed record MoveDakCommand(
@@ -48,7 +50,7 @@ public sealed record CancelDakCommand(
     int ExpectedRevision
 );
 
-public sealed class DakWorkflowService(
+public sealed partial class DakWorkflowService(
     LacDbContext db,
     IDocumentStorage storage,
     Func<Microsoft.EntityFrameworkCore.Storage.IExecutionStrategy>? strategyFactory = null)
@@ -86,6 +88,21 @@ public sealed class DakWorkflowService(
         var actionUser = await db.AppUsers.AsNoTracking()
             .FirstOrDefaultAsync(u => u.Id == currentUserId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct)
             ?? throw new DakWorkflowException("Current user account is inactive or not found.", 403);
+
+        if (cmd.RequestId == Guid.Empty)
+            throw new DakWorkflowException("Registration request ID must be a non-empty UUID.");
+        var requestHash = cmd.RequestId.HasValue ? await RegistrationHashAsync(cmd, ct) : "";
+        var replay = await FindRegistrationReplayAsync(cmd, currentUserId, requestHash, ct);
+        if (replay is not null) return replay;
+        var diaryKey = DakDiaryNumber.Normalize(cmd.DiaryNumber.Trim());
+        if (diaryKey.Length == 0) throw new DakWorkflowException("Diary Number is required.");
+        if (await db.Daks.AsNoTracking().AnyAsync(d => d.RecordStatus == RecordStatus.Active && d.DiaryNumberKey == diaryKey, ct))
+        {
+            // Another identical request may commit between the replay lookup and the diary lookup.
+            replay = await FindRegistrationReplayAsync(cmd, currentUserId, requestHash, ct);
+            if (replay is not null) return replay;
+            throw new DakWorkflowException("Diary Number is already registered in the active Dak register.", 409);
+        }
 
         // Validate Category if provided
         if (cmd.CategoryId.HasValue)
@@ -151,6 +168,10 @@ public sealed class DakWorkflowService(
                     {
                         Id = dakId,
                         DiaryNumber = cmd.DiaryNumber.Trim(),
+                        DiaryNumberKey = diaryKey,
+                        RegistrationRequestId = cmd.RequestId,
+                        RegistrationRequestHash = cmd.RequestId.HasValue ? requestHash : null,
+                        RegisteredByUserId = currentUserId,
                         ReceivedDate = cmd.ReceivedDate,
                         Subject = cmd.Subject.Trim(),
                         SenderName = cmd.SenderName.Trim(),
@@ -229,6 +250,15 @@ public sealed class DakWorkflowService(
                 },
                 ct);
         }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            if (savedStoragePath is not null)
+                try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { }
+            db.ChangeTracker.Clear();
+            var committed = await FindRegistrationReplayAsync(cmd, currentUserId, requestHash, ct);
+            if (committed is not null) return committed;
+            throw new DakWorkflowException("Diary Number is already registered in the active Dak register.", 409);
+        }
         catch
         {
             // Filesystem compensation: delete newly uploaded file if DB save failed
@@ -286,6 +316,8 @@ public sealed class DakWorkflowService(
                     throw new DakWorkflowException("Dak record not found.", 404);
 
                 // Concurrency token validation
+                if (dak.RecordStatus != RecordStatus.Active)
+                    throw new DakWorkflowException("Archived Dak is read-only.", 409);
                 if (dak.Revision != cmd.ExpectedRevision)
                     throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 
@@ -452,6 +484,8 @@ public sealed class DakWorkflowService(
                 if (dak is null)
                     throw new DakWorkflowException("Dak record not found.", 404);
 
+                if (dak.RecordStatus != RecordStatus.Active)
+                    throw new DakWorkflowException("Archived Dak is read-only.", 409);
                 if (dak.Revision != cmd.ExpectedRevision)
                     throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 
@@ -556,6 +590,8 @@ public sealed class DakWorkflowService(
                 if (dak is null)
                     throw new DakWorkflowException("Dak record not found.", 404);
 
+                if (dak.RecordStatus != RecordStatus.Active)
+                    throw new DakWorkflowException("Archived Dak is read-only.", 409);
                 if (dak.Revision != cmd.ExpectedRevision)
                     throw new DakWorkflowException("This Dak was modified by another officer. Refresh before proceeding.", 409);
 

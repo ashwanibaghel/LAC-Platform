@@ -105,6 +105,8 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
             .FirstOrDefaultAsync(d => d.Id == dakId, ct);
 
         if (dak is null) return false;
+        // Archived records retain their existing scoped read access, but never mutation access.
+        if (dak.RecordStatus != RecordStatus.Active && permissionCode != PermissionCodes.DakView) return false;
 
         var scopes = await (
             from ur in db.UserRoles

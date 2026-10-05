@@ -22,6 +22,18 @@ public static class DakModelConfiguration
         b.Entity<Dak>(entity =>
         {
             entity.HasIndex(x => x.DiaryNumber);
+            entity.Property(x => x.DiaryNumber).IsRequired();
+            entity.Property(x => x.DiaryNumberKey).HasComputedColumnSql(DakDiaryNumber.SqlKey, stored: true).IsRequired();
+            entity.HasIndex(x => x.DiaryNumberKey).IsUnique().HasFilter("\"RecordStatus\" = 'Active'");
+            entity.HasIndex(x => new { x.RegisteredByUserId, x.RegistrationRequestId }).IsUnique()
+                .HasFilter("\"RegistrationRequestId\" IS NOT NULL");
+            entity.ToTable(t => t.HasCheckConstraint("CK_Daks_ActiveDiaryNumber", "\"RecordStatus\" <> 'Active' OR length(\"DiaryNumberKey\") > 0"));
+            entity.HasOne(x => x.RegisteredByUser).WithMany().HasForeignKey(x => x.RegisteredByUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PhysicalOriginalDesk).WithMany().HasForeignKey(x => x.PhysicalOriginalDeskId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PhysicalOriginalUser).WithMany().HasForeignKey(x => x.PhysicalOriginalUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(x => x.PhysicalOriginalUpdatedByUser).WithMany().HasForeignKey(x => x.PhysicalOriginalUpdatedByUserId).OnDelete(DeleteBehavior.Restrict);
+            entity.Property(x => x.PhysicalOriginalLocationNote).HasMaxLength(1000);
+            entity.Property(x => x.PhysicalOriginalProvenanceNote).HasMaxLength(1000);
             entity.HasIndex(x => new { x.Status, x.ReceivedDate });
             entity.HasIndex(x => x.Priority);
             entity.Property(x => x.Status).HasConversion<string>();

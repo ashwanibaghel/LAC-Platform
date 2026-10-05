@@ -39,6 +39,23 @@ public sealed class DakCategory : OfficialRecord
 public sealed class Dak : OfficialRecord
 {
     public string DiaryNumber { get; set; } = "";
+    public string DiaryNumberKey { get; set; } = "";
+    public Guid? RegistrationRequestId { get; set; }
+    public string? RegistrationRequestHash { get; set; }
+    public Guid? RegisteredByUserId { get; set; }
+    public AppUser? RegisteredByUser { get; set; }
+
+    // Unknown is distinct from no original. Paper custody is never inferred from routing.
+    public bool? HasPhysicalOriginal { get; set; }
+    public Guid? PhysicalOriginalDeskId { get; set; }
+    public OfficeDesk? PhysicalOriginalDesk { get; set; }
+    public Guid? PhysicalOriginalUserId { get; set; }
+    public AppUser? PhysicalOriginalUser { get; set; }
+    public string? PhysicalOriginalLocationNote { get; set; }
+    public string? PhysicalOriginalProvenanceNote { get; set; }
+    public DateTimeOffset? PhysicalOriginalUpdatedAt { get; set; }
+    public Guid? PhysicalOriginalUpdatedByUserId { get; set; }
+    public AppUser? PhysicalOriginalUpdatedByUser { get; set; }
     public DateOnly ReceivedDate { get; set; }
 
     public string Subject { get; set; } = "";
@@ -71,6 +88,16 @@ public sealed class Dak : OfficialRecord
     public ICollection<DakAwardLink> AwardLinks { get; set; } = new List<DakAwardLink>();
     public ICollection<DakMatterLink> MatterLinks { get; set; } = new List<DakMatterLink>();
     public ICollection<DakKhasraLink> KhasraLinks { get; set; } = new List<DakKhasraLink>();
+}
+
+public static class DakDiaryNumber
+{
+    // Preserve punctuation, internal whitespace, Unicode and historical display text.
+    // This deliberately does not infer a register, year or government numbering format.
+    public static string Normalize(string value) => string.Concat(
+        value.Trim(' ', '\t', '\r', '\n').Select(c => c is >= 'a' and <= 'z' ? (char)(c - 32) : c));
+
+    public const string SqlKey = "translate(btrim(\"DiaryNumber\", E' \\t\\r\\n'), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')";
 }
 
 public sealed class DakAssignment : OfficialRecord
