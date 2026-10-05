@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { Slice, Fragment } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
@@ -94,14 +94,6 @@ function IconArrowRight() {
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="5" y1="12" x2="19" y2="12" />
       <polyline points="12 5 19 12 12 19" />
-    </svg>
-  );
-}
-
-function IconSparkles() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z" />
     </svg>
   );
 }
@@ -329,7 +321,7 @@ function TopRulerBar({
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
   zoom: number;
-  canvasRef: React.RefObject<HTMLDivElement>;
+  canvasRef: React.RefObject<HTMLDivElement | null>;
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -552,7 +544,7 @@ function LeftRulerBar({
   profile: ReturnType<typeof resolvePageProfile>;
   showRulers: boolean;
   zoom: number;
-  canvasRef: React.RefObject<HTMLDivElement>;
+  canvasRef: React.RefObject<HTMLDivElement | null>;
   onMarginChange?: (partial: Partial<Layout>) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1063,7 +1055,7 @@ export function MatterDraftEditorPage() {
     window.print();
   };
 
-  const backToMatter = (event: MouseEvent<HTMLAnchorElement>) => {
+  const backToMatter = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     if (dirty && !window.confirm("You have unsaved changes. Leave this draft?")) {
       event.preventDefault();
     }

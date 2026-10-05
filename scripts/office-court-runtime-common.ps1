@@ -36,7 +36,7 @@ function Assert-OfficeDeployment([string]$Root) {
 }
 function Assert-OfficeQuestionPackage([string]$Folder, $Pin) {
     if ($Pin.formatVersion -ne 1 -or $Pin.acceptedBackend -cne '2676b70c3ef2689d600b2dcd3189d4ebbd1c7549' -or
-        $Pin.packageSha256 -cne '3a1ba855cbbf57a42310fd8b61281dec4043282a1d36d818131d800a05bd7f4d') { throw 'QuestionPackageHashMismatch' }
+        $Pin.packageSha256 -cne '8de2ff561e36b1dec0f323ab69200226b38a1a435505402ae2876b7c294151a8') { throw 'QuestionPackageHashMismatch' }
     $folder=Get-CourtAbsolutePath $Folder
     $actual=@(Get-ChildItem -LiteralPath $folder -Filter '*.py' -File | Sort-Object Name)
     if ($actual.Count -ne @($Pin.files).Count) { throw 'QuestionPackageHashMismatch' }

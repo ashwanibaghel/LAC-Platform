@@ -20,7 +20,7 @@ public sealed class OutwardTestFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"outward-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "outward_admin";
-    public const string TestAdminPass = "OutwardAdminPass!123";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -169,7 +169,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
             }
         }
 
-        var userPass = "OutwardScopedPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = _factory.Services.CreateScope())
         {
@@ -1414,14 +1414,14 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         }
 
         var uname = $"user_nomat_{Guid.NewGuid():N}"[..12];
-        var createReq = new CreateUserRequest(uname, uname, "Pass!123", null, [roleId], null, null);
+        var createReq = new CreateUserRequest(uname, uname, TestCredentials.SharedPassword, null, [roleId], null, null);
         var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", createReq);
         var userId = (await createRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         await adminClient.PostAsJsonAsync($"/api/admin/users/{userId}/desks", new AssignDeskRequest(desk.Id, IsPrimary: true));
 
         var userClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(uname, "Pass!123"));
+        await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(uname, TestCredentials.SharedPassword));
 
         // Attempting to link matter without Matter.View fails closed -> 403 Forbidden
         var num = $"OUT_NOMAT_{Guid.NewGuid():N}"[..14];

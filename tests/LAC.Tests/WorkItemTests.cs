@@ -20,7 +20,7 @@ public sealed class WorkItemTestFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"workitem-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "workitem_admin";
-    public const string TestAdminPass = "WorkItemAdminPass!123";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -176,7 +176,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             }
         }
 
-        var userPass = "WorkItemScopedPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = _factory.Services.CreateScope())
         {
@@ -263,7 +263,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
             }
         }
 
-        var userPass = "WorkItemCustomPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = _factory.Services.CreateScope())
         {
@@ -3241,7 +3241,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         // Has Role A: WorkItemView + WorkItemReview under ScopeMode.Workstream in WS A
         // Has Role B: WorkItemView + WorkItemReview under ScopeMode.Assigned on Desk B (in WS B)
         string officerUsername = "dual_scope_officer";
-        string officerPass = "DualScopePass!123";
+        string officerPass = TestCredentials.SharedPassword;
         Guid officerId;
 
         using (var scope = _factory.Services.CreateScope())
@@ -3630,7 +3630,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         // - Member of ws and Desk D
         // - Caller does NOT have WorkItem.Review via Workstream or All.
         string callerUsername = "stale_review_caller";
-        string callerPass = "StaleRevPass!123";
+        string callerPass = TestCredentials.SharedPassword;
         Guid callerId;
 
         using (var scope = _factory.Services.CreateScope())

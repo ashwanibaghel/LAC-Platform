@@ -1,6 +1,7 @@
 import tempfile
 import json
 import unittest
+import uuid
 from pathlib import Path
 from real_case import refresh_case, read_artifact
 from semantics import VERSION
@@ -207,9 +208,9 @@ class FullHistoryTests(unittest.TestCase):
         class Chat:
             def extract(self,instructions,data,schema):
                 seen.append(data);return {'response':'Your name is Ashwani.'}
-        result=general_answer('hello',Chat(),{'displayName':'Ashwani','permissions':['secret'],'password':'secret'})
+        result=general_answer('hello',Chat(),{'displayName':'Ashwani','permissions':['secret'],'password':uuid.uuid4().hex})
         self.assertFalse(result['insufficientEvidence']);self.assertEqual([],result['claims'])
-        self.assertIn('Ashwani',result['answer']);self.assertNotIn('secret',seen[0])
+        self.assertIn('Ashwani',result['answer']);self.assertNotIn('password',seen[0])
         class Inventing:
             def extract(self,*a): return {'response':'The Court disposed this case and compensation was paid.'}
         result=general_answer('hello',Inventing())

@@ -415,8 +415,8 @@ public sealed class OnlyOfficeTests : IDisposable
     {
         Assert.True(new OnlyOfficeOptions().IsValid());
         Assert.False(new OnlyOfficeOptions { Enabled = true }.IsValid());
-        Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "javascript:bad", AppExternalUrl = "http://localhost:5088", JwtSecret = new string('x', 32) }.IsValid());
-        Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "http://localhost:8082", AppExternalUrl = "http://localhost:5088", AppBrowserUrl = "javascript:bad", JwtSecret = new string('x', 32) }.IsValid());
+        Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "javascript:bad", AppExternalUrl = "http://localhost:5088", JwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)) }.IsValid());
+        Assert.False(new OnlyOfficeOptions { Enabled = true, BrowserUrl = "http://localhost:8082", AppExternalUrl = "http://localhost:5088", AppBrowserUrl = "javascript:bad", JwtSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48)) }.IsValid());
     }
 
     [Theory]

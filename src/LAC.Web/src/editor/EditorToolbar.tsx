@@ -270,7 +270,6 @@ export function EditorToolbar({
   zoom,
   onZoomChange,
   onSetZoom,
-  onResetZoom,
   pageSetupExpanded,
   onTogglePageSetup,
   showRulers,

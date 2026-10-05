@@ -15,6 +15,35 @@ class Never:
     def extract(self,*args,**kwargs):raise AssertionError('Structured conversation must not infer facts')
 
 class ConversationTests(unittest.TestCase):
+    def test_global_intent_keeps_Court_language_and_unavailable_model_guards(self):
+        data=artifact()
+        result=answer(data,'case-a','Aur us order ka summary?',Never(),model_available=False,
+            language='Hindi',conversation_questions=['What happened on 1 January 2026?'])
+        self.assertEqual('Hindi',result['language'])
+        self.assertTrue(result['claims'])
+        self.assertEqual('2026-01-01',result['claims'][0]['source']['orderDate'])
+
+    def test_Court_source_context_wins_over_Global_user_intent_when_both_present(self):
+        data=artifact()
+        latest=data['orders'][-1]
+        result=answer(data,'case-a','What happened in that order?',Never(),inference_busy=True,
+            conversation_context={'caseId':'case-a','turns':[{'question':'Latest order summary?',
+                'sources':[{'orderDate':latest['orderDate'],'officialUrl':latest['officialUrl']}]}]},
+            conversation_questions=['What happened on 1 May 2025?'])
+        self.assertTrue(result['claims'])
+        self.assertTrue(all(c['source']['orderDate']==latest['orderDate'] for c in result['claims']))
+
+    def test_registered_Global_request_preserves_unavailable_model_without_source_processing(self):
+        refresh=SimpleNamespace(lock=threading.Lock(),active_case_id=None)
+        with tempfile.TemporaryDirectory() as root:
+            write_existing(root,[order([fact()],officialUrl=source()['officialUrl'])])
+            with patch('serve_questions.model_state',return_value='ModelInsufficientMemory'), \
+                 patch('serve_questions.prepare_question',side_effect=AssertionError('Offline source processing')):
+                result=registered_answer(root,CASE,dict(question='Latest order summary?',caseNumber=NUMBER,
+                    language='Hinglish',groundedOnly=True),Never(),refresh,require_model_health=True)
+        self.assertEqual('Hinglish',result['language'])
+        self.assertTrue(result['claims'])
+
     def test_deadline_follow_up_inherits_LAC_latest_intent_and_retrieves_current_evidence_again(self):
         data=artifact()
         data=synthesize(data['caseId'],data['caseNumber'],data['orders'])

@@ -311,7 +311,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
           setEditStatus(m.status || "Open");
           setEditRefNo(m.referenceNumber || "");
           setEditRemarks(m.remarks || "");
-          setEditKhasraRef(m.khasraReferenceText || "");
           const isStandardType = ["Court Case", "Compensation", "Land Acquisition", "Demarcation", "Possession"].includes(m.matterType);
           setEditType(isStandardType ? m.matterType : "Other");
           setEditCustomType(isStandardType ? "" : m.matterType);
@@ -878,7 +877,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                   setEditStatus(matter.status || "Open");
                   setEditRefNo(matter.referenceNumber || "");
                   setEditRemarks(matter.remarks || "");
-                  setEditKhasraRef(matter.khasraReferenceText || "");
                   setEditError(null);
                   setShowEditModal(true);
                 }}

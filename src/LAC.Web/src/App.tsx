@@ -465,7 +465,7 @@ function GlobalSearch() {
   );
 }
 
-function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { user, logout, hasPermission } = useAuth();
@@ -821,7 +821,7 @@ function Village() {
     </>
   );
 }
-function VillageCoreRecords({id}:{id:string}){
+export function VillageCoreRecords({id}:{id:string}){
   const [refresh,setRefresh]=useState(0);const [award,setAward]=useState({awardNumber:"",awardDate:"",awardType:""});const [upload,setUpload]=useState<{awardId:string;role:string;file?:File}>({awardId:"",role:"Award"});const [message,setMessage]=useState("");const records=useApi<any[]>(`/villages/${id}/core-records?r=${refresh}`);
   const create=async()=>{try{await post(`/villages/${id}/awards`,{...award,awardDate:award.awardDate||null,remarks:null});setAward({awardNumber:"",awardDate:"",awardType:""});setRefresh(x=>x+1)}catch(e){setMessage(e instanceof Error?e.message:"Could not add Award.")}};
   const send=async()=>{if(!upload.file)return;try{const form=new FormData();form.append("file",upload.file);await fetch(`${api}/awards/${upload.awardId}/core-documents?role=${encodeURIComponent(upload.role)}`,{method:"POST",body:form}).then(async r=>{if(!r.ok)throw new Error(await r.text())});setUpload({awardId:"",role:"Award"});setRefresh(x=>x+1)}catch(e){setMessage(e instanceof Error?e.message:"Could not upload core document.")}};
@@ -1355,7 +1355,7 @@ function MatterOutwardSection({ matterId }: { matterId: string }) {
 function Matter() {
   return <MatterWorkspace MatterOutwardSection={MatterOutwardSection} />;
 }
-function VillageOverview({ id }: { id: string }) {
+export function VillageOverview({ id }: { id: string }) {
   const overview = useApi<any>(`/villages/${id}/overview`);
   if (overview.loading) return <LoadingState label="Loading village overview…" />;
   if (overview.error || !overview.data) return <ErrorState message={overview.error || "Village overview is unavailable."} />;
@@ -3015,7 +3015,7 @@ function AwardIngestion() {
   const create = async () => { try { if (!villageId || !number.trim()) throw new Error("Select a directly linked Award Village and enter a Khasra number."); const payload = { khasraNumber: number, qualifier: qualifier || null, canonicalAreaBigha: canonicalArea === "" ? null : Number(canonicalArea), canonicalAreaBiswa: null, canonicalAreaBiswansi: null, recordedAreaBigha: recordedArea === "" ? null : Number(recordedArea), recordedAreaBiswa: null, recordedAreaBiswansi: null, awardedAreaBigha: awardedArea === "" ? null : Number(awardedArea), awardedAreaBiswa: null, awardedAreaBiswansi: null }; const result: any = await post("/award-ingestion-sessions", { sourceType: "Manual", targetAwardId: id, selectedVillageId: villageId, sourceDocumentId: null, createdBy: null, remarks: null, candidates: [{ candidateType: "AwardKhasra", payloadJson: JSON.stringify(payload) }] }); navigate(`/awards/${id}/ingestion/${result.id}`); } catch (e) { setMessage(e instanceof Error ? e.message : "Could not create ingestion preview."); } };
   return <><Breadcrumbs items={[{ label: "Awards", to: "/awards" }, { label: a.awardNumber, to: route.award(id) }, { label: "Import Award Data" }]} /><PageHeader eyebrow="Award data" title="Import Award Data"><p>Review incoming Award information before adding it to official records.</p></PageHeader><section className="import-intro"><h2>Review before adding</h2><p>Nothing will be added to official records until you review and confirm it. Start with a Khasra record below; bulk Excel upload will use the same review process.</p>{linkedVillages.data.length === 0 ? <p className="form-message">This Award does not yet have an Award Village. Add the Village to the Award before importing Khasras.</p> : <><div className="field-grid"><label>Award Village<select value={villageId} onChange={e => setVillageId(e.target.value)}>{linkedVillages.data.map(v => <option key={v.villageId} value={v.villageId}>{v.name}</option>)}</select></label><label>Khasra number<input value={number} onChange={e => setNumber(e.target.value)} placeholder="e.g. 2//22/1" /></label><label>Qualifier<input value={qualifier} onChange={e => setQualifier(e.target.value)} placeholder="min" /></label><label>Village master Bigha<input value={canonicalArea} onChange={e => setCanonicalArea(e.target.value)} inputMode="decimal" /></label><label>Award recorded Bigha<input value={recordedArea} onChange={e => setRecordedArea(e.target.value)} inputMode="decimal" /></label><label>Area awarded Bigha<input value={awardedArea} onChange={e => setAwardedArea(e.target.value)} inputMode="decimal" /></label></div><div className="form-footer"><span className="hint">Village master area and Award area remain separate.</span><button onClick={create}>Review Incoming Record</button></div></>}{message && <p className="form-message">{message}</p>}</section></>;
 }
-function AwardIngestionReview() {
+export function AwardIngestionReview() {
   const { id = "", sessionId = "" } = useParams();
   const [refresh, setRefresh] = useState(0);
   const [bucket, setBucket] = useState("attention");

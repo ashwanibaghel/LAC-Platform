@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "acceptedBackend": "2676b70c3ef2689d600b2dcd3189d4ebbd1c7549",
   "lineEndings": "CRLF",
-  "packageSha256": "3a1ba855cbbf57a42310fd8b61281dec4043282a1d36d818131d800a05bd7f4d",
+  "packageSha256": "8de2ff561e36b1dec0f323ab69200226b38a1a435505402ae2876b7c294151a8",
   "files": [
     {
       "name": "anchors.py",
@@ -18,7 +18,7 @@
     },
     {
       "name": "chat_router.py",
-      "sha256": "cc2dd84120f3cb847f53a721bc545b8d8ec4aa178d443e8c067e9e3cac11209b"
+      "sha256": "1ddcd60670a26e0f3d3bc6456b8ea1b6b661c8c4e9ecaf32f7c55fb81382b2e6"
     },
     {
       "name": "chronology.py",
@@ -35,6 +35,10 @@
     {
       "name": "conditional_directions.py",
       "sha256": "25688dc03108e379bfff45cdff71249d1afe07b76160f6045f17857d75533cbb"
+    },
+    {
+      "name": "conversation_context.py",
+      "sha256": "adf015f48d53ed7b36c8b30084c3b3d16c3a5efc773c5965ee9e9c63ce9b0a96"
     },
     {
       "name": "evaluate_gold.py",
@@ -86,7 +90,7 @@
     },
     {
       "name": "questions.py",
-      "sha256": "e316815c1d1a418ee349b030ea3acc3d01244065c0b2c43d8b4441b0379f4cc7"
+      "sha256": "8c4b665637fa6d0a2d8093503dbf0dce609e86f7a8d7560f2344ed076a389ca9"
     },
     {
       "name": "real_case.py",
@@ -110,7 +114,7 @@
     },
     {
       "name": "serve_questions.py",
-      "sha256": "b712188aeb659fb508d7d3d79fa0922d5703f7e7dc5834bd28ab2152afb7c37f"
+      "sha256": "10f760b9b3a2544e4f8a17837084222b5243eb9ff943871a5f1852e1d8434c56"
     },
     {
       "name": "source_version_review.py",
@@ -141,6 +145,10 @@
       "sha256": "edb94207ce5254aefbf754f98c443f2fbb6e02895d54acc47014c2cddab6cbd0"
     },
     {
+      "name": "test_conversation_context.py",
+      "sha256": "9f252632813054ae884b01f167b2ee627ecb6e0fc2f08d1e0f8fff4ce40d8c8c"
+    },
+    {
       "name": "test_court_role_union.py",
       "sha256": "330da5c9db0fb7387d4200f12981b2e33d0ed73c56f505ec4680c0aabd552be6"
     },
@@ -154,7 +162,7 @@
     },
     {
       "name": "test_full_history.py",
-      "sha256": "ad5849b25488bb25aa847f3d6c1b07581fc5e10e20db2361f9cc536551be2150"
+      "sha256": "c7d8d344ae6793a38bc5ae51a5bc110487f5e5b7741096ab2aae1d72bd1e7456"
     },
     {
       "name": "test_http.py",
@@ -244,5 +252,8 @@
       "name": "worker.py",
       "sha256": "09c64594bebdadfacb11ccbc9a43f164db77f85aa1e91b1068e12eac194e2fb7"
     }
-  ]
+  ],
+  "acceptedCourtSource": "7f304418225e9bba2004c75c2ea8c539f58de099",
+  "acceptedAssistantSource": "1d36af8099a56080a090998720c86f14ff8c7150",
+  "integrationBranch": "codex/lac-release-candidate-pre-dak"
 }

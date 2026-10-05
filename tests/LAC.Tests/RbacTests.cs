@@ -21,7 +21,7 @@ public sealed class RbacFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"rbac-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "testadmin";
-    public const string TestAdminPass = "TestAdminPass!789";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -140,19 +140,19 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // 1. Invalid DesignationId
         var invalidDesignationReq = new CreateUserRequest(
-            $"user_fk1_{Guid.NewGuid():N}", "FK Test", "Pass!123", Guid.NewGuid(), null, null, null);
+            $"user_fk1_{Guid.NewGuid():N}", "FK Test", TestCredentials.SharedPassword, Guid.NewGuid(), null, null, null);
         var res1 = await client.PostAsJsonAsync("/api/admin/users", invalidDesignationReq);
         Assert.Equal(HttpStatusCode.BadRequest, res1.StatusCode);
 
         // 2. Invalid RoleId
         var invalidRoleReq = new CreateUserRequest(
-            $"user_fk2_{Guid.NewGuid():N}", "FK Test", "Pass!123", null, [Guid.NewGuid()], null, null);
+            $"user_fk2_{Guid.NewGuid():N}", "FK Test", TestCredentials.SharedPassword, null, [Guid.NewGuid()], null, null);
         var res2 = await client.PostAsJsonAsync("/api/admin/users", invalidRoleReq);
         Assert.Equal(HttpStatusCode.BadRequest, res2.StatusCode);
 
         // 3. Invalid WorkstreamId
         var invalidWsReq = new CreateUserRequest(
-            $"user_fk3_{Guid.NewGuid():N}", "FK Test", "Pass!123", null, null, [Guid.NewGuid()], null);
+            $"user_fk3_{Guid.NewGuid():N}", "FK Test", TestCredentials.SharedPassword, null, null, [Guid.NewGuid()], null);
         var res3 = await client.PostAsJsonAsync("/api/admin/users", invalidWsReq);
         Assert.Equal(HttpStatusCode.BadRequest, res3.StatusCode);
 
@@ -164,7 +164,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
             realWsId = (await db.Workstreams.FirstAsync()).Id;
         }
         var mismatchedPrimaryReq = new CreateUserRequest(
-            $"user_fk4_{Guid.NewGuid():N}", "FK Test", "Pass!123", null, null, [realWsId], Guid.NewGuid());
+            $"user_fk4_{Guid.NewGuid():N}", "FK Test", TestCredentials.SharedPassword, null, null, [realWsId], Guid.NewGuid());
         var res4 = await client.PostAsJsonAsync("/api/admin/users", mismatchedPrimaryReq);
         Assert.Equal(HttpStatusCode.BadRequest, res4.StatusCode);
 
@@ -276,7 +276,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // Create a test user
         var username = $"desk_hist_user_{Guid.NewGuid():N}"[..18];
-        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "History User", "Pass!123456", null, null, null, null));
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "History User", TestCredentials.SharedPassword, null, null, null, null));
         Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
         var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -360,7 +360,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // Create user
         var username = $"desk_prim_user_{Guid.NewGuid():N}"[..18];
-        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Primary Test User", "Pass!123456", null, null, null, null));
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Primary Test User", TestCredentials.SharedPassword, null, null, null, null));
         var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         // Create Desk A & Desk B
@@ -420,7 +420,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // 1. Create User A
         var username = $"user_inact_desk_{Guid.NewGuid():N}"[..18];
-        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Primary Test", "Pass!123456", null, null, null, null));
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Primary Test", TestCredentials.SharedPassword, null, null, null, null));
         Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
         var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
@@ -465,7 +465,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // Create user
         var username = $"desk_inact_user_{Guid.NewGuid():N}"[..18];
-        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Test", "Pass!123456", null, null, null, null));
+        var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Inactive Desk Test", TestCredentials.SharedPassword, null, null, null, null));
         var userId = (await createUsrRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         // Create desk and deactivate it
@@ -513,12 +513,12 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         // 2. Create user with LAND_RECORDS workstream and this role
         var lrUsername = $"lr_ws_user_{Guid.NewGuid():N}"[..16];
         var createUsrRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
-            lrUsername, "LR Scoped Officer", "Pass!123456", null, [roleId], [lrWsId], lrWsId));
+            lrUsername, "LR Scoped Officer", TestCredentials.SharedPassword, null, [roleId], [lrWsId], lrWsId));
         Assert.Equal(HttpStatusCode.Created, createUsrRes.StatusCode);
 
         // Login as this LR scoped user
         using var lrClient = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        var loginRes = await lrClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(lrUsername, "Pass!123456"));
+        var loginRes = await lrClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(lrUsername, TestCredentials.SharedPassword));
         Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
 
         // A. Accessing LAND_RECORDS endpoint: /villages/{id}/khatauni -> ALLOWED (200 OK)
@@ -569,19 +569,19 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
 
         // User with Assigned role
         var usrAssigned = $"usr_assigned_{Guid.NewGuid():N}"[..16];
-        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrAssigned, "Assigned User", "Pass!123456", null, [assignedRoleId], null, null));
+        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrAssigned, "Assigned User", TestCredentials.SharedPassword, null, [assignedRoleId], null, null));
 
         using var clientAssigned = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        await clientAssigned.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrAssigned, "Pass!123456"));
+        await clientAssigned.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrAssigned, TestCredentials.SharedPassword));
         var assignedAttempt = await clientAssigned.GetAsync($"/api/villages/{villageId}/khatauni");
         Assert.Equal(HttpStatusCode.Forbidden, assignedAttempt.StatusCode);
 
         // User with Own role
         var usrOwn = $"usr_own_{Guid.NewGuid():N}"[..16];
-        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrOwn, "Own User", "Pass!123456", null, [ownRoleId], null, null));
+        await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(usrOwn, "Own User", TestCredentials.SharedPassword, null, [ownRoleId], null, null));
 
         using var clientOwn = _factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
-        await clientOwn.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrOwn, "Pass!123456"));
+        await clientOwn.PostAsJsonAsync("/api/auth/login", new LoginRequest(usrOwn, TestCredentials.SharedPassword));
         var ownAttempt = await clientOwn.GetAsync($"/api/villages/{villageId}/khatauni");
         Assert.Equal(HttpStatusCode.Forbidden, ownAttempt.StatusCode);
     }

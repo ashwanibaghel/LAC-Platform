@@ -97,7 +97,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
             }
         }
 
-        var userPass = "ScopedPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = factory.Services.CreateScope())
         {

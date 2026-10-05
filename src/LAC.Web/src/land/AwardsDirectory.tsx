@@ -4,7 +4,6 @@ import {
   IconLand,
   IconSearch,
   IconChevronRight,
-  IconAward,
 } from "../components/Icons";
 import { formatTitleCase } from "./VillagesDirectory";
 import "./land.css";

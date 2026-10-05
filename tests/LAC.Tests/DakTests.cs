@@ -19,7 +19,7 @@ public sealed class DakTestFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"dak-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "dak_admin";
-    public const string TestAdminPass = "DakAdminPass!123";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -97,7 +97,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         }
 
         // 2. Create User
-        var userPass = "ScopedPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = _factory.Services.CreateScope())
         {
@@ -290,11 +290,11 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var deskId = (await deskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         // User not in desk
-        var nonMemberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_nomem_{Guid.NewGuid():N}"[..16], "No Member", "Pass!123", null, null, null, null));
+        var nonMemberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_nomem_{Guid.NewGuid():N}"[..16], "No Member", TestCredentials.SharedPassword, null, null, null, null));
         var nonMemberId = (await nonMemberRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
         // User who IS in desk
-        var memberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_mem_{Guid.NewGuid():N}"[..16], "Real Member", "Pass!123", null, null, null, null));
+        var memberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_mem_{Guid.NewGuid():N}"[..16], "Real Member", TestCredentials.SharedPassword, null, null, null, null));
         var memberId = (await memberRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         await client.PostAsJsonAsync($"/api/admin/users/{memberId}/desks", new AssignDeskRequest(deskId, IsPrimary: true));
 
@@ -777,7 +777,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var deskRes = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest(deskCode, "Desk 16", null, null));
         var deskId = (await deskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
 
-        var memberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_16_{Guid.NewGuid():N}"[..16], "Member 16", "Pass!123", null, null, null, null));
+        var memberRes = await client.PostAsJsonAsync("/api/admin/users", new CreateUserRequest($"user_16_{Guid.NewGuid():N}"[..16], "Member 16", TestCredentials.SharedPassword, null, null, null, null));
         var memberId = (await memberRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         var memRes = await client.PostAsJsonAsync($"/api/admin/users/{memberId}/desks", new AssignDeskRequest(deskId, IsPrimary: true));
         var membershipId = (await memRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
@@ -1076,7 +1076,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         }
 
         var uName = $"user_union_{Guid.NewGuid():N}"[..16];
-        var uPass = "UnionPass!123";
+        var uPass = TestCredentials.SharedPassword;
         var createRes = await adminClient.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(
             Username: uName,
             DisplayName: "Union User",

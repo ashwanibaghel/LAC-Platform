@@ -23,9 +23,9 @@ public sealed class OfficeAuthMaintenanceTests
         var root = new InMemoryDatabaseRoot();
         var databaseName = $"office-auth-{Guid.NewGuid():N}";
         const string username = "office-admin@example.test";
-        const string initialPassword = "Initial-Pass-987!";
-        const string changedBootstrapPassword = "Changed-Bootstrap-987!";
-        const string resetPassword = "Explicit-Reset-987!";
+        var initialPassword = TestCredentials.NewPassword();
+        var changedBootstrapPassword = TestCredentials.NewPassword();
+        var resetPassword = TestCredentials.NewPassword();
 
         string initialHash;
         await using (var first = new OfficeAuthFactory(databaseName, root, username, initialPassword))
@@ -75,13 +75,14 @@ public sealed class OfficeAuthMaintenanceTests
     [Fact]
     public void Database_fingerprint_exposes_database_difference_without_password()
     {
-        var laptop = OfficeAuthMaintenance.DatabaseFingerprint("Host=127.0.0.1;Port=5432;Database=lac_laptop;Username=lac_app;Password=first-secret");
-        var office = OfficeAuthMaintenance.DatabaseFingerprint("Host=127.0.0.1;Port=5432;Database=lac_office;Username=lac_app;Password=second-secret");
+        var password = TestCredentials.NewPassword();
+        var laptop = OfficeAuthMaintenance.DatabaseFingerprint($"Host=localhost;Database=lac_laptop;Username=lac_app;Password={password}");
+        var office = OfficeAuthMaintenance.DatabaseFingerprint($"Host=localhost;Database=lac_office;Username=lac_app;Password={password}");
         Assert.NotEqual(laptop, office);
         Assert.Contains("lac_laptop", laptop);
         Assert.Contains("lac_office", office);
-        Assert.DoesNotContain("first-secret", laptop);
-        Assert.DoesNotContain("second-secret", office);
+        Assert.DoesNotContain(password, laptop);
+        Assert.DoesNotContain(password, office);
     }
 
     private static async Task<string> GetHashAsync(IServiceProvider services, string username)

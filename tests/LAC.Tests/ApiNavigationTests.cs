@@ -371,7 +371,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["BootstrapAdmin:Username"] = "testadmin",
-                ["BootstrapAdmin:Password"] = "TestAdminPass!789",
+                ["BootstrapAdmin:Password"] = TestCredentials.SharedPassword,
                 ["BootstrapAdmin:DisplayName"] = "Test Administrator"
             });
         });

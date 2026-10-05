@@ -36,7 +36,8 @@ Assert-Rejected { Assert-OfficeQuestionPackage $source $badPin } 'QuestionPackag
 $publish=Join-Path $testRoot 'publish';$root=Join-Path $testRoot 'canonical';$state=Join-Path $testRoot 'state'
 foreach ($path in @($publish,$root,$state)) { [IO.Directory]::CreateDirectory($path) | Out-Null }
 $webPath=Join-Path $publish 'web.config'
-[IO.File]::WriteAllText($webPath,'<configuration><system.webServer><aspNetCore processPath="dotnet" arguments=".\LAC.Api.dll"><environmentVariables><environmentVariable name="Jwt__Key" value="secret-sentinel"/><environmentVariable name="Unrelated__Setting" value="preserve"/></environmentVariables></aspNetCore></system.webServer></configuration>')
+$fixtureJwtSecret=[Guid]::NewGuid().ToString('N')+[Guid]::NewGuid().ToString('N')
+[IO.File]::WriteAllText($webPath,('<configuration><system.webServer><aspNetCore processPath="dotnet" arguments=".\LAC.Api.dll"><environmentVariables><environmentVariable name="Jwt__Key" value="{0}"/><environmentVariable name="Unrelated__Setting" value="preserve"/></environmentVariables></aspNetCore></system.webServer></configuration>' -f $fixtureJwtSecret))
 [IO.File]::WriteAllText((Join-Path $publish 'appsettings.json'),('{"Storage":{"ExtractionRoot":'+($root | ConvertTo-Json -Compress)+'}}'))
 $xml=Read-OfficeXml $webPath
 $effective=Get-OfficeConfiguration $publish @{} $xml
@@ -58,7 +59,7 @@ Set-OfficeWebEnvironment $xml $values
 Assert-OfficeNoCloud $values
 Write-OfficeConfigurationAtomic $webPath $xml $originalSha
 $updated=Read-OfficeXml $webPath;$env=Get-OfficeWebEnvironment $updated
-Assert-True ($env['Jwt__Key'] -ceq 'secret-sentinel' -and $env['Unrelated__Setting'] -ceq 'preserve') 'Unrelated settings/secrets preserved without printing them'
+Assert-True ($env['Jwt__Key'] -ceq $fixtureJwtSecret -and $env['Unrelated__Setting'] -ceq 'preserve') 'Unrelated settings/secrets preserved without printing them'
 Assert-True ($env['Storage__ExtractionRoot'] -ceq $root -and $env['CourtRuntime__ManifestPath'] -ceq 'D:\LAC-CourtAI-V3-Office\court-model-manifest.json') 'Office paths configured without relocating canonical artifacts'
 $count=$updated.SelectNodes('//environmentVariable').Count
 Set-OfficeWebEnvironment $updated $values

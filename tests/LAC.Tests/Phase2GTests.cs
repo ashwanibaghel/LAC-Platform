@@ -22,7 +22,7 @@ public sealed class Phase2GTestFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"phase2g-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "phase2g_admin";
-    public const string TestAdminPass = "Phase2GAdminPass!123";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -161,7 +161,7 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
             }
         }
 
-        var userPass = "ScopedPass!123";
+        var userPass = TestCredentials.SharedPassword;
         Guid roleId;
         using (var scope = _factory.Services.CreateScope())
         {

@@ -64,7 +64,7 @@ public sealed class CourtImportPriorityTests
     [Fact]
     public void QueryTranslatesToPostgresWithoutDatabaseAccess()
     {
-        using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused").Options);
+        using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql("Host=localhost;Database=unused;Username=unused").Options);
         var sql = CourtImportPriorityQuery.Order(CourtImportPriorityQuery.Urgent(db.CourtImportRows, Today), Today).ToQueryString();
         Assert.Contains("ORDER BY", sql); Assert.Contains("ParsedNdoh", sql);
     }

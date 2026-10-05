@@ -25,7 +25,7 @@ public sealed class Phase2ITestFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"phase2i-tests-{Guid.NewGuid()}";
     public const string TestAdminUser = "phase2i_admin";
-    public const string TestAdminPass = "Phase2IAdminPass!123";
+    public static readonly string TestAdminPass = TestCredentials.SharedPassword;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
