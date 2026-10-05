@@ -56,6 +56,42 @@ public sealed class MatterContextFoundationTests
     }
 
     [Fact]
+    public async Task ConstructedMultiAwardMatter_DefaultsToNoPrimary_AndReloadPreservesExplicitPrimary()
+    {
+        await using var f = await Fixture.Create();
+        var matter = new Matter
+        {
+            VillageId = f.Village.Id, WorkstreamId = f.Workstream.Id, Title = "Constructed multi-Award file",
+            AwardLinks = [new MatterAward { AwardId = f.Award.Id }, new MatterAward { AwardId = f.OtherAward.Id }]
+        };
+        Assert.All(matter.AwardLinks, link => Assert.False(link.IsPrimary));
+        f.Db.Add(matter); await f.Db.SaveChangesAsync();
+        f.Db.ChangeTracker.Clear();
+        var links = await f.Db.MatterAwards.Where(x => x.MatterId == matter.Id).ToListAsync();
+        Assert.Equal(2, links.Count);
+        Assert.All(links, link => Assert.False(link.IsPrimary));
+
+        links.Single(x => x.AwardId == f.OtherAward.Id).IsPrimary = true;
+        await f.Db.SaveChangesAsync(); f.Db.ChangeTracker.Clear();
+        links = await f.Db.MatterAwards.AsNoTracking().Where(x => x.MatterId == matter.Id).ToListAsync();
+        Assert.Equal(f.OtherAward.Id, Assert.Single(links, x => x.IsPrimary).AwardId);
+        Assert.False(links.Single(x => x.AwardId == f.Award.Id).IsPrimary);
+    }
+
+    [Fact]
+    public async Task CreateMultiAwardMatter_ExplicitPrimaryAwardIdPromotesOnlyRequestedAward()
+    {
+        await using var f = await Fixture.Create();
+        var matter = await f.Workflow.CreateMatterAsync(new(f.Village.Id, "Explicit primary file", "General", f.Workstream.Id,
+            AwardIds: [f.Award.Id, f.OtherAward.Id], PrimaryAwardId: f.OtherAward.Id), f.User.Id);
+        f.Db.ChangeTracker.Clear();
+        var links = await f.Db.MatterAwards.AsNoTracking().Where(x => x.MatterId == matter.Id).ToListAsync();
+        Assert.Equal(2, links.Count);
+        Assert.Equal(f.OtherAward.Id, Assert.Single(links, x => x.IsPrimary).AwardId);
+        Assert.False(links.Single(x => x.AwardId == f.Award.Id).IsPrimary);
+    }
+
+    [Fact]
     public async Task Awards_Multiple_OptionalPrimary_PromotionAndUnlink_NoAutomaticDocuments()
     {
         await using var f = await Fixture.Create();
@@ -168,8 +204,11 @@ public sealed class MatterContextFoundationTests
         var updated = await f.Workflow.UpdateMetadataAsync(matter.Id, new("Updated office file", "Court Case", null, "Notes", "legacy text", 0,
             AwardIds: [f.Award.Id, f.OtherAward.Id], KhasraIds: [f.Khasra.Id], CourtCaseIds: [f.Court.Id, f.OtherCourt.Id], PrimaryAwardId: f.Award.Id), f.User.Id);
         Assert.Equal(1, updated.Revision);
+        Assert.Equal(f.Award.Id, (await f.Db.MatterAwards.SingleAsync(x => x.IsPrimary)).AwardId);
         await f.Workflow.UpdateMetadataAsync(matter.Id, new("Updated office file", "Court Case", null, null, null, 1, AwardId: f.OtherAward.Id), f.User.Id);
-        Assert.Equal(f.OtherAward.Id, (await f.Db.MatterAwards.SingleAsync()).AwardId);
+        var legacyPrimary = await f.Db.MatterAwards.SingleAsync();
+        Assert.Equal(f.OtherAward.Id, legacyPrimary.AwardId);
+        Assert.True(legacyPrimary.IsPrimary);
         Assert.Equal(2, (await f.Query.GetAsync(matter.Id, f.User.Id)).CourtCases.Count);
         await f.Revoke(PermissionCodes.AwardView);
         var denied = await Assert.ThrowsAsync<MatterWorkflowException>(() => f.Workflow.UpdateMetadataAsync(matter.Id,
