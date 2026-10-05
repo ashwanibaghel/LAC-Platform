@@ -6,20 +6,20 @@ Stamped diary numbers remain manually transcribed and mandatory. Registration do
 
 ## Schema and migration
 
-Additive migration: **`20261005194104_HardenDakIntakePhaseA`**. Historical deployed migrations were not edited.
+Additive migration: **`20261005194104_HardenDakIntakePhaseA`**. The undeployed Phase A migration, its designer and model snapshot were updated together for the permanent diary identity correction from `3357cde70c1757fde0231cd61451ce409ad2476a`. Historical deployed migrations were not edited.
 
 - `DiaryNumber` remains the required display/business value; `Dak.Id` remains the GUID primary key.
 - PostgreSQL stores a generated `DiaryNumberKey`: trim surrounding ASCII space/tab/CR/LF and uppercase ASCII letters for comparison. Punctuation, internal whitespace, digits and other Unicode characters are preserved. Existing displayed diary text is not rewritten.
-- Unique `IX_Daks_DiaryNumberKey` applies to `RecordStatus = Active`, including active Disposed/Cancelled records. Cancelled numbers cannot be reused merely by changing lifecycle status. Archived legacy records remain preserved and outside the active key reservation; reactivation into a duplicate fails at the database constraint.
-- `CK_Daks_ActiveDiaryNumber` rejects blank active keys, including writes bypassing the API. No register/year/counter fields are added.
+- Unique `IX_Daks_DiaryNumberKey` applies globally to all Dak records, with **no predicate/filter**. Archived, Inactive, Disposed and Cancelled records permanently reserve their canonical diary identity.
+- `CK_Daks_DiaryNumber` is `CHECK (length("DiaryNumberKey") > 0)` for every row, including writes bypassing the API. `DiaryNumber` and its stored generated key remain NOT NULL. No register/year/counter fields are added.
 - Optional `RegistrationRequestId`, `RegistrationRequestHash`, `RegisteredByUserId` persist request identity. Actor/request uniqueness also applies to archived receipts, preserving replay identity after archival.
 - Nullable physical-original existence, Desk/User references, legacy location/provenance notes and updated-at/by references are added. No migration backfill guesses physical existence or custody from scan/routing state.
 
-Migration obtains a table write lock and checks active blanks/duplicate comparison keys **before** installing any constraints. It raises an actionable error pointing to the read-only preflight script. It does not renumber, merge, archive or delete receipts. PostgreSQL migration tests verify rollback leaves historical text and schema intact when preflight fails.
+Migration obtains a table write lock and checks blanks/duplicate comparison keys across **all records before** installing any constraints. On failure, PostgreSQL error DETAIL reports conflicting IDs, original diary text and diagnostic statuses as JSON; HINT points to the read-only preflight script. It does not renumber, merge, archive or delete receipts. PostgreSQL migration tests verify rollback leaves historical text, schema and migration history intact when preflight fails. Successful downgrade/reapplication also preserves receipt identity and restores the global constraints.
 
 ## Historical-data preflight and remediation
 
-Executed `scripts/audit-dak-diary.sql` against the configured loopback local runtime PostgreSQL database in a read-only transaction, with default read-only enforcement. At verification time it contained **0 Dak records, 0 active blank diary numbers, 0 duplicate active-key groups**. No application migration or operational data mutation was performed against that database.
+The initial Phase A verification ran the then-current preflight against the configured loopback local runtime PostgreSQL database in a read-only transaction. At that time it contained **0 Dak records**. This identity correction does not rerun or deploy to the office/runtime database; the updated script and migration are verified against disposable synthetic PostgreSQL databases only.
 
 This does not establish the contents of another deployed office database. Run the same read-only script there before deployment:
 
@@ -27,15 +27,15 @@ This does not establish the contents of another deployed office database. Run th
 psql -X --no-password -v ON_ERROR_STOP=1 -f scripts/audit-dak-diary.sql
 ```
 
-Use the office's existing secure local connection environment/credential mechanism; do not place passwords in command text. The script reports active collisions/blanks with receipt IDs and original diary text, and historical duplicate groups separately. Its transaction always ends with ROLLBACK.
+Use the office's existing secure local connection environment/credential mechanism; do not place passwords in command text. The script reports `BLOCKING_GLOBAL_BLANK` and `BLOCKING_GLOBAL_DUPLICATE` rows with receipt IDs, original diary text and canonical keys. Lifecycle and record status are diagnostic columns only; `DIAGNOSTIC_STATUS_COUNTS` is a separate informational result. Its read-only transaction ends with ROLLBACK. It works both before and after Phase A because it computes keys from the original diary text.
 
-If conflicts exist, compare each entry to the physical stamp/source register. Obtain an explicit, audited office decision for correction or historical handling. Do not infer years, silently renumber or auto-merge. Retry the migration only after review resolves active conflicts. Archived duplicates can remain as historical evidence. Disposable tests intentionally include duplicates/blanks to demonstrate the failure path; those are synthetic fixtures, not discovered office errors.
+If conflicts exist, compare each entry to the physical stamp/source register. Obtain an explicit, audited office decision for correction of inaccurate data. Do not infer years, silently renumber or auto-merge. Retry the migration only after review resolves every global conflict. Archival or lifecycle changes do not resolve an identity collision. Disposable tests intentionally include duplicates/blanks to demonstrate the failure path; those are synthetic fixtures, not discovered office errors.
 
 ## API contract changes
 
 | Surface | Contract |
 |---|---|
-| `POST /api/dak` | Existing multipart fields retained. Optional `Idempotency-Key` header is a non-empty UUID. Same actor/key and identical normalized intake payload/document bytes return the same receipt ID (`201`, existing response shape). Reusing the key for changed payload returns `409`. A duplicate active canonical diary without a matching replay returns a clear `409`. Invalid keys/required fields return `400`. |
+| `POST /api/dak` | Existing multipart fields retained. Optional `Idempotency-Key` header is a non-empty UUID. Same actor/key and identical normalized intake payload/document bytes return the same receipt ID (`201`, existing response shape), including after archival/disposal/cancellation. Reusing the key for changed payload returns `409`. A globally duplicate canonical diary without a matching replay returns a clear `409`. Invalid keys/required fields return `400`. |
 | Request retry | The registration form supplies one stable key per mounted intake form, reused after a lost response. Without a key, existing clients remain compatible and diary uniqueness still prevents duplicate creation, but they receive conflict rather than transparent replay. A key is durable even after receipt archival. No separate idempotency framework was introduced. |
 | `GET /api/dak` | Default list is active records only. Explicit `includeArchived=true` includes authorized historical records. List entries expose `recordStatus`. Existing scope filtering remains in effect. |
 | `GET /api/dak/{id}` | Historical detail remains readable under existing Dak.View authorization and exposes `recordStatus`. Every context link exposes `canOpen`; restricted links return `entityId: null`, `displayName: "Restricted record"`, `canOpen: false`. Link-row ID is retained for source-side unlinking; target identity/title is redacted. |
@@ -57,13 +57,13 @@ Deferred: a dedicated immutable physical movement timeline and its UI, transfer/
 
 ## Verification
 
-- Relevant backend suites plus focused intake/PostgreSQL tests: **287 passed, 0 failed, 0 skipped** (including 8 real PostgreSQL tests), final execution duration 1m49s.
-- PostgreSQL 17.11: disposable databases, all migrations applied to fresh fixtures, direct SQL/EF constraint rejection, concurrent normalized duplicates, concurrent same-key requests including uploaded scans, a forced commit between replay/diary lookups, blank/duplicate historical migration rollback, preserved historical display text and closure-versus-upload locking/compensation.
-- API tests: required diary, unknown context, duplicate conflict, changed-payload replay conflict, replay after archival, target identity/title redaction, terminal mutation rejection, historical reads/default active register, date/activity correctness and physical custody independent of routing.
+- Relevant backend suites plus focused intake/PostgreSQL tests after the identity correction: **294 passed, 0 failed, 0 skipped** (including **10 real PostgreSQL tests**), execution duration 2m59s.
+- PostgreSQL 17.11: disposable databases, all migrations applied to fresh fixtures, direct SQL/EF global constraint rejection, uniqueness across all 12 RecordStatus/DakStatus combinations, blank rejection across those same combinations, concurrent normalized duplicates, concurrent same-key requests including uploaded scans, a forced commit between replay/diary lookups, blank/duplicate historical migration failure rollback, preserved historical display text, successful Phase A downgrade/reapplication, actual read-only audit-script output verification and closure-versus-upload locking/compensation. Metadata confirms the diary index is unique with no predicate.
+- API tests: required diary, unknown context, normalized duplicate conflict, archived/disposed/cancelled/inactive number reuse rejection with and without a new Idempotency-Key, original-key replay after lifecycle changes, changed-payload replay conflict, target identity/title redaction, terminal mutation rejection, historical reads/default active register, date/activity correctness and physical custody independent of routing.
 - Delhi boundary test (`node --test tests/dak-intake.test.mjs`): **1 passed**.
 - Strict targeted TypeScript check of changed Dak components/types: **passed**.
 - Vite production bundling: **passed**, with the existing large-chunk advisory.
-- Full application TypeScript verification: base commit and implementation both produce the **same 39 diagnostics**, with **0 new diagnostics**. These occur in App/AppShell/Court/editor/land/Matter files outside this change. Therefore the aggregate `npm run build` cannot be reported as passing. Baseline was checked from an isolated source export with the same dependency tree; unrelated type errors were not changed in this intake phase.
+- Initial Phase A full application TypeScript verification: base commit and implementation both produced the **same 39 diagnostics**, with **0 new diagnostics**. These occur in App/AppShell/Court/editor/land/Matter files outside this change. Therefore the aggregate `npm run build` cannot be reported as passing. Baseline was checked from an isolated source export with the same dependency tree; unrelated type errors were not changed in this intake phase. This backend identity correction changes no frontend source; the targeted strict checks, date test and Vite build above were rerun successfully.
 - EF migration/model consistency: **no pending model changes**. `git diff --check`: clean. Three existing xUnit2031 warnings in AwardExtractionRuleEngineTests remain.
 
 Run PostgreSQL tests with `LAC_TEST_POSTGRES` set to a disposable **local** administrative connection. The fixture creates uniquely named `lac_dak_test_<GUID>` databases and drops only validated test database names; it never migrates the named runtime/office database.
@@ -73,6 +73,8 @@ dotnet test tests/LAC.Tests/LAC.Tests.csproj --no-restore --filter "FullyQualifi
 ```
 
 No main merge or runtime deployment is part of this change. The completion response supplies the pushed branch and final commit SHA.
+
+The final identity correction changes only diary uniqueness/blank enforcement, its undeployed migration/preflight, regression tests and this report. Manual numbers, GUID technical primary keys, registration retries/idempotency, target privacy, terminal mutation guards, Delhi dates, physical-original fields, assignments and movements retain their existing behavior.
 
 ## Exact changed files
 

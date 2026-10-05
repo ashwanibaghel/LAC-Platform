@@ -15,15 +15,31 @@ namespace LAC.Infrastructure.Migrations
             migrationBuilder.Sql("""
                 LOCK TABLE "Daks" IN SHARE ROW EXCLUSIVE MODE;
                 DO $$
+                DECLARE conflicts text;
                 BEGIN
-                    IF EXISTS (SELECT 1 FROM "Daks" WHERE "RecordStatus" = 'Active'
-                        AND length(translate(btrim("DiaryNumber", E' \t\r\n'), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')) = 0) THEN
-                        RAISE EXCEPTION USING MESSAGE = 'Dak intake migration blocked: active receipts contain blank diary numbers.',
+                    SELECT jsonb_agg(jsonb_build_object('id', "Id", 'diaryNumber', "DiaryNumber",
+                        'status', "Status", 'recordStatus', "RecordStatus") ORDER BY "Id")::text INTO conflicts
+                    FROM "Daks" WHERE "DiaryNumber" IS NULL OR
+                        length(translate(btrim("DiaryNumber", E' \t\r\n'), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ')) = 0;
+                    IF conflicts IS NOT NULL THEN
+                        RAISE EXCEPTION USING MESSAGE = 'Dak intake migration blocked: receipts contain blank diary numbers (all records).',
+                            DETAIL = conflicts,
                             HINT = 'Run scripts/audit-dak-diary.sql read-only. Review against original stamps; do not invent numbers.';
                     END IF;
-                    IF EXISTS (SELECT 1 FROM "Daks" WHERE "RecordStatus" = 'Active'
-                        GROUP BY translate(btrim("DiaryNumber", E' \t\r\n'), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') HAVING count(*) > 1) THEN
-                        RAISE EXCEPTION USING MESSAGE = 'Dak intake migration blocked: duplicate canonical active diary numbers exist.',
+                    WITH receipts AS (
+                        SELECT "Id", "DiaryNumber", "Status", "RecordStatus",
+                            translate(btrim("DiaryNumber", E' \t\r\n'), 'abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') AS diary_key
+                        FROM "Daks"
+                    ), duplicates AS (
+                        SELECT diary_key FROM receipts GROUP BY diary_key HAVING count(*) > 1
+                    )
+                    SELECT jsonb_agg(jsonb_build_object('diaryNumberKey', r.diary_key, 'id', r."Id",
+                        'diaryNumber', r."DiaryNumber", 'status', r."Status", 'recordStatus', r."RecordStatus")
+                        ORDER BY r.diary_key, r."Id")::text INTO conflicts
+                    FROM receipts r JOIN duplicates d ON d.diary_key = r.diary_key;
+                    IF conflicts IS NOT NULL THEN
+                        RAISE EXCEPTION USING MESSAGE = 'Dak intake migration blocked: duplicate canonical diary numbers exist (all records).',
+                            DETAIL = conflicts,
                             HINT = 'Run scripts/audit-dak-diary.sql read-only. Explicitly review duplicates before retrying; no automatic merge or renumbering is performed.';
                     END IF;
                 END $$;
@@ -103,8 +119,7 @@ namespace LAC.Infrastructure.Migrations
                 name: "IX_Daks_DiaryNumberKey",
                 table: "Daks",
                 column: "DiaryNumberKey",
-                unique: true,
-                filter: "\"RecordStatus\" = 'Active'");
+                unique: true);
 
             migrationBuilder.CreateIndex(
                 name: "IX_Daks_PhysicalOriginalDeskId",
@@ -129,9 +144,9 @@ namespace LAC.Infrastructure.Migrations
                 filter: "\"RegistrationRequestId\" IS NOT NULL");
 
             migrationBuilder.AddCheckConstraint(
-                name: "CK_Daks_ActiveDiaryNumber",
+                name: "CK_Daks_DiaryNumber",
                 table: "Daks",
-                sql: "\"RecordStatus\" <> 'Active' OR length(\"DiaryNumberKey\") > 0");
+                sql: "length(\"DiaryNumberKey\") > 0");
 
             migrationBuilder.AddForeignKey(
                 name: "FK_Daks_AppUsers_PhysicalOriginalUpdatedByUserId",
@@ -206,7 +221,7 @@ namespace LAC.Infrastructure.Migrations
                 table: "Daks");
 
             migrationBuilder.DropCheckConstraint(
-                name: "CK_Daks_ActiveDiaryNumber",
+                name: "CK_Daks_DiaryNumber",
                 table: "Daks");
 
             migrationBuilder.DropColumn(

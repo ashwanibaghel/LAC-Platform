@@ -2664,8 +2664,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DiaryNumber");
 
                     b.HasIndex("DiaryNumberKey")
-                        .IsUnique()
-                        .HasFilter("\"RecordStatus\" = 'Active'");
+                        .IsUnique();
 
                     b.HasIndex("MainDocumentId");
 
@@ -2687,7 +2686,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.ToTable("Daks", t =>
                         {
-                            t.HasCheckConstraint("CK_Daks_ActiveDiaryNumber", "\"RecordStatus\" <> 'Active' OR length(\"DiaryNumberKey\") > 0");
+                            t.HasCheckConstraint("CK_Daks_DiaryNumber", "length(\"DiaryNumberKey\") > 0");
                         });
                 });
 

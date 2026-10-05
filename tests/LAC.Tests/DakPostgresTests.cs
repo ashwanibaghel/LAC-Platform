@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
+using System.Text.Json;
 using Xunit;
 
 public sealed class DakPostgresFactAttribute : FactAttribute
@@ -107,15 +108,21 @@ public sealed class DakPostgresTests
     }
 
     [DakPostgresFact]
-    public async Task Blank_diary_fails_database_constraint_and_cancelled_active_number_stays_reserved()
+    public async Task Blank_diary_fails_global_database_constraint_and_cancelled_number_stays_reserved()
     {
         await using var database = await DisposableDakDatabase.CreateAsync();
         var actorId = await database.CreateActorAsync();
         await using var db = database.Context();
-        db.Daks.Add(new Dak { DiaryNumber = " \t", Subject = "Blank", SenderName = "Sender", ReceivedDate = new(2026, 10, 6) });
-        var blank = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        Assert.Equal(PostgresErrorCodes.CheckViolation, Assert.IsType<PostgresException>(blank.InnerException).SqlState);
-        db.ChangeTracker.Clear();
+        foreach (var recordStatus in Enum.GetValues<RecordStatus>())
+        foreach (var status in Enum.GetValues<DakStatus>())
+        {
+            db.Daks.Add(new Dak { DiaryNumber = " \t\r\n", Subject = "Blank", SenderName = "Sender", ReceivedDate = new(2026, 10, 6), RecordStatus = recordStatus, Status = status });
+            var blank = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
+            var error = Assert.IsType<PostgresException>(blank.InnerException);
+            Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+            Assert.Equal("CK_Daks_DiaryNumber", error.ConstraintName);
+            db.ChangeTracker.Clear();
+        }
         var workflow = new DakWorkflowService(db, new TestInMemoryDocumentStorage());
         var dak = await workflow.RegisterAsync(Command("CANCELLED-STAMP"), actorId);
         await workflow.CancelAsync(dak.Id, new CancelDakCommand("Wrong receipt", 0), actorId);
@@ -124,22 +131,37 @@ public sealed class DakPostgresTests
     }
 
     [DakPostgresFact]
-    public async Task Archived_legacy_numbers_do_not_block_new_active_receipt_but_cannot_be_reactivated_into_duplicate()
+    public async Task Diary_identity_remains_globally_reserved_after_every_lifecycle_and_record_status()
     {
         await using var database = await DisposableDakDatabase.CreateAsync();
         var actorId = await database.CreateActorAsync();
         await using var db = database.Context();
         var workflow = new DakWorkflowService(db, new TestInMemoryDocumentStorage());
-        var first = await workflow.RegisterAsync(Command("Legacy/9"), actorId);
-        first.RecordStatus = RecordStatus.Archived;
-        await db.SaveChangesAsync();
-        var active = await workflow.RegisterAsync(Command("LEGACY/9"), actorId);
-        Assert.NotEqual(first.Id, active.Id);
-        db.ChangeTracker.Clear();
-        var archived = await db.Daks.SingleAsync(d => d.Id == first.Id);
-        archived.RecordStatus = RecordStatus.Active;
-        var error = await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync());
-        Assert.Equal(PostgresErrorCodes.UniqueViolation, Assert.IsType<PostgresException>(error.InnerException).SqlState);
+        foreach (var recordStatus in Enum.GetValues<RecordStatus>())
+        foreach (var status in Enum.GetValues<DakStatus>())
+        {
+            var command = Command($"Legacy/{recordStatus}/{status}", Guid.NewGuid());
+            var first = await workflow.RegisterAsync(command, actorId);
+            // Synthetic lifecycle fixtures isolate identity reservation from routing policy.
+            first.RecordStatus = recordStatus;
+            first.Status = status;
+            await db.SaveChangesAsync();
+            var duplicate = await Assert.ThrowsAsync<DakWorkflowException>(() => workflow.RegisterAsync(
+                command with { DiaryNumber = $" \t{command.DiaryNumber.ToUpperInvariant()}\r\n", RequestId = Guid.NewGuid() }, actorId));
+            Assert.Equal(409, duplicate.StatusCode);
+            Assert.Equal(first.Id, (await workflow.RegisterAsync(command, actorId)).Id);
+            db.Daks.Add(new Dak { DiaryNumber = command.DiaryNumber.ToUpperInvariant(), Subject = "Bypass service", SenderName = "Sender", ReceivedDate = new(2026, 10, 6) });
+            var error = Assert.IsType<PostgresException>((await Assert.ThrowsAsync<DbUpdateException>(() => db.SaveChangesAsync())).InnerException);
+            Assert.Equal(PostgresErrorCodes.UniqueViolation, error.SqlState);
+            Assert.Equal("IX_Daks_DiaryNumberKey", error.ConstraintName);
+            db.ChangeTracker.Clear();
+        }
+        Assert.Equal(12, await db.Daks.CountAsync());
+        Assert.Equal(12, await db.DakMovements.CountAsync());
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var index = new NpgsqlCommand("SELECT indisunique AND indpred IS NULL FROM pg_index WHERE indexrelid = '\"IX_Daks_DiaryNumberKey\"'::regclass", connection);
+        Assert.Equal(true, await index.ExecuteScalarAsync());
     }
 
     [DakPostgresFact]
@@ -149,16 +171,31 @@ public sealed class DakPostgresTests
         await using var db = database.Context();
         var previous = db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA"));
         await db.GetService<IMigrator>().MigrateAsync(previous);
-        await InsertLegacyAsync(db, " stamp/2 ");
-        await InsertLegacyAsync(db, "STAMP/2");
+        var activeId = Guid.NewGuid();
+        var archivedId = Guid.NewGuid();
+        var disposedId = Guid.NewGuid();
+        var cancelledId = Guid.NewGuid();
+        await InsertLegacyAsync(db, " stamp/2 ", id: activeId);
+        await InsertLegacyAsync(db, "STAMP/2", RecordStatus.Archived, id: archivedId);
+        // A second duplicate group has no Active records at all.
+        await InsertLegacyAsync(db, " closed/3 ", RecordStatus.Archived, DakStatus.Disposed, disposedId);
+        await InsertLegacyAsync(db, "CLOSED/3", RecordStatus.Inactive, DakStatus.Cancelled, cancelledId);
         var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
-        Assert.Contains("duplicate canonical active diary", error.MessageText);
+        Assert.Contains("duplicate canonical diary", error.MessageText);
         Assert.Contains("audit-dak-diary.sql", error.Hint);
+        using var detail = JsonDocument.Parse(error.Detail!);
+        var conflicts = detail.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(4, conflicts.Length);
+        foreach (var id in new[] { activeId, archivedId, disposedId, cancelledId })
+            Assert.Contains(conflicts, row => row.GetProperty("id").GetGuid() == id);
+        Assert.Contains(conflicts, row => row.GetProperty("diaryNumber").GetString() == " stamp/2 ");
         await using var connection = new NpgsqlConnection(database.ConnectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand("SELECT array_agg(\"DiaryNumber\" ORDER BY \"DiaryNumber\") FROM \"Daks\"", connection);
-        Assert.Equal(new[] { " stamp/2 ", "STAMP/2" }, (string[])(await command.ExecuteScalarAsync())!);
+        Assert.Equal(new[] { " closed/3 ", " stamp/2 ", "CLOSED/3", "STAMP/2" }, (string[])(await command.ExecuteScalarAsync())!);
         command.CommandText = "SELECT count(*) FROM information_schema.columns WHERE table_name = 'Daks' AND column_name = 'DiaryNumberKey'";
+        Assert.Equal(0L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT count(*) FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '20261005194104_HardenDakIntakePhaseA'";
         Assert.Equal(0L, await command.ExecuteScalarAsync());
     }
 
@@ -168,9 +205,22 @@ public sealed class DakPostgresTests
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false);
         await using var db = database.Context();
         await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
-        await InsertLegacyAsync(db, " \t ");
+        var blankId = Guid.NewGuid();
+        await InsertLegacyAsync(db, " \t ", RecordStatus.Archived, DakStatus.Cancelled, blankId);
         var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
         Assert.Contains("blank diary", error.MessageText);
+        using var detail = JsonDocument.Parse(error.Detail!);
+        var blank = Assert.Single(detail.RootElement.EnumerateArray());
+        Assert.Equal(blankId, blank.GetProperty("id").GetGuid());
+        Assert.Equal(" \t ", blank.GetProperty("diaryNumber").GetString());
+        await using (var connection = new NpgsqlConnection(database.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var preserved = new NpgsqlCommand("SELECT \"DiaryNumber\" FROM \"Daks\"", connection);
+            Assert.Equal(" \t ", await preserved.ExecuteScalarAsync());
+            preserved.CommandText = "SELECT count(*) FROM information_schema.columns WHERE table_name = 'Daks' AND column_name = 'DiaryNumberKey'";
+            Assert.Equal(0L, await preserved.ExecuteScalarAsync());
+        }
         // The test remediates only its synthetic fixture, never office data.
         await db.Database.ExecuteSqlRawAsync("DELETE FROM \"Daks\"");
         await InsertLegacyAsync(db, "  Manual/Ab  17  ");
@@ -179,6 +229,88 @@ public sealed class DakPostgresTests
         Assert.Equal("  Manual/Ab  17  ", legacy.DiaryNumber);
         Assert.Equal("MANUAL/AB  17", legacy.DiaryNumberKey);
         Assert.Null(legacy.HasPhysicalOriginal);
+    }
+
+    [DakPostgresFact]
+    public async Task Audit_script_reports_global_blockers_and_status_only_as_diagnostics()
+    {
+        await using var database = await DisposableDakDatabase.CreateAsync(migrate: false);
+        await using var db = database.Context();
+        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
+        var blankId = Guid.NewGuid();
+        var disposedId = Guid.NewGuid();
+        var cancelledId = Guid.NewGuid();
+        await InsertLegacyAsync(db, " \t ", RecordStatus.Archived, id: blankId);
+        await InsertLegacyAsync(db, " stamp/4 ", RecordStatus.Archived, DakStatus.Disposed, disposedId);
+        await InsertLegacyAsync(db, "STAMP/4", RecordStatus.Inactive, DakStatus.Cancelled, cancelledId);
+        await InsertLegacyAsync(db, "Unique", status: DakStatus.Cancelled);
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "scripts", "audit-dak-diary.sql"))) root = root.Parent;
+        Assert.NotNull(root);
+        var script = await File.ReadAllTextAsync(Path.Combine(root.FullName, "scripts", "audit-dak-diary.sql"));
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(script, connection);
+        var blockers = new List<(string Reason, Guid Id, string Raw, string Status, string RecordStatus)>();
+        var diagnostics = new List<string>();
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            do
+            {
+                if (reader.FieldCount == 0) continue;
+                if (reader.GetName(0) == "blocking_reason")
+                {
+                    while (await reader.ReadAsync())
+                        blockers.Add((reader.GetString(0), reader.GetGuid(3), reader.GetString(4), reader.GetString(6), reader.GetString(7)));
+                }
+                else
+                {
+                    Assert.Equal("diagnostic", reader.GetName(0));
+                    while (await reader.ReadAsync()) diagnostics.Add(reader.GetString(0));
+                }
+            } while (await reader.NextResultAsync());
+        }
+        Assert.Equal(3, blockers.Count);
+        Assert.Contains(blockers, r => r == ("BLOCKING_GLOBAL_BLANK", blankId, " \t ", "Registered", "Archived"));
+        Assert.Contains(blockers, r => r == ("BLOCKING_GLOBAL_DUPLICATE", disposedId, " stamp/4 ", "Disposed", "Archived"));
+        Assert.Contains(blockers, r => r == ("BLOCKING_GLOBAL_DUPLICATE", cancelledId, "STAMP/4", "Cancelled", "Inactive"));
+        Assert.Equal(4, diagnostics.Count);
+        Assert.All(diagnostics, d => Assert.Equal("DIAGNOSTIC_STATUS_COUNTS", d));
+        command.CommandText = "SELECT count(*) FROM \"Daks\"";
+        Assert.Equal(4L, await command.ExecuteScalarAsync());
+    }
+
+    [DakPostgresFact]
+    public async Task Phase_a_can_roll_back_and_reapply_without_changing_permanent_diary_identity()
+    {
+        await using var database = await DisposableDakDatabase.CreateAsync();
+        var actorId = await database.CreateActorAsync();
+        await using var db = database.Context();
+        var workflow = new DakWorkflowService(db, new TestInMemoryDocumentStorage());
+        var dak = await workflow.RegisterAsync(Command("Manual/Rollback"), actorId);
+        dak.RecordStatus = RecordStatus.Archived;
+        dak.Status = DakStatus.Disposed;
+        await db.SaveChangesAsync();
+        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
+        await using var connection = new NpgsqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand("SELECT count(*) FROM information_schema.columns WHERE table_name = 'Daks' AND column_name = 'DiaryNumberKey'", connection);
+        Assert.Equal(0L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT count(*) FROM pg_indexes WHERE indexname = 'IX_Daks_DiaryNumberKey'";
+        Assert.Equal(0L, await command.ExecuteScalarAsync());
+        command.CommandText = "SELECT count(*) FROM pg_constraint WHERE conname = 'CK_Daks_DiaryNumber'";
+        Assert.Equal(0L, await command.ExecuteScalarAsync());
+        await db.Database.MigrateAsync();
+        db.ChangeTracker.Clear();
+        var restored = await db.Daks.SingleAsync();
+        Assert.Equal(dak.Id, restored.Id);
+        Assert.Equal("Manual/Rollback", restored.DiaryNumber);
+        Assert.Equal("MANUAL/ROLLBACK", restored.DiaryNumberKey);
+        Assert.Equal(RecordStatus.Archived, restored.RecordStatus);
+        Assert.Equal(DakStatus.Disposed, restored.Status);
+        var duplicate = await Assert.ThrowsAsync<DakWorkflowException>(() => workflow.RegisterAsync(Command(" manual/rollback "), actorId));
+        Assert.Equal(409, duplicate.StatusCode);
+        Assert.Equal(1, await db.DakMovements.CountAsync());
     }
 
     [DakPostgresFact]
@@ -203,9 +335,10 @@ public sealed class DakPostgresTests
         Assert.Equal(0, await writer.DakAttachments.CountAsync());
     }
 
-    private static Task InsertLegacyAsync(LacDbContext db, string diary) => db.Database.ExecuteSqlInterpolatedAsync($"""
+    private static Task InsertLegacyAsync(LacDbContext db, string diary, RecordStatus recordStatus = RecordStatus.Active,
+        DakStatus status = DakStatus.Registered, Guid? id = null) => db.Database.ExecuteSqlInterpolatedAsync($"""
         INSERT INTO "Daks" ("Id", "DiaryNumber", "ReceivedDate", "Subject", "SenderName", "InwardMode", "Priority", "Status", "Revision", "CreatedAt", "UpdatedAt", "RecordStatus")
-        VALUES ({Guid.NewGuid()}, {diary}, {new DateOnly(2026, 10, 6)}, 'Legacy receipt', 'Sender', 'Physical', 'Routine', 'Registered', 0, now(), now(), 'Active')
+        VALUES ({id ?? Guid.NewGuid()}, {diary}, {new DateOnly(2026, 10, 6)}, 'Legacy receipt', 'Sender', 'Physical', 'Routine', {status.ToString()}, 0, now(), now(), {recordStatus.ToString()})
         """);
 
     private sealed class SignallingStorage : IDocumentStorage
@@ -260,7 +393,7 @@ internal sealed class DisposableDakDatabase(string adminConnection, string name,
         await using var connection = new NpgsqlConnection(admin.ConnectionString);
         await connection.OpenAsync();
         await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{name}\"", connection)) await create.ExecuteNonQueryAsync();
-        var test = new NpgsqlConnectionStringBuilder(admin.ConnectionString) { Database = name, Pooling = false };
+        var test = new NpgsqlConnectionStringBuilder(admin.ConnectionString) { Database = name, Pooling = false, IncludeErrorDetail = true };
         var database = new DisposableDakDatabase(admin.ConnectionString, name, test.ConnectionString);
         try
         {

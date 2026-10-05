@@ -96,12 +96,12 @@ public sealed partial class DakWorkflowService(
         if (replay is not null) return replay;
         var diaryKey = DakDiaryNumber.Normalize(cmd.DiaryNumber.Trim());
         if (diaryKey.Length == 0) throw new DakWorkflowException("Diary Number is required.");
-        if (await db.Daks.AsNoTracking().AnyAsync(d => d.RecordStatus == RecordStatus.Active && d.DiaryNumberKey == diaryKey, ct))
+        if (await db.Daks.AsNoTracking().AnyAsync(d => d.DiaryNumberKey == diaryKey, ct))
         {
             // Another identical request may commit between the replay lookup and the diary lookup.
             replay = await FindRegistrationReplayAsync(cmd, currentUserId, requestHash, ct);
             if (replay is not null) return replay;
-            throw new DakWorkflowException("Diary Number is already registered in the active Dak register.", 409);
+            throw new DakWorkflowException("Diary Number is already registered and permanently reserved.", 409);
         }
 
         // Validate Category if provided
@@ -257,7 +257,7 @@ public sealed partial class DakWorkflowService(
             db.ChangeTracker.Clear();
             var committed = await FindRegistrationReplayAsync(cmd, currentUserId, requestHash, ct);
             if (committed is not null) return committed;
-            throw new DakWorkflowException("Diary Number is already registered in the active Dak register.", 409);
+            throw new DakWorkflowException("Diary Number is already registered and permanently reserved.", 409);
         }
         catch
         {
