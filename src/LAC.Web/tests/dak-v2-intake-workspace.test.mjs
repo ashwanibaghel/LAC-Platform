@@ -630,10 +630,17 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
     await context.close();
   });
 
-  test("11. Cross-Dak route navigation race safety and state isolation", async () => {
+  test("11. True SPA cross-Dak state isolation, race safety and route identity protection", async () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await setupDefaultAuthAndLookups(page);
+
+    // Controlled promises for delayed load and mutation reloads
+    let slowDakAFulfills;
+    const slowDakAPromise = new Promise((resolve) => { slowDakAFulfills = resolve; });
+
+    let slowMutationFulfills;
+    const slowMutationPromise = new Promise((resolve) => { slowMutationFulfills = resolve; });
 
     // Mock Dak A
     await page.route("**/api/dak/dak-A", (route) => {
@@ -643,7 +650,9 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
         body: JSON.stringify(createSampleDak({
           id: "dak-A",
           diaryNumber: "DAK/2026/00111",
-          subject: "Dak Alpha Subject"
+          subject: "Dak Alpha Subject",
+          categoryId: "cat-1",
+          workstreamId: "ws-1"
         }))
       });
     });
@@ -683,7 +692,7 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       });
     });
 
-    // Mock Dak B (where movement-targets returns 403 and outward lookup fails)
+    // Mock Dak B (where movement-targets returns 403, outward lookup fails, edit lookups fail)
     await page.route("**/api/dak/dak-B", (route) => {
       route.fulfill({
         status: 200,
@@ -691,7 +700,9 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
         body: JSON.stringify(createSampleDak({
           id: "dak-B",
           diaryNumber: "DAK/2026/00999",
-          subject: "Dak Beta Subject"
+          subject: "Dak Beta Subject",
+          categoryId: null,
+          workstreamId: null
         }))
       });
     });
@@ -708,44 +719,11 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Outward service error" }) });
     });
 
-    // Step 1: Open Dak A
-    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-A`, { waitUntil: "networkidle" });
-    await page.waitForSelector(".dak-detail-workspace");
+    await page.route("**/api/dak/dak-B/lookups/edit", (route) => {
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Lookup error" }) });
+    });
 
-    // Open Physical Location modal on Dak A to verify member option is present
-    await page.click("button:has-text('Update Physical Location')");
-    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
-    await page.selectOption(".modal-card select", "yes");
-    // Select Desk 1 to reveal member officer dropdown
-    await page.selectOption(".modal-card select >> nth=1", "desk-1");
-    let optionsText = await page.locator(".modal-card select >> nth=2").textContent();
-    assert.ok(optionsText.includes("Officer Alpha Secret Name"), "Dak A must contain Officer Alpha member option.");
-    await page.click(".modal-card button:has-text('Cancel')");
-
-    // Step 2 & 3: Navigate directly to Dak B in the same mounted app
-    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-B`, { waitUntil: "networkidle" });
-    await page.waitForSelector(".dak-detail-workspace");
-
-    // Verify Dak B diary number is displayed
-    const diaryText = await page.locator(".dak-detail-workspace").textContent();
-    assert.ok(diaryText.includes("DAK/2026/00999"));
-
-    // Verify Dak B physical custody modal NEVER exposes Dak A's member officer name
-    await page.click("button:has-text('Update Physical Location')");
-    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
-    await page.selectOption(".modal-card select", "yes");
-    const deskSelectText = await page.locator(".modal-card select >> nth=1").textContent();
-    assert.equal(deskSelectText.includes("Officer Alpha Secret Name"), false, "Dak B must NEVER retain or expose Officer Alpha member from Dak A.");
-    await page.click(".modal-card button:has-text('Cancel')");
-
-    // Step 5: Verify old outward reply from Dak A does not appear on Dak B when Dak B outward fetch fails
-    const workspaceContent = await page.locator(".dak-detail-workspace").textContent();
-    assert.equal(workspaceContent.includes("OUT/2026/0099"), false, "Dak B must NOT retain outward replies from Dak A.");
-
-    // Step 4: Simulate an intentionally delayed response from Dak A and ensure it cannot overwrite Dak B
-    let slowDakAFulfills;
-    const slowDakAPromise = new Promise((resolve) => { slowDakAFulfills = resolve; });
-
+    // Mock Dak SLOW
     await page.route("**/api/dak/dak-SLOW", async (route) => {
       await slowDakAPromise;
       route.fulfill({
@@ -759,21 +737,155 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       });
     });
 
-    // Start navigating to dak-SLOW
-    void page.goto(`http://127.0.0.1:${PORT}/dak/dak-SLOW`);
-    await page.waitForTimeout(100);
+    // Helper for SPA navigation without document reload
+    const spaNavigateTo = async (path) => {
+      await page.evaluate((targetPath) => {
+        window.history.pushState(null, '', targetPath);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }, path);
+    };
 
-    // Navigate immediately to Dak B before dak-SLOW finishes loading
-    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-B`, { waitUntil: "networkidle" });
+    // --- STEP A: Open Dak A & Fill Drafts ---
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-A`, { waitUntil: "networkidle" });
     await page.waitForSelector(".dak-detail-workspace");
 
-    // Fulfill the delayed dak-SLOW request now
-    if (slowDakAFulfills) slowDakAFulfills();
-    await page.waitForTimeout(400);
+    // Set a window marker to verify true SPA navigation
+    await page.evaluate(() => {
+      window.__SPA_TEST_MARKER__ = "SURVIVED_SAME_DOCUMENT_REMOUNT";
+    });
+
+    // 1. Verify Officer Alpha Secret Name is present in Dak A movement targets / custody
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.selectOption(".modal-card select", "yes");
+    await page.selectOption(".modal-card select >> nth=1", "desk-1");
+    const optionsText = await page.locator(".modal-card select >> nth=2").textContent();
+    assert.ok(optionsText.includes("Officer Alpha Secret Name"), "Dak A must contain Officer Alpha member option.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 2. Select an attachment file in Add Attachment without uploading
+    await page.click("button:has-text('Documents & Attachments')");
+    await page.click("button:has-text('+ Add Attachment')");
+    await page.waitForSelector(".modal-card:has-text('Add Attachment')");
+    await page.setInputFiles(".modal-card input[type='file']", {
+      name: "secret_file_A.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Secret Dak A attachment draft")
+    });
+    await page.fill(".modal-card input[placeholder*='Notice']", "Secret Attachment Title A");
+    // Leave attachment draft populated (close modal without uploading)
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 3. Type a link entity UUID without submitting
+    await page.click("button:has-text('Linked Context')");
+    await page.click("button:has-text('+ Add Cross-Reference')");
+    await page.waitForSelector(".modal-card:has-text('Link Domain Entity')");
+    await page.fill(".modal-card input[placeholder='Enter Entity UUID']", "11111111-2222-3333-4444-555555555555");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 4. Verify outward reply OUT/2026/0099 is present on Dak A
+    const dakAText = await page.locator(".dak-detail-workspace").textContent();
+    assert.ok(dakAText.includes("OUT/2026/0099"), "Dak A must display outward reply OUT/2026/0099.");
+
+    // --- STEP B: True SPA Navigate to Dak B ---
+    await spaNavigateTo("/dak/dak-B");
+    await page.waitForTimeout(300);
+
+    // Verify SPA window marker survived (confirming NO full page reload occurred)
+    const markerValue = await page.evaluate(() => window.__SPA_TEST_MARKER__);
+    assert.equal(markerValue, "SURVIVED_SAME_DOCUMENT_REMOUNT", "Navigation to Dak B must be a genuine SPA transition keeping same window instance.");
+
+    // Assertions on Dak B:
+    const dakBSubject = await page.locator(".page-header h1").textContent();
+    assert.ok(dakBSubject.includes("Dak Beta Subject"), "Displayed subject on Dak B must belong to B.");
+
+    const dakBDiary = await page.locator(".breadcrumbs").textContent();
+    assert.ok(dakBDiary.includes("DAK/2026/00999"), "Displayed diary number on Dak B must belong to B.");
+
+    // 1. Assert no Officer Alpha name on Dak B
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.selectOption(".modal-card select", "yes");
+    const deskSelectText = await page.locator(".modal-card select >> nth=1").textContent();
+    assert.equal(deskSelectText.includes("Officer Alpha Secret Name"), false, "Dak B must NOT retain Officer Alpha from Dak A.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 2. Assert no A outward reply on Dak B
+    const dakBText = await page.locator(".dak-detail-workspace").textContent();
+    assert.equal(dakBText.includes("OUT/2026/0099"), false, "Dak B must NOT retain outward reply from Dak A.");
+
+    // 3. Assert no A selected attachment or file title on Dak B
+    await page.click("button:has-text('Documents & Attachments')");
+    await page.click("button:has-text('+ Add Attachment')");
+    await page.waitForSelector(".modal-card:has-text('Add Attachment')");
+    const attachTitleVal = await page.locator(".modal-card input[placeholder*='Notice']").inputValue();
+    assert.equal(attachTitleVal, "", "Dak B attachment title draft must be reset to empty.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 4. Assert no A link UUID on Dak B
+    await page.click("button:has-text('Linked Context')");
+    await page.click("button:has-text('+ Add Cross-Reference')");
+    await page.waitForSelector(".modal-card:has-text('Link Domain Entity')");
+    const linkEntityVal = await page.locator(".modal-card input[placeholder='Enter Entity UUID']").inputValue();
+    assert.equal(linkEntityVal, "", "Dak B link entity UUID draft must be reset to empty.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // 5. Assert no stale A category/workstream lookup on Dak B edit modal
+    await page.click("button:has-text('Edit Details')");
+    await page.waitForSelector(".modal-card:has-text('Edit Dak Classification & Details')");
+    const categoryOptionsText = await page.locator(".modal-card select >> nth=1").textContent();
+    assert.equal(categoryOptionsText.includes("Land Acquisition Reference"), false, "Dak B must NOT retain stale category lookups from Dak A.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // --- STEP C: Delayed Stale Response Protection ---
+    // Start delayed load for dak-SLOW via SPA navigation
+    await spaNavigateTo("/dak/dak-SLOW");
+    await page.waitForTimeout(50);
+
+    // SPA navigate back to Dak B before dak-SLOW finishes loading
+    await spaNavigateTo("/dak/dak-B");
+    await page.waitForTimeout(100);
+
+    // Now fulfill the slow dak-SLOW response
+    slowDakAFulfills();
+    await page.waitForTimeout(300);
 
     // Verify workspace still displays Dak B and has NOT been overwritten by delayed dak-SLOW response
-    const currentSubject = await page.locator(".page-header h1").textContent();
-    assert.ok(currentSubject.includes("Dak Beta Subject"), "Delayed response from old Dak must NOT overwrite active Dak B.");
+    const currentSubjectAfterSlow = await page.locator(".page-header h1").textContent();
+    assert.ok(currentSubjectAfterSlow.includes("Dak Beta Subject"), "Delayed response from old Dak must NOT overwrite active Dak B.");
+
+    // --- STEP D: Mutation Race Protection ---
+    // Perform a mutation response for Dak A whose post-success reload is delayed while user navigates to B
+    await page.route("**/api/dak/dak-A/physical-original", async (route) => {
+      if (route.request().method() === "PUT") {
+        await slowMutationPromise;
+        route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hasPhysicalOriginal: true, revision: 2 }) });
+      } else {
+        route.continue();
+      }
+    });
+
+    // SPA navigate back to Dak A to trigger mutation
+    await spaNavigateTo("/dak/dak-A");
+    await page.waitForTimeout(200);
+
+    // Click Update Physical Location and submit
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.fill("textarea[placeholder*='observation note']", "Updating custody note on Dak A");
+    await page.click(".modal-card button:has-text('Save Physical Custody')");
+
+    // Immediately SPA navigate to Dak B while the mutation reload on Dak A is in-flight/delayed
+    await spaNavigateTo("/dak/dak-B");
+    await page.waitForTimeout(100);
+
+    // Fulfill the delayed mutation on Dak A now
+    slowMutationFulfills();
+    await page.waitForTimeout(300);
+
+    // Assert Dak B remains clean and unaffected by old Dak A mutation reload
+    const finalSubject = await page.locator(".page-header h1").textContent();
+    assert.ok(finalSubject.includes("Dak Beta Subject"), "Delayed mutation reload from old Dak A must NOT overwrite active Dak B.");
 
     await context.close();
   });
