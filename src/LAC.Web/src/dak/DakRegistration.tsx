@@ -14,6 +14,7 @@ interface WorkstreamOption {
 export const DakRegistration: React.FC = () => {
   const navigate = useNavigate();
   const diaryInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form Fields
   const [diaryNumber, setDiaryNumber] = useState("");
@@ -74,6 +75,13 @@ export const DakRegistration: React.FC = () => {
     }
   };
 
+  const clearSelectedFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
   const handleRegister = async (action: "next" | "open") => {
     setError(null);
     setSuccessBanner(null);
@@ -124,10 +132,7 @@ export const DakRegistration: React.FC = () => {
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        let errMsg = data?.detail || data?.message || "Failed to register Dak.";
-        if (res.status === 409 && !errMsg.toLowerCase().includes("already registered")) {
-          errMsg = `Diary No. ${trimmedDiary} is already registered.`;
-        }
+        const errMsg = data?.detail || data?.message || "Failed to register Dak.";
         throw new Error(errMsg);
       }
 
@@ -151,7 +156,7 @@ export const DakRegistration: React.FC = () => {
       setSenderDepartment("");
       setSenderAddress("");
       setDueDate("");
-      setSelectedFile(null);
+      clearSelectedFile();
       setCategoryId("");
       setWorkstreamId("");
       setPriority("Routine");
@@ -170,8 +175,8 @@ export const DakRegistration: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Prevent accidental form submission on Enter inside text inputs unless submitting via action button
-    if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") {
+    // Prevent accidental implicit form submission on Enter inside text inputs, but allow normal Enter on buttons/selects
+    if (e.key === "Enter" && (e.target as HTMLElement).tagName === "INPUT") {
       e.preventDefault();
     }
   };
@@ -329,6 +334,7 @@ export const DakRegistration: React.FC = () => {
             <span className="field-label">Primary Scan / PDF (Optional)</span>
             <div className="file-input-wrap">
               <input
+                ref={fileInputRef}
                 type="file"
                 accept=".pdf,image/*"
                 id="primary-scan-file"
@@ -345,7 +351,7 @@ export const DakRegistration: React.FC = () => {
                 <button
                   type="button"
                   className="file-remove-btn"
-                  onClick={() => setSelectedFile(null)}
+                  onClick={clearSelectedFile}
                   title="Remove document"
                 >
                   ✕
