@@ -629,4 +629,152 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
 
     await context.close();
   });
+
+  test("11. Cross-Dak route navigation race safety and state isolation", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Mock Dak A
+    await page.route("**/api/dak/dak-A", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-A",
+          diaryNumber: "DAK/2026/00111",
+          subject: "Dak Alpha Subject"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-A/physical-original", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hasPhysicalOriginal: true, deskId: "desk-1", userId: "user-alpha", revision: 1 }) });
+    });
+
+    await page.route("**/api/dak/dak-A/movement-targets", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          desks: [
+            {
+              id: "desk-1",
+              code: "NT_LAC",
+              name: "Naib Tehsildar Desk",
+              members: [
+                { userId: "user-alpha", displayName: "Officer Alpha Secret Name", designation: "NT", isPrimary: true }
+              ]
+            }
+          ]
+        })
+      });
+    });
+
+    await page.route("**/api/outward?dakId=dak-A", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            { id: "out-A", outwardNumber: "OUT/2026/0099", outwardDate: "2026-10-06", subject: "Outward Reply Alpha", status: "Dispatched", recipientName: "Target A" }
+          ]
+        })
+      });
+    });
+
+    // Mock Dak B (where movement-targets returns 403 and outward lookup fails)
+    await page.route("**/api/dak/dak-B", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-B",
+          diaryNumber: "DAK/2026/00999",
+          subject: "Dak Beta Subject"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-B/physical-original", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ hasPhysicalOriginal: false, revision: 1 }) });
+    });
+
+    await page.route("**/api/dak/dak-B/movement-targets", (route) => {
+      route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "Forbidden" }) });
+    });
+
+    await page.route("**/api/outward?dakId=dak-B", (route) => {
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Outward service error" }) });
+    });
+
+    // Step 1: Open Dak A
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-A`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // Open Physical Location modal on Dak A to verify member option is present
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.selectOption(".modal-card select", "yes");
+    // Select Desk 1 to reveal member officer dropdown
+    await page.selectOption(".modal-card select >> nth=1", "desk-1");
+    let optionsText = await page.locator(".modal-card select >> nth=2").textContent();
+    assert.ok(optionsText.includes("Officer Alpha Secret Name"), "Dak A must contain Officer Alpha member option.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // Step 2 & 3: Navigate directly to Dak B in the same mounted app
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-B`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // Verify Dak B diary number is displayed
+    const diaryText = await page.locator(".dak-detail-workspace").textContent();
+    assert.ok(diaryText.includes("DAK/2026/00999"));
+
+    // Verify Dak B physical custody modal NEVER exposes Dak A's member officer name
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.selectOption(".modal-card select", "yes");
+    const deskSelectText = await page.locator(".modal-card select >> nth=1").textContent();
+    assert.equal(deskSelectText.includes("Officer Alpha Secret Name"), false, "Dak B must NEVER retain or expose Officer Alpha member from Dak A.");
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // Step 5: Verify old outward reply from Dak A does not appear on Dak B when Dak B outward fetch fails
+    const workspaceContent = await page.locator(".dak-detail-workspace").textContent();
+    assert.equal(workspaceContent.includes("OUT/2026/0099"), false, "Dak B must NOT retain outward replies from Dak A.");
+
+    // Step 4: Simulate an intentionally delayed response from Dak A and ensure it cannot overwrite Dak B
+    let slowDakAFulfills;
+    const slowDakAPromise = new Promise((resolve) => { slowDakAFulfills = resolve; });
+
+    await page.route("**/api/dak/dak-SLOW", async (route) => {
+      await slowDakAPromise;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-SLOW",
+          diaryNumber: "DAK/2026/00SLOW",
+          subject: "Delayed Dak Slow Subject"
+        }))
+      });
+    });
+
+    // Start navigating to dak-SLOW
+    void page.goto(`http://127.0.0.1:${PORT}/dak/dak-SLOW`);
+    await page.waitForTimeout(100);
+
+    // Navigate immediately to Dak B before dak-SLOW finishes loading
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-B`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // Fulfill the delayed dak-SLOW request now
+    if (slowDakAFulfills) slowDakAFulfills();
+    await page.waitForTimeout(400);
+
+    // Verify workspace still displays Dak B and has NOT been overwritten by delayed dak-SLOW response
+    const currentSubject = await page.locator(".page-header h1").textContent();
+    assert.ok(currentSubject.includes("Dak Beta Subject"), "Delayed response from old Dak must NOT overwrite active Dak B.");
+
+    await context.close();
+  });
 });

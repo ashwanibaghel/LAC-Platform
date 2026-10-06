@@ -82,42 +82,41 @@ export const DakDetailWorkspace: React.FC = () => {
     { id: string; outwardNumber: string; outwardDate: string; subject: string; status: string; recipientName: string }[]
   >([]);
 
-  const loadPhysicalOriginal = useCallback(async () => {
-    if (!id) return;
-    try {
-      const res = await fetch(`/api/dak/${id}/physical-original`, { credentials: "include" });
-      if (res.ok) {
-        const poData = (await res.json()) as PhysicalOriginalInfo;
-        setPhysicalOriginal(poData);
-      } else {
-        setPhysicalOriginal(null);
-      }
-    } catch {
-      setPhysicalOriginal(null);
-    }
-  }, [id]);
-
-  const loadDak = useCallback(async () => {
-    if (!id) return;
-    // Clear previous record-specific states immediately to prevent stale cross-route data
+  // Helper to clear all record-specific state immediately when id changes or reset is needed
+  const resetRecordState = useCallback(() => {
     setDak(null);
     setPhysicalOriginal(null);
+    setOutwardReplies([]);
+    setMovementDesks([]);
     setShowPhysicalModal(false);
     setShowEditModal(false);
     setShowAttachModal(false);
     setShowLinkModal(false);
     setMovementModalMode(null);
+    setPoDraftHasOriginal("unknown");
+    setPoDraftDeskId("");
+    setPoDraftUserId("");
+    setPoDraftLocationNote("");
+    setPoDraftProvenanceNote("");
+  }, []);
+
+  const loadDakData = useCallback(async (targetId: string, signal?: AbortSignal) => {
+    if (!targetId) return;
 
     try {
       setLoading(true);
       setError(null);
-      const res = await fetch(`/api/dak/${id}`, { credentials: "include" });
+
+      const res = await fetch(`/api/dak/${targetId}`, { signal, credentials: "include" });
+      if (signal?.aborted) return;
+
       if (!res.ok) {
         if (res.status === 403) throw new Error("Access denied: You do not have permission to view this Dak.");
         if (res.status === 404) throw new Error("Dak not found.");
         throw new Error("Failed to load Dak details.");
       }
       const data = (await res.json()) as DakDetail;
+      if (signal?.aborted) return;
       setDak(data);
 
       // Pre-fill edit metadata modal
@@ -135,58 +134,77 @@ export const DakDetailWorkspace: React.FC = () => {
       setEditWorkstreamId(data.workstreamId || "");
 
       // Load Physical Original Data
-      await loadPhysicalOriginal();
+      fetch(`/api/dak/${targetId}/physical-original`, { signal, credentials: "include" })
+        .then((r) => (r.ok ? (r.json() as Promise<PhysicalOriginalInfo>) : null))
+        .then((poData) => {
+          if (!signal?.aborted) setPhysicalOriginal(poData);
+        })
+        .catch(() => {
+          if (!signal?.aborted) setPhysicalOriginal(null);
+        });
 
       // Load outward replies
-      fetch(`/api/outward?dakId=${id}`, { credentials: "include" })
+      fetch(`/api/outward?dakId=${targetId}`, { signal, credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<{ items: { id: string; outwardNumber: string; outwardDate: string; subject: string; status: string; recipientName: string }[] }>) : null))
         .then((d) => {
-          if (d?.items) setOutwardReplies(d.items);
+          if (!signal?.aborted) setOutwardReplies(d?.items || []);
+        })
+        .catch(() => {
+          if (!signal?.aborted) setOutwardReplies([]);
+        });
+
+      // Load edit lookups
+      fetch(`/api/dak/${targetId}/lookups/edit`, { signal, credentials: "include" })
+        .then((r) => (r.ok ? (r.json() as Promise<{ categories: DakCategory[]; workstreams: { id: string; name: string }[] }>) : null))
+        .then((d) => {
+          if (!signal?.aborted && d) {
+            setCategories(d.categories.filter((c) => c.isActive));
+            setWorkstreams(d.workstreams);
+          }
         })
         .catch(() => {});
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load Dak.");
-    } finally {
-      setLoading(false);
-    }
-  }, [id, loadPhysicalOriginal]);
 
-  useEffect(() => {
-    void loadDak();
-  }, [loadDak]);
+      // Optionally load enriched movement targets with member officers (Dak.Move)
+      fetch(`/api/dak/${targetId}/movement-targets`, { signal, credentials: "include" })
+        .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskTargetOption[] }>) : null))
+        .then((d) => {
+          if (!signal?.aborted) setMovementDesks(d?.desks || []);
+        })
+        .catch(() => {
+          if (!signal?.aborted) setMovementDesks([]);
+        });
+    } catch (err: unknown) {
+      if (!signal?.aborted) {
+        setError(err instanceof Error ? err.message : "Failed to load Dak.");
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) return;
-    // Load categories & workstreams for editing via operational lookup
-    fetch(`/api/dak/${id}/lookups/edit`, { credentials: "include" })
-      .then((r) => {
-        if (!r.ok) return null;
-        return r.json() as Promise<{ categories: DakCategory[]; workstreams: { id: string; name: string }[] }>;
-      })
-      .then((data) => {
-        if (data) {
-          setCategories(data.categories.filter((c) => c.isActive));
-          setWorkstreams(data.workstreams);
-        }
-      })
-      .catch(() => {});
 
-    // Load active desk choices from directory (requires Dak.View, available to Dak.Edit users)
-    fetch("/api/dak/lookups/directory", { credentials: "include" })
+    // Immediately clear all record-specific state on id change
+    resetRecordState();
+
+    const controller = new AbortController();
+    void loadDakData(id, controller.signal);
+
+    // Also load directory desks (global lookup)
+    fetch("/api/dak/lookups/directory", { signal: controller.signal, credentials: "include" })
       .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskOption[] }>) : null))
       .then((data) => {
-        if (data) setDirectoryDesks(data.desks);
+        if (!controller.signal.aborted && data) setDirectoryDesks(data.desks);
       })
       .catch(() => {});
 
-    // Optionally load enriched movement targets with member officers if Dak.Move permission is present
-    fetch(`/api/dak/${id}/movement-targets`, { credentials: "include" })
-      .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskTargetOption[] }>) : null))
-      .then((data) => {
-        if (data) setMovementDesks(data.desks);
-      })
-      .catch(() => {});
-  }, [id]);
+    return () => {
+      controller.abort();
+    };
+  }, [id, resetRecordState, loadDakData]);
 
   // Combine desk choices: movementDesks if available, otherwise directoryDesks mapped to DeskTargetOption
   const combinedDesks: DeskTargetOption[] = movementDesks.length > 0
@@ -242,7 +260,7 @@ export const DakDetailWorkspace: React.FC = () => {
       }
 
       setShowEditModal(false);
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error saving metadata.");
     }
@@ -287,7 +305,7 @@ export const DakDetailWorkspace: React.FC = () => {
 
       setShowPhysicalModal(false);
       // Canonical reload: refresh both Dak details and Physical Original to update dak.revision
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error saving Physical Original information.");
     } finally {
@@ -320,7 +338,7 @@ export const DakDetailWorkspace: React.FC = () => {
       setAttachFile(null);
       setAttachTitle("");
       setShowAttachModal(false);
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error uploading attachment.");
     } finally {
@@ -337,7 +355,7 @@ export const DakDetailWorkspace: React.FC = () => {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to delete attachment.");
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error deleting attachment.");
     }
@@ -363,7 +381,7 @@ export const DakDetailWorkspace: React.FC = () => {
 
       setLinkEntityId("");
       setShowLinkModal(false);
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error creating link.");
     } finally {
@@ -381,7 +399,7 @@ export const DakDetailWorkspace: React.FC = () => {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to remove link.");
-      await loadDak();
+      if (id) await loadDakData(id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error removing link.");
     }
@@ -979,7 +997,7 @@ export const DakDetailWorkspace: React.FC = () => {
           onClose={() => setMovementModalMode(null)}
           onSuccess={() => {
             setMovementModalMode(null);
-            void loadDak();
+            if (id) void loadDakData(id);
           }}
         />
       )}
