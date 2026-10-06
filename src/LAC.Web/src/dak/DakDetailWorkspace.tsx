@@ -122,6 +122,9 @@ export const DakDetailWorkspace: React.FC = () => {
     setEditDueDate("");
     setEditCategoryId("");
     setEditWorkstreamId("");
+    setSavingPO(false);
+    setAttaching(false);
+    setLinking(false);
   }, []);
 
   const loadDakData = useCallback(async (targetId: string, signal?: AbortSignal) => {
@@ -270,8 +273,9 @@ export const DakDetailWorkspace: React.FC = () => {
   const handleSaveMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dak) return;
+    const targetId = dak.id;
     try {
-      const res = await fetch(`/api/dak/${dak.id}`, {
+      const res = await fetch(`/api/dak/${targetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "If-Match": `"${dak.revision}"` },
         credentials: "include",
@@ -292,21 +296,26 @@ export const DakDetailWorkspace: React.FC = () => {
         }),
       });
 
+      if (currentDakIdRef.current !== targetId) return;
+
       if (!res.ok) {
         const d = await res.json().catch(() => null);
         throw new Error(d?.detail || d?.message || "Failed to update metadata.");
       }
 
       setShowEditModal(false);
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error saving metadata.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error saving metadata.");
+      }
     }
   };
 
   const handleSavePhysicalOriginal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dak) return;
+    const targetId = dak.id;
 
     if (!poDraftProvenanceNote.trim()) {
       alert("A provenance / observation note is mandatory when updating physical original custody.");
@@ -322,7 +331,7 @@ export const DakDetailWorkspace: React.FC = () => {
 
     try {
       setSavingPO(true);
-      const res = await fetch(`/api/dak/${dak.id}/physical-original`, {
+      const res = await fetch(`/api/dak/${targetId}/physical-original`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -336,6 +345,8 @@ export const DakDetailWorkspace: React.FC = () => {
         }),
       });
 
+      if (currentDakIdRef.current !== targetId) return;
+
       if (!res.ok) {
         const d = await res.json().catch(() => null);
         throw new Error(d?.detail || d?.message || "Failed to update Physical Original information.");
@@ -343,17 +354,22 @@ export const DakDetailWorkspace: React.FC = () => {
 
       setShowPhysicalModal(false);
       // Canonical reload: refresh both Dak details and Physical Original to update dak.revision
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error saving Physical Original information.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error saving Physical Original information.");
+      }
     } finally {
-      setSavingPO(false);
+      if (currentDakIdRef.current === targetId) {
+        setSavingPO(false);
+      }
     }
   };
 
   const handleAddAttachment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dak || !attachFile) return;
+    const targetId = dak.id;
     try {
       setAttaching(true);
       const fd = new FormData();
@@ -361,12 +377,14 @@ export const DakDetailWorkspace: React.FC = () => {
       fd.append("title", attachTitle.trim() || attachFile.name);
       fd.append("attachmentType", attachType);
 
-      const res = await fetch(`/api/dak/${dak.id}/attachments`, {
+      const res = await fetch(`/api/dak/${targetId}/attachments`, {
         method: "POST",
         headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
         body: fd,
       });
+
+      if (currentDakIdRef.current !== targetId) return;
 
       if (!res.ok) {
         const d = await res.json().catch(() => null);
@@ -376,41 +394,54 @@ export const DakDetailWorkspace: React.FC = () => {
       setAttachFile(null);
       setAttachTitle("");
       setShowAttachModal(false);
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error uploading attachment.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error uploading attachment.");
+      }
     } finally {
-      setAttaching(false);
+      if (currentDakIdRef.current === targetId) {
+        setAttaching(false);
+      }
     }
   };
 
   const handleDeleteAttachment = async (attachmentId: string) => {
     if (!dak || !confirm("Are you sure you want to remove this attachment?")) return;
+    const targetId = dak.id;
     try {
-      const res = await fetch(`/api/dak/${dak.id}/attachments/${attachmentId}`, {
+      const res = await fetch(`/api/dak/${targetId}/attachments/${attachmentId}`, {
         method: "DELETE",
         headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
       });
+
+      if (currentDakIdRef.current !== targetId) return;
+
       if (!res.ok) throw new Error("Failed to delete attachment.");
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error deleting attachment.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error deleting attachment.");
+      }
     }
   };
 
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dak || !linkEntityId.trim()) return;
+    const targetId = dak.id;
     try {
       setLinking(true);
       const endpointType = linkType.toLowerCase() + "s";
-      const res = await fetch(`/api/dak/${dak.id}/links/${endpointType}`, {
+      const res = await fetch(`/api/dak/${targetId}/links/${endpointType}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "If-Match": `"${dak.revision}"` },
         credentials: "include",
         body: JSON.stringify({ entityId: linkEntityId.trim() }),
       });
+
+      if (currentDakIdRef.current !== targetId) return;
 
       if (!res.ok) {
         const d = await res.json().catch(() => null);
@@ -419,27 +450,37 @@ export const DakDetailWorkspace: React.FC = () => {
 
       setLinkEntityId("");
       setShowLinkModal(false);
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error creating link.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error creating link.");
+      }
     } finally {
-      setLinking(false);
+      if (currentDakIdRef.current === targetId) {
+        setLinking(false);
+      }
     }
   };
 
   const handleDeleteLink = async (linkTypeParam: string, linkId: string) => {
     if (!dak || !confirm("Remove this association?")) return;
+    const targetId = dak.id;
     try {
       const endpointType = linkTypeParam.toLowerCase() + "s";
-      const res = await fetch(`/api/dak/${dak.id}/links/${endpointType}/${linkId}`, {
+      const res = await fetch(`/api/dak/${targetId}/links/${endpointType}/${linkId}`, {
         method: "DELETE",
         headers: { "If-Match": `"${dak.revision}"` },
         credentials: "include",
       });
+
+      if (currentDakIdRef.current !== targetId) return;
+
       if (!res.ok) throw new Error("Failed to remove link.");
-      if (id && currentDakIdRef.current === id) await loadDakData(id);
+      await loadDakData(targetId);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Error removing link.");
+      if (currentDakIdRef.current === targetId) {
+        alert(err instanceof Error ? err.message : "Error removing link.");
+      }
     }
   };
 
@@ -1034,8 +1075,12 @@ export const DakDetailWorkspace: React.FC = () => {
           mode={movementModalMode}
           onClose={() => setMovementModalMode(null)}
           onSuccess={() => {
-            setMovementModalMode(null);
-            if (id && currentDakIdRef.current === id) void loadDakData(id);
+            if (!dak) return;
+            const targetId = dak.id;
+            if (currentDakIdRef.current === targetId) {
+              setMovementModalMode(null);
+              void loadDakData(targetId);
+            }
           }}
         />
       )}
