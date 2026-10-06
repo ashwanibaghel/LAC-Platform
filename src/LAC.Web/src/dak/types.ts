@@ -190,5 +190,3 @@ export interface PhysicalOriginalUpdateRequest {
   provenanceNote: string;
   expectedRevision: number;
 }
-
-
