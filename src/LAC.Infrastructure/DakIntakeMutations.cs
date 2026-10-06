@@ -52,7 +52,7 @@ public sealed partial class DakWorkflowService
     {
         if (dak.RecordStatus != RecordStatus.Active)
             throw new DakWorkflowException("Archived Dak is read-only.", 409);
-        if (dak.Status is DakStatus.Disposed or DakStatus.Cancelled)
+        if (dak.Status is DakStatus.Disposed or DakStatus.Cancelled or DakStatus.Resolved)
             throw new DakWorkflowException("Disposed or cancelled Dak is read-only.", 409);
     }
 

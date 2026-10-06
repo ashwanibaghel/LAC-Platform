@@ -4,6 +4,8 @@ using System.Text.Json;
 namespace LAC.Infrastructure;
 public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurrentUserContext? currentUser = null) : DbContext(options) {
  public DbSet<CoreDocumentIntake> CoreDocumentIntakes => Set<CoreDocumentIntake>();
+ public DbSet<DakTransfer> DakTransfers => Set<DakTransfer>();
+ public DbSet<DakWorkflowCommandReceipt> DakWorkflowCommandReceipts => Set<DakWorkflowCommandReceipt>();
  public DbSet<AssistantConversation> AssistantConversations => Set<AssistantConversation>();
  public DbSet<AssistantMessage> AssistantMessages => Set<AssistantMessage>();
  public DbSet<Designation> Designations => Set<Designation>(); public DbSet<AppUser> AppUsers => Set<AppUser>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<Permission> Permissions => Set<Permission>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RolePermission> RolePermissions => Set<RolePermission>(); public DbSet<Workstream> Workstreams => Set<Workstream>(); public DbSet<UserWorkstreamMembership> UserWorkstreamMemberships => Set<UserWorkstreamMembership>(); public DbSet<OfficeDesk> OfficeDesks => Set<OfficeDesk>(); public DbSet<UserDeskMembership> UserDeskMemberships => Set<UserDeskMembership>();
@@ -100,15 +102,37 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   if (ChangeTracker.Entries<CourtExternalOrderObservation>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("Assisted order evidence is strictly immutable.");
  }
+ private void EnsureDakHistoryImmutable() {
+  if (ChangeTracker.Entries<DakMovement>().Any(e => e.State is EntityState.Modified or EntityState.Deleted) ||
+      ChangeTracker.Entries<DakWorkflowCommandReceipt>().Any(e => e.State is EntityState.Modified or EntityState.Deleted) ||
+      ChangeTracker.Entries<AuditLog>().Any(e => (e.State is EntityState.Modified or EntityState.Deleted) &&
+          (e.Entity.EntityType.StartsWith("Dak", StringComparison.Ordinal) || (e.OriginalValues.GetValue<string>("EntityType") ?? "").StartsWith("Dak", StringComparison.Ordinal))))
+   throw new InvalidOperationException("Dak movement, command receipts and audit history are immutable.");
+  foreach (var e in ChangeTracker.Entries<DakTransfer>()) {
+   if (e.State == EntityState.Deleted) throw new InvalidOperationException("Dak transfer history cannot be deleted.");
+   if (e.State != EntityState.Modified) continue;
+   var allowed = new[] { "State", "ReceivedAt", "PhysicalReceivedAt", "PulledBackAt", "PullBackReason", "PhysicalReturnedAt", "PhysicalReturnProvenance" };
+   if (e.Properties.Any(p => p.IsModified && !allowed.Contains(p.Metadata.Name)))
+    throw new InvalidOperationException("Dak transfer dispatch facts are immutable.");
+   var previous = e.OriginalValues.GetValue<DakTransferState>("State");
+   if (previous != DakTransferState.Pending && e.Properties.Any(p => p.IsModified && p.Metadata.Name is not ("PhysicalReturnedAt" or "PhysicalReturnProvenance")))
+    throw new InvalidOperationException("Dak transfer outcome is immutable.");
+   if (e.OriginalValues.GetValue<DateTimeOffset?>("PhysicalReturnedAt") is not null)
+    throw new InvalidOperationException("Physical recovery evidence is immutable.");
+  }
+ }
  public override int SaveChanges(bool acceptAllChangesOnSuccess) {
+  EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChanges(acceptAllChangesOnSuccess);
  }
  public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct=default) {
+  EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
  }
  public override async Task<int> SaveChangesAsync(CancellationToken ct=default) {
+  EnsureDakHistoryImmutable();
   if (!Database.IsRelational())
    foreach (var entry in ChangeTracker.Entries<Dak>().Where(e => e.State is EntityState.Added or EntityState.Modified))
     entry.Entity.DiaryNumberKey = DakDiaryNumber.Normalize(entry.Entity.DiaryNumber);

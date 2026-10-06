@@ -65,7 +65,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var adminClient = await CreateAdminClientAsync();
 
         // 1. Create Role with Dak permissions
-        var permCodes = new[] { PermissionCodes.DakView, PermissionCodes.DakRegister, PermissionCodes.DakEdit, PermissionCodes.DakMove, PermissionCodes.DakDispose, PermissionCodes.DakCancel };
+        var permCodes = new[] { PermissionCodes.DakView, PermissionCodes.DakRegister, PermissionCodes.DakEdit, PermissionCodes.DakMark, PermissionCodes.DakReceive, PermissionCodes.DakMove, PermissionCodes.DakDispose, PermissionCodes.DakCancel };
         using (var scope = _factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
@@ -201,7 +201,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
     // GROUP 2: Immediate marking to desk transitions status to InProcess
     // ------------------------------------------------------------------------
     [Fact]
-    public async Task Group02_Marking_dak_transitions_status_to_InProcess_and_creates_assignment()
+    public async Task Group02_Marking_dak_creates_pending_dispatch_without_received_assignment()
     {
         using var client = await CreateAdminClientAsync();
         var diaryNo = $"DAK_{Guid.NewGuid():N}"[..16].ToUpperInvariant();
@@ -225,7 +225,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
             Instructions: "Please submit report within 7 days",
             ExpectedRevision: 0
         );
-        var moveRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", moveReq);
+        var moveRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, moveReq, receive: false);
         Assert.Equal(HttpStatusCode.OK, moveRes.StatusCode);
 
         var moveDoc = await JsonDocument.ParseAsync(await moveRes.Content.ReadAsStreamAsync());
@@ -237,9 +237,8 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
         var dak = await db.Daks.Include(d => d.CurrentAssignment).Include(d => d.Movements).FirstAsync(d => d.Id == dakId);
         Assert.Equal(DakStatus.InProcess, dak.Status);
-        Assert.NotNull(dak.CurrentAssignment);
-        Assert.True(dak.CurrentAssignment.IsActive);
-        Assert.Equal(deskId, dak.CurrentAssignment.OfficeDeskId);
+        Assert.Null(dak.CurrentAssignment);
+        Assert.Equal(DakRoutingState.InTransit, dak.RoutingState);
         Assert.Equal(2, dak.Movements.Count);
 
         var m2 = dak.Movements.OrderBy(m => m.SequenceNumber).Last();
@@ -262,7 +261,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // Nonexistent desk
-        var nonExistentRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", Guid.NewGuid(), null, null, null, 0));
+        var nonExistentRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", Guid.NewGuid(), null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, nonExistentRes.StatusCode);
 
         // Inactive desk
@@ -271,7 +270,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var inactiveDeskId = (await deskRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
         await client.PostAsync($"/api/admin/desks/{inactiveDeskId}/toggle-status", null);
 
-        var inactRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", inactiveDeskId, null, null, null, 0));
+        var inactRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", inactiveDeskId, null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, inactRes.StatusCode);
     }
 
@@ -304,11 +303,11 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // 1. Move to Desk with non-member user -> fails 400
-        var failRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, nonMemberId, null, null, 0));
+        var failRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskId, nonMemberId, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, failRes.StatusCode);
 
         // 2. Move to Desk with valid member user -> succeeds 200
-        var okRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, memberId, null, null, 0));
+        var okRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskId, memberId, null, null, 0));
         Assert.Equal(HttpStatusCode.OK, okRes.StatusCode);
 
         using var scope = _factory.Services.CreateScope();
@@ -335,19 +334,19 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // Try Disposed on /move
-        var r1 = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Disposed", deskId, null, null, null, 0));
+        var r1 = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Disposed", deskId, null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, r1.StatusCode);
 
         // Try Cancelled on /move
-        var r2 = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Cancelled", deskId, null, null, null, 0));
+        var r2 = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Cancelled", deskId, null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, r2.StatusCode);
 
         // Try Registered on /move
-        var r3 = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Registered", deskId, null, null, null, 0));
+        var r3 = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Registered", deskId, null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, r3.StatusCode);
 
         // Try Random garbage
-        var r4 = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("InvalidAction", deskId, null, null, null, 0));
+        var r4 = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("InvalidAction", deskId, null, null, null, 0));
         Assert.Equal(HttpStatusCode.BadRequest, r4.StatusCode);
     }
 
@@ -371,10 +370,10 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // 1. Initial Mark to Desk A
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskAId, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskAId, null, null, null, 0));
 
         // 2. Forward to Desk B (revision = 1)
-        var forwardRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Forwarded", deskBId, null, "Forwarded for verification", null, 1));
+        var forwardRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Forwarded", deskBId, null, "Forwarded for verification", null, 1));
         Assert.Equal(HttpStatusCode.OK, forwardRes.StatusCode);
 
         using var scope = _factory.Services.CreateScope();
@@ -382,14 +381,14 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dak = await db.Daks.Include(d => d.CurrentAssignment).Include(d => d.Movements).FirstAsync(d => d.Id == dakId);
 
         Assert.Equal(DakStatus.InProcess, dak.Status);
-        Assert.Equal(2, dak.Revision);
+        Assert.Equal(4, dak.Revision);
         Assert.Equal(deskBId, dak.CurrentAssignment!.OfficeDeskId);
         Assert.True(dak.CurrentAssignment.IsActive);
 
         // Sequence #3
-        Assert.Equal(3, dak.Movements.Count);
-        var m3 = dak.Movements.OrderBy(m => m.SequenceNumber).Last();
-        Assert.Equal(3, m3.SequenceNumber);
+        Assert.Equal(5, dak.Movements.Count);
+        var m3 = dak.Movements.Where(m => m.Action != DakMovementAction.Received).OrderBy(m => m.SequenceNumber).Last();
+        Assert.Equal(4, m3.SequenceNumber);
         Assert.Equal(DakMovementAction.Forwarded, m3.Action);
         Assert.Equal(deskAId, m3.FromDeskId);
         Assert.Equal(deskBId, m3.ToDeskId);
@@ -415,23 +414,23 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // 1. Mark to Desk A
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskAId, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskAId, null, null, null, 0));
         // 2. Forward to Desk B
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Forwarded", deskBId, null, null, null, 1));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Forwarded", deskBId, null, null, null, 1));
 
         // 3. Return back to Desk A (revision = 2)
-        var returnRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Returned", deskAId, null, "Returned with report", null, 2));
+        var returnRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Returned", deskAId, null, "Returned with report", null, 2));
         Assert.Equal(HttpStatusCode.OK, returnRes.StatusCode);
 
         using var scope = _factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
         var dak = await db.Daks.Include(d => d.CurrentAssignment).Include(d => d.Movements).FirstAsync(d => d.Id == dakId);
 
-        Assert.Equal(3, dak.Revision);
+        Assert.Equal(6, dak.Revision);
         Assert.Equal(deskAId, dak.CurrentAssignment!.OfficeDeskId);
 
-        var m4 = dak.Movements.OrderBy(m => m.SequenceNumber).Last();
-        Assert.Equal(4, m4.SequenceNumber);
+        var m4 = dak.Movements.Where(m => m.Action != DakMovementAction.Received).OrderBy(m => m.SequenceNumber).Last();
+        Assert.Equal(6, m4.SequenceNumber);
         Assert.Equal(DakMovementAction.Returned, m4.Action);
         Assert.Equal(deskBId, m4.FromDeskId);
         Assert.Equal(deskAId, m4.ToDeskId);
@@ -454,10 +453,10 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // 1. Successful move advances revision to 1
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskId, null, null, null, 0));
 
         // 2. Another attempt using stale revision 0 -> 409 Conflict
-        var staleMoveRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Forwarded", deskId, null, null, null, 0));
+        var staleMoveRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Forwarded", deskId, null, null, null, 0), receive: false, refreshRevision: false);
         Assert.Equal(HttpStatusCode.Conflict, staleMoveRes.StatusCode);
 
         // 3. Metadata update using stale revision 0 -> 409 Conflict
@@ -491,10 +490,10 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
         // Mark to desk
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskId, null, null, null, 0));
 
         // Dispose Dak (revision = 1)
-        var disposeRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/dispose", new DisposeDakRequest("Compliance completed and communicated to applicant", ExpectedRevision: 1));
+        var disposeRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/dispose", new DisposeDakRequest("Compliance completed and communicated to applicant", ExpectedRevision: 2));
         Assert.Equal(HttpStatusCode.OK, disposeRes.StatusCode);
 
         using var scope = _factory.Services.CreateScope();
@@ -510,8 +509,8 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         Assert.Equal(deskId, lastMovement.FromDeskId);
 
         // Attempting further movement on disposed dak returns 400
-        var postDisposeMoveRes = await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Forwarded", deskId, null, null, null, 2));
-        Assert.Equal(HttpStatusCode.BadRequest, postDisposeMoveRes.StatusCode);
+        var postDisposeMoveRes = await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Forwarded", deskId, null, null, null, 2));
+        Assert.Equal(HttpStatusCode.Conflict, postDisposeMoveRes.StatusCode);
     }
 
     // ------------------------------------------------------------------------
@@ -593,12 +592,12 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         using var form1 = CreateRegisterForm($"DAK_12_1_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject 12-1", "Sender 1");
         var r1 = await adminClient.PostAsync("/api/dak", form1);
         var dak1Id = (await JsonDocument.ParseAsync(await r1.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dak1Id}/move", new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dak1Id, new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
 
         using var form2 = CreateRegisterForm($"DAK_12_2_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject 12-2", "Sender 2");
         var r2 = await adminClient.PostAsync("/api/dak", form2);
         var dak2Id = (await JsonDocument.ParseAsync(await r2.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dak2Id}/move", new MoveDakRequest("Marked", desk2Id, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dak2Id, new MoveDakRequest("Marked", desk2Id, null, null, null, 0));
 
         // 3. User with ScopeMode.Assigned on Desk1
         var (userAssignedClient, _) = await CreateScopedUserClientAsync(
@@ -634,7 +633,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         using var form = CreateRegisterForm($"DAK_13_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject 13", "Sender 13", fileBytes: pdfBytes, fileName: "letter.pdf");
         var regRes = await adminClient.PostAsync("/api/dak", form);
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dakId, new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
 
         // Authorized user (Assigned to Desk 1) can download
         var (authClient, _) = await CreateScopedUserClientAsync($"user_auth13_{Guid.NewGuid():N}"[..16], "ROLE_AUTH13", ScopeMode.Assigned, deskId: desk1Id);
@@ -787,7 +786,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var regRes = await client.PostAsync("/api/dak", form);
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
 
-        await client.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, memberId, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, client, dakId, new MoveDakRequest("Marked", deskId, memberId, null, null, 0));
 
         // 1. Initially healthy
         var d1 = await client.GetAsync($"/api/dak/{dakId}");
@@ -988,7 +987,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         using var form = CreateRegisterForm($"DAK_20_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Subject 20", "Sender 20");
         var regRes = await adminClient.PostAsync("/api/dak", form);
         var dakId = (await JsonDocument.ParseAsync(await regRes.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dakId}/move", new MoveDakRequest("Marked", deskId, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dakId, new MoveDakRequest("Marked", deskId, null, null, null, 0));
 
         // Create a non-admin user assigned to this desk
         var (nonAdminClient, userId) = await CreateScopedUserClientAsync($"user_op_{Guid.NewGuid():N}"[..16], "ROLE_OPERATIONAL_TEST", ScopeMode.Assigned, deskId: deskId);
@@ -1046,13 +1045,13 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         using var f2 = CreateRegisterForm($"DAK_21_DSK_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Sub Desk", "Sender 2", workstreamId: otherWsId.ToString());
         var r2 = await adminClient.PostAsync("/api/dak", f2);
         var dak2Id = (await JsonDocument.ParseAsync(await r2.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dak2Id}/move", new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dak2Id, new MoveDakRequest("Marked", desk1Id, null, null, null, 0));
 
         // Dak 3: in other workstream, assigned to Desk 2
         using var f3 = CreateRegisterForm($"DAK_21_OUT_{Guid.NewGuid():N}"[..16].ToUpperInvariant(), "Sub Outside", "Sender 3", workstreamId: otherWsId.ToString());
         var r3 = await adminClient.PostAsync("/api/dak", f3);
         var dak3Id = (await JsonDocument.ParseAsync(await r3.Content.ReadAsStreamAsync())).RootElement.GetProperty("id").GetGuid();
-        await adminClient.PostAsJsonAsync($"/api/dak/{dak3Id}/move", new MoveDakRequest("Marked", desk2Id, null, null, null, 0));
+        await DakTestCustodyFixtures.DispatchAsync(_factory, adminClient, dak3Id, new MoveDakRequest("Marked", desk2Id, null, null, null, 0));
 
         // User with ScopeMode.Workstream on DAK_CORRESPONDENCE AND ScopeMode.Assigned on Desk 1
         Guid wsRoleId;
@@ -1186,10 +1185,12 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         Assert.Equal(409, ex.StatusCode);
 
         // 5. DisposeDak inside execution strategy
-        var disposeCmd = new DisposeDakCommand("Disposed properly", ExpectedRevision: 1);
-        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, adminUser.Id);
+        var delivery = await db.DakTransfers.SingleAsync(t => t.DakId == dak.Id && t.State == DakTransferState.Pending);
+        await new DakWorkflowService(db, storage).ReceiveAsync(dak.Id, delivery.Id, new(1, Guid.NewGuid()), targetUser.Id);
+        var disposeCmd = new DisposeDakCommand("Disposed properly", ExpectedRevision: 2);
+        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, targetUser.Id);
         Assert.Equal(DakStatus.Disposed, disposed.Status);
-        Assert.Equal(2, disposed.Revision);
+        Assert.Equal(3, disposed.Revision);
 
         // 6. CancelDak inside execution strategy
         using var ms2 = new MemoryStream(pdfBytes);
@@ -1364,10 +1365,9 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var dbDak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
         Assert.Equal(1, dbDak.Revision);
         Assert.Equal(DakStatus.InProcess, dbDak.Status);
-        Assert.NotNull(dbDak.CurrentAssignment);
-        Assert.Equal(targetDesk.Id, dbDak.CurrentAssignment.OfficeDeskId);
-        Assert.Equal(targetUser.Id, dbDak.CurrentAssignment.AssignedUserId);
-        Assert.True(dbDak.CurrentAssignment.IsActive);
+        Assert.Null(dbDak.CurrentAssignment);
+        Assert.Equal(DakRoutingState.InTransit, dbDak.RoutingState);
+        Assert.Equal(targetUser.Id, (await db.DakTransfers.SingleAsync()).ToUserId);
     }
 
     [Fact]
@@ -1417,17 +1417,19 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var workflow = new DakWorkflowService(db, storage, () => strategy!);
         strategy = new TestCommitAmbiguityExecutionStrategy(db, simulateCommitAmbiguity: true, maxRetries: 2);
 
-        var disposeCmd = new DisposeDakCommand("Disposal remarks", ExpectedRevision: 1);
-        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, adminUser.Id);
+        var delivery = await db.DakTransfers.SingleAsync(t => t.DakId == dak.Id && t.State == DakTransferState.Pending);
+        await initialWorkflow.ReceiveAsync(dak.Id, delivery.Id, new(1, Guid.NewGuid()), targetUser.Id);
+        var disposeCmd = new DisposeDakCommand("Disposal remarks", ExpectedRevision: 2);
+        var disposed = await workflow.DisposeAsync(dak.Id, disposeCmd, targetUser.Id);
 
         Assert.NotNull(disposed);
-        Assert.Equal(2, disposed.Revision);
+        Assert.Equal(3, disposed.Revision);
         Assert.Equal(DakStatus.Disposed, disposed.Status);
         Assert.Equal(1, strategy.VerifyCount);
 
         var dbDak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dak.Id);
         Assert.Equal(DakStatus.Disposed, dbDak.Status);
-        Assert.Equal(2, dbDak.Revision);
+        Assert.Equal(3, dbDak.Revision);
         Assert.NotNull(dbDak.CurrentAssignment);
         Assert.False(dbDak.CurrentAssignment.IsActive);
     }
@@ -1758,6 +1760,13 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
             seedDb.AppUsers.AddRange(admin, user);
             seedDb.OfficeDesks.Add(desk);
             seedDb.UserDeskMemberships.Add(membership);
+            var role = new Role { Code = "G22", Name = "Workflow retry actors" };
+            seedDb.Roles.Add(role);
+            foreach (var def in PermissionCodes.All.Where(p => p.Code.StartsWith("Dak."))) {
+                var permission = new Permission { Code = def.Code, Name = def.Name, Category = def.Category };
+                seedDb.Permissions.Add(permission); seedDb.RolePermissions.Add(new RolePermission { Role = role, Permission = permission, ScopeMode = ScopeMode.All });
+            }
+            seedDb.UserRoles.AddRange(new UserRole { User = admin, Role = role }, new UserRole { User = user, Role = role });
             await seedDb.SaveChangesAsync();
         }
 

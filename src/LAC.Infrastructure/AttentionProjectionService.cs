@@ -458,6 +458,7 @@ public sealed class AttentionProjectionService(
                 .Where(d => d.RecordStatus == RecordStatus.Active
                          && d.Status != DakStatus.Disposed
                          && d.Status != DakStatus.Cancelled
+                         && d.Status != DakStatus.Resolved
                          && d.DueDate.HasValue);
 
             var authDakResult = await dakAuth.AuthorizeListQueryAsync(baseDakQuery, PermissionCodes.DakView, userId, ct);
@@ -709,6 +710,7 @@ public sealed class AttentionProjectionService(
                 .Where(d => d.RecordStatus == RecordStatus.Active
                          && d.Status != DakStatus.Disposed
                          && d.Status != DakStatus.Cancelled
+                         && d.Status != DakStatus.Resolved
                          && d.DueDate.HasValue);
 
             if (!hasAllDak)
@@ -723,7 +725,10 @@ public sealed class AttentionProjectionService(
             foreach (var d in daks)
             {
                 var buckets = ComputeBucketsForDate(d.DueDate!.Value, today);
-                var needsRouting = d.CurrentAssignment is null;
+                var needsRouting = d.RoutingState == DakRoutingState.Unassigned || d.RoutingState == DakRoutingState.LegacyUnconfirmed && d.CurrentAssignment?.AssignedUserId == null;
+                if (d.RoutingState == DakRoutingState.InTransit) buckets.Add("Awaiting Receipt");
+                if (d.RoutingState == DakRoutingState.LegacyUnconfirmed) buckets.Add("Custody Review");
+                if (d.PhysicalState == DakPhysicalState.ReturnPending) buckets.Add("Physical Return Pending");
                 if (needsRouting) buckets.Add("Needs Routing");
 
                 var dueState = ComputeDueState(d.DueDate.Value, today);

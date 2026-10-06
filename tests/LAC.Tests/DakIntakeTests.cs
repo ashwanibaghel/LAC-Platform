@@ -234,14 +234,14 @@ public sealed class DakIntakeTests(DakTestFactory factory) : IClassFixture<DakTe
         var id = await RegisterAsync(client);
         var deskResponse = await client.PostAsJsonAsync("/api/admin/desks", new CreateDeskRequest($"D{Guid.NewGuid():N}"[..12], "Routing desk", null, null));
         var desk = (await deskResponse.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
-        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/dak/{id}/move", new MoveDakRequest("Marked", desk, null, null, null, 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await DakTestCustodyFixtures.DispatchAsync(factory, client, id, new MoveDakRequest("Marked", desk, null, null, null, 0))).StatusCode);
         var original = await client.GetFromJsonAsync<JsonElement>($"/api/dak/{id}/physical-original");
         Assert.Equal(JsonValueKind.Null, original.GetProperty("hasPhysicalOriginal").ValueKind);
         Assert.Equal(JsonValueKind.Null, original.GetProperty("deskId").ValueKind);
-        var location = new PhysicalOriginalRequest(true, null, null, "Legacy record-room shelf", "Checked original against stamp", 1);
+        var location = new PhysicalOriginalRequest(true, null, null, "Legacy record-room shelf", "Checked original against stamp", 2);
         Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/dak/{id}/physical-original", location)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync($"/api/dak/{id}/physical-original", location)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"/api/dak/{id}/move", new MoveDakRequest("Returned", desk, null, null, null, 2))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await DakTestCustodyFixtures.DispatchAsync(factory, client, id, new MoveDakRequest("Returned", desk, null, null, null, 3))).StatusCode);
         original = await client.GetFromJsonAsync<JsonElement>($"/api/dak/{id}/physical-original");
         Assert.Equal("Legacy record-room shelf", original.GetProperty("locationNote").GetString());
         Assert.Equal(JsonValueKind.Null, original.GetProperty("deskId").ValueKind);
