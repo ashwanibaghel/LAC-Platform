@@ -855,7 +855,7 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
     assert.ok(currentSubjectAfterSlow.includes("Dak Beta Subject"), "Delayed response from old Dak must NOT overwrite active Dak B.");
 
     // --- STEP D: Mutation Race Protection ---
-    // Perform a mutation response for Dak A whose post-success reload is delayed while user navigates to B
+    // Perform a mutation response for Dak A whose post-success reload and state updates are delayed while user is on B
     await page.route("**/api/dak/dak-A/physical-original", async (route) => {
       if (route.request().method() === "PUT") {
         await slowMutationPromise;
@@ -865,27 +865,48 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       }
     });
 
-    // SPA navigate back to Dak A to trigger mutation
+    // 1. SPA navigate back to Dak A to start a mutation
     await spaNavigateTo("/dak/dak-A");
     await page.waitForTimeout(200);
 
-    // Click Update Physical Location and submit
+    // 2. Click Update Physical Location on Dak A and submit form
     await page.click("button:has-text('Update Physical Location')");
     await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
     await page.fill("textarea[placeholder*='observation note']", "Updating custody note on Dak A");
     await page.click(".modal-card button:has-text('Save Physical Custody')");
 
-    // Immediately SPA navigate to Dak B while the mutation reload on Dak A is in-flight/delayed
+    // 3. Immediately SPA navigate to Dak B while Dak A's mutation request is still in-flight
     await spaNavigateTo("/dak/dak-B");
     await page.waitForTimeout(100);
 
-    // Fulfill the delayed mutation on Dak A now
+    // 4. On Dak B, open the SAME type of modal (Update Physical Location modal) and type a unique B draft value
+    await page.click("button:has-text('Update Physical Location')");
+    await page.waitForSelector(".modal-card:has-text('Update Physical Original Custody')");
+    await page.fill("textarea[placeholder*='observation note']", "Unique Dak B provenance note draft");
+
+    // 5. Fulfill the delayed mutation request for Dak A NOW
     slowMutationFulfills();
     await page.waitForTimeout(300);
 
-    // Assert Dak B remains clean and unaffected by old Dak A mutation reload
+    // 6. Assertions on Dak B modal:
+    // - B modal remains OPEN (was NOT closed by old Dak A's setShowPhysicalModal(false))
+    const modalVisible = await page.locator(".modal-card:has-text('Update Physical Original Custody')").isVisible();
+    assert.equal(modalVisible, true, "Dak B Physical Location modal must REMAIN OPEN after old Dak A mutation completes.");
+
+    // - B draft value remains UNCHANGED (was NOT cleared or mutated by old Dak A)
+    const bDraftText = await page.locator(".modal-card textarea[placeholder*='observation note']").inputValue();
+    assert.equal(bDraftText, "Unique Dak B provenance note draft", "Dak B modal draft value must NOT be overwritten or cleared by old Dak A mutation.");
+
+    // - B operation controls are NOT stuck in A's loading state (savingPO is false)
+    const saveBtnText = await page.locator(".modal-card button[type='submit']").textContent();
+    assert.equal(saveBtnText.trim(), "Save Physical Custody", "Save button on Dak B must not be stuck in 'Saving...' state.");
+
+    // - Displayed subject/diary still belongs to B
     const finalSubject = await page.locator(".page-header h1").textContent();
-    assert.ok(finalSubject.includes("Dak Beta Subject"), "Delayed mutation reload from old Dak A must NOT overwrite active Dak B.");
+    assert.ok(finalSubject.includes("Dak Beta Subject"), "Displayed subject on Dak B must belong to B.");
+
+    // Close Dak B modal
+    await page.click(".modal-card button:has-text('Cancel')");
 
     await context.close();
   });
