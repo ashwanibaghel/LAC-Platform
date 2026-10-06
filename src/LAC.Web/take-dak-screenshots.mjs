@@ -56,9 +56,21 @@ async function main() {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        userId: "11111111-1111-1111-1111-111155555555",
+        id: "11111111-1111-1111-1111-111155555555",
+        username: "nt_intake",
         displayName: "Naib Tehsildar (Intake)",
-        permissions: ["Dak.View", "Dak.Register", "Dak.Edit", "Dak.Move", "Dak.Dispose", "Dak.Cancel", "WorkItem.Create"]
+        roles: ["IntakeOfficer"],
+        permissions: [
+          { code: "Dak.View", scope: "Global" },
+          { code: "Dak.Register", scope: "Global" },
+          { code: "Dak.Edit", scope: "Global" },
+          { code: "Dak.Move", scope: "Global" },
+          { code: "Dak.Dispose", scope: "Global" },
+          { code: "Dak.Cancel", scope: "Global" },
+          { code: "WorkItem.Create", scope: "Global" }
+        ],
+        workstreams: [],
+        desks: []
       }),
     });
   });

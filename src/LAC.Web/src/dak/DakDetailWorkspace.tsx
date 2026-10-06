@@ -24,13 +24,14 @@ export const DakDetailWorkspace: React.FC = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
 
+  // Persisted Server State
   const [dak, setDak] = useState<DakDetail | null>(null);
   const [physicalOriginal, setPhysicalOriginal] = useState<PhysicalOriginalInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "documents" | "links" | "timeline">("overview");
 
-  // Modals state
+  // Modals visibility state
   const [movementModalMode, setMovementModalMode] = useState<"move" | "dispose" | "cancel" | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAttachModal, setShowAttachModal] = useState(false);
@@ -53,14 +54,17 @@ export const DakDetailWorkspace: React.FC = () => {
   const [categories, setCategories] = useState<DakCategory[]>([]);
   const [workstreams, setWorkstreams] = useState<{ id: string; name: string }[]>([]);
 
-  // Physical original form state
-  const [poHasOriginal, setPoHasOriginal] = useState<"unknown" | "yes" | "no">("unknown");
-  const [poDeskId, setPoDeskId] = useState("");
-  const [poUserId, setPoUserId] = useState("");
-  const [poLocationNote, setPoLocationNote] = useState("");
-  const [poProvenanceNote, setPoProvenanceNote] = useState("");
-  const [poDesks, setPoDesks] = useState<DeskTargetOption[]>([]);
+  // Physical original separate MODAL DRAFT state (independent of persisted physicalOriginal card state)
+  const [poDraftHasOriginal, setPoDraftHasOriginal] = useState<"unknown" | "yes" | "no">("unknown");
+  const [poDraftDeskId, setPoDraftDeskId] = useState("");
+  const [poDraftUserId, setPoDraftUserId] = useState("");
+  const [poDraftLocationNote, setPoDraftLocationNote] = useState("");
+  const [poDraftProvenanceNote, setPoDraftProvenanceNote] = useState("");
   const [savingPO, setSavingPO] = useState(false);
+
+  // Desk lookups: both directory desks (Dak.View) and movement target desks with members (Dak.Move)
+  const [directoryDesks, setDirectoryDesks] = useState<DeskOption[]>([]);
+  const [movementDesks, setMovementDesks] = useState<DeskTargetOption[]>([]);
 
   // Add Attachment form state
   const [attachFile, setAttachFile] = useState<File | null>(null);
@@ -85,21 +89,25 @@ export const DakDetailWorkspace: React.FC = () => {
       if (res.ok) {
         const poData = (await res.json()) as PhysicalOriginalInfo;
         setPhysicalOriginal(poData);
-        if (poData.hasPhysicalOriginal === true) setPoHasOriginal("yes");
-        else if (poData.hasPhysicalOriginal === false) setPoHasOriginal("no");
-        else setPoHasOriginal("unknown");
-        setPoDeskId(poData.deskId || "");
-        setPoUserId(poData.userId || "");
-        setPoLocationNote(poData.locationNote || "");
-        setPoProvenanceNote(poData.provenanceNote || "");
+      } else {
+        setPhysicalOriginal(null);
       }
     } catch {
-      // Ignore PO fetch errors if unprivileged
+      setPhysicalOriginal(null);
     }
   }, [id]);
 
   const loadDak = useCallback(async () => {
     if (!id) return;
+    // Clear previous record-specific states immediately to prevent stale cross-route data
+    setDak(null);
+    setPhysicalOriginal(null);
+    setShowPhysicalModal(false);
+    setShowEditModal(false);
+    setShowAttachModal(false);
+    setShowLinkModal(false);
+    setMovementModalMode(null);
+
     try {
       setLoading(true);
       setError(null);
@@ -112,7 +120,7 @@ export const DakDetailWorkspace: React.FC = () => {
       const data = (await res.json()) as DakDetail;
       setDak(data);
 
-      // Pre-fill edit modal
+      // Pre-fill edit metadata modal
       setEditSubject(data.subject);
       setEditSenderName(data.senderName);
       setEditSenderDesignation(data.senderDesignation || "");
@@ -163,14 +171,45 @@ export const DakDetailWorkspace: React.FC = () => {
       })
       .catch(() => {});
 
-    // Load desk targets for physical original editing
+    // Load active desk choices from directory (requires Dak.View, available to Dak.Edit users)
+    fetch("/api/dak/lookups/directory", { credentials: "include" })
+      .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskOption[] }>) : null))
+      .then((data) => {
+        if (data) setDirectoryDesks(data.desks);
+      })
+      .catch(() => {});
+
+    // Optionally load enriched movement targets with member officers if Dak.Move permission is present
     fetch(`/api/dak/${id}/movement-targets`, { credentials: "include" })
       .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskTargetOption[] }>) : null))
       .then((data) => {
-        if (data) setPoDesks(data.desks);
+        if (data) setMovementDesks(data.desks);
       })
       .catch(() => {});
   }, [id]);
+
+  // Combine desk choices: movementDesks if available, otherwise directoryDesks mapped to DeskTargetOption
+  const combinedDesks: DeskTargetOption[] = movementDesks.length > 0
+    ? movementDesks
+    : directoryDesks.map((d) => ({ id: d.id, code: d.code, name: d.name, members: [] }));
+
+  const openPhysicalModal = () => {
+    // Initialize draft state variables ONLY from current persisted physicalOriginal
+    if (physicalOriginal) {
+      setPoDraftHasOriginal(physicalOriginal.hasPhysicalOriginal === true ? "yes" : physicalOriginal.hasPhysicalOriginal === false ? "no" : "unknown");
+      setPoDraftDeskId(physicalOriginal.deskId || "");
+      setPoDraftUserId(physicalOriginal.userId || "");
+      setPoDraftLocationNote(physicalOriginal.locationNote || "");
+      setPoDraftProvenanceNote(physicalOriginal.provenanceNote || "");
+    } else {
+      setPoDraftHasOriginal("unknown");
+      setPoDraftDeskId("");
+      setPoDraftUserId("");
+      setPoDraftLocationNote("");
+      setPoDraftProvenanceNote("");
+    }
+    setShowPhysicalModal(true);
+  };
 
   const handleSaveMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -213,14 +252,14 @@ export const DakDetailWorkspace: React.FC = () => {
     e.preventDefault();
     if (!dak) return;
 
-    if (!poProvenanceNote.trim()) {
+    if (!poDraftProvenanceNote.trim()) {
       alert("A provenance / observation note is mandatory when updating physical original custody.");
       return;
     }
 
-    const hasPO = poHasOriginal === "yes" ? true : poHasOriginal === "no" ? false : null;
+    const hasPO = poDraftHasOriginal === "yes" ? true : poDraftHasOriginal === "no" ? false : null;
 
-    if (hasPO !== true && (poDeskId || poUserId || poLocationNote.trim())) {
+    if (hasPO !== true && (poDraftDeskId || poDraftUserId || poDraftLocationNote.trim())) {
       alert("A location can only be recorded when physical original existence is confirmed (Yes).");
       return;
     }
@@ -233,10 +272,10 @@ export const DakDetailWorkspace: React.FC = () => {
         credentials: "include",
         body: JSON.stringify({
           hasPhysicalOriginal: hasPO,
-          deskId: hasPO === true && poDeskId ? poDeskId : null,
-          userId: hasPO === true && poUserId ? poUserId : null,
-          locationNote: hasPO === true && poLocationNote.trim() ? poLocationNote.trim() : null,
-          provenanceNote: poProvenanceNote.trim(),
+          deskId: hasPO === true && poDraftDeskId ? poDraftDeskId : null,
+          userId: hasPO === true && poDraftUserId ? poDraftUserId : null,
+          locationNote: hasPO === true && poDraftLocationNote.trim() ? poDraftLocationNote.trim() : null,
+          provenanceNote: poDraftProvenanceNote.trim(),
           expectedRevision: physicalOriginal?.revision ?? dak.revision,
         }),
       });
@@ -247,7 +286,8 @@ export const DakDetailWorkspace: React.FC = () => {
       }
 
       setShowPhysicalModal(false);
-      await loadPhysicalOriginal();
+      // Canonical reload: refresh both Dak details and Physical Original to update dak.revision
+      await loadDak();
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "Error saving Physical Original information.");
     } finally {
@@ -357,8 +397,23 @@ export const DakDetailWorkspace: React.FC = () => {
   const canCancel = hasPermission("Dak.Cancel") && !isTerminal;
   const canEdit = hasPermission("Dak.Edit") && !isTerminal;
 
-  // Selected desk for Physical Original modal
-  const poSelectedDesk = poDesks.find((d) => d.id === poDeskId);
+  // Selected desk in physical modal draft
+  const poDraftSelectedDesk = combinedDesks.find((d) => d.id === poDraftDeskId);
+
+  // Derive card display labels STRICTLY from persisted physicalOriginal object (never from modal draft)
+  const poCardState = physicalOriginal?.hasPhysicalOriginal === true
+    ? "yes"
+    : physicalOriginal?.hasPhysicalOriginal === false
+      ? "no"
+      : "unknown";
+
+  const poCardDeskName = physicalOriginal?.deskId
+    ? combinedDesks.find((d) => d.id === physicalOriginal.deskId)?.name || null
+    : null;
+
+  const poCardOfficerName = physicalOriginal?.userId
+    ? combinedDesks.flatMap((d) => d.members).find((m) => m.userId === physicalOriginal.userId)?.displayName || null
+    : null;
 
   return (
     <div className="dak-detail-workspace">
@@ -433,7 +488,7 @@ export const DakDetailWorkspace: React.FC = () => {
           </div>
         </div>
 
-        {/* Box B: Physical Original Location */}
+        {/* Box B: Physical Original Location (Rendered STRICTLY from persisted physicalOriginal) */}
         <div className="custody-box physical-box">
           <div className="custody-box-header">
             <span className="custody-box-icon">📁</span>
@@ -445,7 +500,7 @@ export const DakDetailWorkspace: React.FC = () => {
               <button
                 className="secondary-button btn-xs"
                 style={{ marginLeft: "auto" }}
-                onClick={() => setShowPhysicalModal(true)}
+                onClick={openPhysicalModal}
               >
                 Update Physical Location
               </button>
@@ -457,23 +512,21 @@ export const DakDetailWorkspace: React.FC = () => {
               <>
                 <div className="po-state-row">
                   <span>State:</span>
-                  <span className={`po-state-badge po-state-${poHasOriginal}`}>
-                    {poHasOriginal === "yes" ? "✓ Yes (Paper Original Confirmed)" : poHasOriginal === "no" ? "✕ No (Digital Only)" : "❓ Unknown"}
+                  <span className={`po-state-badge po-state-${poCardState}`}>
+                    {poCardState === "yes" ? "✓ Yes (Paper Original Confirmed)" : poCardState === "no" ? "✕ No (Digital Only)" : "❓ Unknown"}
                   </span>
                 </div>
 
-                {poHasOriginal === "yes" && (
+                {poCardState === "yes" && (
                   <div className="po-details-grid">
-                    {physicalOriginal.deskId && (
+                    {poCardDeskName && (
                       <div>
-                        <span className="po-meta-label">Desk:</span>{" "}
-                        <strong>{poDesks.find((d) => d.id === physicalOriginal.deskId)?.name || physicalOriginal.deskId}</strong>
+                        <span className="po-meta-label">Desk:</span> <strong>{poCardDeskName}</strong>
                       </div>
                     )}
-                    {physicalOriginal.userId && (
+                    {poCardOfficerName && (
                       <div>
-                        <span className="po-meta-label">Custodian Officer:</span>{" "}
-                        <strong>{poDesks.flatMap((d) => d.members).find((m) => m.userId === physicalOriginal.userId)?.displayName || physicalOriginal.userId}</strong>
+                        <span className="po-meta-label">Custodian Officer:</span> <strong>{poCardOfficerName}</strong>
                       </div>
                     )}
                     {physicalOriginal.locationNote && (
@@ -547,13 +600,13 @@ export const DakDetailWorkspace: React.FC = () => {
           className={`tab-btn ${activeTab === "documents" ? "active" : ""}`}
           onClick={() => setActiveTab("documents")}
         >
-          Documents & Attachments ({dak.attachments.length + (dak.mainDocumentId ? 1 : 0)})
+          Documents & Attachments ({(dak.attachments?.length || 0) + (dak.mainDocumentId ? 1 : 0)})
         </button>
         <button
           className={`tab-btn ${activeTab === "links" ? "active" : ""}`}
           onClick={() => setActiveTab("links")}
         >
-          Linked Context ({dak.villageLinks.length + dak.awardLinks.length + dak.matterLinks.length + dak.khasraLinks.length})
+          Linked Context ({(dak.villageLinks?.length || 0) + (dak.awardLinks?.length || 0) + (dak.matterLinks?.length || 0) + (dak.khasraLinks?.length || 0)})
         </button>
         <button
           className={`tab-btn ${activeTab === "timeline" ? "active" : ""}`}
@@ -1064,14 +1117,14 @@ export const DakDetailWorkspace: React.FC = () => {
               <div className="field-group" style={{ marginBottom: "14px" }}>
                 <label>Physical Paper Original Received / Present? *</label>
                 <select
-                  value={poHasOriginal}
+                  value={poDraftHasOriginal}
                   onChange={(e) => {
                     const val = e.target.value as "unknown" | "yes" | "no";
-                    setPoHasOriginal(val);
+                    setPoDraftHasOriginal(val);
                     if (val !== "yes") {
-                      setPoDeskId("");
-                      setPoUserId("");
-                      setPoLocationNote("");
+                      setPoDraftDeskId("");
+                      setPoDraftUserId("");
+                      setPoDraftLocationNote("");
                     }
                   }}
                   className="intake-select"
@@ -1082,20 +1135,20 @@ export const DakDetailWorkspace: React.FC = () => {
                 </select>
               </div>
 
-              {poHasOriginal === "yes" && (
+              {poDraftHasOriginal === "yes" && (
                 <>
                   <div className="field-group" style={{ marginBottom: "14px" }}>
                     <label>Physical Location Desk</label>
                     <select
-                      value={poDeskId}
+                      value={poDraftDeskId}
                       onChange={(e) => {
-                        setPoDeskId(e.target.value);
-                        setPoUserId("");
+                        setPoDraftDeskId(e.target.value);
+                        setPoDraftUserId("");
                       }}
                       className="intake-select"
                     >
                       <option value="">-- Select Office Desk --</option>
-                      {poDesks.map((d) => (
+                      {combinedDesks.map((d) => (
                         <option key={d.id} value={d.id}>
                           {d.name} ({d.code})
                         </option>
@@ -1103,31 +1156,31 @@ export const DakDetailWorkspace: React.FC = () => {
                     </select>
                   </div>
 
-                  {poDeskId && (
+                  {poDraftDeskId && poDraftSelectedDesk?.members.length ? (
                     <div className="field-group" style={{ marginBottom: "14px" }}>
                       <label>Physical Custodian Officer (at selected desk)</label>
                       <select
-                        value={poUserId}
-                        onChange={(e) => setPoUserId(e.target.value)}
+                        value={poDraftUserId}
+                        onChange={(e) => setPoDraftUserId(e.target.value)}
                         className="intake-select"
                       >
                         <option value="">-- Unassigned / General Desk Storage --</option>
-                        {poSelectedDesk?.members.map((m) => (
+                        {poDraftSelectedDesk.members.map((m) => (
                           <option key={m.userId} value={m.userId}>
                             {m.displayName} {m.designation ? `(${m.designation})` : ""} {m.isPrimary ? "[Primary]" : ""}
                           </option>
                         ))}
                       </select>
                     </div>
-                  )}
+                  ) : null}
 
                   <div className="field-group" style={{ marginBottom: "14px" }}>
                     <label>Physical Location Note</label>
                     <input
                       type="text"
                       placeholder="e.g. Almirah #3, Shelf B, File Cover 45-A"
-                      value={poLocationNote}
-                      onChange={(e) => setPoLocationNote(e.target.value)}
+                      value={poDraftLocationNote}
+                      onChange={(e) => setPoDraftLocationNote(e.target.value)}
                       className="intake-input"
                     />
                   </div>
@@ -1140,8 +1193,8 @@ export const DakDetailWorkspace: React.FC = () => {
                   required
                   rows={3}
                   placeholder="Record observation note regarding physical paper status or transfer details..."
-                  value={poProvenanceNote}
-                  onChange={(e) => setPoProvenanceNote(e.target.value)}
+                  value={poDraftProvenanceNote}
+                  onChange={(e) => setPoDraftProvenanceNote(e.target.value)}
                   className="intake-textarea"
                 />
                 <span className="hint">Mandatory note explaining physical paper verification or location update.</span>
