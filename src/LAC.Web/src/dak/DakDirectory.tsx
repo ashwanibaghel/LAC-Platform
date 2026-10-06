@@ -92,24 +92,24 @@ export const DakDirectory: React.FC = () => {
         <div>
           <div className="eyebrow">Correspondence & Intake</div>
           <h1>Inward Dak Register</h1>
-          <p>Central register of inward letters, judicial references, landowner representations, and departmental files.</p>
+          <p>Central register of inward letters, representations, judicial notices, and official references.</p>
         </div>
         {hasPermission("Dak.Register") && (
           <button className="primary-button" onClick={() => navigate("/dak/register")}>
-            + Register Inward Dak
+            + Quick Intake Dak
           </button>
         )}
       </div>
 
       {/* Filters Bar */}
-      <div className="summary-strip" style={{ padding: "12px 16px", display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap", width: "100%" }}>
-        <form onSubmit={handleSearchSubmit} style={{ display: "flex", gap: "8px", flex: "1 1 300px" }}>
+      <div className="summary-strip directory-filters">
+        <form onSubmit={handleSearchSubmit} className="search-form">
           <input
             type="text"
             placeholder="Search by diary no, subject, sender, ref..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            style={{ flex: 1, padding: "8px 12px", border: "1px solid #cbd5e1", borderRadius: "6px" }}
+            className="search-input"
           />
           <button type="submit" className="secondary-button">
             Search
@@ -129,8 +129,8 @@ export const DakDirectory: React.FC = () => {
           )}
         </form>
 
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+        <div className="filter-controls">
+          <label className="filter-label">
             Status:
             <select
               value={status}
@@ -138,7 +138,7 @@ export const DakDirectory: React.FC = () => {
                 setStatus(e.target.value);
                 setPage(0);
               }}
-              style={{ padding: "6px 10px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+              className="filter-select"
             >
               <option value="">All Statuses</option>
               <option value="Registered">Registered (Intake)</option>
@@ -148,7 +148,7 @@ export const DakDirectory: React.FC = () => {
             </select>
           </label>
 
-          <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+          <label className="filter-label">
             Priority:
             <select
               value={priority}
@@ -156,7 +156,7 @@ export const DakDirectory: React.FC = () => {
                 setPriority(e.target.value);
                 setPage(0);
               }}
-              style={{ padding: "6px 10px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+              className="filter-select"
             >
               <option value="">All Priorities</option>
               <option value="Routine">Routine</option>
@@ -165,7 +165,7 @@ export const DakDirectory: React.FC = () => {
             </select>
           </label>
 
-          <label style={{ fontSize: "12px", display: "flex", alignItems: "center", gap: "4px" }}>
+          <label className="filter-label">
             Desk:
             <select
               value={deskId}
@@ -173,7 +173,7 @@ export const DakDirectory: React.FC = () => {
                 setDeskId(e.target.value);
                 setPage(0);
               }}
-              style={{ padding: "6px 10px", borderRadius: "5px", border: "1px solid #cbd5e1" }}
+              className="filter-select"
             >
               <option value="">All Desks</option>
               {desks.map((d) => (
@@ -196,68 +196,67 @@ export const DakDirectory: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="table-wrap">
-            <table>
+          <div className="table-wrap compact-table-wrap">
+            <table className="compact-dak-table">
               <thead>
                 <tr>
-                  <th>Diary No.</th>
-                  <th>Received Date</th>
-                  <th>Subject & Sender</th>
-                  <th>Mode</th>
-                  <th>Priority</th>
-                  <th>Status</th>
-                  <th>Current Custody / Desk</th>
-                  <th>Doc</th>
-                  <th>Action</th>
+                  <th style={{ width: "13%" }}>Diary No.</th>
+                  <th style={{ width: "10%" }}>Received Date</th>
+                  <th style={{ width: "18%" }}>From / Sender</th>
+                  <th style={{ width: "23%" }}>Subject</th>
+                  <th style={{ width: "16%" }}>Current Desk / Officer</th>
+                  <th style={{ width: "8%" }}>Workstream</th>
+                  <th style={{ width: "7%" }}>Status</th>
+                  <th style={{ width: "5%", textAlign: "center" }}>Doc</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id}>
+                  <tr key={item.id} className={!item.assignedDeskName ? "row-unmarked" : ""}>
                     <td>
-                      <Link to={`/dak/${item.id}`} className="entity-link" style={{ fontWeight: 700 }}>
+                      <Link to={`/dak/${item.id}`} className="entity-link diary-no-link">
                         {item.diaryNumber}
                       </Link>
+                      <div className="subtext mode-subtext">{item.inwardMode}</div>
                     </td>
                     <td>
-                      {new Date(item.receivedDate).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                      <span className="date-display">{item.receivedDate}</span>
                     </td>
                     <td>
-                      <div>
-                        <strong>{item.subject}</strong>
-                        <div className="subtext">
-                          From: {item.senderName} {item.senderDepartment ? `(${item.senderDepartment})` : ""}
-                        </div>
+                      <strong className="sender-name-text">{item.senderName}</strong>
+                      {item.senderDepartment && (
+                        <div className="subtext sender-dept-text">{item.senderDepartment}</div>
+                      )}
+                    </td>
+                    <td>
+                      <div className="subject-cell-text" title={item.subject}>
+                        {item.subject}
                       </div>
                     </td>
-                    <td>{item.inwardMode}</td>
                     <td>
-                      <span className={`priority-pill priority-${item.priority.toLowerCase()}`}>
-                        {item.priority}
-                      </span>
+                      {item.assignedDeskName ? (
+                        <div className="custody-cell">
+                          <strong className="desk-name-text">{item.assignedDeskName}</strong>
+                          {item.assignedUserDisplayName && (
+                            <div className="subtext officer-name-text">{item.assignedUserDisplayName}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="unmarked-badge" title="Intake received; operational marking pending">
+                          ⚠️ UNMARKED / Intake Queue
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="workstream-tag">{item.workstreamName || "General"}</span>
                     </td>
                     <td>
                       <span className={`status-pill status-${item.status.toLowerCase()}`}>
                         {item.status}
                       </span>
                     </td>
-                    <td>
-                      {item.assignedDeskName ? (
-                        <div>
-                          <strong>{item.assignedDeskName}</strong>
-                          {item.assignedUserDisplayName && (
-                            <div className="subtext">{item.assignedUserDisplayName}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span style={{ color: "#64748b", fontStyle: "italic" }}>Unassigned (Intake Queue)</span>
-                      )}
-                    </td>
-                    <td>{item.hasDocument ? "📎" : "—"}</td>
-                    <td>
-                      <Link to={`/dak/${item.id}`} className="text-action">
-                        Open
-                      </Link>
+                    <td style={{ textAlign: "center" }}>
+                      {item.hasDocument ? <span title="Primary scan attached">📎</span> : <span style={{ color: "#cbd5e1" }}>—</span>}
                     </td>
                   </tr>
                 ))}

@@ -171,3 +171,24 @@ export interface MyDeskResponse {
   pageSize: number;
 }
 
+export interface PhysicalOriginalInfo {
+  hasPhysicalOriginal: boolean | null;
+  deskId: string | null;
+  userId: string | null;
+  locationNote: string | null;
+  provenanceNote: string | null;
+  updatedAt: string | null;
+  updatedByUserId: string | null;
+  revision: number;
+}
+
+export interface PhysicalOriginalUpdateRequest {
+  hasPhysicalOriginal: boolean | null;
+  deskId?: string | null;
+  userId?: string | null;
+  locationNote?: string | null;
+  provenanceNote: string;
+  expectedRevision: number;
+}
+
+
