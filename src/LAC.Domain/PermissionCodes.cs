@@ -23,6 +23,10 @@ public static class PermissionCodes
     public const string DraftEdit = "Draft.Edit";
     public const string UsersManage = "Users.Manage";
     public const string AccessManage = "Access.Manage";
+    public const string RolesAssign = "Roles.Assign";
+    public const string AllocationsManage = "Allocations.Manage";
+    public const string WorkCatalogManage = "WorkCatalog.Manage";
+    public const string AssistantsManage = "Assistants.Manage";
     public const string AuditView = "Audit.View";
     public const string DakView = "Dak.View";
     public const string DakRegister = "Dak.Register";
@@ -79,6 +83,10 @@ public static class PermissionCodes
         new(DraftEdit, "Edit Drafts", "Edit and revise matter drafts", "Draft"),
         new(UsersManage, "Manage Users", "Create and manage system user accounts and credentials", "Administration"),
         new(AccessManage, "Manage Access & Roles", "Manage roles, permissions, workstreams, and designations", "Administration"),
+        new(RolesAssign, "Assign Roles", "Assign security roles within the caller's grant ceiling", "Administration"),
+        new(AllocationsManage, "Manage Allocations", "Assign operational works, scopes and custody memberships", "Administration"),
+        new(WorkCatalogManage, "Manage Work Catalog", "Create and edit reusable responsibility categories", "Administration"),
+        new(AssistantsManage, "Manage Own Assistants", "Create and maintain bounded assistants supervised by the caller", "Administration"),
         new(AuditView, "View Audit Logs", "View system audit trail and activity history", "Administration"),
         new(DakView, "View Dak", "View inward correspondence, movement history, and attached documents", "Dak"),
         new(DakRegister, "Register Dak", "Register new inward correspondence in the official register", "Dak"),

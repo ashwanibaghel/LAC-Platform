@@ -251,7 +251,7 @@ public sealed class MatterContextFoundationTests
         context = await client.GetFromJsonAsync<JsonElement>("/api/matters/context");
         Assert.Empty(context.GetProperty("workstreams").EnumerateArray());
         var user = await db.AppUsers.SingleAsync(x => x.Id == userId); user.IsActive = false; await db.SaveChangesAsync();
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/api/matters/context")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/matters/context")).StatusCode);
     }
 
     [Fact]

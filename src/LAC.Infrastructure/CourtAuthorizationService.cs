@@ -224,6 +224,14 @@ public sealed class CourtAuthorizationService(
 
     public async Task<bool> CanAccessCourtCaseAsync(CourtCase courtCase, string permissionCode, Guid userId, CancellationToken ct = default)
     {
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.Set<CourtCaseAward>().Where(x => x.CourtCaseId == courtCase.Id)
+                .SelectMany(x => x.Award.VillageLinks).Select(x => x.VillageId).ToListAsync(ct);
+            geo.AddRange(await db.Set<CourtCaseKhasra>().Where(x => x.CourtCaseId == courtCase.Id).Select(x => x.Khasra.VillageId).ToListAsync(ct));
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, OperationalWorkKind.Court, null,
+                geo.Distinct().ToList(), courtCase.ResponsibleOfficeDeskId, ct)) return false;
+        }
         var isUserActive = await db.AppUsers.AsNoTracking()
             .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
 
@@ -383,6 +391,12 @@ public sealed class CourtAuthorizationService(
         var awardExists = await db.Awards.AsNoTracking()
             .AnyAsync(a => a.Id == awardId && a.RecordStatus == RecordStatus.Active, ct);
         if (!awardExists) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.AwardVillages.Where(x => x.AwardId == awardId).Select(x => x.VillageId).ToListAsync(ct);
+            geo.AddRange(await db.Set<AwardKhasra>().Where(x => x.AwardId == awardId).Select(x => x.Khasra.VillageId).ToListAsync(ct));
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, PermissionCodes.AwardView, OperationalWorkKind.Award, null, geo.Distinct().ToList(), null, ct)) return false;
+        }
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.AwardView, ct);
         if (scopes.Count == 0) return false;
@@ -412,6 +426,11 @@ public sealed class CourtAuthorizationService(
         var khasraExists = await db.Khasras.AsNoTracking()
             .AnyAsync(k => k.Id == khasraId && k.RecordStatus == RecordStatus.Active, ct);
         if (!khasraExists) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.Khasras.Where(x => x.Id == khasraId).Select(x => x.VillageId).ToListAsync(ct);
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, PermissionCodes.KhasraView, OperationalWorkKind.LandRecords, null, geo, null, ct)) return false;
+        }
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.KhasraView, ct);
         if (scopes.Count == 0) return false;
@@ -441,6 +460,8 @@ public sealed class CourtAuthorizationService(
         var villageExists = await db.Villages.AsNoTracking()
             .AnyAsync(v => v.Id == villageId && v.RecordStatus == RecordStatus.Active, ct);
         if (!villageExists) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct)
+            && !await AssistantResourceAuthorization.CheckAsync(db, userId, PermissionCodes.VillageView, null, null, [villageId], null, ct)) return false;
 
         var scopes = await GetUserScopesAsync(userId, PermissionCodes.VillageView, ct);
         if (scopes.Count == 0) return false;

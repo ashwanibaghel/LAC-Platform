@@ -105,6 +105,12 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
             .FirstOrDefaultAsync(d => d.Id == dakId, ct);
 
         if (dak is null) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.DakVillageLinks.Where(x => x.DakId == dakId && x.RecordStatus == RecordStatus.Active).Select(x => x.VillageId).ToListAsync(ct);
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, dak.WorkstreamId.HasValue ? null : OperationalWorkKind.Correspondence,
+                dak.WorkstreamId, geo, dak.CurrentAssignment?.OfficeDeskId, ct)) return false;
+        }
         // Archived records retain their existing scoped read access, but never mutation access.
         if (dak.RecordStatus != RecordStatus.Active && permissionCode != PermissionCodes.DakView) return false;
 

@@ -1762,6 +1762,7 @@ public sealed class MatterAuthorizationAndWorkspaceTests : IClassFixture<ApiFact
             sourceDocId = doc.Id;
             revision = matter.Revision;
             userDocId = userDoc.Id;
+            await TestWorkAllocations.GrantGlobalAsync(db, userDocId);
         }
 
         var extractPayload = new

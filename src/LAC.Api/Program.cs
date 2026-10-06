@@ -137,6 +137,8 @@ ApiStartupPolicy.RegisterBackgroundWorkers(builder.Services, builder.Configurati
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
+builder.Services.AddScoped<WorkAllocationService>();
+builder.Services.AddScoped<AccessControlService>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
@@ -148,6 +150,24 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
+        options.Events.OnValidatePrincipal = async ctx =>
+        {
+            var db = ctx.HttpContext.RequestServices.GetRequiredService<LacDbContext>();
+            var id = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            var version = ctx.Principal?.FindFirst("session_version")?.Value;
+            var now = DateTimeOffset.UtcNow;
+            var valid = Guid.TryParse(id, out var userId) && Guid.TryParse(version, out var sessionVersion)
+                && await db.AppUsers.AsNoTracking().AnyAsync(u => u.Id == userId && u.IsActive
+                    && u.RecordStatus == RecordStatus.Active && u.SessionVersion == sessionVersion
+                    && (!u.MustChangePassword || u.TemporaryCredentialExpiresAt > now),
+                    ctx.HttpContext.RequestAborted);
+            if (!valid)
+            {
+                ctx.RejectPrincipal();
+                await Microsoft.AspNetCore.Authentication.AuthenticationHttpContextExtensions.SignOutAsync(
+                    ctx.HttpContext, CookieAuthenticationDefaults.AuthenticationScheme);
+            }
+        };
         options.Events.OnRedirectToLogin = ctx =>
         {
             ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -203,6 +223,8 @@ using (var scope = app.Services.CreateScope())
 
 var api = app.MapGroup("/api");
 api.MapRbacEndpoints();
+api.MapWorkAllocationEndpoints();
+api.MapOfficerAssistantEndpoints();
 api.MapCoreDocumentIntakeEndpoints();
 api.MapDakEndpoints();
 api.MapOutwardEndpoints();
@@ -235,7 +257,7 @@ api.AddEndpointFilter(async (context, next) =>
         return Results.Unauthorized();
     }
 
-    return await next(context);
+    return await OperationalAuthorizationFilter.InvokeAsync(context, next);
 });
 
 api.MapGet("/home", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>

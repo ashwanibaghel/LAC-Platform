@@ -16,6 +16,7 @@ public static class SeedData
     public static async Task SeedAsync(LacDbContext db, IConfiguration? configuration, ILogger? logger = null, CancellationToken ct = default)
     {
         await EnsureIdentityFoundationAsync(db, configuration, logger, ct);
+        await WorkCatalogSeed.SeedAsync(db, ct);
 
         var bootstrapComplete = await db.Districts.AsNoTracking().Where(x => x.Name == "South West Delhi").Select(x => new
         {

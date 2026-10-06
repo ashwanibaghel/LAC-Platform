@@ -13,7 +13,7 @@ public static class EndpointSecurityExtensions
 {
     public static RouteHandlerBuilder RequirePermission(this RouteHandlerBuilder builder, string permissionCode)
     {
-        return builder.AddEndpointFilter(async (context, next) =>
+        return builder.WithMetadata(new EndpointPermission(permissionCode)).AddEndpointFilter(async (context, next) =>
         {
             var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
             if (!currentUser.IsAuthenticated)
@@ -34,7 +34,7 @@ public static class EndpointSecurityExtensions
 
     public static RouteGroupBuilder RequirePermission(this RouteGroupBuilder builder, string permissionCode)
     {
-        return builder.AddEndpointFilter(async (context, next) =>
+        return builder.WithMetadata(new EndpointPermission(permissionCode)).AddEndpointFilter(async (context, next) =>
         {
             var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
             if (!currentUser.IsAuthenticated)
@@ -56,7 +56,7 @@ public static class EndpointSecurityExtensions
     public static RouteHandlerBuilder RequirePermission(this RouteHandlerBuilder builder, string permissionCode, string workstreamCode)
     {
         var resourceContext = new AccessResourceContext(WorkstreamCode: workstreamCode);
-        return builder.AddEndpointFilter(async (context, next) =>
+        return builder.WithMetadata(new EndpointPermission(permissionCode)).AddEndpointFilter(async (context, next) =>
         {
             var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
             if (!currentUser.IsAuthenticated)
@@ -78,7 +78,7 @@ public static class EndpointSecurityExtensions
     public static RouteGroupBuilder RequirePermission(this RouteGroupBuilder builder, string permissionCode, string workstreamCode)
     {
         var resourceContext = new AccessResourceContext(WorkstreamCode: workstreamCode);
-        return builder.AddEndpointFilter(async (context, next) =>
+        return builder.WithMetadata(new EndpointPermission(permissionCode)).AddEndpointFilter(async (context, next) =>
         {
             var currentUser = context.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>();
             if (!currentUser.IsAuthenticated)
@@ -106,6 +106,7 @@ public static class RbacEndpoints
 
         auth.MapPost("/login", async (LoginRequest request, HttpContext httpContext, LacDbContext db, IPasswordHasher<AppUser> hasher, IAccessControlService accessControl, CancellationToken ct) =>
         {
+            httpContext.Response.Headers.CacheControl = "no-store";
             if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
                 return Results.Json(new { message = "Username and password are required." }, statusCode: StatusCodes.Status400BadRequest);
 
@@ -122,6 +123,11 @@ public static class RbacEndpoints
 
             if (user is null || !user.IsActive)
                 return Results.Json(new { message = "Invalid username or password." }, statusCode: StatusCodes.Status401Unauthorized);
+            if (user.MustChangePassword && (user.TemporaryCredentialExpiresAt is null || user.TemporaryCredentialExpiresAt <= DateTimeOffset.UtcNow))
+                return Results.Json(new { message = "Temporary credential expired. Request a reset." }, statusCode: 401);
+            if (user.SupervisingOfficerId.HasValue && !await db.AppUsers.AnyAsync(x => x.Id == user.SupervisingOfficerId && x.IsActive
+                    && x.RecordStatus == RecordStatus.Active && x.SupervisingOfficerId == null, ct))
+                return Results.Json(new { message = "Invalid username or password." }, statusCode: 401);
 
             var verify = hasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
             if (verify == PasswordVerificationResult.Failed)
@@ -142,6 +148,7 @@ public static class RbacEndpoints
                 new("username", user.Username),
                 new("display_name", user.DisplayName)
             };
+            claims.Add(new("session_version", user.SessionVersion.ToString()));
 
             if (user.Designation is not null)
             {
@@ -212,7 +219,7 @@ public static class RbacEndpoints
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
                 activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
-                activeDesks
+                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId
             );
 
             return Results.Ok(response);
@@ -222,6 +229,21 @@ public static class RbacEndpoints
         {
             await httpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
             return Results.Ok(new { message = "Logged out successfully" });
+        });
+
+        auth.MapPost("/change-password", async (ChangePasswordRequest request, LacDbContext db, ICurrentUserContext current,
+            IPasswordHasher<AppUser> hasher, HttpContext http, CancellationToken ct) =>
+        {
+            var user = await db.AppUsers.SingleOrDefaultAsync(u => u.Id == current.UserId && u.IsActive, ct);
+            if (user is null) return Results.Unauthorized();
+            if (string.IsNullOrEmpty(request.NewPassword) || request.NewPassword.Length < 12 || request.NewPassword == request.CurrentPassword)
+                return Results.BadRequest(new { message = "Choose a different password of at least 12 characters." });
+            if (hasher.VerifyHashedPassword(user, user.PasswordHash, request.CurrentPassword) == PasswordVerificationResult.Failed) return Results.Forbid();
+            user.PasswordHash = hasher.HashPassword(user, request.NewPassword); user.PasswordChangedAt = DateTimeOffset.UtcNow;
+            user.SessionVersion = Guid.NewGuid(); user.MustChangePassword = false; user.TemporaryCredentialExpiresAt = null;
+            await db.SaveChangesAsync(ct);
+            await http.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Results.Ok(new { requiresLogin = true });
         });
 
         auth.MapGet("/me", async (HttpContext httpContext, LacDbContext db, ICurrentUserContext currentUser, IAccessControlService accessControl, CancellationToken ct) =>
@@ -270,7 +292,7 @@ public static class RbacEndpoints
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
                 activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
-                activeDesks
+                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId
             );
 
             return Results.Ok(response);
@@ -364,13 +386,18 @@ public static class RbacEndpoints
             return Results.Ok(response);
         }).RequirePermission(PermissionCodes.UsersManage);
 
-        admin.MapPost("/users", async (CreateUserRequest request, LacDbContext db, IPasswordHasher<AppUser> hasher, CancellationToken ct) =>
+        admin.MapPost("/users", async (CreateUserRequest request, LacDbContext db, IPasswordHasher<AppUser> hasher, IAccessControlService access, WorkAllocationService allocations, CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.DisplayName) || string.IsNullOrWhiteSpace(request.Password))
-                return Results.BadRequest(new { message = "Username, display name, and password are required." });
+            if (request.RoleIds?.Count > 0 && !await AccountSecurity.CanAssignRolesAsync(db, access, request.RoleIds, ct))
+                return Results.Forbid();
+            if (request.WorkstreamIds?.Count > 0 && !await access.CanAsync(PermissionCodes.AllocationsManage, cancellationToken: ct))
+                return Results.Forbid();
+            if (request.Allocations is not null && !await access.CanAsync(PermissionCodes.AllocationsManage, cancellationToken: ct)) return Results.Forbid();
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.DisplayName))
+                return Results.BadRequest(new { message = "Username and display name are required." });
 
             var normalized = request.Username.Trim().ToUpperInvariant();
-            if (await db.AppUsers.AnyAsync(u => u.NormalizedUsername == normalized && u.RecordStatus == RecordStatus.Active, ct))
+            if (await db.AppUsers.AnyAsync(u => u.NormalizedUsername == normalized, ct))
                 return Results.Conflict(new { message = $"User with username '{request.Username}' already exists." });
 
             // Validate DesignationId
@@ -414,7 +441,8 @@ public static class RbacEndpoints
                 IsActive = true,
                 PasswordChangedAt = DateTimeOffset.UtcNow
             };
-            user.PasswordHash = hasher.HashPassword(user, request.Password);
+            var credential = string.IsNullOrWhiteSpace(request.Password) ? TemporaryCredentials.Issue(user, hasher) : null;
+            if (credential is null) user.PasswordHash = hasher.HashPassword(user, request.Password!);
             db.AppUsers.Add(user);
 
             foreach (var roleId in distinctRoleIds)
@@ -433,11 +461,13 @@ public static class RbacEndpoints
                 });
             }
 
+            foreach (var input in request.Allocations ?? []) await allocations.StageAsync(user.Id, input, null, ct);
             await db.SaveChangesAsync(ct);
-            return Results.Created($"/api/admin/users/{user.Id}", new IdResponse(user.Id));
+            return Results.Created($"/api/admin/users/{user.Id}", new { user.Id, temporaryCredential = credential,
+                credentialExpiresAt = user.TemporaryCredentialExpiresAt });
         }).RequirePermission(PermissionCodes.UsersManage);
 
-        admin.MapPut("/users/{id:guid}", async (Guid id, UpdateUserRequest request, LacDbContext db, CancellationToken ct) =>
+        admin.MapPut("/users/{id:guid}", async (Guid id, UpdateUserRequest request, LacDbContext db, IAccessControlService access, WorkAllocationService allocations, ICurrentUserContext actor, CancellationToken ct) =>
         {
             var user = await db.AppUsers
                 .Include(u => u.UserRoles)
@@ -445,6 +475,16 @@ public static class RbacEndpoints
                 .FirstOrDefaultAsync(u => u.Id == id && u.RecordStatus == RecordStatus.Active, ct);
 
             if (user is null) return Results.NotFound();
+            if (request.Allocations is not null && !await access.CanAsync(PermissionCodes.AllocationsManage, cancellationToken: ct)) return Results.Forbid();
+            if (user.SupervisingOfficerId.HasValue && request.RoleIds is not null
+                && await db.Roles.AnyAsync(x => request.RoleIds.Contains(x.Id) && x.IsSystemRole, ct)) return Results.Forbid();
+
+            if (request.RoleIds is not null && !request.RoleIds.ToHashSet().SetEquals(user.UserRoles.Select(x => x.RoleId))
+                && !await AccountSecurity.CanAssignRolesAsync(db, access, request.RoleIds, ct))
+                return Results.Forbid();
+            if (request.WorkstreamIds is not null && !request.WorkstreamIds.ToHashSet().SetEquals(user.WorkstreamMemberships.Select(x => x.WorkstreamId))
+                && !await access.CanAsync(PermissionCodes.AllocationsManage, cancellationToken: ct))
+                return Results.Forbid();
 
             if (string.IsNullOrWhiteSpace(request.DisplayName))
                 return Results.BadRequest(new { message = "Display name is required." });
@@ -520,6 +560,11 @@ public static class RbacEndpoints
                 }
             }
 
+            if (request.Allocations is not null)
+            {
+                foreach (var old in await db.WorkAllocations.Where(x => x.UserId == user.Id && x.RevokedAt == null).ToListAsync(ct)) allocations.Revoke(old, actor.UserId!.Value);
+                foreach (var input in request.Allocations) await allocations.StageAsync(user.Id, input, user.SupervisingOfficerId, ct);
+            }
             await db.SaveChangesAsync(ct);
             return Results.Ok(new IdResponse(user.Id));
         }).RequirePermission(PermissionCodes.UsersManage);
@@ -549,18 +594,19 @@ public static class RbacEndpoints
             return Results.Ok(new { id = user.Id, isActive = user.IsActive });
         }).RequirePermission(PermissionCodes.UsersManage);
 
-        admin.MapPost("/users/{id:guid}/reset-password", async (Guid id, ResetPasswordRequest request, LacDbContext db, IPasswordHasher<AppUser> hasher, CancellationToken ct) =>
+        admin.MapPost("/users/{id:guid}/reset-password", async (Guid id, ResetPasswordRequest request, LacDbContext db, IPasswordHasher<AppUser> hasher, IAccessControlService access, ICurrentUserContext actor, CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(request.NewPassword))
-                return Results.BadRequest(new { message = "New password cannot be empty." });
-
             var user = await db.AppUsers.FirstOrDefaultAsync(u => u.Id == id && u.RecordStatus == RecordStatus.Active, ct);
             if (user is null) return Results.NotFound();
 
-            user.PasswordHash = hasher.HashPassword(user, request.NewPassword);
+            if (!await AccountSecurity.CanMaintainCredentialsAsync(db, access, id, actor.UserId!.Value, ct)) return Results.Forbid();
+
+            var credential = TemporaryCredentials.Issue(user, hasher, request.NewPassword);
             user.PasswordChangedAt = DateTimeOffset.UtcNow;
+            user.SessionVersion = Guid.NewGuid();
             await db.SaveChangesAsync(ct);
-            return Results.Ok(new { message = "Password reset successfully." });
+            return Results.Ok(new { message = "Password reset successfully.", temporaryCredential = string.IsNullOrWhiteSpace(request.NewPassword) ? credential : null,
+                credentialExpiresAt = user.TemporaryCredentialExpiresAt });
         }).RequirePermission(PermissionCodes.UsersManage);
 
         admin.MapGet("/designations", async (LacDbContext db, CancellationToken ct) =>
@@ -619,6 +665,7 @@ public static class RbacEndpoints
 
         admin.MapPost("/roles", async (CreateRoleRequest request, LacDbContext db, CancellationToken ct) =>
         {
+            if (request.Permissions?.Any(x => !Enum.IsDefined(x.ScopeMode)) == true) return Results.BadRequest(new { message = "Unknown role scope mode." });
             if (string.IsNullOrWhiteSpace(request.Code) || string.IsNullOrWhiteSpace(request.Name))
                 return Results.BadRequest(new { message = "Role code and name are required." });
 
@@ -665,6 +712,7 @@ public static class RbacEndpoints
 
         admin.MapPut("/roles/{id:guid}", async (Guid id, UpdateRoleRequest request, LacDbContext db, CancellationToken ct) =>
         {
+            if (request.Permissions?.Any(x => !Enum.IsDefined(x.ScopeMode)) == true) return Results.BadRequest(new { message = "Unknown role scope mode." });
             var role = await db.Roles
                 .Include(r => r.RolePermissions)
                 .FirstOrDefaultAsync(r => r.Id == id && r.RecordStatus == RecordStatus.Active, ct);
@@ -918,7 +966,7 @@ public static class RbacEndpoints
             db.UserDeskMemberships.Add(membership);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/admin/users/{userId}/desks/{membership.Id}", new IdResponse(membership.Id));
-        }).RequirePermission(PermissionCodes.UsersManage);
+        }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
 
         admin.MapPost("/users/{userId:guid}/desks/{membershipId:guid}/remove", async (Guid userId, Guid membershipId, LacDbContext db, CancellationToken ct) =>
         {
@@ -933,7 +981,7 @@ public static class RbacEndpoints
             membership.RemovedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Desk membership removed successfully." });
-        }).RequirePermission(PermissionCodes.UsersManage);
+        }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
 
         admin.MapPost("/users/{userId:guid}/desks/{membershipId:guid}/set-primary", async (Guid userId, Guid membershipId, LacDbContext db, CancellationToken ct) =>
         {
@@ -958,7 +1006,7 @@ public static class RbacEndpoints
             membership.IsPrimary = true;
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Primary desk set successfully." });
-        }).RequirePermission(PermissionCodes.UsersManage);
+        }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
 
         return api;
     }
@@ -973,7 +1021,10 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<string> Roles,
     IReadOnlyList<PermissionScopeDto> Permissions,
     IReadOnlyList<WorkstreamDto> Workstreams,
-    IReadOnlyList<UserDeskDto> Desks
+    IReadOnlyList<UserDeskDto> Desks,
+    bool MustChangePassword = false,
+    DateTimeOffset? TemporaryCredentialExpiresAt = null,
+    Guid? SupervisingOfficerId = null
 );
 public sealed record DesignationDto(Guid Id, string Code, string Name);
 public sealed record WorkstreamDto(Guid Id, string Code, string Name, bool IsPrimary);
@@ -1046,11 +1097,12 @@ public sealed record UserWorkstreamDto(Guid WorkstreamId, string Code, string Na
 public sealed record CreateUserRequest(
     string Username,
     string DisplayName,
-    string Password,
+    string? Password,
     Guid? DesignationId,
     IReadOnlyList<Guid>? RoleIds,
     IReadOnlyList<Guid>? WorkstreamIds,
-    Guid? PrimaryWorkstreamId
+    Guid? PrimaryWorkstreamId,
+    IReadOnlyList<WorkAllocationInput>? Allocations = null
 );
 
 public sealed record UpdateUserRequest(
@@ -1058,10 +1110,11 @@ public sealed record UpdateUserRequest(
     Guid? DesignationId,
     IReadOnlyList<Guid>? RoleIds,
     IReadOnlyList<Guid>? WorkstreamIds,
-    Guid? PrimaryWorkstreamId
+    Guid? PrimaryWorkstreamId,
+    IReadOnlyList<WorkAllocationInput>? Allocations = null
 );
 
-public sealed record ResetPasswordRequest(string NewPassword);
+public sealed record ResetPasswordRequest(string? NewPassword = null);
 
 public sealed record RoleDetailResponse(
     Guid Id,

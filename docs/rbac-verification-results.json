@@ -1,0 +1,423 @@
+{
+  "branch": "codex/rbac-dynamic-allocation-audit",
+  "base_sha": "d44941636d54316350e8d6ee2dc03628281baace",
+  "generated_at_utc": "2026-10-06T23:40:14.3153290+00:00",
+  "phase0": {
+    "file": "tmp/rbac-proof/phase0-security.trx",
+    "sha256": "dbc9571db1c571f0576f7e4b440c49441fbec60e7e71ecfa50609ea07e9413d9",
+    "total": 28,
+    "passed": 28,
+    "failed": 0,
+    "skipped": 0,
+    "results": [
+      {
+        "name": "LAC.Tests.RbacTests.Desk_membership_history_period_preserves_old_rows_and_creates_new_row_on_reassignment",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Anonymous_request_to_health_succeeds",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Inactive_desk_rejects_new_assignments",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.OfficeAuthMaintenanceTests.Bootstrap_is_initial_only_and_explicit_reset_changes_existing_password",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.OfficeAuthMaintenanceTests.Database_fingerprint_exposes_database_difference_without_password",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Same_permission_bundle_works_independently_of_designation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_login_receives_cookie_and_full_permissions",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_C_when_users_exist_does_not_create_duplicate",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Scoped_workstream_user_access_is_enforced_by_business_function",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Audit_trail_populates_CreatedBy_UpdatedBy_and_AuditLog_ChangedBy_with_userId_string",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.ScopeMode_Assigned_and_Own_fail_closed",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Inactive_office_desk_cannot_be_set_as_primary",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_foreign_key_and_permission_validations_return_400",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_A_without_credentials_creates_no_admin_user",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Single_active_primary_desk_is_enforced_transactionally",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Admin_can_create_and_edit_multiple_roles_and_workstreams_independently_of_designation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.UsersManage_alone_cannot_promote_self_or_others_or_reset_a_privileged_account",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Designation_and_workstream_without_role_grant_no_authority",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Password_reset_invalidates_all_existing_cookies",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_can_crud_office_desks_and_enforce_validations",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Known_gap_LR_workstream_has_no_geographic_boundary",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.System_admin_invariants_are_protected",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_B_with_credentials_creates_active_system_admin",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Anonymous_requests_to_protected_endpoints_return_401",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Workstream_and_role_removal_revoke_existing_cookie_access",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Password_is_hashed_and_user_responses_do_not_expose_credentials",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Deactivated_account_cannot_use_existing_cookie_or_login",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Anonymous_direct_admin_read_and_write_are_401",
+        "outcome": "Passed"
+      }
+    ]
+  },
+  "full_regression": {
+    "file": "tmp/rbac-proof/rbac-final-full.trx",
+    "sha256": "599aeb49e8ec6d75cac7b57ceb0f6266e582728c602b78c31437c54cb4a8c0e8",
+    "total": 960,
+    "passed": 950,
+    "failed": 0,
+    "skipped": 10,
+    "results": [
+      {
+        "name": "LAC.Tests.DakPostgresTests.Concurrent_same_request_replays_one_receipt_and_rejects_changed_payload",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Intake_mutation_waiting_on_closure_lock_fails_without_orphan_file",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Request_committed_between_replay_and_diary_lookup_returns_original",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Migration_reports_duplicates_without_rewriting_or_partially_migrating",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Phase_a_can_roll_back_and_reapply_without_changing_permanent_diary_identity",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Audit_script_reports_global_blockers_and_status_only_as_diagnostics",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Migration_reports_blank_legacy_diary_and_preserves_valid_display_text",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Blank_diary_fails_global_database_constraint_and_cancelled_number_stays_reserved",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Diary_identity_remains_globally_reserved_after_every_lifecycle_and_record_status",
+        "outcome": "NotExecuted"
+      },
+      {
+        "name": "LAC.Tests.DakPostgresTests.Concurrent_duplicate_registration_has_one_winner_and_database_uniqueness",
+        "outcome": "NotExecuted"
+      }
+    ]
+  },
+  "full_regression_note": "Before final reset/scope edge-case hardening; the focused run verifies all modified security/account/allocation components on final source.",
+  "final_focused_proof": {
+    "file": "tmp/rbac-proof/rbac-final-verified.trx",
+    "sha256": "6c6ce08c36e1dcdf77d56457afb73316e85c00cc6329fd7f4bd01f43b5b8f44a",
+    "total": 42,
+    "passed": 42,
+    "failed": 0,
+    "skipped": 0,
+    "results": [
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Catalog_is_separate_from_roles_and_allocation_never_grants_permission",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Audit_trail_populates_CreatedBy_UpdatedBy_and_AuditLog_ChangedBy_with_userId_string",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Scoped_workstream_user_access_is_enforced_by_business_function",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Verify_commit_and_record_reclassification_check_server_targets_and_both_workstreams",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Designation_and_workstream_without_role_grant_no_authority",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Broad_view_is_preserved_but_actions_require_home_or_temporary_allocation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Parent_permission_and_allocation_changes_affect_assistants_without_relogin",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Anonymous_request_to_health_succeeds",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_B_with_credentials_creates_active_system_admin",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Parent_revocation_and_temporary_credential_expiry_take_effect_on_existing_sessions",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_C_when_users_exist_does_not_create_duplicate",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Bootstrap_A_without_credentials_creates_no_admin_user",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Password_is_hashed_and_user_responses_do_not_expose_credentials",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.OfficeAuthMaintenanceTests.Database_fingerprint_exposes_database_difference_without_password",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Single_active_primary_desk_is_enforced_transactionally",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Desk_membership_history_period_preserves_old_rows_and_creates_new_row_on_reassignment",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Anonymous_requests_to_protected_endpoints_return_401",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Assistants_have_individual_logins_bounded_permissions_scopes_and_dual_actor_audit",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Workstream_and_role_removal_revoke_existing_cookie_access",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_can_crud_office_desks_and_enforce_validations",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_login_receives_cookie_and_full_permissions",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Same_permission_bundle_works_independently_of_designation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.UsersManage_alone_cannot_promote_self_or_others_or_reset_a_privileged_account",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Inactive_office_desk_cannot_be_set_as_primary",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Broad_LR_read_permission_is_independent_of_geographic_allocations",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacPostgreSqlTests.Upgrade_redacts_historical_credentials_and_schema_downgrade_reupgrade_succeeds",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Password_reset_invalidates_all_existing_cookies",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Assistant_edit_reset_revoke_and_ownership_are_enforced",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Deactivated_account_cannot_use_existing_cookie_or_login",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Admin_foreign_key_and_permission_validations_return_400",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacPostgreSqlTests.PostgreSQL_enforces_scope_foreign_keys_interval_unique_codes_and_revision_concurrency",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Account_maintenance_cannot_take_over_another_officers_allocation_by_password_reset",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.ScopeMode_Assigned_and_Own_fail_closed",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.RolesAssign_cannot_expand_Dak_scope_through_collection_entry_authority_or_credential_takeover",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.Inactive_desk_rejects_new_assignments",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Anonymous_direct_admin_read_and_write_are_401",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Account_create_edit_allocations_are_atomic_and_independent_of_designation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.DynamicAllocationApiTests.Allocation_validation_revision_future_and_revocation_are_enforced",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacTests.System_admin_invariants_are_protected",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.OfficeAuthMaintenanceTests.Bootstrap_is_initial_only_and_explicit_reset_changes_existing_password",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacBaselineProofTests.Admin_can_create_and_edit_multiple_roles_and_workstreams_independently_of_designation",
+        "outcome": "Passed"
+      },
+      {
+        "name": "LAC.Tests.RbacPostgreSqlTests.Full_migration_and_real_cookie_allocation_security_flow",
+        "outcome": "Passed"
+      }
+    ]
+  },
+  "postgres_integration": [
+    {
+      "name": "LAC.Tests.RbacPostgreSqlTests.Upgrade_redacts_historical_credentials_and_schema_downgrade_reupgrade_succeeds",
+      "outcome": "Passed"
+    },
+    {
+      "name": "LAC.Tests.RbacPostgreSqlTests.PostgreSQL_enforces_scope_foreign_keys_interval_unique_codes_and_revision_concurrency",
+      "outcome": "Passed"
+    },
+    {
+      "name": "LAC.Tests.RbacPostgreSqlTests.Full_migration_and_real_cookie_allocation_security_flow",
+      "outcome": "Passed"
+    }
+  ],
+  "postgres_destination": "Dedicated PostgreSQL 17 cluster on 127.0.0.1:55438; randomly named disposable lac_rbac_test databases only.",
+  "changed_files": [
+    ".gitignore",
+    "docs/anti-rbac-frontend-contract.md",
+    "docs/rbac-audit-and-dynamic-allocation-plan.md",
+    "docs/rbac-implementation-and-proof.md",
+    "docs/rbac-verification-results.json",
+    "src/LAC.Api/AccountSecurity.cs",
+    "src/LAC.Api/OfficeAuthMaintenance.cs",
+    "src/LAC.Api/OfficerAssistantEndpoints.cs",
+    "src/LAC.Api/OperationalAuthorizationFilter.cs",
+    "src/LAC.Api/Program.cs",
+    "src/LAC.Api/RbacEndpoints.cs",
+    "src/LAC.Api/TemporaryCredentials.cs",
+    "src/LAC.Api/WorkAllocationEndpoints.cs",
+    "src/LAC.Domain/Entities.cs",
+    "src/LAC.Domain/ICurrentUserContext.cs",
+    "src/LAC.Domain/IdentityEntities.cs",
+    "src/LAC.Domain/PermissionCodes.cs",
+    "src/LAC.Domain/WorkAllocationEntities.cs",
+    "src/LAC.Infrastructure/AccessControlService.cs",
+    "src/LAC.Infrastructure/AssistantResourceAuthorization.cs",
+    "src/LAC.Infrastructure/AuditRedaction.cs",
+    "src/LAC.Infrastructure/Configurations/WorkAllocationConfiguration.cs",
+    "src/LAC.Infrastructure/CourtAuthorizationService.cs",
+    "src/LAC.Infrastructure/DakAuthorizationService.cs",
+    "src/LAC.Infrastructure/HttpCurrentUserContext.cs",
+    "src/LAC.Infrastructure/LacDbContext.cs",
+    "src/LAC.Infrastructure/MatterAuthorizationService.cs",
+    "src/LAC.Infrastructure/Migrations/20261006220754_AddDynamicWorkAllocationAndSessionSecurity.cs",
+    "src/LAC.Infrastructure/Migrations/20261006220754_AddDynamicWorkAllocationAndSessionSecurity.Designer.cs",
+    "src/LAC.Infrastructure/Migrations/LacDbContextModelSnapshot.cs",
+    "src/LAC.Infrastructure/OutwardAuthorizationService.cs",
+    "src/LAC.Infrastructure/ScheduleAuthorizationService.cs",
+    "src/LAC.Infrastructure/SeedData.cs",
+    "src/LAC.Infrastructure/WorkAllocationService.cs",
+    "src/LAC.Infrastructure/WorkCatalogSeed.cs",
+    "src/LAC.Infrastructure/WorkItemAuthorizationService.cs",
+    "tests/LAC.Tests/DakTests.cs",
+    "tests/LAC.Tests/DynamicAllocationApiTests.cs",
+    "tests/LAC.Tests/MatterAuthorizationAndWorkspaceTests.cs",
+    "tests/LAC.Tests/MatterContextFoundationTests.cs",
+    "tests/LAC.Tests/OutwardTests.cs",
+    "tests/LAC.Tests/Phase2GTests.cs",
+    "tests/LAC.Tests/Phase2HTests.cs",
+    "tests/LAC.Tests/Phase2ITests.cs",
+    "tests/LAC.Tests/RbacBaselineProofTests.cs",
+    "tests/LAC.Tests/RbacPostgreSqlTests.cs",
+    "tests/LAC.Tests/TestWorkAllocations.cs",
+    "tests/LAC.Tests/WorkItemTests.cs"
+  ],
+  "office_database_modified": false,
+  "merged_or_deployed": false
+}

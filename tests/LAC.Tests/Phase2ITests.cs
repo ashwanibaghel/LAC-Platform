@@ -180,6 +180,7 @@ public sealed class Phase2ITests : IClassFixture<Phase2ITestFactory>
         var loginRes = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, password));
         Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
 
+        await TestWorkAllocations.GrantGlobalAsync(db, user.Id);
         return (client, user);
     }
 

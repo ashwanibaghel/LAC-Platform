@@ -11,6 +11,12 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
             return false;
 
         var userId = currentUser.UserId.Value;
+        return await CanForUserAsync(userId, permissionCode, resourceContext, cancellationToken);
+    }
+
+    public async Task<bool> CanForUserAsync(Guid userId, string permissionCode, AccessResourceContext? resourceContext,
+        CancellationToken cancellationToken, bool allowDelegation = true)
+    {
 
         // Ensure user account is still active and valid in store
         var user = await db.AppUsers
@@ -18,6 +24,12 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
             .FirstOrDefaultAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, cancellationToken);
         if (user is null)
             return false;
+        if (user.SupervisingOfficerId.HasValue)
+        {
+            if (!allowDelegation || await db.Permissions.AnyAsync(p => p.Code == permissionCode && p.Category == "Administration", cancellationToken)
+                || !await db.AssistantPermissionLimits.AnyAsync(x => x.UserId == userId && x.Permission.Code == permissionCode, cancellationToken)
+                || !await CanForUserAsync(user.SupervisingOfficerId.Value, permissionCode, resourceContext, cancellationToken, false)) return false;
+        }
 
         // Retrieve user's active roles
         var activeRoleIds = await db.UserRoles
@@ -107,6 +119,8 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
 
     public async Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid userId, CancellationToken cancellationToken = default)
     {
+        var account = await db.AppUsers.AsNoTracking().SingleOrDefaultAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, cancellationToken);
+        if (account is null) return new Dictionary<string, ScopeMode>();
         var activeRoleIds = await db.UserRoles
             .AsNoTracking()
             .Where(ur => ur.UserId == userId && ur.Role.IsActive && ur.Role.RecordStatus == RecordStatus.Active)
@@ -121,6 +135,18 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
             .Where(rp => activeRoleIds.Contains(rp.RoleId))
             .Select(rp => new { rp.Permission.Code, rp.ScopeMode })
             .ToListAsync(cancellationToken);
+
+        if (account.SupervisingOfficerId.HasValue)
+        {
+            var parent = await db.AppUsers.AsNoTracking().SingleOrDefaultAsync(u => u.Id == account.SupervisingOfficerId
+                && u.IsActive && u.RecordStatus == RecordStatus.Active && u.SupervisingOfficerId == null, cancellationToken);
+            if (parent is null) return new Dictionary<string, ScopeMode>();
+            var limits = await db.AssistantPermissionLimits.Where(x => x.UserId == userId && x.Permission.Category != "Administration")
+                .Select(x => x.Permission.Code).ToListAsync(cancellationToken);
+            var parentCodes = await db.UserRoles.Where(x => x.UserId == parent.Id && x.Role.IsActive && x.Role.RecordStatus == RecordStatus.Active)
+                .SelectMany(x => x.Role.RolePermissions).Select(x => x.Permission.Code).Distinct().ToListAsync(cancellationToken);
+            permissionsWithScope.RemoveAll(x => !limits.Contains(x.Code) || !parentCodes.Contains(x.Code));
+        }
 
         var result = new Dictionary<string, ScopeMode>(StringComparer.OrdinalIgnoreCase);
 

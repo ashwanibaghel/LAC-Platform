@@ -27,5 +27,7 @@ public interface ICurrentUserContext
     /// A user may have zero primary desks.
     /// </summary>
     Guid? PrimaryDeskId { get; }
+    Guid? OnBehalfOfUserId => null;
+    string? OnBehalfOfDisplayName => null;
 }
 

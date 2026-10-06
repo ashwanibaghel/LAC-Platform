@@ -23,6 +23,12 @@ public sealed class AppUser : OfficialRecord
     public string NormalizedUsername { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string PasswordHash { get; set; } = "";
+    public Guid SessionVersion { get; set; } = Guid.NewGuid();
+    public bool MustChangePassword { get; set; }
+    public DateTimeOffset? TemporaryCredentialExpiresAt { get; set; }
+    public Guid? SupervisingOfficerId { get; set; }
+    public AppUser? SupervisingOfficer { get; set; }
+    public int AssistantRevision { get; set; }
     public Guid? DesignationId { get; set; }
     public Designation? Designation { get; set; }
     public bool IsActive { get; set; } = true;

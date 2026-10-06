@@ -115,6 +115,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         };
         db.Workstreams.Add(ws);
         await db.SaveChangesAsync();
+        await TestWorkAllocations.GrantGlobalAsync(db, SeedData.BootstrapAdminId);
         return ws;
     }
 
@@ -4034,7 +4035,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
     { var(client,_)=await CreateCustomUserClientAsync("pulseown"+Guid.NewGuid().ToString("N")[..6],"pulse-own-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Own,[PermissionCodes.WorkItemView]);Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync("/api/work-items/branch-pulse")).StatusCode); }
 
     [Fact]
-    public async Task Phase2FC_BranchPulse_InactiveUser_IsForbidden()
-    { var ws=await CreateWorkstreamAsync("PIF"+Guid.NewGuid().ToString("N")[..5],"Inactive user");var(client,user)=await CreateScopedUserClientAsync("pulseif"+Guid.NewGuid().ToString("N")[..6],"pulse-if-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Workstream,workstreamId:ws.Id);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();(await x.AppUsers.FindAsync(user))!.IsActive=false;await x.SaveChangesAsync();}Assert.Equal(HttpStatusCode.Forbidden,(await client.GetAsync("/api/work-items/branch-pulse")).StatusCode); }
+    public async Task Phase2FC_BranchPulse_InactiveUser_IsUnauthorized()
+    { var ws=await CreateWorkstreamAsync("PIF"+Guid.NewGuid().ToString("N")[..5],"Inactive user");var(client,user)=await CreateScopedUserClientAsync("pulseif"+Guid.NewGuid().ToString("N")[..6],"pulse-if-"+Guid.NewGuid().ToString("N")[..6],ScopeMode.Workstream,workstreamId:ws.Id);using(var s=_factory.Services.CreateScope()){var x=s.ServiceProvider.GetRequiredService<LacDbContext>();(await x.AppUsers.FindAsync(user))!.IsActive=false;await x.SaveChangesAsync();}Assert.Equal(HttpStatusCode.Unauthorized,(await client.GetAsync("/api/work-items/branch-pulse")).StatusCode); }
 }
 
