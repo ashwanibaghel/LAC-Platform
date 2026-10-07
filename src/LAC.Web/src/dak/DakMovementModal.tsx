@@ -76,7 +76,7 @@ export const DakMovementModal: React.FC<Props> = ({
   const [remarks, setRemarks] = useState<string>("");
   const [reason, setReason] = useState<string>("");
   const [provenance, setProvenance] = useState<string>("");
-  const [completionAttested, setCompletionAttested] = useState(true);
+  const [completionAttested, setCompletionAttested] = useState(false);
   const [physicalReceiptConfirmed, setPhysicalReceiptConfirmed] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -636,7 +636,11 @@ export const DakMovementModal: React.FC<Props> = ({
             <button type="button" className="secondary-button" onClick={onClose} disabled={loading}>
               Cancel
             </button>
-            <button type="submit" className="primary-button" disabled={loading}>
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={loading || (isResolveMode && (!remarks.trim() || !completionAttested))}
+            >
               {loading ? (
                 "Processing..."
               ) : isSendMode ? (

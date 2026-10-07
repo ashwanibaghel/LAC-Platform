@@ -44,6 +44,8 @@ export const DakDetailWorkspace: React.FC = () => {
   // Persisted Server State
   const [dak, setDak] = useState<DakDetail | null>(null);
   const [transfers, setTransfers] = useState<DakTransferItem[]>([]);
+  const [transfersLoading, setTransfersLoading] = useState(false);
+  const [transfersError, setTransfersError] = useState<string | null>(null);
   const [physicalOriginal, setPhysicalOriginal] = useState<PhysicalOriginalInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +106,8 @@ export const DakDetailWorkspace: React.FC = () => {
   const resetRecordState = useCallback(() => {
     setDak(null);
     setTransfers([]);
+    setTransfersLoading(false);
+    setTransfersError(null);
     setPhysicalOriginal(null);
     setOutwardReplies([]);
     setMovementDesks([]);
@@ -179,13 +183,26 @@ export const DakDetailWorkspace: React.FC = () => {
       setEditWorkstreamId(data.workstreamId || "");
 
       // Load authoritative transfer list for pending delivery and return-pending derivations
+      setTransfersLoading(true);
+      setTransfersError(null);
       fetch(`/api/dak/${targetId}/transfers`, { signal, credentials: "include" })
-        .then((r) => (r.ok ? (r.json() as Promise<{ items: DakTransferItem[] }>) : null))
-        .then((d) => {
-          if (!isStale()) setTransfers(d?.items || []);
+        .then(async (r) => {
+          if (!r.ok) throw new Error("Transfer details could not be loaded; refresh before acting.");
+          return r.json() as Promise<{ items: DakTransferItem[] }>;
         })
-        .catch(() => {
-          if (!isStale()) setTransfers([]);
+        .then((d) => {
+          if (!isStale()) {
+            setTransfers(d?.items || []);
+            setTransfersLoading(false);
+          }
+        })
+        .catch((err: unknown) => {
+          if (!isStale()) {
+            if (err instanceof Error && err.name === "AbortError") return;
+            setTransfers([]);
+            setTransfersError("Transfer details could not be loaded; refresh before acting.");
+            setTransfersLoading(false);
+          }
         });
 
       // Load Physical Original Data
@@ -522,10 +539,6 @@ export const DakDetailWorkspace: React.FC = () => {
   const canPullBack = hasPermission("Dak.PullBack");
   const canResolve = hasPermission("Dak.Resolve"); // Dak.Dispose cannot substitute
   const canReopen = hasPermission("Dak.Reopen");
-  const canCancel = hasPermission("Dak.Cancel") && !isTerminal;
-  const canEdit = hasPermission("Dak.Edit") && !isTerminal;
-  const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
-
   // Deriving routing and custody states from authoritative backend contract
   const routingState = dak.routingState;
   const activeTransfer = transfers.find((t) => t.state === "Pending") || null;
@@ -537,21 +550,36 @@ export const DakDetailWorkspace: React.FC = () => {
   const isReturnPending = !isTerminal && dak.physicalState === "ReturnPending";
   const isWithHolder = !isTerminal && !isInTransit && !isReturnPending && routingState === "WithHolder";
 
+  const isDeliveryOrRecoveryUnsettled = Boolean(
+    routingState === "InTransit" ||
+    activeTransfer != null ||
+    dak.physicalState === "ReturnPending"
+  );
+  const canCancel = hasPermission("Dak.Cancel") && !isTerminal && !isDeliveryOrRecoveryUnsettled;
+  const canEdit = hasPermission("Dak.Edit") && !isTerminal;
+  const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
+
   const isFreshIntake = dak.status === "Registered" && routingState === "Unassigned" && !dak.currentAssignment?.isActive;
   const isDeskOnlyLegacy = routingState === "LegacyUnconfirmed" && Boolean(dak.currentAssignment?.isActive && dak.currentAssignment?.assignedUserId == null);
 
-  // Recipient identification - STRICT ID MATCH ONLY (no display name matching)
+  // Recipient identification - STRICT ID MATCH ONLY on authoritative activeTransfer
+  // pendingReceiverUserId is used for display only; actionable receive strictly requires activeTransfer
   const isCurrentUserRecipient = Boolean(
-    currentUserId && (
-      activeTransfer
-        ? activeTransfer.toUserId === currentUserId
-        : dak.pendingReceiverUserId === currentUserId
-    )
+    !transfersLoading &&
+    !transfersError &&
+    currentUserId &&
+    activeTransfer &&
+    activeTransfer.toUserId === currentUserId
   );
 
-  // Sender identification - STRICT ID MATCH ONLY (no fallback or display name matching)
+  // Sender identification - STRICT ID MATCH ONLY on authoritative activeTransfer
+  // Actionable pull back strictly requires activeTransfer
   const isCurrentUserSender = Boolean(
-    currentUserId && activeTransfer && activeTransfer.senderUserId === currentUserId
+    !transfersLoading &&
+    !transfersError &&
+    currentUserId &&
+    activeTransfer &&
+    activeTransfer.senderUserId === currentUserId
   );
 
   // Confirmed current holder identification - STRICT ID MATCH ONLY
@@ -933,35 +961,47 @@ export const DakDetailWorkspace: React.FC = () => {
           {/* STATE 1: IN TRANSIT */}
           {isInTransit ? (
             <>
-              {/* Receiver gets RECEIVE */}
-              {isCurrentUserRecipient && canReceive && (
-                <button
-                  type="button"
-                  className="primary-button"
-                  style={{ background: "#059669", borderColor: "#047857" }}
-                  onClick={() => setMovementModalMode("receive")}
-                >
-                  📥 Receive Dak
-                </button>
-              )}
-
-              {/* Sender gets PULL BACK until Receive */}
-              {isCurrentUserSender && canPullBack && (
-                <button
-                  type="button"
-                  className="secondary-button"
-                  style={{ color: "#b91c1c", borderColor: "#fca5a5", background: "#fef2f2" }}
-                  onClick={() => setMovementModalMode("pull-back")}
-                >
-                  ↩ Pull Back Dak
-                </button>
-              )}
-
-              {/* If third party */}
-              {!isCurrentUserRecipient && !isCurrentUserSender && (
-                <span style={{ fontSize: "13px", color: "#92400e", background: "#fffbeb", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fde68a", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  ⏳ Awaiting receipt confirmation by <strong>{recipientDisplayName}</strong>
+              {transfersError ? (
+                <span className="transfer-error-notice" style={{ fontSize: "13px", color: "#991b1b", background: "#fef2f2", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fecaca", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  ⚠️ {transfersError}
                 </span>
+              ) : transfersLoading ? (
+                <span className="transfer-loading-notice" style={{ fontSize: "13px", color: "#64748b", padding: "6px 12px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  ⏳ Loading transfer details...
+                </span>
+              ) : (
+                <>
+                  {/* Receiver gets RECEIVE */}
+                  {isCurrentUserRecipient && canReceive && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{ background: "#059669", borderColor: "#047857" }}
+                      onClick={() => setMovementModalMode("receive")}
+                    >
+                      📥 Receive Dak
+                    </button>
+                  )}
+
+                  {/* Sender gets PULL BACK until Receive */}
+                  {isCurrentUserSender && canPullBack && (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ color: "#b91c1c", borderColor: "#fca5a5", background: "#fef2f2" }}
+                      onClick={() => setMovementModalMode("pull-back")}
+                    >
+                      ↩ Pull Back Dak
+                    </button>
+                  )}
+
+                  {/* If third party */}
+                  {!isCurrentUserRecipient && !isCurrentUserSender && (
+                    <span style={{ fontSize: "13px", color: "#92400e", background: "#fffbeb", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fde68a", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      ⏳ Awaiting receipt confirmation by <strong>{recipientDisplayName}</strong>
+                    </span>
+                  )}
+                </>
               )}
 
               {canEdit && (
@@ -1121,7 +1161,7 @@ export const DakDetailWorkspace: React.FC = () => {
             </span>
           </div>
 
-          {canReopen && (dak.status === "Resolved" || dak.status === "Disposed") && dak.recordStatus === "Active" && (
+          {canReopen && dak.status === "Resolved" && dak.recordStatus === "Active" && (
             <button
               type="button"
               className="secondary-button"
