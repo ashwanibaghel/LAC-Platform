@@ -122,7 +122,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   // User details
   const userDisplayName = user?.displayName || user?.username || "Officer";
-  const userDesignation = user?.designation?.name || null;
+  const isSystemAdmin = Boolean(user?.roles?.includes("SYSTEM_ADMIN"));
+  const userDesignation = user?.designation?.name
+    ? user.designation.name
+    : isSystemAdmin
+    ? "Technical System Administrator"
+    : null;
   const userInitials = userDisplayName
     .split(" ")
     .map((n) => n[0])

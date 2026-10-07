@@ -812,6 +812,15 @@ export const UsersAdmin: React.FC = () => {
                       <span className={`rank-badge ${rankClass}`}>
                         {u.designation.name}
                       </span>
+                    ) : u.roles?.includes("SYSTEM_ADMIN") ? (
+                      <div title="No civil designation">
+                        <span className="rank-badge staff" style={{ background: "#f1f5f9", color: "#334155", border: "1px solid #cbd5e1" }}>
+                          Technical Account
+                        </span>
+                        <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                          No civil designation
+                        </div>
+                      </div>
                     ) : (
                       <span className="subtext">Unassigned</span>
                     )}
@@ -965,6 +974,11 @@ export const UsersAdmin: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    {roles.some((r) => editRoleIds.includes(r.id) && r.code === "SYSTEM_ADMIN") && !editDesignationId && (
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "6px 10px", borderRadius: "6px" }}>
+                        System Administrator is a technical security role and does not require a civil designation.
+                      </div>
+                    )}
                     <small style={{ color: "#64748b" }}>
                       Civil rank does not automatically grant system permissions. Authority requires explicit role assignment.
                     </small>
@@ -1349,7 +1363,11 @@ export const UsersAdmin: React.FC = () => {
               <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                 <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Civil Designation</span>
                 <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
-                  {inspectingOfficer.designation?.name || "No designation"}
+                  {inspectingOfficer.designation?.name
+                    ? inspectingOfficer.designation.name
+                    : inspectingOfficer.roles?.includes("SYSTEM_ADMIN")
+                    ? "No civil designation (Technical System Administrator)"
+                    : "No designation"}
                 </div>
               </div>
 
@@ -1501,6 +1519,11 @@ export const UsersAdmin: React.FC = () => {
                     </option>
                   ))}
                 </select>
+                {roles.some((r) => selectedRoleIds.includes(r.id) && r.code === "SYSTEM_ADMIN") && !newDesignationId && (
+                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#0369a1", background: "#f0f9ff", border: "1px solid #bae6fd", padding: "6px 10px", borderRadius: "6px" }}>
+                    System Administrator is a technical security role and does not require a civil designation.
+                  </div>
+                )}
               </div>
 
               <div className="contract-notice-banner" style={{ margin: "4px 0 8px 0" }}>

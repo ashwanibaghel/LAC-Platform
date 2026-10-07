@@ -26,6 +26,7 @@ const workCatalogTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src
 const assistantAdminTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/admin/OfficerAssistantAdmin.tsx"), "utf8"));
 const auditAdminTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/admin/AuditLogsAdmin.tsx"), "utf8"));
 const appTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/App.tsx"), "utf8"));
+const appShellTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/components/AppShell.tsx"), "utf8"));
 const changePasswordTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/auth/ChangePasswordView.tsx"), "utf8"));
 
 test("1. AccountOptionsResponse consumes workstreams and desks", () => {
@@ -478,5 +479,79 @@ test("20. 409 reload behavior remains intact", () => {
     assistantAdminTsx,
     /if\s*\(\s*res\.status\s*===\s*409\s*\)\s*\{[\s\S]*?loadData/m,
     "OfficerAssistantAdmin reloads canonical assistant data on 409 conflict"
+  );
+});
+
+test("21. Technical SYSTEM_ADMIN display with designation null renders 'Technical Account' and preserves 'Unassigned' for ordinary users", () => {
+  // In UsersAdmin table rendering:
+  // If user.designation is null and user.roles includes SYSTEM_ADMIN: renders "Technical Account" and "No civil designation"
+  assert.ok(
+    usersAdminTsx.includes('u.roles?.includes("SYSTEM_ADMIN") ? ('),
+    "UsersAdmin checks for SYSTEM_ADMIN role when designation is null"
+  );
+  assert.ok(
+    usersAdminTsx.includes("Technical Account"),
+    "UsersAdmin renders 'Technical Account' badge for technical SYSTEM_ADMIN"
+  );
+  assert.ok(
+    usersAdminTsx.includes("No civil designation"),
+    "UsersAdmin renders 'No civil designation' supporting text/title"
+  );
+  assert.ok(
+    usersAdminTsx.includes('<span className="subtext">Unassigned</span>'),
+    "Ordinary user without designation and without SYSTEM_ADMIN retains 'Unassigned'"
+  );
+
+  // Inspector:
+  assert.ok(
+    usersAdminTsx.includes('"No civil designation (Technical System Administrator)"'),
+    "Access Inspector displays 'No civil designation (Technical System Administrator)' for SYSTEM_ADMIN"
+  );
+  assert.ok(
+    usersAdminTsx.includes('inspectingOfficer.roles.map((r) =>'),
+    "Access Inspector continues to render assigned roles including SYSTEM_ADMIN from server data"
+  );
+
+  // AppShell:
+  assert.ok(
+    /isSystemAdmin\s*\?\s*"Technical System Administrator"\s*:\s*null/.test(appShellTsx),
+    "AppShell displays 'Technical System Administrator' subtitle when user has SYSTEM_ADMIN and no designation"
+  );
+
+  // No ADM inference:
+  assert.ok(
+    !usersAdminTsx.includes('designation = "ADM"') && !usersAdminTsx.includes('designation?.name || "ADM"'),
+    "No ADM inference exists in UsersAdmin"
+  );
+  assert.ok(
+    !appShellTsx.includes('"ADM"') && !appShellTsx.includes('"Additional District Magistrate"'),
+    "No ADM inference exists in AppShell"
+  );
+});
+
+test("22. Create Account retains '-- No Official Designation --', supports SYSTEM_ADMIN with no designation, and shows informational notice", () => {
+  // Create Account dropdown retain -- No Official Designation --
+  assert.ok(
+    usersAdminTsx.includes('<option value="">-- No Official Designation --</option>'),
+    "Create Account retains '-- No Official Designation --' option"
+  );
+
+  // Technical notice when SYSTEM_ADMIN is selected with no designation
+  assert.ok(
+    usersAdminTsx.includes("System Administrator is a technical security role and does not require a civil designation."),
+    "Shows technical notice when SYSTEM_ADMIN is selected without designation"
+  );
+
+  // No fake System Administrator designation created
+  assert.ok(
+    !usersAdminTsx.includes('{ code: "SYSTEM_ADMIN", name: "System Administrator" }') &&
+    !usersAdminTsx.includes('{ id: "sys-admin", name: "System Administrator" }'),
+    "No fake System Administrator designation is injected into designations catalog"
+  );
+
+  // Server role data still renders SYSTEM_ADMIN
+  assert.ok(
+    usersAdminTsx.includes('roles.map((r) =>'),
+    "Roles checklist maps over server roles"
   );
 });
