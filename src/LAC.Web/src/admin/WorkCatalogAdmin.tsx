@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import type { WorkDefinitionItem, WorkKind, Workstream } from "./types";
+import type { WorkDefinitionItem, WorkKind, Workstream, AccountOptionsResponse } from "./types";
 import "./admin.css";
 
 const WORK_KINDS: WorkKind[] = [
@@ -53,9 +53,9 @@ export const WorkCatalogAdmin: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [worksRes, wsRes] = await Promise.all([
+      const [worksRes, optRes] = await Promise.all([
         fetch("/api/admin/works", { credentials: "include" }),
-        fetch("/api/admin/workstreams", { credentials: "include" }),
+        fetch("/api/admin/account-options", { credentials: "include" }),
       ]);
 
       if (!worksRes.ok) {
@@ -67,8 +67,9 @@ export const WorkCatalogAdmin: React.FC = () => {
       const worksData = (await worksRes.json()) as WorkDefinitionItem[];
       setWorks(worksData);
 
-      if (wsRes.ok) {
-        const wsData = (await wsRes.json()) as Workstream[];
+      if (optRes.ok) {
+        const optData = (await optRes.json()) as AccountOptionsResponse;
+        const wsData = (optData.workstreams || []) as Workstream[];
         setWorkstreams(wsData);
         if (wsData.length > 0 && !newWorkstreamId) {
           setNewWorkstreamId(wsData[0].id);

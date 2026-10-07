@@ -2,9 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from "react";
 import type {
   Designation,
   Workstream,
-  DeskItem,
   UserDeskMembershipItem,
-  RoleDetail,
   OfficerItem,
   OfficerDetail,
   AccountOptionsResponse,
@@ -13,7 +11,13 @@ import type {
   AllocationScope,
   ScopeKind,
 } from "./types";
-import { PasswordInput } from "../auth/PasswordInput";
+import {
+  localDateInputToIso,
+  isoToLocalDateInput,
+  getTodayLocalDateInput,
+  formatLocalDate,
+  validateDateRange,
+} from "./dateUtils";
 import "./admin.css";
 
 export const UsersAdmin: React.FC = () => {
@@ -21,8 +25,8 @@ export const UsersAdmin: React.FC = () => {
   const [accountOptions, setAccountOptions] = useState<AccountOptionsResponse | null>(null);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [workstreams, setWorkstreams] = useState<Workstream[]>([]);
-  const [roles, setRoles] = useState<RoleDetail[]>([]);
-  const [desks, setDesks] = useState<DeskItem[]>([]);
+  const [roles, setRoles] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [desks, setDesks] = useState<{ id: string; code: string; name: string; workstreamId: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,11 +56,9 @@ export const UsersAdmin: React.FC = () => {
   const [editPrimaryWorkstreamId, setEditPrimaryWorkstreamId] = useState("");
   const [editDrawerLoading, setEditDrawerLoading] = useState(false);
 
-  // Form states - Create User Modal
+  // Form states - Create User Modal (Generated Temporary Credential Only)
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
-  const [autoGeneratePassword, setAutoGeneratePassword] = useState(true);
-  const [newPassword, setNewPassword] = useState("");
   const [newDesignationId, setNewDesignationId] = useState("");
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [selectedWorkstreamIds, setSelectedWorkstreamIds] = useState<string[]>([]);
@@ -72,7 +74,7 @@ export const UsersAdmin: React.FC = () => {
   const [allocWorkDefId, setAllocWorkDefId] = useState("");
   const [allocOrderRef, setAllocOrderRef] = useState("");
   const [allocReason, setAllocReason] = useState("");
-  const [allocValidFrom, setAllocValidFrom] = useState(new Date().toISOString().split("T")[0]);
+  const [allocValidFrom, setAllocValidFrom] = useState(getTodayLocalDateInput());
   const [allocValidTo, setAllocValidTo] = useState("");
   const [allocScopes, setAllocScopes] = useState<AllocationScope[]>([]);
   const [newScopeKind, setNewScopeKind] = useState<ScopeKind>("Global");
@@ -80,6 +82,7 @@ export const UsersAdmin: React.FC = () => {
   const [newScopeSubDivId, setNewScopeSubDivId] = useState("");
   const [newScopeVillageId, setNewScopeVillageId] = useState("");
   const [allocSubmitting, setAllocSubmitting] = useState(false);
+  const [allocFormError, setAllocFormError] = useState<string | null>(null);
 
   // One-Time Credential Modal (for officer creation or password reset)
   const [showCredentialModal, setShowCredentialModal] = useState(false);
@@ -98,12 +101,8 @@ export const UsersAdmin: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [usersRes, desigRes, wsRes, rolesRes, desksRes, optRes] = await Promise.all([
+      const [usersRes, optRes] = await Promise.all([
         fetch("/api/admin/users", { credentials: "include" }),
-        fetch("/api/admin/designations", { credentials: "include" }),
-        fetch("/api/admin/workstreams", { credentials: "include" }),
-        fetch("/api/admin/roles", { credentials: "include" }),
-        fetch("/api/admin/desks", { credentials: "include" }),
         fetch("/api/admin/account-options", { credentials: "include" }),
       ]);
 
@@ -114,20 +113,22 @@ export const UsersAdmin: React.FC = () => {
       }
 
       setUsers((await usersRes.json()) as OfficerItem[]);
-      if (desigRes.ok) setDesignations((await desigRes.json()) as Designation[]);
-      if (wsRes.ok) setWorkstreams((await wsRes.json()) as Workstream[]);
-      if (rolesRes.ok) setRoles((await rolesRes.json()) as RoleDetail[]);
-      if (desksRes.ok) setDesks((await desksRes.json()) as DeskItem[]);
+
       if (optRes.ok) {
         const opts = (await optRes.json()) as AccountOptionsResponse;
         setAccountOptions(opts);
-        if (opts.districts.length > 0 && !newScopeDistrictId) {
+        setDesignations(opts.designations || []);
+        setWorkstreams((opts.workstreams || []) as Workstream[]);
+        setRoles(opts.roles || []);
+        setDesks(opts.desks || []);
+
+        if (opts.districts?.length > 0 && !newScopeDistrictId) {
           setNewScopeDistrictId(opts.districts[0].id);
         }
-        if (opts.subdivisions.length > 0 && !newScopeSubDivId) {
+        if (opts.subdivisions?.length > 0 && !newScopeSubDivId) {
           setNewScopeSubDivId(opts.subdivisions[0].id);
         }
-        if (opts.villages.length > 0 && !newScopeVillageId) {
+        if (opts.villages?.length > 0 && !newScopeVillageId) {
           setNewScopeVillageId(opts.villages[0].id);
         }
       }
@@ -253,9 +254,10 @@ export const UsersAdmin: React.FC = () => {
     setAllocWorkDefId(worksList.length > 0 ? worksList[0].id : "");
     setAllocOrderRef("");
     setAllocReason("");
-    setAllocValidFrom(new Date().toISOString().split("T")[0]);
+    setAllocValidFrom(getTodayLocalDateInput());
     setAllocValidTo("");
-    setAllocScopes([{ kind: "Global" }]);
+    setAllocScopes([]);
+    setAllocFormError(null);
     setShowAllocForm(true);
   };
 
@@ -263,19 +265,34 @@ export const UsersAdmin: React.FC = () => {
   const openEditAllocationForm = (alloc: Allocation) => {
     setEditingAllocation(alloc);
     setAllocWorkDefId(alloc.workDefinitionId);
-    setAllocOrderRef(alloc.workOrderReference);
+    setAllocOrderRef(alloc.workOrderReference || "");
     setAllocReason(alloc.reason || "");
-    setAllocValidFrom(alloc.validFrom ? alloc.validFrom.split("T")[0] : "");
-    setAllocValidTo(alloc.validTo ? alloc.validTo.split("T")[0] : "");
-    setAllocScopes(alloc.scopes || [{ kind: "Global" }]);
+    setAllocValidFrom(isoToLocalDateInput(alloc.validFrom));
+    setAllocValidTo(isoToLocalDateInput(alloc.validTo));
+    setAllocScopes(alloc.scopes ? [...alloc.scopes] : []);
+    setAllocFormError(null);
     setShowAllocForm(true);
   };
 
   // Submit Add or Edit Allocation
   const handleSubmitAllocation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingOfficer || !allocWorkDefId || allocScopes.length === 0) {
-      alert("Please specify a work category and at least one geographic scope.");
+    setAllocFormError(null);
+    if (!editingOfficer || !allocWorkDefId) {
+      setAllocFormError("Please select a work category.");
+      return;
+    }
+    if (!allocOrderRef.trim()) {
+      setAllocFormError("Work Order Reference is required and must be explicitly entered.");
+      return;
+    }
+    if (allocScopes.length === 0) {
+      setAllocFormError("At least one geographic scope must be consciously added. Allocations cannot have zero scopes.");
+      return;
+    }
+    const dateVal = validateDateRange(allocValidFrom, allocValidTo || null);
+    if (!dateVal.valid) {
+      setAllocFormError(dateVal.error || "Invalid date range.");
       return;
     }
 
@@ -283,9 +300,9 @@ export const UsersAdmin: React.FC = () => {
       setAllocSubmitting(true);
       const input: AllocationInput = {
         workDefinitionId: allocWorkDefId,
-        validFrom: new Date(allocValidFrom).toISOString(),
-        validTo: allocValidTo ? new Date(allocValidTo).toISOString() : null,
-        workOrderReference: allocOrderRef.trim() || "OFFICE-ORDER/2026/ALLOC",
+        validFrom: localDateInputToIso(allocValidFrom)!,
+        validTo: allocValidTo.trim() ? localDateInputToIso(allocValidTo) : null,
+        workOrderReference: allocOrderRef.trim(),
         reason: allocReason.trim() || null,
         scopes: allocScopes,
       };
@@ -305,6 +322,7 @@ export const UsersAdmin: React.FC = () => {
         if (!res.ok) {
           if (res.status === 409) {
             await loadOfficerAllocations(editingOfficer.id);
+            await loadData();
             throw new Error("Revision conflict: Allocation was modified concurrently. Refreshed.");
           }
           const err = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -321,6 +339,8 @@ export const UsersAdmin: React.FC = () => {
 
         if (!res.ok) {
           if (res.status === 409) {
+            await loadOfficerAllocations(editingOfficer.id);
+            await loadData();
             throw new Error("Revision or duplicate conflict on allocation creation.");
           }
           const err = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -331,8 +351,11 @@ export const UsersAdmin: React.FC = () => {
       setShowAllocForm(false);
       setEditingAllocation(null);
       await loadOfficerAllocations(editingOfficer.id);
+      await loadData();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Error saving allocation.");
+      const msg = err instanceof Error ? err.message : "Error saving allocation.";
+      setAllocFormError(msg);
+      alert(msg);
     } finally {
       setAllocSubmitting(false);
     }
@@ -358,6 +381,7 @@ export const UsersAdmin: React.FC = () => {
       if (!res.ok) {
         if (res.status === 409) {
           await loadOfficerAllocations(editingOfficer.id);
+          await loadData();
           alert("Revision conflict: Stale allocation revision. Reloaded latest records.");
           return;
         }
@@ -365,6 +389,7 @@ export const UsersAdmin: React.FC = () => {
       }
 
       await loadOfficerAllocations(editingOfficer.id);
+      await loadData();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error revoking allocation.");
     }
@@ -455,7 +480,7 @@ export const UsersAdmin: React.FC = () => {
     }
   };
 
-  // Create Officer
+  // Create Officer (Generated Temporary Credential Only)
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -465,7 +490,7 @@ export const UsersAdmin: React.FC = () => {
       const payload = {
         username: newUsername.trim(),
         displayName: newDisplayName.trim(),
-        password: autoGeneratePassword ? null : (newPassword || null),
+        password: null,
         designationId: newDesignationId || null,
         roleIds: accountOptions?.canAssignRoles ? selectedRoleIds : [],
         workstreamIds: accountOptions?.canManageAllocations ? selectedWorkstreamIds : [],
@@ -496,7 +521,6 @@ export const UsersAdmin: React.FC = () => {
       setShowCreateModal(false);
       setNewUsername("");
       setNewDisplayName("");
-      setNewPassword("");
       setNewDesignationId("");
       setSelectedRoleIds([]);
       setSelectedWorkstreamIds([]);
@@ -1037,6 +1061,13 @@ export const UsersAdmin: React.FC = () => {
                       <h5 style={{ margin: "0 0 10px 0" }}>
                         {editingAllocation ? "Edit Allocation Scope & Dates" : "Assign New Statutory Responsibility"}
                       </h5>
+
+                      {allocFormError && (
+                        <div className="state error" style={{ margin: "0 0 10px 0", background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "8px 12px", borderRadius: "6px", fontSize: "13px" }}>
+                          <strong>Validation Error:</strong> {allocFormError}
+                        </div>
+                      )}
+
                       <form onSubmit={handleSubmitAllocation} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                         <div className="form-group">
                           <label>Work Definition Responsibility *</label>
@@ -1068,13 +1099,13 @@ export const UsersAdmin: React.FC = () => {
                           </div>
 
                           <div className="form-group">
-                            <label>Valid To (Optional - Temporary Allocation)</label>
+                            <label>Valid To (Exclusive - Optional)</label>
                             <input
                               type="date"
                               value={allocValidTo}
                               onChange={(e) => setAllocValidTo(e.target.value)}
                             />
-                            <small style={{ color: "#64748b" }}>Leave blank for permanent / ongoing allocation.</small>
+                            <small style={{ color: "#64748b" }}>Exclusive upper bound. Leave blank for permanent / ongoing allocation.</small>
                           </div>
                         </div>
 
@@ -1263,7 +1294,7 @@ export const UsersAdmin: React.FC = () => {
 
                             <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "12px", color: "#64748b" }}>
                               <span>Order: <strong>{alloc.workOrderReference}</strong></span>
-                              <span>Valid: <strong>{new Date(alloc.validFrom).toLocaleDateString()}</strong> to <strong>{alloc.validTo ? new Date(alloc.validTo).toLocaleDateString() : "Ongoing"}</strong></span>
+                              <span>Valid: <strong>{formatLocalDate(alloc.validFrom)}</strong> to <strong>{alloc.validTo ? `${formatLocalDate(alloc.validTo)} (exclusive)` : "Ongoing"}</strong></span>
                               {alloc.reason && <span>Reason: <em>{alloc.reason}</em></span>}
                             </div>
 
@@ -1402,7 +1433,7 @@ export const UsersAdmin: React.FC = () => {
                       style={{ width: "100%", marginTop: "4px" }}
                     >
                       <option value="">Choose desk...</option>
-                      {desks.filter((d) => d.isActive).map((d) => (
+                      {desks.map((d) => (
                         <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
                       ))}
                     </select>
@@ -1472,25 +1503,11 @@ export const UsersAdmin: React.FC = () => {
                 </select>
               </div>
 
-              <div className="form-group">
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={autoGeneratePassword}
-                    onChange={(e) => setAutoGeneratePassword(e.target.checked)}
-                  />
-                  <span>Auto-generate secure 24-hour temporary credential (Recommended)</span>
-                </label>
-                {!autoGeneratePassword && (
-                  <div style={{ marginTop: "8px" }}>
-                    <PasswordInput
-                      required
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Initial password (min 12 chars)"
-                    />
-                  </div>
-                )}
+              <div className="contract-notice-banner" style={{ margin: "4px 0 8px 0" }}>
+                <strong>Server-Generated Temporary Credential:</strong>
+                <span>
+                  The server will issue a secure 24-hour temporary credential upon creation. The officer must replace it with a personal password of at least 12 characters upon first login before accessing operational modules.
+                </span>
               </div>
 
               {/* Roles */}

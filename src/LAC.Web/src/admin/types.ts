@@ -153,6 +153,8 @@ export interface AccountOptionsResponse {
   designations: Designation[];
   roles: { id: string; code: string; name: string }[];
   works: { id: string; code: string; name: string; kind: WorkKind; workstreamId: string }[];
+  workstreams: { id: string; code: string; name: string }[];
+  desks: { id: string; code: string; name: string; workstreamId: string | null }[];
   districts: { id: string; name: string }[];
   subdivisions: { id: string; name: string; districtId: string }[];
   villages: { id: string; name: string; subDivisionId: string }[];

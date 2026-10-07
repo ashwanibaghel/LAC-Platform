@@ -5,13 +5,360 @@ import type {
   DelegationOptionsResponse,
   AssistantInput,
   AllocationInput,
+  Allocation,
   Designation,
+  AccountOptionsResponse,
 } from "./types";
+import {
+  isoToLocalDateInput,
+  formatLocalDate,
+} from "./dateUtils";
+import { formatScopeLabel, buildChildAllocation } from "./assistantUtils";
+export { formatScopeLabel, buildChildAllocation };
 import "./admin.css";
+
+interface ChildAllocationBuilderProps {
+  parentAllocations: Allocation[];
+  districts?: { id: string; name: string }[];
+  subdivisions?: { id: string; name: string; districtId: string }[];
+  villages?: { id: string; name: string; subDivisionId: string }[];
+  onAddChildAllocation: (child: AllocationInput) => void;
+}
+
+export const ChildAllocationBuilder: React.FC<ChildAllocationBuilderProps> = ({
+  parentAllocations,
+  districts,
+  subdivisions,
+  villages,
+  onAddChildAllocation,
+}) => {
+  const [selectedParentId, setSelectedParentId] = useState<string>(
+    parentAllocations[0]?.id || ""
+  );
+
+  const selectedParent = useMemo(() => {
+    return (
+      parentAllocations.find((a) => a.id === selectedParentId) ||
+      parentAllocations[0] ||
+      null
+    );
+  }, [parentAllocations, selectedParentId]);
+
+  const [selectedScopeIndices, setSelectedScopeIndices] = useState<number[]>([]);
+  const [childValidFrom, setChildValidFrom] = useState<string>("");
+  const [childValidTo, setChildValidTo] = useState<string>("");
+  const [childReason, setChildReason] = useState<string>("");
+  const [builderError, setBuilderError] = useState<string | null>(null);
+
+  // Sync dates when selected parent changes
+  useEffect(() => {
+    if (selectedParent) {
+      setChildValidFrom(isoToLocalDateInput(selectedParent.validFrom));
+      setChildValidTo(
+        selectedParent.validTo ? isoToLocalDateInput(selectedParent.validTo) : ""
+      );
+      setSelectedScopeIndices([]);
+      setBuilderError(null);
+    }
+  }, [selectedParent]);
+
+  if (!selectedParent) {
+    return (
+      <div
+        style={{
+          padding: "10px",
+          background: "#f8fafc",
+          borderRadius: "6px",
+          color: "#64748b",
+          fontSize: "12px",
+        }}
+      >
+        No active supervising officer allocations held to delegate.
+      </div>
+    );
+  }
+
+  const parentFromLocalDate = isoToLocalDateInput(selectedParent.validFrom);
+  const parentToLocalDate = selectedParent.validTo
+    ? isoToLocalDateInput(selectedParent.validTo)
+    : "";
+
+  const handleAdd = () => {
+    setBuilderError(null);
+    const result = buildChildAllocation({
+      parent: selectedParent,
+      selectedScopeIndices,
+      childValidFrom,
+      childValidTo,
+      childReason,
+    });
+
+    if (!result.valid) {
+      setBuilderError(result.error);
+      return;
+    }
+
+    onAddChildAllocation(result.child);
+    setSelectedScopeIndices([]);
+    setChildReason("");
+    setBuilderError(null);
+  };
+
+  return (
+    <div
+      style={{
+        background: "#f1f5f9",
+        padding: "12px",
+        borderRadius: "8px",
+        border: "1px solid #cbd5e1",
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 600,
+          fontSize: "13px",
+          color: "#1e293b",
+          marginBottom: "8px",
+        }}
+      >
+        Bounded Child Allocation Builder
+      </div>
+
+      {builderError && (
+        <div
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#b91c1c",
+            padding: "8px 12px",
+            borderRadius: "6px",
+            fontSize: "12px",
+            marginBottom: "10px",
+          }}
+        >
+          <strong>Validation Error:</strong> {builderError}
+        </div>
+      )}
+
+      {/* 1. Parent Allocation Selection */}
+      <div className="form-group" style={{ marginBottom: "10px" }}>
+        <label style={{ fontSize: "12px", fontWeight: 600 }}>
+          1. Select Supervising Officer Allocation *
+        </label>
+        <select
+          value={selectedParent.id}
+          onChange={(e) => setSelectedParentId(e.target.value)}
+          style={{ width: "100%", padding: "6px 8px" }}
+        >
+          {parentAllocations.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.workName} ({a.workCode}) — Order: {a.workOrderReference} — {a.scopes.length} scope(s)
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 2. Inherited Details */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "8px",
+          background: "#ffffff",
+          padding: "8px 12px",
+          borderRadius: "6px",
+          border: "1px solid #e2e8f0",
+          marginBottom: "10px",
+          fontSize: "12px",
+        }}
+      >
+        <div>
+          <span style={{ color: "#64748b" }}>Work Definition (Inherited):</span>
+          <div style={{ fontWeight: 600 }}>
+            {selectedParent.workName} ({selectedParent.workCode})
+          </div>
+        </div>
+        <div>
+          <span style={{ color: "#64748b" }}>Work Order (Inherited):</span>
+          <div style={{ fontWeight: 600 }}>{selectedParent.workOrderReference}</div>
+        </div>
+        <div
+          style={{
+            gridColumn: "1 / -1",
+            borderTop: "1px solid #f1f5f9",
+            paddingTop: "4px",
+          }}
+        >
+          <span style={{ color: "#64748b" }}>Supervisor Interval: </span>
+          <strong>{formatLocalDate(selectedParent.validFrom)}</strong> to{" "}
+          <strong>
+            {selectedParent.validTo
+              ? `${formatLocalDate(selectedParent.validTo)} (exclusive)`
+              : "Ongoing (unbounded)"}
+          </strong>
+        </div>
+      </div>
+
+      {/* 3. Permitted Scopes Selection */}
+      <div className="form-group" style={{ marginBottom: "10px" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "4px",
+          }}
+        >
+          <label style={{ fontSize: "12px", fontWeight: 600, margin: 0 }}>
+            2. Choose Scopes from Parent Allocation ({selectedScopeIndices.length} selected) *
+          </label>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button
+              type="button"
+              className="quiet-button"
+              style={{ fontSize: "11px", padding: "2px 6px" }}
+              onClick={() =>
+                setSelectedScopeIndices(selectedParent.scopes.map((_, i) => i))
+              }
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              className="quiet-button"
+              style={{ fontSize: "11px", padding: "2px 6px" }}
+              onClick={() => setSelectedScopeIndices([])}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid #cbd5e1",
+            borderRadius: "6px",
+            padding: "8px",
+            maxHeight: "110px",
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
+            gap: "6px",
+          }}
+        >
+          {selectedParent.scopes.map((s, idx) => {
+            const isChecked = selectedScopeIndices.includes(idx);
+            return (
+              <label
+                key={idx}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                  fontSize: "12.5px",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={(e) => {
+                    if (e.target.checked)
+                      setSelectedScopeIndices((prev) => [...prev, idx]);
+                    else
+                      setSelectedScopeIndices((prev) =>
+                        prev.filter((i) => i !== idx)
+                      );
+                  }}
+                />
+                <span>{formatScopeLabel(s, districts, subdivisions, villages)}</span>
+              </label>
+            );
+          })}
+          {selectedParent.scopes.length === 0 && (
+            <span style={{ color: "#b91c1c", fontSize: "12px" }}>
+              Parent has no scopes registered.
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 4. Dates Interval */}
+      <div
+        className="form-row"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "10px",
+          marginBottom: "10px",
+        }}
+      >
+        <div className="form-group">
+          <label style={{ fontSize: "12px", fontWeight: 600 }}>
+            Valid From (inclusive) *
+          </label>
+          <input
+            type="date"
+            required
+            value={childValidFrom}
+            min={parentFromLocalDate}
+            max={parentToLocalDate || undefined}
+            onChange={(e) => setChildValidFrom(e.target.value)}
+            style={{ width: "100%", padding: "5px 8px" }}
+          />
+          <small style={{ color: "#64748b", fontSize: "11px" }}>
+            Min: {parentFromLocalDate}
+          </small>
+        </div>
+
+        <div className="form-group">
+          <label style={{ fontSize: "12px", fontWeight: 600 }}>
+            Valid To (exclusive) {selectedParent.validTo ? "*" : "(optional)"}
+          </label>
+          <input
+            type="date"
+            value={childValidTo}
+            min={childValidFrom || parentFromLocalDate}
+            max={parentToLocalDate || undefined}
+            onChange={(e) => setChildValidTo(e.target.value)}
+            style={{ width: "100%", padding: "5px 8px" }}
+          />
+          <small style={{ color: "#64748b", fontSize: "11px" }}>
+            {parentToLocalDate ? `Max: ${parentToLocalDate}` : "Unbounded"}
+          </small>
+        </div>
+      </div>
+
+      {/* 5. Reason */}
+      <div className="form-group" style={{ marginBottom: "12px" }}>
+        <label style={{ fontSize: "12px", fontWeight: 600 }}>
+          Delegation Note / Reason
+        </label>
+        <input
+          type="text"
+          placeholder={`Delegated ${selectedParent.workName} responsibility`}
+          value={childReason}
+          onChange={(e) => setChildReason(e.target.value)}
+          style={{ width: "100%", padding: "5px 8px" }}
+        />
+      </div>
+
+      <button
+        type="button"
+        className="secondary-button"
+        style={{ padding: "6px 12px", fontSize: "12px", fontWeight: 600 }}
+        onClick={handleAdd}
+      >
+        + Add Delegated Child Allocation
+      </button>
+    </div>
+  );
+};
 
 export const OfficerAssistantAdmin: React.FC = () => {
   const [assistants, setAssistants] = useState<OfficerAssistantSummary[]>([]);
   const [delegationOptions, setDelegationOptions] = useState<DelegationOptionsResponse | null>(null);
+  const [accountOptions, setAccountOptions] = useState<AccountOptionsResponse | null>(null);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,17 +401,14 @@ export const OfficerAssistantAdmin: React.FC = () => {
   const [credentialAcknowledged, setCredentialAcknowledged] = useState(false);
   const [copiedNotice, setCopiedNotice] = useState(false);
 
-  // Child Allocation Builder State
-  const [builderParentAllocationId, setBuilderParentAllocationId] = useState("");
-
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [asstRes, optRes, desigRes] = await Promise.all([
+      const [asstRes, optRes, accountOptRes] = await Promise.all([
         fetch("/api/officers/me/assistants", { credentials: "include" }),
         fetch("/api/officers/me/assistants/delegation-options", { credentials: "include" }),
-        fetch("/api/admin/designations", { credentials: "include" }),
+        fetch("/api/admin/account-options", { credentials: "include" }),
       ]);
 
       if (!asstRes.ok) {
@@ -79,21 +423,19 @@ export const OfficerAssistantAdmin: React.FC = () => {
       if (optRes.ok) {
         const optData = (await optRes.json()) as DelegationOptionsResponse;
         setDelegationOptions(optData);
-        if (optData.allocations.length > 0 && !builderParentAllocationId) {
-          setBuilderParentAllocationId(optData.allocations[0].id);
-        }
       }
 
-      if (desigRes.ok) {
-        const desigData = (await desigRes.json()) as Designation[];
-        setDesignations(desigData);
+      if (accountOptRes.ok) {
+        const accountOptData = (await accountOptRes.json()) as AccountOptionsResponse;
+        setAccountOptions(accountOptData);
+        setDesignations(accountOptData.designations || []);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load assistant data.");
     } finally {
       setLoading(false);
     }
-  }, [builderParentAllocationId]);
+  }, []);
 
   useEffect(() => {
     void loadData();
@@ -130,31 +472,6 @@ export const OfficerAssistantAdmin: React.FC = () => {
     setCreateAllocations([]);
     setCreateError(null);
     setShowCreateModal(true);
-  };
-
-  const handleAddChildAllocation = (
-    isEdit: boolean,
-    parentAllocationId: string
-  ) => {
-    if (!delegationOptions || !parentAllocationId) return;
-    const parent = delegationOptions.allocations.find((a) => a.id === parentAllocationId);
-    if (!parent) return;
-
-    const childInput: AllocationInput = {
-      workDefinitionId: parent.workDefinitionId,
-      validFrom: parent.validFrom,
-      validTo: parent.validTo,
-      workOrderReference: parent.workOrderReference,
-      reason: `Delegated from ${parent.workName} (${parent.workOrderReference})`,
-      scopes: parent.scopes,
-      delegatedFromAllocationId: parent.id,
-    };
-
-    if (isEdit) {
-      setEditAllocations((prev) => [...prev, childInput]);
-    } else {
-      setCreateAllocations((prev) => [...prev, childInput]);
-    }
   };
 
   const handleCreateAssistant = async (e: React.FormEvent) => {
@@ -682,8 +999,11 @@ export const OfficerAssistantAdmin: React.FC = () => {
                         <div key={idx} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
                             <strong>{parent?.workName || "Work Allocation"}</strong>
+                            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                              Order: <strong>{alloc.workOrderReference}</strong> | Scopes: {alloc.scopes.map((s) => formatScopeLabel(s, accountOptions?.districts, accountOptions?.subdivisions, accountOptions?.villages)).join(", ")}
+                            </div>
                             <div style={{ fontSize: "11px", color: "#64748b" }}>
-                              Order: {alloc.workOrderReference} | Scopes: {alloc.scopes.map((s) => s.kind).join(", ")}
+                              Valid: {formatLocalDate(alloc.validFrom)} to {alloc.validTo ? `${formatLocalDate(alloc.validTo)} (exclusive)` : "Ongoing"}
                             </div>
                           </div>
                           <button
@@ -700,35 +1020,13 @@ export const OfficerAssistantAdmin: React.FC = () => {
                   </div>
                 )}
 
-                {delegationOptions && delegationOptions.allocations.length > 0 && (
-                  <div style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ fontWeight: 600, fontSize: "12px", color: "#334155" }}>Add Delegated Work Allocation:</div>
-                    <select
-                      value={builderParentAllocationId}
-                      onChange={(e) => setBuilderParentAllocationId(e.target.value)}
-                    >
-                      {delegationOptions.allocations.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.workName} (Ref: {a.workOrderReference}) - {a.scopes.map((s) => s.kind).join(", ")}
-                        </option>
-                      ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      style={{ alignSelf: "flex-start", padding: "4px 10px", fontSize: "12px" }}
-                      onClick={() =>
-                        handleAddChildAllocation(
-                          false,
-                          builderParentAllocationId
-                        )
-                      }
-                    >
-                      + Delegate Selected Allocation
-                    </button>
-                  </div>
-                )}
+                <ChildAllocationBuilder
+                  parentAllocations={delegationOptions?.allocations || []}
+                  districts={accountOptions?.districts}
+                  subdivisions={accountOptions?.subdivisions}
+                  villages={accountOptions?.villages}
+                  onAddChildAllocation={(child) => setCreateAllocations((prev) => [...prev, child])}
+                />
               </div>
 
               <div className="contract-notice-banner" style={{ margin: "4px 0" }}>
@@ -868,8 +1166,11 @@ export const OfficerAssistantAdmin: React.FC = () => {
                         <div key={idx} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
                             <strong>{parent?.workName || "Work Allocation"}</strong>
+                            <div style={{ fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
+                              Order: <strong>{alloc.workOrderReference}</strong> | Scopes: {alloc.scopes.map((s) => formatScopeLabel(s, accountOptions?.districts, accountOptions?.subdivisions, accountOptions?.villages)).join(", ")}
+                            </div>
                             <div style={{ fontSize: "11px", color: "#64748b" }}>
-                              Order: {alloc.workOrderReference} | Scopes: {alloc.scopes.map((s) => s.kind).join(", ")}
+                              Valid: {formatLocalDate(alloc.validFrom)} to {alloc.validTo ? `${formatLocalDate(alloc.validTo)} (exclusive)` : "Ongoing"}
                             </div>
                           </div>
                           <button
@@ -886,35 +1187,13 @@ export const OfficerAssistantAdmin: React.FC = () => {
                   </div>
                 )}
 
-                {delegationOptions && delegationOptions.allocations.length > 0 && (
-                  <div style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ fontWeight: 600, fontSize: "12px", color: "#334155" }}>Add Delegated Work Allocation:</div>
-                    <select
-                      value={builderParentAllocationId}
-                      onChange={(e) => setBuilderParentAllocationId(e.target.value)}
-                    >
-                      {delegationOptions.allocations.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.workName} (Ref: {a.workOrderReference}) - {a.scopes.map((s) => s.kind).join(", ")}
-                        </option>
-                      ))}
-                    </select>
-
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      style={{ alignSelf: "flex-start", padding: "4px 10px", fontSize: "12px" }}
-                      onClick={() =>
-                        handleAddChildAllocation(
-                          true,
-                          builderParentAllocationId
-                        )
-                      }
-                    >
-                      + Delegate Selected Allocation
-                    </button>
-                  </div>
-                )}
+                <ChildAllocationBuilder
+                  parentAllocations={delegationOptions?.allocations || []}
+                  districts={accountOptions?.districts}
+                  subdivisions={accountOptions?.subdivisions}
+                  villages={accountOptions?.villages}
+                  onAddChildAllocation={(child) => setEditAllocations((prev) => [...prev, child])}
+                />
               </div>
 
               <div className="modal-actions" style={{ marginTop: "10px" }}>
