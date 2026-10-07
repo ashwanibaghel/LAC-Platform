@@ -80,7 +80,12 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
             { code: "Dak.View", scope: "Global" },
             { code: "Dak.Register", scope: "Global" },
             { code: "Dak.Edit", scope: "Global" },
+            { code: "Dak.Mark", scope: "Global" },
             { code: "Dak.Move", scope: "Global" },
+            { code: "Dak.Receive", scope: "Global" },
+            { code: "Dak.PullBack", scope: "Global" },
+            { code: "Dak.Resolve", scope: "Global" },
+            { code: "Dak.Reopen", scope: "Global" },
             { code: "Dak.Dispose", scope: "Global" },
             { code: "Dak.Cancel", scope: "Global" },
             { code: "WorkItem.Create", scope: "Global" }
@@ -160,6 +165,14 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
         body: JSON.stringify({ items: [] })
       });
     });
+
+    await page.route("**/api/dak/*/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [] })
+      });
+    });
   };
 
   const createSampleDak = (overrides = {}) => ({
@@ -172,6 +185,10 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
     priority: "Routine",
     status: "Registered",
     revision: 1,
+    routingState: "Unassigned",
+    physicalState: "Unknown",
+    processingCycle: 1,
+    needsAttention: false,
     attachments: [],
     villageLinks: [],
     awardLinks: [],
@@ -590,11 +607,11 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
 
     const editBtn = await page.locator("button:has-text('Edit Details')").isVisible();
     const custodyBtn = await page.locator("button:has-text('Update Physical Location')").isVisible();
-    const moveBtn = await page.locator("button:has-text('Mark to Desk')").isVisible();
+    const moveBtn = await page.locator("button:has-text('Mark to')").isVisible();
 
     assert.ok(editBtn, "Edit Details button must be visible for active Dak with Dak.Edit permission.");
     assert.ok(custodyBtn, "Update Physical Location button must be visible for active Dak with Dak.Edit permission.");
-    assert.ok(moveBtn, "Mark to Desk button must be visible for active Dak with Dak.Move permission.");
+    assert.ok(moveBtn, "Mark to button must be visible for active Dak with Dak.Mark permission.");
 
     await context.close();
   });
@@ -621,11 +638,11 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
 
     const editBtn = await page.locator("button:has-text('Edit Details')").isVisible();
     const custodyBtn = await page.locator("button:has-text('Update Physical Location')").isVisible();
-    const moveBtn = await page.locator("button:has-text('Mark to Desk')").isVisible();
+    const moveBtn = await page.locator("button:has-text('Mark to')").isVisible();
 
     assert.equal(editBtn, false, "Edit Details button must be absent for terminal Disposed Dak.");
     assert.equal(custodyBtn, false, "Update Physical Location button must be absent for terminal Disposed Dak.");
-    assert.equal(moveBtn, false, "Mark to Desk button must be absent for terminal Disposed Dak.");
+    assert.equal(moveBtn, false, "Mark to button must be absent for terminal Disposed Dak.");
 
     await context.close();
   });
@@ -907,6 +924,1414 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
 
     // Close Dak B modal
     await page.click(".modal-card button:has-text('Cancel')");
+
+    await context.close();
+  });
+
+  test("12. Detail response without fake pendingTransfer, loading GET /transfers", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-1",
+          pendingReceiverUserId: "user-nt-1"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-1",
+              senderUserId: "user-sender-9",
+              toUserId: "user-nt-1",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              instructions: "Examine file thoroughly"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const inTransitPill = await page.locator(".badge-warning:has-text('In Transit')").isVisible();
+    assert.ok(inTransitPill, "In Transit pill must be visible from GET /transfers active item.");
+
+    const instructionsText = await page.locator(".hero-instructions-callout").textContent();
+    assert.ok(instructionsText.includes("Examine file thoroughly"), "Instructions from active transfer must be displayed.");
+
+    await context.close();
+  });
+
+  test("13. Strict ID-based recipient receives, non-matching recipient blocked", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: User user-nt-1 matches toUserId
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-2",
+          pendingReceiverUserId: "user-nt-1"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-2",
+              senderUserId: "user-other-sender",
+              toUserId: "user-nt-1",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const receiveBtnMatch = await page.locator("button:has-text('Receive Dak')").isVisible();
+    assert.ok(receiveBtnMatch, "Receive Dak button must be visible when currentUser.id matches toUserId.");
+
+    // Case B: Non-matching recipient (e.g. toUserId is user-different)
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-2",
+              senderUserId: "user-other-sender",
+              toUserId: "user-different-nominee",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const receiveBtnNonMatch = await page.locator("button:has-text('Receive Dak')").isVisible();
+    assert.equal(receiveBtnNonMatch, false, "Receive Dak button must NOT be visible when user is not nominated recipient.");
+
+    await context.close();
+  });
+
+  test("14. Strict ID-based sender can pull back, non-matching sender blocked", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: User user-nt-1 matches senderUserId
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-3",
+          pendingReceiverUserId: "user-recipient-4"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-3",
+              senderUserId: "user-nt-1",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const pullBackBtnMatch = await page.locator("button:has-text('Pull Back Dak')").isVisible();
+    assert.ok(pullBackBtnMatch, "Pull Back button must be visible when currentUser.id matches senderUserId.");
+
+    // Case B: Non-matching sender (senderUserId is different)
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-3",
+              senderUserId: "user-original-sender-other",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const pullBackBtnNonMatch = await page.locator("button:has-text('Pull Back Dak')").isVisible();
+    assert.equal(pullBackBtnNonMatch, false, "Pull Back button must NOT be visible when user is not the dispatch sender.");
+
+    await context.close();
+  });
+
+  test("15. Third party gets neither Receive nor Pull Back", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-4",
+          pendingReceiverUserId: "user-recipient-4"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-4",
+              senderUserId: "user-sender-9",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const receiveBtn = await page.locator("button:has-text('Receive Dak')").isVisible();
+    const pullBackBtn = await page.locator("button:has-text('Pull Back Dak')").isVisible();
+    const awaitingBanner = await page.locator("text=Awaiting receipt confirmation").isVisible();
+
+    assert.equal(receiveBtn, false, "Third party must not see Receive button.");
+    assert.equal(pullBackBtn, false, "Third party must not see Pull Back button.");
+    assert.ok(awaitingBanner, "Third party must see awaiting receipt confirmation note.");
+
+    await context.close();
+  });
+
+  test("16. Initial Mark requires Dak.Mark only (Dak.Move cannot substitute)", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // User has Dak.Move but NOT Dak.Mark
+    await page.route("**/api/auth/me", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "user-nt-1",
+          displayName: "Ashwani Baghel",
+          roles: ["Officer"],
+          permissions: [
+            { code: "Dak.View", scope: "Global" },
+            { code: "Dak.Move", scope: "Global" } // Dak.Move only, no Dak.Mark
+          ]
+        })
+      });
+    });
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "Registered",
+          routingState: "Unassigned"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/*/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const markBtnNoMarkPerm = await page.locator("button:has-text('Mark to')").isVisible();
+    assert.equal(markBtnNoMarkPerm, false, "Dak.Move must NOT substitute for Dak.Mark on unassigned intake.");
+
+    await context.close();
+  });
+
+  test("17. Forward/Return requires confirmed holder + Dak.Move", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: User is confirmed holder (user-nt-1)
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "WithHolder",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            assignedByDisplayName: "Dispatch Officer",
+            assignedAt: "2026-10-06T10:30:00Z",
+            isActive: true,
+            isDeskActive: true,
+            isUserEligible: true,
+            needsAttention: false,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const forwardBtn = await page.locator("button:has-text('Send / Forward to Next Officer')").isVisible();
+    assert.ok(forwardBtn, "Send / Forward button must be visible for confirmed received holder.");
+
+    // Case B: User is NOT the confirmed holder
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "WithHolder",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-other-holder",
+            assignedUserDisplayName: "Rajesh Verma",
+            assignedByDisplayName: "Dispatch Officer",
+            assignedAt: "2026-10-06T10:30:00Z",
+            isActive: true,
+            isDeskActive: true,
+            isUserEligible: true,
+            needsAttention: false,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const forwardBtnOther = await page.locator("button:has-text('Send / Forward to Next Officer')").isVisible();
+    assert.equal(forwardBtnOther, false, "Non-holder cannot see Send / Forward button.");
+
+    await context.close();
+  });
+
+  test("18. Resolve requires confirmed holder + Dak.Resolve only (Dak.Dispose cannot substitute)", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // User has Dak.Dispose only (no Dak.Resolve)
+    await page.route("**/api/auth/me", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "user-nt-1",
+          displayName: "Ashwani Baghel",
+          roles: ["Officer"],
+          permissions: [
+            { code: "Dak.View", scope: "Global" },
+            { code: "Dak.Dispose", scope: "Global" } // Dak.Dispose only, no Dak.Resolve
+          ]
+        })
+      });
+    });
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "WithHolder",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            assignedByDisplayName: "Dispatch",
+            assignedAt: "2026-10-06T10:30:00Z",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/*/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const resolveBtnNoResolve = await page.locator("button:has-text('Resolve Dak')").isVisible();
+    assert.equal(resolveBtnNoResolve, false, "Dak.Dispose must NOT substitute for Dak.Resolve.");
+
+    await context.close();
+  });
+
+  test("19. Reopen requires Resolved status + Dak.Reopen (Supervisor does not become holder)", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: Disposed + Dak.Reopen => NO Reopen button
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "Disposed",
+          routingState: "WithHolder",
+          resolvedAt: "2026-10-06T14:30:00Z",
+          resolvedByUserId: "user-nt-1",
+          resolutionRemarks: "Historical disposed record"
+        }))
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const reopenBtnDisposed = await page.locator("button:has-text('Reopen Dak')").isVisible();
+    assert.strictEqual(reopenBtnDisposed, false, "Disposed + Dak.Reopen must NOT show Reopen button.");
+
+    // Case B: Resolved + Dak.Reopen => Reopen button visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "Resolved",
+          routingState: "WithHolder",
+          resolvedAt: "2026-10-06T14:30:00Z",
+          resolvedByUserId: "user-nt-1",
+          resolutionRemarks: "Completed all official scrutiny"
+        }))
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const reopenBtnResolved = await page.locator("button:has-text('Reopen Dak')").isVisible();
+    assert.ok(reopenBtnResolved, "Reopen Dak button must be visible for active Resolved record with Dak.Reopen.");
+
+    await context.close();
+  });
+
+  test("20. ReturnPending allows only sender with Dak.PullBack to confirm physical return", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: User is sender of the pulled-back transfer
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-1",
+              senderUserId: "user-nt-1",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Wrong recipient dispatched",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const returnBtnMatch = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.ok(returnBtnMatch, "Confirm Physical Return button must be visible for sender of pulled-back transfer.");
+
+    // Case B: User is NOT the sender
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-1",
+              senderUserId: "user-other-sender",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Wrong recipient dispatched",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const returnBtnNonSender = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.equal(returnBtnNonSender, false, "Confirm Physical Return button must NOT be visible for non-sender.");
+
+    await context.close();
+  });
+
+  test("21. Physical receipt checkbox required and sent ONLY when includesPhysicalOriginal === true", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: includesPhysicalOriginal is TRUE
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-phys-1",
+          pendingReceiverUserId: "user-nt-1"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-phys-1",
+              senderUserId: "user-sender-9",
+              toUserId: "user-nt-1",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Receive Dak')");
+    await page.waitForSelector(".modal-card:has-text('Acknowledge Receipt')");
+
+    const checkboxPhysicalTrue = await page.locator(".modal-card input[type='checkbox']").isVisible();
+    assert.ok(checkboxPhysicalTrue, "Physical receipt checkbox must be rendered when dispatch includes physical file.");
+
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // Case B: includesPhysicalOriginal is FALSE
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-phys-1",
+              senderUserId: "user-sender-9",
+              toUserId: "user-nt-1",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Receive Dak')");
+    await page.waitForSelector(".modal-card:has-text('Acknowledge Receipt')");
+
+    const checkboxPhysicalFalse = await page.locator(".modal-card input[type='checkbox']").isVisible();
+    assert.equal(checkboxPhysicalFalse, false, "Physical receipt checkbox must NOT be rendered when dispatch is digital-only.");
+
+    await page.click(".modal-card button:has-text('Cancel')");
+    await context.close();
+  });
+
+  test("22. Mark vs Forward options distinct based on custody state", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: Fresh intake -> modal must only offer Marked
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "Registered",
+          routingState: "Unassigned"
+        }))
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Mark to Officer / Desk')");
+    await page.waitForSelector(".modal-card:has-text('Initial Mark')");
+
+    const markSelectText = await page.locator(".modal-card select >> nth=0").textContent();
+    assert.ok(markSelectText.includes("Mark to Desk"), "Initial mark modal must offer Mark action.");
+    assert.equal(markSelectText.includes("Forward / Send"), false, "Initial mark modal must NOT offer Forward action.");
+
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // Case B: Confirmed holder -> modal must offer Forwarded and Returned (not Marked)
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "WithHolder",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            assignedByDisplayName: "Dispatch",
+            assignedAt: "2026-10-06T10:30:00Z",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Send / Forward to Next Officer')");
+    await page.waitForSelector(".modal-card:has-text('Send / Forward to Next Officer')");
+
+    const holderSelectText = await page.locator(".modal-card select >> nth=0").textContent();
+    assert.ok(holderSelectText.includes("Forward / Send"), "Holder movement modal must offer Forward.");
+    assert.ok(holderSelectText.includes("Return to Officer"), "Holder movement modal must offer Return.");
+    assert.equal(holderSelectText.includes("Mark to Desk & Officer (Initial)"), false, "Holder movement modal must NOT offer Initial Mark.");
+
+    await page.click(".modal-card button:has-text('Cancel')");
+    await context.close();
+  });
+
+  test("23. Timeline renders action types with transferId and eventVersion", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({ id: "dak-101" }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/timeline", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "mov-1",
+            sequenceNumber: 1,
+            action: "Registered",
+            actionByUserId: "user-nt-1",
+            actionByDisplayName: "Ashwani Baghel",
+            actionAt: "2026-10-06T10:00:00Z",
+            eventVersion: 1
+          },
+          {
+            id: "mov-2",
+            sequenceNumber: 2,
+            action: "Marked",
+            fromDeskName: "Central Dispatch",
+            toDeskName: "Naib Tehsildar Desk",
+            toUserDisplayName: "Ashwani Baghel",
+            actionByUserId: "user-dispatch",
+            actionByDisplayName: "Dispatch Officer",
+            actionAt: "2026-10-06T10:15:00Z",
+            transferId: "tr-98765432-1111",
+            eventVersion: 2,
+            instructions: "Process urgently"
+          },
+          {
+            id: "mov-3",
+            sequenceNumber: 3,
+            action: "Received",
+            toDeskName: "Naib Tehsildar Desk",
+            toUserDisplayName: "Ashwani Baghel",
+            actionByUserId: "user-nt-1",
+            actionByDisplayName: "Ashwani Baghel",
+            actionAt: "2026-10-06T10:30:00Z",
+            transferId: "tr-98765432-1111",
+            eventVersion: 3
+          },
+          {
+            id: "mov-4",
+            sequenceNumber: 4,
+            action: "Resolved",
+            actionByUserId: "user-nt-1",
+            actionByDisplayName: "Ashwani Baghel",
+            actionAt: "2026-10-06T14:00:00Z",
+            eventVersion: 4,
+            remarks: "Scrutiny completed per award provisions",
+            stateChanges: {
+              completionAttested: true
+            }
+          }
+        ])
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Movement Timeline')");
+    await page.waitForSelector(".timeline");
+
+    const timelineText = await page.locator(".timeline").textContent();
+    assert.ok(timelineText.includes("Registered"), "Timeline must contain Registered.");
+    assert.ok(timelineText.includes("Marked"), "Timeline must contain Marked.");
+    assert.ok(timelineText.includes("Received"), "Timeline must contain Received.");
+    assert.ok(timelineText.includes("Resolved"), "Timeline must contain Resolved.");
+    assert.ok(timelineText.includes("v2"), "Timeline must display event version badge.");
+    assert.ok(timelineText.includes("Tr: tr-9876"), "Timeline must display transfer reference.");
+    assert.ok(timelineText.includes("Completion Attested"), "Timeline must render completion attestation from stateChanges.");
+
+    await context.close();
+  });
+
+  test("24. Explicit resolution attestation defaults false and blocks submission until checked", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "WithHolder",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            assignedByDisplayName: "Dispatch Officer",
+            assignedAt: "2026-10-06T10:30:00Z",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/*/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    let resolvePayload = null;
+    await page.route("**/api/dak/dak-101/resolve", async (route) => {
+      resolvePayload = JSON.parse(route.request().postData());
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    await page.click("button:has-text('Resolve Dak')");
+    await page.waitForSelector(".modal-card");
+
+    const submitBtn = page.locator(".modal-card button[type='submit']");
+    const checkbox = page.locator(".modal-card input[type='checkbox']");
+
+    // 1. Initial state: completionAttested must be false (unchecked)
+    const isCheckedInitial = await checkbox.isChecked();
+    assert.strictEqual(isCheckedInitial, false, "completionAttested must default to false");
+
+    // 2. Button is disabled because remarks empty and attestation unchecked
+    assert.strictEqual(await submitBtn.isDisabled(), true, "Submit button must be disabled initially");
+
+    // 3. Fill remarks, but keep attestation unchecked => submit button must still be disabled
+    await page.fill(".modal-card textarea", "All necessary proceedings completed and placed on file.");
+    assert.strictEqual(await submitBtn.isDisabled(), true, "Submit button must remain disabled when attestation is unchecked");
+
+    // 4. Tick attestation checkbox => submit button becomes enabled
+    await checkbox.check();
+    assert.strictEqual(await submitBtn.isDisabled(), false, "Submit button must become enabled when attestation is checked and remarks non-empty");
+
+    // 5. Submit resolution
+    await submitBtn.click();
+    await page.waitForTimeout(300);
+
+    assert.ok(resolvePayload, "POST /api/dak/dak-101/resolve must be called upon valid submit");
+    assert.strictEqual(resolvePayload.completionAttested, true, "resolve payload must include completionAttested === true");
+    assert.strictEqual(resolvePayload.remarks, "All necessary proceedings completed and placed on file.");
+
+    await context.close();
+  });
+
+  test("25. InTransit Receive waits for authoritative transfer loading and fails closed on error", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-5",
+          pendingReceiverUserId: "user-nt-1"
+        }))
+      });
+    });
+
+    // Case A: /transfers is delayed; Receive must NOT be visible while loading
+    let resolveTransfersPromise;
+    const transfersPromise = new Promise((resolve) => {
+      resolveTransfersPromise = resolve;
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", async (route) => {
+      await transfersPromise;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-5",
+              senderUserId: "user-dispatch",
+              toUserId: "user-nt-1",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`);
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // While transfers have not resolved:
+    const receiveBtnPending = await page.locator("button:has-text('Receive Dak')").isVisible();
+    assert.strictEqual(receiveBtnPending, false, "Receive button must NOT be exposed before authoritative transfer resolves");
+
+    const loadingNotice = await page.locator(".transfer-loading-notice").isVisible();
+    assert.ok(loadingNotice, "Transfer loading notice must be visible while transfer details are fetching");
+
+    // Now resolve transfers
+    resolveTransfersPromise();
+    await page.waitForSelector("button:has-text('Receive Dak')");
+    const receiveBtnAfter = await page.locator("button:has-text('Receive Dak')").isVisible();
+    assert.ok(receiveBtnAfter, "Receive Dak button must appear once authoritative transfer arrives");
+
+    // Case B: /transfers fails with HTTP 500 => error notice shown, no Receive button
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Failed" }) });
+    });
+
+    await page.reload();
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const errorNotice = await page.locator(".transfer-error-notice").textContent();
+    assert.ok(errorNotice.includes("Transfer details could not be loaded; refresh before acting"), "Must show error notice when transfer fetch fails");
+
+    const receiveBtnError = await page.locator("button:has-text('Receive Dak')").isVisible();
+    assert.strictEqual(receiveBtnError, false, "Receive button must NOT be exposed when transfer fetch fails");
+
+    await context.close();
+  });
+
+  test("26. Cancel button is hidden during unsettled InTransit or ReturnPending states", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: routingState === InTransit with Dak.Cancel => Cancel button must NOT appear
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          pendingTransferId: "tr-test-6",
+          pendingReceiverUserId: "user-other"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-6",
+              senderUserId: "user-nt-1",
+              toUserId: "user-other",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: false,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const cancelBtnInTransit = await page.locator("button:has-text('Cancel Entry')").isVisible();
+    assert.strictEqual(cancelBtnInTransit, false, "Cancel Entry must NOT appear when Dak is InTransit");
+
+    // Case B: physicalState === ReturnPending with Dak.Cancel => Cancel button must NOT appear
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const cancelBtnReturnPending = await page.locator("button:has-text('Cancel Entry')").isVisible();
+    assert.strictEqual(cancelBtnReturnPending, false, "Cancel Entry must NOT appear when Dak is ReturnPending");
+
+    // Case C: Settled WithHolder with Dak.Cancel => Cancel button IS visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "AtRecordedLocation",
+          currentAssignment: {
+            id: "asg-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const cancelBtnSettled = await page.locator("button:has-text('Cancel Entry')").isVisible();
+    assert.ok(cancelBtnSettled, "Cancel Entry must be visible for settled record with Dak.Cancel");
+
+    await context.close();
+  });
+
+  test("27. LegacyUnconfirmed desk-only row requires Dak.Mark, selects Marked only (no Forwarded)", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    // Case A: User has Dak.Mark
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          status: "InProcess",
+          routingState: "LegacyUnconfirmed",
+          currentAssignment: {
+            id: "asg-legacy-1",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: null,
+            assignedUserDisplayName: null,
+            assignedByDisplayName: "Old System",
+            assignedAt: "2026-09-01T10:00:00Z",
+            isActive: true,
+            isConfirmed: false,
+            receivedAt: null
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const markBtn = await page.locator("button:has-text('Mark to Officer / Desk ➔')").isVisible();
+    assert.ok(markBtn, "Mark to Officer / Desk must be visible for LegacyUnconfirmed desk-only row with Dak.Mark");
+
+    // Click Mark to Officer / Desk and verify modal
+    await page.click("button:has-text('Mark to Officer / Desk ➔')");
+    await page.waitForSelector(".modal-card");
+
+    const actionSelect = page.locator(".modal-card select").first();
+    const actionOptions = await actionSelect.locator("option").allTextContents();
+    assert.ok(actionOptions.some(opt => opt.includes("Mark to Desk & Officer")), "Modal must contain Marked option");
+    assert.strictEqual(actionOptions.some(opt => opt.includes("Forward")), false, "Modal must NOT contain Forwarded option for initial mark");
+
+    await page.click(".modal-card button:has-text('Cancel')");
+
+    // Case B: User has Dak.Move only (NO Dak.Mark) => cannot mark
+    await page.route("**/api/auth/me", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "user-nt-1",
+          displayName: "Ashwani Baghel",
+          roles: ["Officer"],
+          permissions: [
+            { code: "Dak.View", scope: "Global" },
+            { code: "Dak.Move", scope: "Global" } // Dak.Move only, no Dak.Mark
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const markBtnNoMarkPerm = await page.locator("button:has-text('Mark to Officer / Desk ➔')").isVisible();
+    assert.strictEqual(markBtnNoMarkPerm, false, "Dak.Move alone cannot substitute for Dak.Mark on LegacyUnconfirmed row");
+
+    await context.close();
+  });
+
+  test("28. ReturnPending fails closed on transfer load and error, becoming actionable only when authoritative transfer arrives", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending"
+        }))
+      });
+    });
+
+    // Case A: /transfers is delayed; Confirm Physical Return must NOT be visible while loading
+    let resolveTransfersPromise;
+    const transfersPromise = new Promise((resolve) => {
+      resolveTransfersPromise = resolve;
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", async (route) => {
+      await transfersPromise;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-10",
+              senderUserId: "user-nt-1",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Wrong recipient",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`);
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // While transfers have not resolved:
+    const returnBtnPending = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.strictEqual(returnBtnPending, false, "Confirm Physical Return button must NOT be exposed before authoritative transfer resolves");
+
+    const loadingNotice = await page.locator(".transfer-loading-notice").isVisible();
+    assert.ok(loadingNotice, "Transfer loading notice must be visible while transfer details are fetching for ReturnPending");
+
+    // Now resolve transfers
+    resolveTransfersPromise();
+    await page.waitForSelector("button:has-text('Confirm Physical Return')");
+    const returnBtnAfter = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.ok(returnBtnAfter, "Confirm Physical Return button must appear once authoritative transfer arrives for sender");
+
+    // Case B: /transfers fails with HTTP 500 => error notice shown, no Confirm Physical Return button
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Failed" }) });
+    });
+
+    await page.reload();
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const errorNotice = await page.locator(".transfer-error-notice").textContent();
+    assert.ok(errorNotice.includes("Transfer details could not be loaded; refresh before acting"), "Must show error notice when transfer fetch fails in ReturnPending");
+
+    const returnBtnError = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.strictEqual(returnBtnError, false, "Confirm Physical Return button must NOT be exposed when transfer fetch fails");
+
+    await context.close();
+  });
+
+  test("29. Physical observation Update Physical Location button is hidden in InTransit and ReturnPending, but visible when settled", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: dak.physicalState === InTransit => button hidden, notice visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          physicalState: "InTransit",
+          pendingTransferId: "tr-test-transit",
+          pendingReceiverUserId: "user-other"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-transit",
+              senderUserId: "user-nt-1",
+              toUserId: "user-other",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnInTransit = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.strictEqual(updateBtnInTransit, false, "Update Physical Location button must be hidden when physicalState is InTransit");
+
+    const transitNotice = await page.locator(".physical-transit-notice").textContent();
+    assert.ok(
+      transitNotice.includes("Physical original is in transit. Location will update on acknowledged receipt."),
+      "Must show read-only in-transit explanation"
+    );
+
+    // Case B: dak.physicalState === ReturnPending => button hidden, notice visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-return",
+              senderUserId: "user-nt-1",
+              toUserId: "user-other",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Need corrections",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnReturnPending = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.strictEqual(updateBtnReturnPending, false, "Update Physical Location button must be hidden when physicalState is ReturnPending");
+
+    const returnPendingNotice = await page.locator(".physical-return-pending-notice").textContent();
+    assert.ok(
+      returnPendingNotice.includes("Physical recovery must be confirmed through Confirm Physical Return."),
+      "Must show read-only return pending explanation"
+    );
+
+    // Case C: Settled record: routingState === WithHolder, physicalState === AtRecordedLocation => button visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "AtRecordedLocation",
+          currentAssignment: {
+            id: "asg-settled",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnSettled = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.ok(updateBtnSettled, "Update Physical Location button must be visible when record and physical state are settled");
+
+    const hasTransitNotice = await page.locator(".physical-transit-notice").isVisible();
+    assert.strictEqual(hasTransitNotice, false, "Must not display transit notice when settled");
+
+    const hasReturnNotice = await page.locator(".physical-return-pending-notice").isVisible();
+    assert.strictEqual(hasReturnNotice, false, "Must not display return notice when settled");
 
     await context.close();
   });
