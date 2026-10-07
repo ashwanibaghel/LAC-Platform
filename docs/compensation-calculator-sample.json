@@ -1,0 +1,132 @@
+{
+  "currency": "INR",
+  "area": {
+    "enteredArea": "18",
+    "unit": "bigha",
+    "rateUnit": "acre",
+    "profile": "lac-delhi-v1",
+    "profileConvertedArea": "3.7495770583827669032748533817",
+    "appliedArea": "3.744",
+    "usesExplicitEquivalentArea": true
+  },
+  "rate": "5300000",
+  "multiplicationFactor": "2",
+  "solatiumPercent": "100",
+  "marketValue": {
+    "precise": "19843200",
+    "display": "19843200.00"
+  },
+  "factorAdjustedValue": {
+    "precise": "39686400",
+    "display": "39686400.00"
+  },
+  "treesAndStructures": {
+    "precise": "0",
+    "display": "0.00"
+  },
+  "baseCompensation": {
+    "precise": "39686400",
+    "display": "39686400.00"
+  },
+  "solatiumAmount": {
+    "precise": "39686400",
+    "display": "39686400.00"
+  },
+  "amountAfterSolatium": {
+    "precise": "79372800",
+    "display": "79372800.00"
+  },
+  "additionalAmount": {
+    "type": "Interest",
+    "basis": "MarketValue",
+    "annualRatePercent": "12",
+    "duration": {
+      "mode": "Days",
+      "value": "30",
+      "fraction": "0.0821917808219178082191780822",
+      "convention": "Days / 365; fractional days permitted; fixed 365-day year."
+    },
+    "normalizedFormula": "MARKET_VALUE * ANNUAL_RATE_PERCENT / 100 * (DAYS / 365)",
+    "substitutedFormula": "19843200 * 12 / 100 * (30 / 365)",
+    "variables": {
+      "AREA": "3.744",
+      "RATE": "5300000",
+      "MARKET_VALUE": "19843200",
+      "FACTOR": "2",
+      "FACTOR_VALUE": "39686400",
+      "ASSET_VALUE": "0",
+      "BASE_COMPENSATION": "39686400",
+      "SOLATIUM_PERCENT": "100",
+      "SOLATIUM_AMOUNT": "39686400",
+      "AFTER_SOLATIUM": "79372800",
+      "DAYS": "30",
+      "ANNUAL_RATE_PERCENT": "12"
+    },
+    "amount": {
+      "precise": "195713.75342465753424657534249",
+      "display": "195713.75"
+    }
+  },
+  "finalCompensation": {
+    "precise": "79568513.75342465753424657534",
+    "display": "79568513.75"
+  },
+  "finalAmountInWords": "Rupees Seven Crore Ninety Five Lakh Sixty Eight Thousand Five Hundred Thirteen and Seventy Five Paise Only",
+  "roundingPolicy": "System.Decimal (28-29 significant digits); no intermediate money rounding; display money rounded to 2 decimals, midpoint away from zero. Final display rounds the unrounded total. Words use final display.",
+  "trace": [
+    {
+      "name": "profileConvertedArea",
+      "formula": "land.area * sourceSquareMetresPerUnit / rateSquareMetresPerUnit",
+      "substitutedFormula": "18 * 843 / 4046.8564224",
+      "result": "3.7495770583827669032748533817"
+    },
+    {
+      "name": "appliedArea",
+      "formula": "land.equivalentAreaInRateUnit (user-supplied assumption)",
+      "substitutedFormula": "3.744",
+      "result": "3.744"
+    },
+    {
+      "name": "marketValue",
+      "formula": "AREA * RATE",
+      "substitutedFormula": "3.744 * 5300000",
+      "result": "19843200"
+    },
+    {
+      "name": "factorAdjustedValue",
+      "formula": "MARKET_VALUE * FACTOR",
+      "substitutedFormula": "19843200 * 2",
+      "result": "39686400"
+    },
+    {
+      "name": "baseCompensation",
+      "formula": "FACTOR_VALUE \u002B ASSET_VALUE",
+      "substitutedFormula": "39686400 \u002B 0",
+      "result": "39686400"
+    },
+    {
+      "name": "solatiumAmount",
+      "formula": "BASE_COMPENSATION * SOLATIUM_PERCENT / 100",
+      "substitutedFormula": "39686400 * 100 / 100",
+      "result": "39686400"
+    },
+    {
+      "name": "amountAfterSolatium",
+      "formula": "BASE_COMPENSATION \u002B SOLATIUM_AMOUNT",
+      "substitutedFormula": "39686400 \u002B 39686400",
+      "result": "79372800"
+    },
+    {
+      "name": "additionalAmount",
+      "formula": "MARKET_VALUE * ANNUAL_RATE_PERCENT / 100 * (DAYS / 365)",
+      "substitutedFormula": "19843200 * 12 / 100 * (30 / 365)",
+      "result": "195713.75342465753424657534249"
+    },
+    {
+      "name": "finalCompensation",
+      "formula": "AFTER_SOLATIUM \u002B ADDITIONAL_AMOUNT",
+      "substitutedFormula": "79372800 \u002B 195713.75342465753424657534249",
+      "result": "79568513.75342465753424657534"
+    }
+  ]
+}
