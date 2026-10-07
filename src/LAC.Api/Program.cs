@@ -120,6 +120,14 @@ builder.Services.AddScoped<IActivityProjectionService, ActivityProjectionService
 builder.Services.AddScoped<ICourtAuthorizationService, CourtAuthorizationService>();
 builder.Services.AddScoped<ICourtWorkflowService, CourtWorkflowService>();
 builder.Services.AddScoped<ICourtProjectionService, CourtProjectionService>();
+builder.Services.Configure<CourtIntelligenceOfficeOptions>(builder.Configuration.GetSection("CourtIntelligence:Office"));
+builder.Services.AddScoped<CourtOfficeAuthority>();
+builder.Services.AddScoped<CourtIntelligencePersistence>();
+builder.Services.AddScoped<CourtOrderLinkReview>();
+builder.Services.AddScoped<CourtConfirmedOrderProjection>();
+builder.Services.AddScoped<CourtStructuredIntelligenceService>();
+if (!builder.Environment.IsEnvironment("Testing") && builder.Configuration.GetValue<bool?>("BackgroundWorkers:Enabled") != false)
+    builder.Services.AddHostedService<CourtScopeIngestionWorker>();
 builder.Services.AddScoped<ICourtImportService, CourtImportService>();
 builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
 builder.Services.AddSingleton<DelhiHighCourtSyncGate>();
@@ -236,6 +244,7 @@ api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
 api.MapAttentionEndpoints();
 api.MapCourtEndpoints();
+api.MapCourtStructuredEndpoints();
 api.MapAssistantEndpoints();
 api.AddEndpointFilter(async (context, next) =>
 {
@@ -478,6 +487,14 @@ api.MapGet("/khasras/{id:guid}/history", async (Guid id, LacDbContext db, ICourt
             .Select(link => new KhasraOfficialCourtItem(link.CourtCaseId, link.CourtCase.CaseNumber, link.CourtCase.CourtName, link.CourtCase.CurrentStatus)).ToListAsync(ct)
         : new List<KhasraOfficialCourtItem>();
 
+    if (canViewCourt && currentUser.UserId is Guid courtActor && await courtAuth.CanAccessKhasraAsync(id, courtActor, ct))
+    {
+        var confirmedIds = db.CourtOrderRecordLinks.Where(l => l.MatchState == CourtRecordMatchState.Confirmed && l.KhasraId == id).Select(l => l.Revision.Order.CourtCaseId);
+        var confirmedCases = await db.CourtCases.AsNoTracking().Where(c => confirmedIds.Contains(c.Id) && c.RecordStatus == RecordStatus.Active)
+            .Select(c => new KhasraOfficialCourtItem(c.Id, c.CaseNumber, c.CourtName, c.CurrentStatus)).ToListAsync(ct);
+        foreach (var item in confirmedCases)
+            if (!court.Any(c => c.CourtCaseId == item.CourtCaseId) && await courtAuth.CanViewCourtCaseAsync(item.CourtCaseId, courtActor, ct)) court.Add(item);
+    }
     var linkedAwardIds = awards.Select(a => a.AwardId).ToList();
     var pendingRows = await db.AwardIngestionSessions.AsNoTracking()
         .Where(s => linkedAwardIds.Contains(s.TargetAwardId ?? Guid.Empty) && s.SourceDocumentId != null && s.Candidates.Any(c => c.Status == AwardIngestionCandidateStatus.NeedsReview || c.Status == AwardIngestionCandidateStatus.Conflict || c.Status == AwardIngestionCandidateStatus.Ambiguous || c.Status == AwardIngestionCandidateStatus.Invalid))
@@ -515,14 +532,14 @@ api.MapGet("/awards/{id:guid}/workspace", async (Guid id, LacDbContext db, ICour
         KhasraLinksCount = x.KhasraLinks.Count,
         NotificationLinksCount = x.NotificationLinks.Count,
         PossessionEventsCount = db.PossessionEvents.Count(p => p.AwardId == x.Id),
-        CourtCasesCount = db.Set<CourtCaseAward>().Count(c => c.AwardId == x.Id),
+        CourtCasesCount = db.Set<CourtCaseAward>().Where(c => c.AwardId == x.Id).Select(c => c.CourtCaseId).Union(db.CourtOrderRecordLinks.Where(l => l.MatchState == CourtRecordMatchState.Confirmed && l.AwardId == x.Id).Select(l => l.Revision.Order.CourtCaseId)).Count(),
         ClaimsCount = db.Claims.Count(c => c.AwardId == x.Id),
         AreaIssuesCount = db.Set<AwardAreaIssue>().Count(i => i.AwardId == x.Id && i.Status != "Resolved"),
         DocumentsCount = x.DocumentRelationships.Count,
         HasKhasras = x.KhasraLinks.Any(),
         HasNotifications = x.NotificationLinks.Any(),
         HasPossession = db.PossessionEvents.Any(p => p.AwardId == x.Id),
-        HasCourtCases = db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id),
+        HasCourtCases = db.Set<CourtCaseAward>().Any(c => c.AwardId == x.Id) || db.CourtOrderRecordLinks.Any(l => l.MatchState == CourtRecordMatchState.Confirmed && l.AwardId == x.Id),
         HasClaims = db.Claims.Any(c => c.AwardId == x.Id)
     }).FirstOrDefaultAsync(ct);
     if (item is null) return NotFound("Award", id);
@@ -1113,6 +1130,12 @@ api.MapGet("/awards/{id:guid}/court-cases", async (Guid id, LacDbContext db, ICo
             resultList.Add(new AwardCourtCaseWorkspaceItem(x.CourtCaseId, x.CaseNumber, x.CourtName, x.CurrentStatus, khasraCount));
         }
     }
+    var confirmedIds = db.CourtOrderRecordLinks.Where(l => l.MatchState == CourtRecordMatchState.Confirmed && l.AwardId == id).Select(l => l.Revision.Order.CourtCaseId);
+    var confirmedCases = await db.CourtCases.AsNoTracking().Where(c => confirmedIds.Contains(c.Id) && c.RecordStatus == RecordStatus.Active).ToListAsync(ct);
+    foreach (var item in confirmedCases)
+        if (!resultList.Any(c => c.Id == item.Id) && await courtAuth.CanViewCourtCaseAsync(item.Id, currentUser.UserId.Value, ct))
+            resultList.Add(new AwardCourtCaseWorkspaceItem(item.Id,item.CaseNumber,item.CourtName,item.CurrentStatus,
+                await db.CourtOrderRecordLinks.Where(l => l.MatchState == CourtRecordMatchState.Confirmed && l.KhasraId != null && l.Revision.Order.CourtCaseId == item.Id).Select(l => l.KhasraId).Distinct().CountAsync(ct)));
     return Results.Ok(resultList);
 });
 api.MapGet("/awards/{id:guid}/claims", async (Guid id, int page, int pageSize, LacDbContext db, CancellationToken ct) => Results.Ok(await ToPageAsync(db.Claims.AsNoTracking().Where(x => x.AwardId == id).OrderByDescending(x => x.ClaimDate).Select(x => new AwardClaimItem(x.Id, x.ClaimReference, x.ClaimDate, x.ClaimantParty == null ? null : x.ClaimantParty.DisplayName, x.ClaimedRateAmount, x.ClaimedAmount, x.Status, db.Set<ClaimKhasra>().Count(k => k.ClaimId == x.Id))), page, pageSize, ct))).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.AccountsCompensation);

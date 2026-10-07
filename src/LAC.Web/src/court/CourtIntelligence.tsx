@@ -1,10 +1,113 @@
 import React, { useEffect, useState } from "react";
 import "./court-intelligence.css";
 
+type ScopeFact = { rawText: string | null; value: string | number | null; state: string; attribution: string | null; scope?: string; evidenceIds: string[] };
+type ScopeEvidence = { id: string; page: number; text: string; attribution: string; scope: string; location?: string; paragraph?: string | number; anchorId?: string; start?: number; end?: number };
+type ScopeRow = { id: string; [field: string]: unknown };
+type LacScope = { contract: string; source: { orderDate: string | null; officialUrl: string; pdfSha256?: string; sourceObservationId?: string }; extraction: { state: string; fullRelevantTextChecked: boolean; reviewReasons: string[] }; lacRelevant: boolean; lacRelevanceState: string; lacAuthorityScope: string; lacActionable: boolean; missingState: string; evidence: ScopeEvidence[]; [section: string]: unknown };
+type ScopeLink = { id: string; extractedEntityId: string; entityType: string; villageId?: string; awardId?: string; khasraId?: string; matchState: string; matchReason: string; version: number; reviewedAt?: string; reviewReason?: string; origin: string; officeRecord: Record<string, unknown> };
+type StructuredOrder = { lacOrderScope?: LacScope; courtOrderIntelligenceId?: string; scopeRevisionId?: string; recordLinks?: ScopeLink[]; structuredScopeState?: string };
+
+const scopeSectionLabel = (section: string) => ({ purposes: "What this order is about", villages: "Village(s)", awards: "Award(s)", parcels: "Khasra / area / village / award", parcelGroups: "Collective areas", possession: "Possession", compensation: "Compensation / payment", directions: "Court directions", directionChanges: "Direction changes" }[section] ?? section);
+const scopeFieldLabel = (field: string) => field.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, character => character.toUpperCase());
+const scopeNotice = (scope: LacScope) => !scope.extraction.fullRelevantTextChecked ? "Extraction incomplete — needs review."
+  : !scope.lacRelevant && scope.lacRelevanceState === "NotRelevant" ? "No LAC-specific issue or direction identified in this order."
+  : scope.lacRelevant && !(scope.directions as ScopeRow[]).length ? "LAC is identified in this order, but no LAC-specific direction is established."
+  : scope.lacAuthorityScope === "OtherLAC" ? "This order refers to another LAC. No action is established for this office."
+  : scope.lacAuthorityScope === "UnknownLAC" ? "LAC authority needs review. No action is established for this office." : "Court directions and office action are shown separately below.";
+const scopeMissing = (scope: LacScope) => scope.extraction.fullRelevantTextChecked && scope.missingState === "NotStated" ? "Not stated in this order." : "Needs review — extraction incomplete.";
+const ScopeFactView: React.FC<{ field: string; fact: ScopeFact; scope: LacScope }> = ({ field, fact, scope }) => <div className="court-scope-fact">
+  <span className="court-scope-field">{scopeFieldLabel(field)}</span>
+  <span>{fact.state === "NotStated" ? scopeMissing(scope) : fact.rawText ?? "Needs review — extraction incomplete."}
+    {fact.state === "NeedsReview" && fact.rawText && <small className="court-scope-state">Needs review</small>}
+    {fact.state === "Explicit" && fact.value !== null && String(fact.value) !== fact.rawText && <small className="court-scope-normalized">Source value: {String(fact.value)}</small>}
+    {fact.attribution && <small className="court-scope-attribution">{roleLabel(fact.attribution)}{fact.scope === "Quoted" || fact.scope === "Historical" ? " · historical quotation" : ""}</small>}
+    {fact.evidenceIds.map(id => { const evidence = scope.evidence.find(entry => entry.id === id); return evidence ? <details className="court-scope-evidence" key={id}><summary>Source · p. {evidence.page}{evidence.paragraph ? ` · paragraph ${evidence.paragraph}` : ""}</summary>
+      <blockquote>{evidence.text}</blockquote><small>{evidence.location} · {roleLabel(evidence.attribution)}</small>
+      {officialLink(scope.source.officialUrl) && <a target="_blank" rel="noreferrer" href={`${officialLink(scope.source.officialUrl)}#page=${evidence.page}`}>Open official order · {shownDate(scope.source.orderDate)}</a>}
+    </details> : null; })}
+  </span>
+</div>;
+const ScopeRowView: React.FC<{ row: ScopeRow; scope: LacScope }> = ({ row, scope }) => <div className="court-scope-row">
+  {Object.entries(row).filter(([, value]) => value && typeof value === "object" && "rawText" in value).map(([field, value]) => <ScopeFactView key={field} field={field} fact={value as ScopeFact} scope={scope} />)}
+  {!!row.category && <small>Purpose: {String(row.category)}</small>}
+  {["villageRefs", "awardRefs", "parcelRefs"].map(field => { const refs = row[field] as string[] | undefined; return refs?.length ? <small key={field}>{scopeFieldLabel(field)}: {refs.map(id => {
+    const section = field === "villageRefs" ? "villages" : field === "awardRefs" ? "awards" : "parcels";
+    const entity = (scope[section] as ScopeRow[] | undefined)?.find(item => item.id === id);
+    return String((entity?.name as ScopeFact)?.rawText ?? (entity?.number as ScopeFact)?.rawText ?? id);
+  }).join(", ")}</small> : null; })}
+</div>;
+const ScopeParcelTable: React.FC<{ scope: LacScope }> = ({ scope }) => {
+  const names = (row: ScopeRow, field: string, section: string, factField: string) => (row[field] as string[] ?? []).map(id => {
+    const entity = (scope[section] as ScopeRow[]).find(item => item.id === id);
+    return (entity?.[factField] as ScopeFact)?.rawText ?? "Needs review";
+  }).join(", ") || scopeMissing(scope);
+  return <div className="court-parcel-table-scroll"><table className="court-parcel-table"><thead><tr><th>Village</th><th>Khasra / qualifier</th><th>Individual area</th><th>Award</th><th>Source evidence</th></tr></thead><tbody>
+    {(scope.parcels as ScopeRow[]).map(row => {
+      const number = row.number as ScopeFact; const area = row.area as ScopeFact; const unit = row.areaUnit as ScopeFact;
+      const evidence = scope.evidence.find(entry => entry.id === number.evidenceIds[0]);
+      return <tr key={row.id}><td>{names(row, "villageRefs", "villages", "name")}</td><td>{number.rawText}<small>{number.state === "NeedsReview" ? "Needs review" : roleLabel(number.attribution ?? "OTHER")}</small></td>
+        <td>{area.rawText ? `${area.rawText} ${unit.rawText ?? ""}` : scopeMissing(scope)}</td><td>{names(row, "awardRefs", "awards", "number")}</td>
+        <td>{evidence && <Evidence source={{ ...scope.source, page: evidence.page, evidence: evidence.text }} />}</td></tr>;
+    })}
+  </tbody></table></div>;
+};
+const OrderScope: React.FC<{ order: Order; compact?: boolean; canReview?: boolean; busy?: boolean; onReview?: (link?: ScopeLink, state?: string, reason?: string) => Promise<void> }> = ({ order, compact, canReview, busy, onReview }) => {
+  const scope = order.lacOrderScope;
+  if (!scope) return <p className="court-scope-notice">Structured order scope not yet extracted.</p>;
+  const actions = (scope.directions as ScopeRow[]).filter(direction => direction.lacActionable === true);
+  const brief = (section: string) => {
+    const rows = scope[section] as ScopeRow[];
+    if (!rows.length) return scopeMissing(scope);
+    if (section === "purposes") return [...new Set(rows.map(row => String(row.category)))].join(" · ");
+    return rows.map(row => {
+      const field = section === "villages" ? "name" : section === "awards" || section === "parcels" ? "number" : section === "directions" ? "action" : "status";
+      const fact = row[field] as ScopeFact;
+      const main = fact?.state === "Explicit" ? String(fact.value) : `Needs review · ${fact?.rawText ?? ""}`;
+      const date = row.date as ScopeFact | undefined;
+      return main + (date ? ` · Date: ${date.state === "Explicit" ? date.rawText : scopeMissing(scope)}` : "") + (fact?.attribution ? ` · ${roleLabel(fact.attribution)}` : "");
+    }).join("; ");
+  };
+  if (compact) return <div className="court-order-scope court-compact-scope">
+    <div className="court-scope-flags"><span>LAC relevance: <strong>{scope.lacRelevant ? "Relevant" : scope.lacRelevanceState}</strong></span><span>Authority: <strong>{scope.lacAuthorityScope}</strong></span><span>Coverage: <strong>{scope.extraction.state}</strong></span></div>
+    <p className="court-scope-notice">{scopeNotice(scope)}</p>
+    <dl className="court-scope-brief">{["purposes", "villages", "awards", "parcels", "possession", "compensation", "directions"].map(section => <div key={section}><dt>{scopeSectionLabel(section)}</dt><dd>{brief(section)}{section === "parcels" && (scope.parcelGroups as ScopeRow[]).map(group => <small key={group.id}>Collective area: {(group.area as ScopeFact).rawText} {(group.areaUnit as ScopeFact).rawText}</small>)}</dd></div>)}
+      <div><dt>What Our LAC Needs To Do</dt><dd>{actions.length ? actions.map(action => (action.action as ScopeFact).rawText).join("; ") : "No operative direction to this office established."}</dd></div>
+    </dl><a className="court-scope-detail-link" href="#selected-order-land-facts">Land acquisition facts, evidence & record review ↓</a>
+  </div>;
+  return <div className="court-order-scope">
+    <div className="court-scope-flags"><span>Order: <strong>{shownDate(order.orderDate)}</strong></span><span>LAC relevant: <strong>{scope.lacRelevant ? "Yes" : scope.lacRelevanceState === "NeedsReview" ? "Needs review" : "No"}</strong></span><span>Authority: <strong>{scope.lacAuthorityScope}</strong></span><span>Coverage: <strong>{scope.extraction.state}</strong></span></div>
+    <p className="court-scope-notice">{scopeNotice(scope)}</p>
+    <div className="court-scope-grid">{["purposes", "villages", "awards", "parcels", "parcelGroups", "possession", "compensation", "directions", "directionChanges"].map(section => <section key={section} className={`court-scope-section court-scope-${section}`}><h4>{scopeSectionLabel(section)}</h4>
+      {(scope[section] as ScopeRow[]).length ? section === "parcels" ? <ScopeParcelTable scope={scope} /> : (scope[section] as ScopeRow[]).map(row => <ScopeRowView key={row.id} row={row} scope={scope} />) : <p className="court-intelligence-muted">{scopeMissing(scope)}</p>}
+    </section>)}</div>
+    <section className="court-scope-office-action"><h4>What Our LAC Needs To Do</h4>{actions.length ? actions.map(row => <ScopeRowView key={row.id} row={row} scope={scope} />) : <p>{scope.lacRelevanceState === "NeedsReview" || !scope.extraction.fullRelevantTextChecked ? "Action status needs review." : "No operative direction to this office is established in this order."}</p>}</section>
+    <details className="court-scope-source"><summary>Source evidence & extraction provenance</summary><p>Official order · {shownDate(order.orderDate)} · {scope.extraction.fullRelevantTextChecked ? "Relevant native text fully checked" : "Incomplete coverage"}</p>
+      {officialLink(order.officialUrl) && <a href={officialLink(order.officialUrl)!} target="_blank" rel="noreferrer">Open official order</a>}
+      <p className="court-scope-hash">PDF SHA-256: {scope.source.pdfSha256 ?? "Not available"}<br />Observation: {scope.source.sourceObservationId ?? "Not available"}</p>
+      {scope.extraction.reviewReasons.map(reason => <p key={reason}>{reason}</p>)}
+      {scope.evidence.map(evidence => <div key={evidence.id}><small>Page {evidence.page} · {evidence.location} · {roleLabel(evidence.attribution)}</small><blockquote>{evidence.text}</blockquote></div>)}
+    </details>
+    <details className="court-scope-links"><summary>Office record links · review required</summary><p>Court Order Says appears above. Office Record Says appears below; confirmation links identities without changing either source.</p>
+      {canReview && onReview && <button type="button" disabled={busy} onClick={() => void onReview()}>{busy ? "Saving…" : "Prepare server-side candidates"}</button>}
+      {!order.recordLinks?.length && <p>{order.scopeRevisionId ? "NotMatched — no office candidates prepared or safely identified." : "NeedsReview — order scope has not yet been persisted."}</p>}
+      {order.recordLinks?.map(link => <div key={link.id} className="court-scope-link"><strong>{link.entityType} · {link.matchState}</strong><p>{link.matchReason}</p>
+        <p>Office Record Says: {Object.entries(link.officeRecord ?? {}).map(([field, value]) => `${scopeFieldLabel(field)}: ${value ?? "Not recorded"}`).join(" · ")}</p>
+        <small>Origin: {link.origin}{link.reviewedAt ? ` · Reviewed ${new Date(link.reviewedAt).toLocaleString("en-IN")} · ${link.reviewReason}` : ""}</small>
+        {link.matchState === "Confirmed" && <a href={`/${link.entityType === "Village" ? "villages" : link.entityType === "Award" ? "awards" : "khasras"}/${link.villageId ?? link.awardId ?? link.khasraId}`}>Open confirmed office record</a>}
+        {canReview && onReview && <form onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); void onReview(link, String(form.get("decision")), String(form.get("reason"))); }}>
+          <label>Decision <select name="decision" required defaultValue="NeedsReview"><option value="NeedsReview">Needs review</option><option value="NotMatched">Reject / revoke match</option>{(link.villageId || link.awardId || link.khasraId) && link.matchState !== "Conflict" && <option value="Confirmed">Confirm identity</option>}</select></label>
+          <label>Review reason <input name="reason" required maxLength={2000} placeholder="Explain this decision" /></label><button type="submit" disabled={busy}>Save review</button>
+        </form>}
+      </div>)}
+    </details>
+  </div>;
+};
+
 type Source = { orderDate: string | null; page: number; evidence: string; officialUrl: string; evidenceParts?: { page: number; evidence: string }[] };
 type Fact = { category: string; field: string; value: string; page: number; evidence: string; scope: string; evidenceParts?: { page: number; evidence: string }[] };
 type Proposition = { id?: string; role: string; attribution: string; scope: string; text: string; source: Source };
-type Order = { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; uploadDate?: string | null; sourceKind?: string | null; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null; court?: string | null; digest?: Proposition[]; presentationKind?: "Routine" | "Substantive" | "Unverified"; officeActionCount?: number; failureMessage?: string; refreshFailure?: string; coverage?: { allSelectedChunksProcessed?: boolean } };
+type Order = StructuredOrder & { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; uploadDate?: string | null; sourceKind?: string | null; status: string; facts: Fact[]; summaryFacts?: Fact[]; nextHearingDate?: string | null; court?: string | null; digest?: Proposition[]; presentationKind?: "Routine" | "Substantive" | "Unverified"; officeActionCount?: number; failureMessage?: string; refreshFailure?: string; coverage?: { allSelectedChunksProcessed?: boolean } };
 type Action = { id: string; type?: string; text: string; actor: string; deadlineText: string | null; dueDate: string | null; source: Source };
 type CaptionEntry = { text: string; source: Source };
 type Intelligence = { caseNumber?: string; status: string; processingComplete: boolean; currentPosition: { id?: string; text: string; source: Source; attribution?: string; role?: string; scope?: string }[]; beforeNextHearing: Action[]; latestOrder: Order | null; finalOrder?: Order | null; latestMeaningfulOrder?: Order | null; chronologyWarnings?: string[]; orders: Order[]; caption?: Record<string, CaptionEntry | string>; lacCaptionAppearances?: CaptionEntry[]; factualChronology?: { dates: string[]; text: string; role: string; source: Source }[]; sourceCoverage?: { basis: string; knownSources: number; checkedSources: number; gaps: { orderDate: string | null; officialUrl: string; reason: string }[] } };
@@ -42,7 +145,7 @@ type RuntimeInfo = {
   };
 };
 type ProgressSummary = { officialSources: number; usableBriefs: number; blockedSources: number; pendingSources: number; latestBriefReady: boolean; latestOrderDate: string | null; processingCurrentOrderDate: string | null; processingChecked: number; processingTotal: number; backgroundProcessing: boolean; coverageComplete: boolean; runtimeState?: string; reasonCode?: string; actionStatus?: string; actionStatusMessage?: string };
-type RegisteredIntelligence = Intelligence & { progressSummary?: ProgressSummary; runtime?: RuntimeInfo; sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; actionStatus?: string; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string; runtimeState?: string; reasonCode?: string } };
+type RegisteredIntelligence = Intelligence & { canReviewOrderLinks?: boolean; caseLandLacContext?: Record<string, { orderDate: string; officialUrl: string; fact: ScopeRow; evidence: ScopeEvidence[] }[]>; progressSummary?: ProgressSummary; runtime?: RuntimeInfo; sourceDiagnostics?: SourceDiagnostic[]; pipelineSummary?: PipelineSummary; caseId: string; courtName?: string; officeStatus?: string; officeNdoh?: string | null; officialStatus?: { rawStatus: string | null; observedAt: string; listingDate: string | null }; historySync?: { runId: string; status: string; phase: string; completedAt: string | null; failureMessage?: string }; caseBrief?: Record<string, Proposition[]>; sourceReviewOrders?: { orderDate: string | null; officialUrl: string; corrigendumUrl?: string | null; reason: string }[]; knownOrderCount?: number; unprocessedOrderCount?: number; unusableKnownOrderCount?: number; actionStatus?: string; refreshState?: { caseId: string; status: string; startedAt?: string; checked?: number; total?: number; needsReview?: number; message?: string; runtimeState?: string; reasonCode?: string } };
 
 const IconCourt: React.FC<{ size?: number; className?: string }> = ({ size = 16, className = "" }) => (
   <svg
@@ -315,6 +418,7 @@ const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
   const digest = orderDigest(order);
   return (
     <div className="court-order-summary-card">
+      <details className="court-historical-scope"><summary>Order scope · {shownDate(order.orderDate)}</summary><OrderScope order={order} /></details>
       {!digest.length ? (
         <p className="court-intelligence-muted">This order needs source verification before its contents can be summarized.</p>
       ) : (
@@ -332,7 +436,7 @@ const OrderSummary: React.FC<{ order: Order }> = ({ order }) => {
               </li>
             ))}
           </ul>
-          {order.officeActionCount === 0 && order.status === "Validated" && !order.failureMessage && !order.refreshFailure && order.coverage?.allSelectedChunksProcessed !== false && (
+          {!order.lacOrderScope && order.officeActionCount === 0 && order.status === "Validated" && !order.failureMessage && !order.refreshFailure && order.coverage?.allSelectedChunksProcessed !== false && (
             <small className="court-order-no-action">No direct LAC action was identified in this order.</small>
           )}
         </>
@@ -523,6 +627,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const [recovering, setRecovering] = useState(false);
   const [recoveryError, setRecoveryError] = useState("");
   const [runtimeData, setRuntimeData] = useState<RuntimeInfo | null>(null);
+  const [selectedScopeUrl, setSelectedScopeUrl] = useState("");
+  const [linkReviewError, setLinkReviewError] = useState("");
+  const [reviewBusy, setReviewBusy] = useState(false);
 
   const activeCase = React.useRef(caseId);
   activeCase.current = caseId;
@@ -531,6 +638,22 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const refreshAbort = React.useRef<AbortController | null>(null);
 
   const data = storedData?.caseId === caseId ? storedData : null;
+  const scopeOrders = [...(data?.orders ?? [])].sort((a, b) => (b.orderDate ?? "").localeCompare(a.orderDate ?? ""));
+  const selectedScopeOrder = scopeOrders.find(order => order.officialUrl === selectedScopeUrl) ?? scopeOrders[0] ?? data?.latestOrder;
+  const reviewLinks = async (link?: ScopeLink, state?: string, reason?: string) => {
+    const currentCase = caseId;
+    setReviewBusy(true); setLinkReviewError("");
+    try {
+      const response = await fetch(link ? `/api/court-order-links/${link.id}/review` : `/api/court-cases/${caseId}/intelligence/persist`, {
+        method: link ? "PUT" : "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        ...(link ? { body: JSON.stringify({ state, expectedVersion: link.version, reason }) } : {}),
+      });
+      if (!response.ok) { const error = await response.json(); throw new Error(error.error ?? error.detail ?? "Review could not be saved."); }
+      if (activeCase.current === currentCase) setReload(value => value + 1);
+    } catch (error) { if (activeCase.current === currentCase) setLinkReviewError(error instanceof Error ? error.message : "Review could not be saved."); }
+    finally { if (activeCase.current === currentCase) setReviewBusy(false); }
+  };
+
   void answer;
 
   useEffect(() => {
@@ -548,6 +671,9 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
     setConversation([]);
     setExpandedHistoryRow(null);
     setRuntimeData(null);
+    setSelectedScopeUrl(typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("order") ?? "");
+    setLinkReviewError("");
+    setReviewBusy(false);
     setRecovering(false);
     setRecoveryError("");
 
@@ -849,6 +975,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
   const isZeroEvidence = pipeline.usableAiBriefs === 0;
 
   const isActionPendingUnavailable =
+    (selectedScopeOrder?.lacOrderScope?.lacAuthorityScope === "UnknownLAC" && selectedScopeOrder.lacOrderScope.lacRelevant) ||
     isZeroEvidence ||
     rawActionStatus === "UnavailableUntilVerifiedIntelligenceReady" ||
     rawActionStatus !== "VerifiedEvidenceAvailable";
@@ -1038,6 +1165,23 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
         </div>
       ) : (
         <>
+          {selectedScopeOrder && <section className="court-card court-selected-order">
+            <div className="court-scope-toolbar"><label htmlFor="court-order-scope-select">ORDER SCOPE</label>
+              <select id="court-order-scope-select" value={selectedScopeOrder.officialUrl} onChange={event => setSelectedScopeUrl(event.target.value)}>
+                {scopeOrders.map(order => <option key={order.officialUrl} value={order.officialUrl}>{shownDate(order.orderDate)}{order.sourceKind === "Corrigendum" ? " · Corrigendum" : ""}</option>)}
+              </select><span>Selected order · {shownDate(selectedScopeOrder.orderDate)}</span>
+            </div>
+            <OrderScope order={selectedScopeOrder} compact />
+            {linkReviewError && <p role="alert" className="court-scope-review-error">{linkReviewError}</p>}
+          </section>}
+          {data.caseLandLacContext && <details className="court-card court-case-land-context"><summary>Case land / LAC context · supporting order chronology</summary>
+            <p className="court-intelligence-muted">Each entry retains its own source and attribution. Earlier facts are not silently carried into the selected order.</p>
+            {["villages", "awards", "parcels", "possession", "compensation"].map(section => <section key={section}><h4>{scopeSectionLabel(section)}</h4>
+              {(data.caseLandLacContext?.[section] ?? []).map((entry, index) => <div key={index}><strong>{shownDate(entry.orderDate)}</strong>
+                <ScopeRowView row={entry.fact} scope={{ evidence: entry.evidence, source: { officialUrl: entry.officialUrl, orderDate: entry.orderDate } } as LacScope} />
+              </div>)}
+            </section>)}
+          </details>}
           {showMatterHeader && (
             <div className="court-intelligence-matter">
               <h2>{data.caseNumber ?? "Court matter"}</h2>
@@ -1126,7 +1270,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
               }`}
             >
               <div className="court-card-header court-intelligence-region-heading">
-                <h4>What LAC needs to do</h4>
+                <h4>{selectedScopeOrder?.lacOrderScope ? "What Our LAC Needs To Do" : "What LAC needs to do"}</h4>
                 {data.beforeNextHearing.length > 0 ? (
                   <span>{upcomingHearing(data.latestOrder) ? "Before next hearing" : "Outstanding LAC action"}</span>
                 ) : isActionPendingUnavailable ? (
@@ -1181,6 +1325,11 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             </article>
           </div>
 
+          {selectedScopeOrder?.lacOrderScope && <section className="court-card court-selected-land-facts" id="selected-order-land-facts">
+            <h3>Land acquisition facts · selected order {shownDate(selectedScopeOrder.orderDate)}</h3>
+            <OrderScope order={selectedScopeOrder} canReview={data.canReviewOrderLinks} busy={reviewBusy} onReview={reviewLinks} />
+            {linkReviewError && <p role="alert" className="court-scope-review-error">{linkReviewError}</p>}
+          </section>}
           {/* 3. LATEST VERIFIED ORDER */}
           <article className="court-card court-card-latest">
             <div className="court-card-header">

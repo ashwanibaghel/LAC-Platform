@@ -279,7 +279,7 @@ public sealed class CourtProjectionService(
             if (!await courtAuth.CanAccessAwardAsync(query.AwardId.Value, callerUserId, ct))
                 return new PagedResult<CourtCaseSummaryDto>([], 0, query.Page, query.PageSize);
 
-            authorizedQuery = authorizedQuery.Where(c => c.Awards.Any(a => a.AwardId == query.AwardId.Value));
+            authorizedQuery = authorizedQuery.Where(c => c.Awards.Any(a => a.AwardId == query.AwardId.Value) || db.CourtOrderRecordLinks.Any(l => l.MatchState == CourtRecordMatchState.Confirmed && l.AwardId == query.AwardId.Value && l.Revision.Order.CourtCaseId == c.Id));
         }
 
         if (query.VillageId.HasValue)
@@ -287,7 +287,7 @@ public sealed class CourtProjectionService(
             if (!await courtAuth.CanAccessVillageAsync(query.VillageId.Value, callerUserId, ct))
                 return new PagedResult<CourtCaseSummaryDto>([], 0, query.Page, query.PageSize);
 
-            authorizedQuery = authorizedQuery.Where(c => c.Khasras.Any(k => k.Khasra.VillageId == query.VillageId.Value));
+            authorizedQuery = authorizedQuery.Where(c => c.Khasras.Any(k => k.Khasra.VillageId == query.VillageId.Value) || db.CourtOrderRecordLinks.Any(l => l.MatchState == CourtRecordMatchState.Confirmed && (l.VillageId == query.VillageId.Value || l.Khasra != null && l.Khasra.VillageId == query.VillageId.Value) && l.Revision.Order.CourtCaseId == c.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(query.CaseNumber))

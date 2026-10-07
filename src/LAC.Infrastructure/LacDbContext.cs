@@ -3,6 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 namespace LAC.Infrastructure;
 public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurrentUserContext? currentUser = null) : DbContext(options) {
+ public DbSet<CourtOrderIntelligence> CourtOrderIntelligence => Set<CourtOrderIntelligence>();
+ public DbSet<CourtOrderIntelligenceRevision> CourtOrderIntelligenceRevisions => Set<CourtOrderIntelligenceRevision>();
+ public DbSet<CourtOrderRecordLink> CourtOrderRecordLinks => Set<CourtOrderRecordLink>();
  public ICurrentUserContext? CurrentUser => currentUser;
  public Guid[]? AssistantPermissionCeiling { get; set; }
  public TimeProvider AuthorizationClock { get; set; } = TimeProvider.System;
@@ -44,6 +47,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   Configurations.RecordAccessConfiguration.Configure(b);
   Configurations.ScheduledEventModelConfiguration.Configure(b);
   Configurations.CourtCaseModelConfiguration.Configure(b);
+  Configurations.CourtIntelligenceConfiguration.Configure(b);
   Configurations.CourtExternalSyncConfiguration.Configure(b);
   Configurations.DhcAssistedConfiguration.Configure(b);
   b.Entity<CoreDocumentIntake>().HasIndex(x => new { x.VillageId, x.Sha256Hash }).IsUnique();
@@ -130,16 +134,19 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   }
  }
  public override int SaveChanges(bool acceptAllChangesOnSuccess) {
+  CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChanges(acceptAllChangesOnSuccess);
  }
  public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct=default) {
+  CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
  }
  public override async Task<int> SaveChangesAsync(CancellationToken ct=default) {
+  CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   if (!Database.IsRelational())
    foreach (var entry in ChangeTracker.Entries<Dak>().Where(e => e.State is EntityState.Added or EntityState.Modified))

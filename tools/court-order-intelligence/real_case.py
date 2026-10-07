@@ -122,7 +122,13 @@ def refresh_case(root, case_id, case_number, sources, provider, processor=proces
             from semantics import usable_facts
             if record.get('failureMessage') and usable_facts(source):
                 return dict(source,refreshFailure='Latest source check failed; previously verified evidence retained.')
-            if record.get('failureMessage'): record['facts']=[]
+            if record.get('failureMessage'):
+                record['facts']=[]
+                from lac_scope import empty_scope
+                record['lacOrderScope']=empty_scope(record)
+            if record.get('lacOrderScope'):
+                record['lacOrderScope']['source']['sourceObservationId']=source.get('sourceObservationId')
+                record['lacOrderScope']['source']['sourceEvidenceSha256']=source.get('sourceEvidenceSha256')
             # A smaller first brief must not replace a richer verified artifact
             # of the same checked bytes/version. Enrichment preserves its facts.
             if (usable_facts(source) and record.get('sha256')==source.get('sha256')

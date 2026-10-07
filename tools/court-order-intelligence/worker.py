@@ -23,6 +23,7 @@ from preselection import select_candidates, bounded_chunks
 from native_layout import outer_paragraph_offsets
 from completeness import recover
 from fast_path import select_fast_candidates, compact_prompt, INSTRUCTIONS as FAST_INSTRUCTIONS
+from lac_scope import build_scope, empty_scope
 
 class StopRequested(BaseException):
     pass
@@ -175,6 +176,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
                     fastOmittedAnchorIds=[a['anchorId'] for a in candidates if a not in fast_candidates])
                 partial.update(briefTier='Fast',deepProcessingComplete=False,status='NeedsReview',
                     nextHearingDate=confirmed_hearing_date(partial['facts']))
+                partial['lacOrderScope'] = build_scope(partial, pages, anchors, complete=False)
                 fast_batch_verified=bool(partial['facts']) and not fast_completeness['remainingAnchorIds']
                 if on_fast_ready and fast_batch_verified: on_fast_ready(partial)
                 # Continue on the SAME temporary PDF, one inference at a time.
@@ -209,6 +211,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
             needs_review |= bool(nonquoted-represented)
             record['nextHearingDate'] = confirmed_hearing_date(record['facts'])
             record['status'] = 'NeedsReview' if needs_review else 'Validated'
+            record['lacOrderScope'] = build_scope(record, pages, anchors, complete=True)
             if fast: record.update(briefTier='Deep',deepProcessingComplete=True)
     except Exception as error:
         if fast and locals().get('fast_batch_verified',False):
@@ -220,6 +223,7 @@ def process_order(source, case_number, provider, temporary_root=None, downloader
         record['status'] = 'NeedsSourceReview' if str(error).startswith('NeedsSourceReview:') else 'NeedsReview'
         record['failureMessage'] = str(error) if isinstance(error, ValueError) else 'Local extraction unavailable: ' + type(error).__name__
         if isinstance(error, SourceVerificationError): record['sourceReasonCode']=error.code
+        record['lacOrderScope'] = empty_scope(record)
     return record
 
 def atomic_json(path, value):

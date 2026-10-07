@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 import jsonschema
 
-VERSION = 'court-native-v3-chronology'
+VERSION = 'court-native-v4-lac-scope'
 CATEGORIES = ['COURT_DIRECTION', 'COURT_FINDING', 'LAC_OR_RESPONDENT_SUBMISSION',
               'PETITIONER_SUBMISSION', 'OTHER_PARTY_SUBMISSION', 'PROCEDURAL_EVENT', 'HISTORICAL_LAND_FACT',
               'CASE_CONTEXT','ISSUE_BEFORE_COURT','COURT_OBSERVATION','DISPOSITION','LAND_FACT',
@@ -227,6 +227,9 @@ def validate(payload, pages):
     return payload
 
 def office_action(fact, order):
+    # New structured artifacts require server-owned ThisOffice resolution.
+    if order.get('lacOrderScope') is not None and not order['lacOrderScope'].get('lacActionable'):
+        return None
     if proposition_kind(fact) != 'MandatoryDirection': return None
     if (fact['category'] != 'COURT_DIRECTION' or fact['scope'] != 'Current'
             or not fact['actor'] or not OFFICE.search(fact['actor'])

@@ -1,0 +1,606 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lac:court-lac-order-scope:v1",
+  "title": "Court order LAC scope v1",
+  "type": "object",
+  "required": [
+    "contract",
+    "source",
+    "extraction",
+    "lacRelevant",
+    "lacRelevanceState",
+    "lacAuthorityScope",
+    "lacActionable",
+    "missingState",
+    "evidence",
+    "relevanceBasis",
+    "purposes",
+    "villages",
+    "awards",
+    "parcels",
+    "parcelGroups",
+    "possession",
+    "compensation",
+    "directions",
+    "directionChanges"
+  ],
+  "properties": {
+    "contract": {
+      "const": "court-lac-order-scope/v1"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "officialUrl",
+        "orderDate",
+        "pdfSha256"
+      ],
+      "properties": {
+        "officialUrl": {
+          "type": "string"
+        },
+        "orderDate": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pdfSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceObservationId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sourceEvidenceSha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "required": [
+        "state",
+        "fullRelevantTextChecked"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "Validated",
+            "NeedsReview"
+          ]
+        },
+        "fullRelevantTextChecked": {
+          "type": "boolean"
+        }
+      }
+    },
+    "lacRelevant": {
+      "type": "boolean"
+    },
+    "lacRelevanceState": {
+      "enum": [
+        "Relevant",
+        "NotRelevant",
+        "NeedsReview"
+      ]
+    },
+    "lacAuthorityScope": {
+      "enum": [
+        "ThisOffice",
+        "OtherLAC",
+        "UnknownLAC"
+      ]
+    },
+    "lacActionable": {
+      "type": "boolean"
+    },
+    "missingState": {
+      "enum": [
+        "NotStated",
+        "NeedsReview"
+      ]
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "page",
+          "text",
+          "attribution",
+          "scope"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "relevanceBasis": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "term",
+          "evidenceId",
+          "location",
+          "jurisdiction"
+        ]
+      }
+    },
+    "purposes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "subject": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "villages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "awards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "date"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "$ref": "#/$defs/fact"
+          },
+          "date": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "parcels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "number",
+          "area",
+          "areaUnit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "$ref": "#/$defs/fact"
+          },
+          "area": {
+            "$ref": "#/$defs/fact"
+          },
+          "areaUnit": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "parcelGroups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "area",
+          "areaUnit"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "area": {
+            "$ref": "#/$defs/fact"
+          },
+          "areaUnit": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "possession": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "language",
+          "date"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/fact"
+          },
+          "language": {
+            "$ref": "#/$defs/fact"
+          },
+          "date": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "compensation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "language",
+          "amount",
+          "currency",
+          "rate",
+          "rateUnit",
+          "beneficiary",
+          "depositReference"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/$defs/fact"
+          },
+          "language": {
+            "$ref": "#/$defs/fact"
+          },
+          "amount": {
+            "$ref": "#/$defs/fact"
+          },
+          "currency": {
+            "$ref": "#/$defs/fact"
+          },
+          "rate": {
+            "$ref": "#/$defs/fact"
+          },
+          "rateUnit": {
+            "$ref": "#/$defs/fact"
+          },
+          "beneficiary": {
+            "$ref": "#/$defs/fact"
+          },
+          "depositReference": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "directions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "directedTo",
+          "action",
+          "object",
+          "deadline",
+          "nextHearingDate"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "directedTo": {
+            "$ref": "#/$defs/fact"
+          },
+          "action": {
+            "$ref": "#/$defs/fact"
+          },
+          "object": {
+            "$ref": "#/$defs/fact"
+          },
+          "deadline": {
+            "$ref": "#/$defs/fact"
+          },
+          "nextHearingDate": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "directionChanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "language"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/$defs/fact"
+          },
+          "villageRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "awardRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parcelRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "fact": {
+      "type": "object",
+      "required": [
+        "rawText",
+        "value",
+        "state",
+        "attribution",
+        "scope",
+        "evidenceIds"
+      ],
+      "properties": {
+        "rawText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "Explicit",
+            "NotStated",
+            "NeedsReview"
+          ]
+        },
+        "attribution": {
+          "enum": [
+            null,
+            "COURT_DIRECTION",
+            "COURT_FINDING",
+            "COURT_OBSERVATION",
+            "PETITIONER_SUBMISSION",
+            "RESPONDENT_SUBMISSION",
+            "HISTORICAL_QUOTATION",
+            "OTHER"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -30,6 +30,10 @@ Retain uncertainty with Uncertain and needsReview true. Missing fields need not 
 invented and do not make every order uncertain. Prefer most relevant anchors.
 Do not label quoted Court orders current merely because they use shall/directed.'''
 INSTRUCTIONS+='''
+LAC relevance is independently checked against the whole order. LA Act,
+compensation, acquisition, DM/ADM/SDM and bare Collector do not establish LAC.
+Never infer payment/possession completion from a direction or party submission.
+Never supply canonical record IDs or office jurisdiction. Missing facts stay absent.
 Facts are separate from office actions. Select useful case context, the issue,
 party positions, Court observations/findings, procedural events and disposition
 even when LAC has no action. Prefer their specific semantic roles rather than
