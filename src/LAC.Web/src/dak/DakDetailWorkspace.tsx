@@ -44,7 +44,7 @@ export const DakDetailWorkspace: React.FC = () => {
   // Persisted Server State
   const [dak, setDak] = useState<DakDetail | null>(null);
   const [transfers, setTransfers] = useState<DakTransferItem[]>([]);
-  const [transfersLoading, setTransfersLoading] = useState(false);
+  const [transfersLoading, setTransfersLoading] = useState(true);
   const [transfersError, setTransfersError] = useState<string | null>(null);
   const [physicalOriginal, setPhysicalOriginal] = useState<PhysicalOriginalInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,7 +106,7 @@ export const DakDetailWorkspace: React.FC = () => {
   const resetRecordState = useCallback(() => {
     setDak(null);
     setTransfers([]);
-    setTransfersLoading(false);
+    setTransfersLoading(true);
     setTransfersError(null);
     setPhysicalOriginal(null);
     setOutwardReplies([]);
@@ -155,6 +155,8 @@ export const DakDetailWorkspace: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
+      setTransfersLoading(true);
+      setTransfersError(null);
 
       const res = await fetch(`/api/dak/${targetId}`, { signal, credentials: "include" });
       if (isStale()) return;
@@ -258,6 +260,7 @@ export const DakDetailWorkspace: React.FC = () => {
     } catch (err: unknown) {
       if (!isStale()) {
         setError(err instanceof Error ? err.message : "Failed to load Dak.");
+        setTransfersLoading(false);
       }
     } finally {
       if (!isStale()) {
@@ -294,6 +297,11 @@ export const DakDetailWorkspace: React.FC = () => {
     : directoryDesks.map((d) => ({ id: d.id, code: d.code, name: d.name, members: [] }));
 
   const openPhysicalModal = () => {
+    if (!dak) return;
+    const isPhysicalUnsettled = dak.physicalState === "InTransit" || dak.physicalState === "ReturnPending";
+    const terminal = dak.recordStatus !== "Active" || dak.status === "Resolved" || dak.status === "Disposed" || dak.status === "Cancelled";
+    if (!hasPermission("Dak.Edit") || terminal || isPhysicalUnsettled) return;
+
     // Initialize draft state variables ONLY from current persisted physicalOriginal
     if (physicalOriginal) {
       setPoDraftHasOriginal(physicalOriginal.hasPhysicalOriginal === true ? "yes" : physicalOriginal.hasPhysicalOriginal === false ? "no" : "unknown");
@@ -356,6 +364,9 @@ export const DakDetailWorkspace: React.FC = () => {
   const handleSavePhysicalOriginal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dak) return;
+    const isPhysicalUnsettled = dak.physicalState === "InTransit" || dak.physicalState === "ReturnPending";
+    const terminal = dak.recordStatus !== "Active" || dak.status === "Resolved" || dak.status === "Disposed" || dak.status === "Cancelled";
+    if (!hasPermission("Dak.Edit") || terminal || isPhysicalUnsettled) return;
     const targetId = dak.id;
 
     if (!poDraftProvenanceNote.trim()) {
@@ -557,6 +568,8 @@ export const DakDetailWorkspace: React.FC = () => {
   );
   const canCancel = hasPermission("Dak.Cancel") && !isTerminal && !isDeliveryOrRecoveryUnsettled;
   const canEdit = hasPermission("Dak.Edit") && !isTerminal;
+  const isPhysicalUnsettled = dak.physicalState === "InTransit" || dak.physicalState === "ReturnPending";
+  const canUpdatePhysicalLocation = Boolean(canEdit && !isTerminal && !isPhysicalUnsettled);
   const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
 
   const isFreshIntake = dak.status === "Registered" && routingState === "Unassigned" && !dak.currentAssignment?.isActive;
@@ -601,6 +614,8 @@ export const DakDetailWorkspace: React.FC = () => {
 
   // Return-pending sender - STRICT ID MATCH ONLY
   const isReturnPendingSender = Boolean(
+    !transfersLoading &&
+    !transfersError &&
     currentUserId &&
     dak.physicalState === "ReturnPending" &&
     pulledBackPhysicalTransfer &&
@@ -902,7 +917,7 @@ export const DakDetailWorkspace: React.FC = () => {
               <span className="custody-box-title">Physical Original Location</span>
               <span className="custody-box-subtitle">Paper Original Document Custody</span>
             </div>
-            {canEdit && (
+            {canUpdatePhysicalLocation && (
               <button
                 className="secondary-button btn-xs"
                 style={{ marginLeft: "auto" }}
@@ -914,6 +929,40 @@ export const DakDetailWorkspace: React.FC = () => {
           </div>
 
           <div className="custody-box-body">
+            {dak.physicalState === "InTransit" && (
+              <div
+                className="physical-transit-notice"
+                style={{
+                  fontSize: "12px",
+                  color: "#92400e",
+                  background: "#fffbeb",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  marginBottom: "10px",
+                  border: "1px solid #fde68a",
+                  lineHeight: "1.4"
+                }}
+              >
+                Physical original is in transit. Location will update on acknowledged receipt.
+              </div>
+            )}
+            {dak.physicalState === "ReturnPending" && (
+              <div
+                className="physical-return-pending-notice"
+                style={{
+                  fontSize: "12px",
+                  color: "#991b1b",
+                  background: "#fef2f2",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  marginBottom: "10px",
+                  border: "1px solid #fecaca",
+                  lineHeight: "1.4"
+                }}
+              >
+                Physical recovery must be confirmed through Confirm Physical Return.
+              </div>
+            )}
             {physicalOriginal ? (
               <>
                 <div className="po-state-row">
@@ -1018,22 +1067,34 @@ export const DakDetailWorkspace: React.FC = () => {
             </>
           ) : isReturnPending ? (
             <>
-              {/* ReturnPending: sender gets Confirm Physical Return */}
-              {isReturnPendingSender && canPullBack && (
-                <button
-                  type="button"
-                  className="primary-button"
-                  style={{ background: "#dc2626", borderColor: "#b91c1c" }}
-                  onClick={() => setMovementModalMode("confirm-return")}
-                >
-                  📦 Confirm Physical Return
-                </button>
-              )}
-
-              {!isReturnPendingSender && (
-                <span style={{ fontSize: "13px", color: "#991b1b", background: "#fef2f2", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fecaca", display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  ⚠️ Physical original return awaiting confirmation by sender
+              {transfersError ? (
+                <span className="transfer-error-notice" style={{ fontSize: "13px", color: "#991b1b", background: "#fef2f2", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fecaca", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  ⚠️ {transfersError}
                 </span>
+              ) : transfersLoading ? (
+                <span className="transfer-loading-notice" style={{ fontSize: "13px", color: "#64748b", padding: "6px 12px", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  ⏳ Loading transfer details...
+                </span>
+              ) : (
+                <>
+                  {/* ReturnPending: sender gets Confirm Physical Return */}
+                  {isReturnPendingSender && canPullBack && (
+                    <button
+                      type="button"
+                      className="primary-button"
+                      style={{ background: "#dc2626", borderColor: "#b91c1c" }}
+                      onClick={() => setMovementModalMode("confirm-return")}
+                    >
+                      📦 Confirm Physical Return
+                    </button>
+                  )}
+
+                  {!isReturnPendingSender && (
+                    <span style={{ fontSize: "13px", color: "#991b1b", background: "#fef2f2", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fecaca", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                      ⚠️ Physical original return awaiting confirmation by sender
+                    </span>
+                  )}
+                </>
               )}
 
               {canEdit && (

@@ -2106,4 +2106,233 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
 
     await context.close();
   });
+
+  test("28. ReturnPending fails closed on transfer load and error, becoming actionable only when authoritative transfer arrives", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending"
+        }))
+      });
+    });
+
+    // Case A: /transfers is delayed; Confirm Physical Return must NOT be visible while loading
+    let resolveTransfersPromise;
+    const transfersPromise = new Promise((resolve) => {
+      resolveTransfersPromise = resolve;
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", async (route) => {
+      await transfersPromise;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-10",
+              senderUserId: "user-nt-1",
+              toUserId: "user-recipient-4",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Wrong recipient",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`);
+    await page.waitForSelector(".dak-detail-workspace");
+
+    // While transfers have not resolved:
+    const returnBtnPending = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.strictEqual(returnBtnPending, false, "Confirm Physical Return button must NOT be exposed before authoritative transfer resolves");
+
+    const loadingNotice = await page.locator(".transfer-loading-notice").isVisible();
+    assert.ok(loadingNotice, "Transfer loading notice must be visible while transfer details are fetching for ReturnPending");
+
+    // Now resolve transfers
+    resolveTransfersPromise();
+    await page.waitForSelector("button:has-text('Confirm Physical Return')");
+    const returnBtnAfter = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.ok(returnBtnAfter, "Confirm Physical Return button must appear once authoritative transfer arrives for sender");
+
+    // Case B: /transfers fails with HTTP 500 => error notice shown, no Confirm Physical Return button
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Failed" }) });
+    });
+
+    await page.reload();
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const errorNotice = await page.locator(".transfer-error-notice").textContent();
+    assert.ok(errorNotice.includes("Transfer details could not be loaded; refresh before acting"), "Must show error notice when transfer fetch fails in ReturnPending");
+
+    const returnBtnError = await page.locator("button:has-text('Confirm Physical Return')").isVisible();
+    assert.strictEqual(returnBtnError, false, "Confirm Physical Return button must NOT be exposed when transfer fetch fails");
+
+    await context.close();
+  });
+
+  test("29. Physical observation Update Physical Location button is hidden in InTransit and ReturnPending, but visible when settled", async () => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await setupDefaultAuthAndLookups(page);
+
+    // Case A: dak.physicalState === InTransit => button hidden, notice visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "InTransit",
+          physicalState: "InTransit",
+          pendingTransferId: "tr-test-transit",
+          pendingReceiverUserId: "user-other"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-test-transit",
+              senderUserId: "user-nt-1",
+              toUserId: "user-other",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Marked",
+              state: "Pending",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z"
+            }
+          ]
+        })
+      });
+    });
+
+    await page.goto(`http://127.0.0.1:${PORT}/dak/dak-101`, { waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnInTransit = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.strictEqual(updateBtnInTransit, false, "Update Physical Location button must be hidden when physicalState is InTransit");
+
+    const transitNotice = await page.locator(".physical-transit-notice").textContent();
+    assert.ok(
+      transitNotice.includes("Physical original is in transit. Location will update on acknowledged receipt."),
+      "Must show read-only in-transit explanation"
+    );
+
+    // Case B: dak.physicalState === ReturnPending => button hidden, notice visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "ReturnPending"
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [
+            {
+              id: "tr-pulled-return",
+              senderUserId: "user-nt-1",
+              toUserId: "user-other",
+              toDeskId: "desk-1",
+              destinationKind: "Officer",
+              purpose: "Forwarded",
+              state: "PulledBack",
+              includesPhysicalOriginal: true,
+              sentAt: "2026-10-06T10:00:00Z",
+              pulledBackAt: "2026-10-06T10:15:00Z",
+              pullBackReason: "Need corrections",
+              physicalReturnedAt: null
+            }
+          ]
+        })
+      });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnReturnPending = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.strictEqual(updateBtnReturnPending, false, "Update Physical Location button must be hidden when physicalState is ReturnPending");
+
+    const returnPendingNotice = await page.locator(".physical-return-pending-notice").textContent();
+    assert.ok(
+      returnPendingNotice.includes("Physical recovery must be confirmed through Confirm Physical Return."),
+      "Must show read-only return pending explanation"
+    );
+
+    // Case C: Settled record: routingState === WithHolder, physicalState === AtRecordedLocation => button visible
+    await page.route("**/api/dak/dak-101", (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createSampleDak({
+          id: "dak-101",
+          routingState: "WithHolder",
+          physicalState: "AtRecordedLocation",
+          currentAssignment: {
+            id: "asg-settled",
+            officeDeskId: "desk-1",
+            deskCode: "NT_LAC",
+            deskName: "Naib Tehsildar Desk",
+            assignedUserId: "user-nt-1",
+            assignedUserDisplayName: "Ashwani Baghel",
+            isActive: true,
+            isConfirmed: true,
+            receivedAt: "2026-10-06T10:35:00Z"
+          }
+        }))
+      });
+    });
+
+    await page.route("**/api/dak/dak-101/transfers", (route) => {
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ items: [] }) });
+    });
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForSelector(".dak-detail-workspace");
+
+    const updateBtnSettled = await page.locator("button:has-text('Update Physical Location')").isVisible();
+    assert.ok(updateBtnSettled, "Update Physical Location button must be visible when record and physical state are settled");
+
+    const hasTransitNotice = await page.locator(".physical-transit-notice").isVisible();
+    assert.strictEqual(hasTransitNotice, false, "Must not display transit notice when settled");
+
+    const hasReturnNotice = await page.locator(".physical-return-pending-notice").isVisible();
+    assert.strictEqual(hasReturnNotice, false, "Must not display return notice when settled");
+
+    await context.close();
+  });
 });
