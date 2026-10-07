@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { AREA_UNITS, areaToSqm, sqmToArea } from "./landConversions";
 import { formatInr, parseNumericInput } from "./compensationFormatters";
 import {
@@ -19,7 +19,9 @@ import {
   getAvailableFormulaVariables,
   convertFormulaReadableToInternal,
   validateFormulaSyntax,
-  buildCompensationRequest
+  buildCompensationRequest,
+  computeFormSignature,
+  isResultValidForState
 } from "./compensationContracts";
 
 export {
@@ -40,7 +42,9 @@ export {
   getAvailableFormulaVariables,
   convertFormulaReadableToInternal,
   validateFormulaSyntax,
-  buildCompensationRequest
+  buildCompensationRequest,
+  computeFormSignature,
+  isResultValidForState
 };
 
 export function CompensationCalculator() {
@@ -82,6 +86,68 @@ export function CompensationCalculator() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string>("");
   const [result, setResult] = useState<CompensationResponse | null>(null);
+  const [calculatedSignature, setCalculatedSignature] = useState<string | null>(null);
+  const [hasCalculated, setHasCalculated] = useState<boolean>(false);
+
+  // Canonical calculation-affecting state snapshot & signature
+  const currentFormState: CompensationFormState = useMemo(() => ({
+    landArea,
+    landAreaUnit,
+    marketRate,
+    marketRateUnit,
+    useOfficialEquivalent,
+    officialEquivalentArea,
+    multiplicationFactor,
+    treesAndStructures,
+    solatiumPercentage,
+    additionalAmountType,
+    annualRate,
+    durationType,
+    durationValue,
+    startDate,
+    endDate,
+    calculatedOn,
+    formulaReadable,
+    otherDurationMode,
+    otherDurationValue,
+    otherStartDate,
+    otherEndDate
+  }), [
+    landArea,
+    landAreaUnit,
+    marketRate,
+    marketRateUnit,
+    useOfficialEquivalent,
+    officialEquivalentArea,
+    multiplicationFactor,
+    treesAndStructures,
+    solatiumPercentage,
+    additionalAmountType,
+    annualRate,
+    durationType,
+    durationValue,
+    startDate,
+    endDate,
+    calculatedOn,
+    formulaReadable,
+    otherDurationMode,
+    otherDurationValue,
+    otherStartDate,
+    otherEndDate
+  ]);
+
+  const currentSignature = useMemo(() => computeFormSignature(currentFormState), [currentFormState]);
+
+  // Fail-safe invalidation: if inputs changed after calculation, immediately treat result as invalidated
+  const isStale = Boolean(result && calculatedSignature && calculatedSignature !== currentSignature);
+  const activeResult = isStale ? null : result;
+
+  // Clear stored result from state whenever inputs diverge from the calculated signature
+  useEffect(() => {
+    if (result && calculatedSignature && calculatedSignature !== currentSignature) {
+      setResult(null);
+    }
+  }, [currentSignature, calculatedSignature, result]);
 
   // Automatic conversion calculation using canonical Area Calculator constants
   const areaNumber = parseNumericInput(landArea);
@@ -175,6 +241,8 @@ export function CompensationCalculator() {
     setFieldErrors({});
     setGeneralError("");
     setResult(null);
+    setCalculatedSignature(null);
+    setHasCalculated(false);
   };
 
   const getFieldError = (fieldKey: string) => {
@@ -208,10 +276,15 @@ export function CompensationCalculator() {
       otherEndDate
     };
 
+    const requestSignature = computeFormSignature(formState);
+
     const validation = buildCompensationRequest(formState);
     if (!validation.valid || !validation.payload) {
       setFieldErrors(validation.errors);
       setGeneralError("Please resolve the errors highlighted below.");
+      setResult(null);
+      setCalculatedSignature(null);
+      setHasCalculated(false);
       return;
     }
 
@@ -227,6 +300,10 @@ export function CompensationCalculator() {
       });
 
       if (!response.ok) {
+        setResult(null);
+        setCalculatedSignature(null);
+        setHasCalculated(false);
+
         if (response.status === 401) {
           setGeneralError("Your session has expired or authentication is required. Please sign in.");
           return;
@@ -271,7 +348,12 @@ export function CompensationCalculator() {
 
       const data: CompensationResponse = await response.json();
       setResult(data);
+      setCalculatedSignature(requestSignature);
+      setHasCalculated(true);
     } catch (err: unknown) {
+      setResult(null);
+      setCalculatedSignature(null);
+      setHasCalculated(false);
       setGeneralError(err instanceof Error ? err.message : "Unable to reach calculation service.");
     } finally {
       setLoading(false);
@@ -790,8 +872,8 @@ export function CompensationCalculator() {
 
                   <div className="comp-formula-preview">
                     <span>Additional Amount:</span>
-                    {result?.additionalAmount?.amount ? (
-                      <strong>{formatInr(result.additionalAmount.amount)}</strong>
+                    {activeResult?.additionalAmount?.amount ? (
+                      <strong>{formatInr(activeResult.additionalAmount.amount)}</strong>
                     ) : (
                       <span className="comp-formula-server-hint">Amount will be calculated by the server.</span>
                     )}
@@ -823,13 +905,17 @@ export function CompensationCalculator() {
 
         {/* RIGHT COLUMN: Result Panel */}
         <aside className="comp-result-column" aria-label="Calculated Compensation Summary">
-          {!result ? (
+          {!activeResult ? (
             <div className="comp-empty-panel">
               <div className="comp-empty-icon" aria-hidden="true">
                 ₹
               </div>
               <h4>Compensation Summary</h4>
-              <p>Enter land area and rate to see the compensation breakdown.</p>
+              {hasCalculated && calculatedSignature !== currentSignature ? (
+                <p>Inputs changed. Calculate again to see the updated compensation.</p>
+              ) : (
+                <p>Enter land area and rate to see the compensation breakdown.</p>
+              )}
             </div>
           ) : (
             <div className="comp-active-panel">
@@ -837,10 +923,10 @@ export function CompensationCalculator() {
               <div className="comp-final-card">
                 <span className="comp-final-tag">FINAL COMPENSATION</span>
                 <strong className="comp-final-amount">
-                  {formatInr(result.finalCompensation)}
+                  {formatInr(activeResult.finalCompensation)}
                 </strong>
                 <p className="comp-final-words">
-                  {result.finalAmountInWords}
+                  {activeResult.finalAmountInWords}
                 </p>
               </div>
 
@@ -849,25 +935,25 @@ export function CompensationCalculator() {
                 <h4 className="comp-breakdown-heading">Calculation Breakdown</h4>
                 <div className="comp-breakdown-list">
                   {/* Distinct Area Section */}
-                  {result.area && (
+                  {activeResult.area && (
                     <div className="comp-breakdown-area-summary">
                       <div className="comp-breakdown-row">
                         <div className="comp-row-label">
                           <span>Entered land:</span>
                         </div>
                         <strong className="comp-row-val">
-                          {result.area.enteredArea} {AREA_UNITS[result.area.unit as keyof typeof AREA_UNITS]?.label || result.area.unit}
+                          {activeResult.area.enteredArea} {AREA_UNITS[activeResult.area.unit as keyof typeof AREA_UNITS]?.label || activeResult.area.unit}
                         </strong>
                       </div>
 
-                      {result.area.unit !== result.area.rateUnit && (
+                      {activeResult.area.unit !== activeResult.area.rateUnit && (
                         <>
                           <div className="comp-breakdown-row">
                             <div className="comp-row-label">
                               <span>Automatic conversion:</span>
                             </div>
                             <strong className="comp-row-val">
-                              {Number(result.area.profileConvertedArea).toFixed(6)} {AREA_UNITS[result.area.rateUnit as keyof typeof AREA_UNITS]?.label || result.area.rateUnit}
+                              {Number(activeResult.area.profileConvertedArea).toFixed(6)} {AREA_UNITS[activeResult.area.rateUnit as keyof typeof AREA_UNITS]?.label || activeResult.area.rateUnit}
                             </strong>
                           </div>
 
@@ -876,9 +962,9 @@ export function CompensationCalculator() {
                               <span>Applied for calculation:</span>
                             </div>
                             <strong className="comp-row-val">
-                              {result.area.appliedArea} {AREA_UNITS[result.area.rateUnit as keyof typeof AREA_UNITS]?.label || result.area.rateUnit}{" "}
+                              {activeResult.area.appliedArea} {AREA_UNITS[activeResult.area.rateUnit as keyof typeof AREA_UNITS]?.label || activeResult.area.rateUnit}{" "}
                               <small>
-                                {result.area.usesExplicitEquivalentArea
+                                {activeResult.area.usesExplicitEquivalentArea
                                   ? "(Official equivalent entered)"
                                   : "(Automatic conversion applied)"}
                               </small>
@@ -890,80 +976,80 @@ export function CompensationCalculator() {
                   )}
 
                   {/* Financial Stages */}
-                  {result.marketValue !== undefined && (
+                  {activeResult.marketValue !== undefined && (
                     <div className="comp-breakdown-row">
                       <div className="comp-row-label">
                         <span>Market Value</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.marketValue)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.marketValue)}</strong>
                     </div>
                   )}
 
-                  {result.factorAdjustedValue !== undefined && (
+                  {activeResult.factorAdjustedValue !== undefined && (
                     <div className="comp-breakdown-row">
                       <div className="comp-row-label">
-                        <span>× Factor {result.multiplicationFactor}</span>
+                        <span>× Factor {activeResult.multiplicationFactor}</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.factorAdjustedValue)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.factorAdjustedValue)}</strong>
                     </div>
                   )}
 
-                  {result.treesAndStructures !== undefined && (
+                  {activeResult.treesAndStructures !== undefined && (
                     <div className="comp-breakdown-row">
                       <div className="comp-row-label">
                         <span>+ Trees &amp; Structures</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.treesAndStructures)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.treesAndStructures)}</strong>
                     </div>
                   )}
 
-                  {result.baseCompensation !== undefined && (
+                  {activeResult.baseCompensation !== undefined && (
                     <div className="comp-breakdown-row comp-row-subtotal">
                       <div className="comp-row-label">
                         <span>Base Compensation</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.baseCompensation)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.baseCompensation)}</strong>
                     </div>
                   )}
 
-                  {result.solatiumAmount !== undefined && (
+                  {activeResult.solatiumAmount !== undefined && (
                     <div className="comp-breakdown-row">
                       <div className="comp-row-label">
-                        <span>+ Solatium {result.solatiumPercent}%</span>
+                        <span>+ Solatium {activeResult.solatiumPercent}%</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.solatiumAmount)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.solatiumAmount)}</strong>
                     </div>
                   )}
 
-                  {result.amountAfterSolatium !== undefined && (
+                  {activeResult.amountAfterSolatium !== undefined && (
                     <div className="comp-breakdown-row comp-row-subtotal">
                       <div className="comp-row-label">
                         <span>Amount after Solatium</span>
                       </div>
-                      <strong className="comp-row-amount">{formatInr(result.amountAfterSolatium)}</strong>
+                      <strong className="comp-row-amount">{formatInr(activeResult.amountAfterSolatium)}</strong>
                     </div>
                   )}
 
-                  {result.additionalAmount !== undefined && (
+                  {activeResult.additionalAmount !== undefined && (
                     <div className="comp-breakdown-row">
                       <div className="comp-row-label">
                         <span>+ Additional Amount</span>
-                        {result.additionalAmount.duration?.value && (
+                        {activeResult.additionalAmount.duration?.value && (
                           <small>
-                            {result.additionalAmount.annualRatePercent
-                              ? `${result.additionalAmount.annualRatePercent}% for ${result.additionalAmount.duration.value} ${result.additionalAmount.duration.mode?.toLowerCase()}`
-                              : `${result.additionalAmount.duration.value} ${result.additionalAmount.duration.mode?.toLowerCase()}`}{" "}
-                            {result.additionalAmount.basis ? `on ${result.additionalAmount.basis}` : ""}
+                            {activeResult.additionalAmount.annualRatePercent
+                              ? `${activeResult.additionalAmount.annualRatePercent}% for ${activeResult.additionalAmount.duration.value} ${activeResult.additionalAmount.duration.mode?.toLowerCase()}`
+                              : `${activeResult.additionalAmount.duration.value} ${activeResult.additionalAmount.duration.mode?.toLowerCase()}`}{" "}
+                            {activeResult.additionalAmount.basis ? `on ${activeResult.additionalAmount.basis}` : ""}
                           </small>
                         )}
-                        {result.additionalAmount.type === "Other" && (
-                          <small title={result.additionalAmount.normalizedFormula}>
-                            Formula: {result.additionalAmount.normalizedFormula}
+                        {activeResult.additionalAmount.type === "Other" && (
+                          <small title={activeResult.additionalAmount.normalizedFormula}>
+                            Formula: {activeResult.additionalAmount.normalizedFormula}
                           </small>
                         )}
                       </div>
                       <strong className="comp-row-amount">
-                        {formatInr(result.additionalAmount.amount)}
+                        {formatInr(activeResult.additionalAmount.amount)}
                       </strong>
                     </div>
                   )}
@@ -972,7 +1058,7 @@ export function CompensationCalculator() {
                     <div className="comp-row-label">
                       <span>FINAL</span>
                     </div>
-                    <strong className="comp-row-amount">{formatInr(result.finalCompensation)}</strong>
+                    <strong className="comp-row-amount">{formatInr(activeResult.finalCompensation)}</strong>
                   </div>
                 </div>
 

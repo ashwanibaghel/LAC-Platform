@@ -13,7 +13,9 @@ import {
   buildCompensationRequest,
   convertFormulaReadableToInternal,
   validateFormulaSyntax,
-  getAvailableFormulaVariables
+  getAvailableFormulaVariables,
+  computeFormSignature,
+  isResultValidForState
 } from "../src/calculator/compensationContracts.ts";
 import {
   AREA_UNITS,
@@ -285,11 +287,11 @@ test("9. no locally calculated authoritative monetary preview", () => {
 // 10. Final Additional Amount renders backend response
 test("10. final Additional Amount renders backend response", () => {
   assert.ok(
-    compSource.includes("result.additionalAmount.amount"),
-    "Component must render backend result.additionalAmount.amount"
+    compSource.includes("activeResult.additionalAmount.amount") || compSource.includes("result.additionalAmount.amount"),
+    "Component must render backend additionalAmount.amount"
   );
   assert.ok(
-    compSource.includes("formatInr(result.additionalAmount.amount)"),
+    compSource.includes("formatInr(activeResult.additionalAmount.amount)") || compSource.includes("formatInr(result.additionalAmount.amount)"),
     "Component must format backend additional amount via formatInr"
   );
 });
@@ -515,3 +517,305 @@ test("20. no Save, Award linking, or calculation history", () => {
     "Compensation Calculator must not have Save, Link Award, or history actions"
   );
 });
+
+// 21. successful result + Area edit => old result invalidated
+test("21. successful result + Area edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+  assert.equal(isResultValidForState(calculatedSig, baseState), true);
+
+  // Editing land area invalidates the result signature immediately
+  const editedAreaState = { ...baseState, landArea: "20" };
+  assert.equal(isResultValidForState(calculatedSig, editedAreaState), false);
+  assert.notEqual(computeFormSignature(editedAreaState), calculatedSig);
+
+  // Editing land area unit also invalidates the result signature
+  const editedUnitState = { ...baseState, landAreaUnit: "acre" };
+  assert.equal(isResultValidForState(calculatedSig, editedUnitState), false);
+  assert.notEqual(computeFormSignature(editedUnitState), calculatedSig);
+
+  // Verify component UI handles stale result with activeResult and pending message
+  assert.ok(compSource.includes("calculatedSignature !== currentSignature"));
+  assert.ok(compSource.includes("Inputs changed. Calculate again to see the updated compensation."));
+});
+
+// 22. successful result + Factor edit => old result invalidated
+test("22. successful result + Factor edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+  assert.equal(isResultValidForState(calculatedSig, baseState), true);
+
+  // Editing factor immediately invalidates the signature
+  const editedFactorState = { ...baseState, multiplicationFactor: "1.5" };
+  assert.equal(isResultValidForState(calculatedSig, editedFactorState), false);
+  assert.notEqual(computeFormSignature(editedFactorState), calculatedSig);
+
+  // Editing trees & structures immediately invalidates the signature
+  const editedTreesState = { ...baseState, treesAndStructures: "50000" };
+  assert.equal(isResultValidForState(calculatedSig, editedTreesState), false);
+  assert.notEqual(computeFormSignature(editedTreesState), calculatedSig);
+});
+
+// 23. successful result + Solatium edit => old result invalidated
+test("23. successful result + Solatium edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+  assert.equal(isResultValidForState(calculatedSig, baseState), true);
+
+  // Editing solatium percentage immediately invalidates the signature
+  const editedSolatiumState = { ...baseState, solatiumPercentage: "30" };
+  assert.equal(isResultValidForState(calculatedSig, editedSolatiumState), false);
+  assert.notEqual(computeFormSignature(editedSolatiumState), calculatedSig);
+});
+
+// 24. successful result + Interest / duration edit => old result invalidated
+test("24. successful result + Interest / duration edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+
+  // Editing annual interest rate invalidates
+  const editedRateState = { ...baseState, annualRate: "9" };
+  assert.equal(isResultValidForState(calculatedSig, editedRateState), false);
+
+  // Editing duration value invalidates
+  const editedDurationValState = { ...baseState, durationValue: "45" };
+  assert.equal(isResultValidForState(calculatedSig, editedDurationValState), false);
+
+  // Editing duration mode/type invalidates
+  const editedDurationTypeState = { ...baseState, durationType: "months", durationValue: "1" };
+  assert.equal(isResultValidForState(calculatedSig, editedDurationTypeState), false);
+
+  // Editing calculatedOn basis invalidates
+  const editedBasisState = { ...baseState, calculatedOn: "BaseCompensation" };
+  assert.equal(isResultValidForState(calculatedSig, editedBasisState), false);
+});
+
+// 25. successful result + Other formula edit => old result invalidated
+test("25. successful result + Other formula edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "other",
+    formulaReadable: "MARKET_VALUE * 12 / 100 * (DAYS / 365)",
+    otherDurationMode: "Days",
+    otherDurationValue: "30"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+  assert.equal(isResultValidForState(calculatedSig, baseState), true);
+
+  // Changing formula expression text invalidates
+  const editedFormulaState = { ...baseState, formulaReadable: "BASE_COMPENSATION + 50000" };
+  assert.equal(isResultValidForState(calculatedSig, editedFormulaState), false);
+
+  // Changing Other duration value invalidates
+  const editedDurationState = { ...baseState, otherDurationValue: "60" };
+  assert.equal(isResultValidForState(calculatedSig, editedDurationState), false);
+
+  // Changing Other duration mode invalidates
+  const editedModeState = { ...baseState, otherDurationMode: "None", otherDurationValue: "" };
+  assert.equal(isResultValidForState(calculatedSig, editedModeState), false);
+
+  // Switching additional amount type from other to interest invalidates
+  const switchedTypeState = { ...baseState, additionalAmountType: "interest", annualRate: "12", durationValue: "30" };
+  assert.equal(isResultValidForState(calculatedSig, switchedTypeState), false);
+});
+
+// 26. successful result + official equivalent toggle / area edit => old result invalidated
+test("26. successful result + official equivalent toggle / area edit => old result invalidated", () => {
+  const baseState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    useOfficialEquivalent: true,
+    officialEquivalentArea: "3.744",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const calculatedSig = computeFormSignature(baseState);
+  assert.equal(isResultValidForState(calculatedSig, baseState), true);
+
+  // Toggling off the official equivalent override invalidates
+  const toggledOffState = { ...baseState, useOfficialEquivalent: false };
+  assert.equal(isResultValidForState(calculatedSig, toggledOffState), false);
+
+  // Changing the official equivalent area value invalidates
+  const editedEquivAreaState = { ...baseState, officialEquivalentArea: "3.750" };
+  assert.equal(isResultValidForState(calculatedSig, editedEquivAreaState), false);
+});
+
+// 27. client-side validation failure => no stale result
+test("27. client-side validation failure => no stale result", () => {
+  // Verifies that in CompensationCalculator, if client-side validation fails,
+  // old result is cleared (setResult(null), setCalculatedSignature(null), setHasCalculated(false))
+  assert.ok(
+    compSource.includes("if (!validation.valid || !validation.payload)"),
+    "Component checks client validation before request"
+  );
+  assert.ok(
+    compSource.includes("setFieldErrors(validation.errors)"),
+    "Component surfaces validation errors"
+  );
+  // Source proves setResult(null) and setCalculatedSignature(null) are called in the validation failure branch
+  const validationBranch = compSource.slice(
+    compSource.indexOf("if (!validation.valid || !validation.payload)"),
+    compSource.indexOf("setLoading(true)")
+  );
+  assert.ok(validationBranch.includes("setResult(null)"), "Validation failure must clear result");
+  assert.ok(validationBranch.includes("setCalculatedSignature(null)"), "Validation failure must clear signature");
+  assert.ok(validationBranch.includes("setHasCalculated(false)"), "Validation failure must reset hasCalculated");
+});
+
+// 28. backend error response => no stale result
+test("28. backend error response => no stale result", () => {
+  // Source proves setResult(null) and setCalculatedSignature(null) are called when response is not ok
+  const errorBranch = compSource.slice(
+    compSource.indexOf("if (!response.ok)"),
+    compSource.indexOf("const data: CompensationResponse = await response.json()")
+  );
+  assert.ok(errorBranch.includes("setResult(null)"), "HTTP error response must clear result");
+  assert.ok(errorBranch.includes("setCalculatedSignature(null)"), "HTTP error response must clear signature");
+  assert.ok(errorBranch.includes("setHasCalculated(false)"), "HTTP error response must reset hasCalculated");
+
+  // Also catch block must clear result
+  const catchBranch = compSource.slice(
+    compSource.indexOf("catch (err: unknown)"),
+    compSource.indexOf("finally")
+  );
+  assert.ok(catchBranch.includes("setResult(null)"), "Network error catch must clear result");
+  assert.ok(catchBranch.includes("setCalculatedSignature(null)"), "Network error catch must clear signature");
+  assert.ok(catchBranch.includes("setHasCalculated(false)"), "Network error catch must reset hasCalculated");
+});
+
+// 29. field edit does not trigger calculation request
+test("29. field edit does not trigger calculation request", () => {
+  // Verifies that no onChange handler triggers handleCalculate, compute, or fetch
+  const onChangeMatches = compSource.match(/onChange=\{[^}]+\}/g) || [];
+  for (const match of onChangeMatches) {
+    assert.doesNotMatch(
+      match,
+      /handleCalculate|fetch\(/,
+      `onChange handler (${match}) must not trigger calculation request`
+    );
+  }
+  // The only place handleCalculate is triggered is onSubmit
+  assert.ok(compSource.includes('onSubmit={handleCalculate}'));
+});
+
+// 30. fresh Calculate displays server response
+test("30. fresh Calculate displays server response", () => {
+  const freshState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    useOfficialEquivalent: true,
+    officialEquivalentArea: "3.744",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const freshSig = computeFormSignature(freshState);
+  assert.equal(isResultValidForState(freshSig, freshState), true);
+
+  // When response arrives, setCalculatedSignature(requestSignature) pairs with setResult(data)
+  assert.ok(
+    compSource.includes("setCalculatedSignature(requestSignature)"),
+    "Component records request signature on successful calculate"
+  );
+  assert.ok(
+    compSource.includes("setResult(data)"),
+    "Component records server response on successful calculate"
+  );
+  assert.ok(
+    compSource.includes("setHasCalculated(true)"),
+    "Component marks calculation as completed"
+  );
+  assert.ok(
+    compSource.includes("const isStale = Boolean(result && calculatedSignature && calculatedSignature !== currentSignature)"),
+    "Component derives freshness synchronously"
+  );
+});
+

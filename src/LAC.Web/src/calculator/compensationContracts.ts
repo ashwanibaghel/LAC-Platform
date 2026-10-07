@@ -388,3 +388,38 @@ export function buildCompensationRequest(state: CompensationFormState): {
 
   return { valid: true, errors: {}, payload };
 }
+
+export function computeFormSignature(state: CompensationFormState): string {
+  return JSON.stringify([
+    state.landArea,
+    state.landAreaUnit,
+    state.marketRate,
+    state.marketRateUnit,
+    state.useOfficialEquivalent,
+    state.officialEquivalentArea,
+    state.multiplicationFactor,
+    state.treesAndStructures,
+    state.solatiumPercentage,
+    state.additionalAmountType,
+    state.annualRate,
+    state.durationType,
+    state.durationValue,
+    state.startDate,
+    state.endDate,
+    state.calculatedOn,
+    state.formulaReadable,
+    state.otherDurationMode,
+    state.otherDurationValue,
+    state.otherStartDate,
+    state.otherEndDate
+  ]);
+}
+
+export function isResultValidForState(
+  calculatedSignature: string | null,
+  currentState: CompensationFormState
+): boolean {
+  if (!calculatedSignature) return false;
+  return calculatedSignature === computeFormSignature(currentState);
+}
+
