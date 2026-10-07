@@ -9,7 +9,7 @@ export interface DakListItem {
   inwardMode: string;
   priority: "Routine" | "Urgent" | "Immediate";
   dueDate?: string;
-  status: "Registered" | "InProcess" | "Disposed" | "Cancelled";
+  status: "Registered" | "InProcess" | "Disposed" | "Cancelled" | "Resolved";
   categoryName?: string;
   workstreamName?: string;
   assignedDeskName?: string;
@@ -34,8 +34,8 @@ export interface DakAssignment {
   isDeskActive: boolean;
   isUserEligible: boolean;
   needsAttention: boolean;
-  isReceived?: boolean;
   receivedAt?: string | null;
+  isConfirmed?: boolean;
 }
 
 export interface DakAttachment {
@@ -71,7 +71,7 @@ export interface DakDetail {
   inwardMode: string;
   priority: "Routine" | "Urgent" | "Immediate";
   dueDate?: string;
-  status: "Registered" | "InProcess" | "Disposed" | "Cancelled";
+  status: "Registered" | "InProcess" | "Disposed" | "Cancelled" | "Resolved";
   categoryId?: string;
   categoryName?: string;
   workstreamId?: string;
@@ -79,17 +79,7 @@ export interface DakDetail {
   revision: number;
   mainDocumentId?: string;
   mainDocumentFileName?: string;
-  currentAssignment?: DakAssignment;
-  routingState?: "Unassigned" | "WithHolder" | "InTransit" | "LegacyUnconfirmed";
-  physicalState?: "Unknown" | "NotPresent" | "AtRecordedLocation" | "Held" | "InTransit" | "ReturnPending";
-  processingCycle?: number;
-  pendingTransfer?: PendingTransfer | null;
-  resolution?: {
-    resolvedAt: string;
-    resolvedByUserId: string;
-    completionAttested: boolean;
-    remarks: string;
-  } | null;
+  currentAssignment?: DakAssignment | null;
   attachments: DakAttachment[];
   villageLinks: DakLinkItem[];
   awardLinks: DakLinkItem[];
@@ -99,17 +89,25 @@ export interface DakDetail {
   createdBy?: string;
   updatedAt: string;
   updatedBy?: string;
+  routingState: "Unassigned" | "WithHolder" | "InTransit" | "LegacyUnconfirmed";
+  physicalState: "Unknown" | "NotPresent" | "AtRecordedLocation" | "Held" | "InTransit" | "ReturnPending";
+  processingCycle: number;
+  pendingTransferId?: string | null;
+  pendingReceiverUserId?: string | null;
+  needsAttention: boolean;
+  resolvedAt?: string | null;
+  resolvedByUserId?: string | null;
+  resolutionRemarks?: string | null;
 }
 
-export interface PendingTransfer {
+export interface DakTransferItem {
   id: string;
   senderUserId: string;
   fromHolderUserId?: string | null;
   fromDeskId?: string | null;
   toDeskId: string;
   toUserId: string;
-  toUserDisplayName?: string;
-  destinationKind: "Officer" | "RecordRoom";
+  destinationKind: "Officer" | "RecordRoom" | string;
   purpose: string;
   state: "Pending" | "Received" | "PulledBack";
   includesPhysicalOriginal: boolean;
@@ -124,10 +122,30 @@ export interface PendingTransfer {
   instructions?: string | null;
 }
 
+export type DakMovementActionType =
+  | "Registered"
+  | "Marked"
+  | "Forwarded"
+  | "Returned"
+  | "Disposed"
+  | "Cancelled"
+  | "Received"
+  | "PulledBack"
+  | "PhysicalReturnConfirmed"
+  | "Resolved"
+  | "Reopened"
+  | "CustodyConfirmed";
+
+export interface DakMovementStateChanges {
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
+  completionAttested?: boolean | null;
+}
+
 export interface DakMovement {
   id: string;
   sequenceNumber: number;
-  action: "Registered" | "Marked" | "Forwarded" | "Returned" | "Disposed" | "Cancelled";
+  action: DakMovementActionType;
   fromDeskId?: string;
   fromDeskCode?: string;
   fromDeskName?: string;
@@ -143,6 +161,9 @@ export interface DakMovement {
   actionAt: string;
   remarks?: string;
   instructions?: string;
+  transferId?: string | null;
+  eventVersion?: number;
+  stateChanges?: DakMovementStateChanges | null;
 }
 
 export interface DakCategory {
@@ -193,7 +214,7 @@ export interface MyDeskItem {
   priority: "Routine" | "Urgent" | "Immediate";
   dueDate?: string;
   workstreamName?: string;
-  status: "Registered" | "InProcess" | "Disposed" | "Cancelled";
+  status: "Registered" | "InProcess" | "Disposed" | "Cancelled" | "Resolved";
   revision: number;
   assignment: MyDeskAssignment;
 }

@@ -32,6 +32,8 @@ interface Props {
   dak: DakDetail;
   mode: MovementModalMode;
   transferId?: string;
+  isInitialMark?: boolean;
+  activeTransferIncludesPhysical?: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -47,14 +49,21 @@ function getUuid(): string {
   });
 }
 
-export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClose, onSuccess }) => {
-  const isCurrentlyAssigned = dak.currentAssignment !== undefined && dak.currentAssignment !== null;
+export const DakMovementModal: React.FC<Props> = ({
+  dak,
+  mode,
+  transferId,
+  isInitialMark = false,
+  activeTransferIncludesPhysical = false,
+  onClose,
+  onSuccess
+}) => {
   const isSendMode = mode === "move" || mode === "send";
   const isResolveMode = mode === "dispose" || mode === "resolve";
 
   // Move / Send fields
   const [action, setAction] = useState<"Marked" | "Forwarded" | "Returned">(
-    isCurrentlyAssigned ? "Forwarded" : "Marked"
+    isInitialMark ? "Marked" : "Forwarded"
   );
   const [desks, setDesks] = useState<TargetDeskOption[]>([]);
   const [selectedDeskId, setSelectedDeskId] = useState<string>("");
@@ -74,7 +83,7 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
   const [error, setError] = useState<string | null>(null);
 
   // Active transfer reference
-  const effectiveTransferId = transferId || dak.pendingTransfer?.id;
+  const effectiveTransferId = transferId || dak.pendingTransferId || undefined;
 
   // Load active desks and members if in send mode
   useEffect(() => {
@@ -198,7 +207,7 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
         if (!effectiveTransferId) {
           throw new Error("No pending transfer ID found to receive.");
         }
-        if (dak.pendingTransfer?.includesPhysicalOriginal && !physicalReceiptConfirmed) {
+        if (activeTransferIncludesPhysical && !physicalReceiptConfirmed) {
           setError("Physical receipt confirmation is required because the physical file was included.");
           setLoading(false);
           return;
@@ -213,7 +222,7 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
           credentials: "include",
           body: JSON.stringify({
             expectedRevision: dak.revision,
-            physicalReceiptConfirmed,
+            physicalReceiptConfirmed: Boolean(activeTransferIncludesPhysical && physicalReceiptConfirmed),
           }),
         });
 
@@ -301,14 +310,17 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
         }
       } else if (mode === "cancel") {
         if (!reason.trim()) {
-          setError("Cancellation reason is required.");
+          setError("Mandatory cancellation reason is required.");
           setLoading(false);
           return;
         }
 
         const res = await fetch(`/api/dak/${dak.id}/cancel`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "If-Match": `"${dak.revision}"`,
+          },
           credentials: "include",
           body: JSON.stringify({
             reason: reason.trim(),
@@ -318,9 +330,6 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
 
         if (!res.ok) {
           const data = await res.json().catch(() => null);
-          if (res.status === 409) {
-            throw new Error("This Dak was modified elsewhere. Please refresh before proceeding.");
-          }
           throw new Error(data?.detail || data?.message || "Failed to cancel Dak.");
         }
       }
@@ -334,9 +343,11 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
   };
 
   const getModalTitle = () => {
-    if (isSendMode) return isCurrentlyAssigned ? "Send / Mark to Next Officer" : "Send / Mark Dak to Desk";
+    if (isSendMode) {
+      return isInitialMark ? "Initial Mark to Desk & Officer" : "Send / Forward to Next Officer";
+    }
     if (isResolveMode) return "Resolve Dak";
-    if (mode === "receive") return "Acknowledge & Receive Dak";
+    if (mode === "receive") return "Acknowledge Receipt of Dak";
     if (mode === "pull-back") return "Pull Back Dak from Recipient";
     if (mode === "confirm-return") return "Confirm Physical File Return";
     if (mode === "reopen") return "Reopen Resolved Dak";
@@ -365,8 +376,9 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
                   onChange={(e) => setAction(e.target.value as "Marked" | "Forwarded" | "Returned")}
                   disabled={loading}
                 >
-                  {!isCurrentlyAssigned && <option value="Marked">Mark to Desk (Initial)</option>}
-                  {isCurrentlyAssigned && (
+                  {isInitialMark ? (
+                    <option value="Marked">Mark to Desk & Officer (Initial)</option>
+                  ) : (
                     <>
                       <option value="Forwarded">Forward / Send to Next Officer</option>
                       <option value="Returned">Return to Officer</option>
@@ -420,37 +432,12 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
                     color: "#334155"
                   }}
                 >
-                  🏛️ <strong>Office Desk Context:</strong> {selectedDesk.name} ({selectedDesk.code})
-                  {" "}| <strong>Recipient Officer:</strong>{" "}
-                  {members.find((m) => m.userId === selectedUserId)?.displayName || "Selected Officer"}
+                  Dispatch will nominate <strong>{members.find((m) => m.userId === selectedUserId)?.displayName}</strong> at{" "}
+                  <strong>{selectedDesk.name}</strong>. The Dak will remain In Transit until accepted.
                 </div>
               )}
 
-              <div className="field-group" style={{ marginBottom: "14px" }}>
-                <label>Instructions for Recipient</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Please examine Khatauni records and put up report"
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  disabled={loading}
-                  maxLength={1000}
-                />
-              </div>
-
-              <div className="field-group" style={{ marginBottom: "14px" }}>
-                <label>Remarks / Official Noting (Main Instructions)</label>
-                <textarea
-                  placeholder="Enter noting or movement remarks..."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  disabled={loading}
-                  rows={3}
-                  maxLength={1000}
-                />
-              </div>
-
-              {/* Physical file movement choice */}
+              {/* Physical file transit toggle */}
               <div
                 className="physical-transit-choice"
                 style={{
@@ -471,13 +458,35 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
                   />
                   <div>
                     <div>Physical file also being sent</div>
-                    <div style={{ fontSize: "12px", fontWeight: "normal", color: "#64748b", marginTop: "3px" }}>
-                      {sendPhysicalFile
-                        ? "Physical file custody will enter 'In Transit' and transfer only when receiver confirms receipt."
-                        : "Digital Dak movement only. Physical custody remains at current location."}
+                    <div style={{ fontSize: "12px", fontWeight: "normal", color: "#64748b", marginTop: "2px" }}>
+                      If checked, physical paper custody moves to In Transit and transfers to the recipient upon acknowledgment.
                     </div>
                   </div>
                 </label>
+              </div>
+
+              <div className="field-group" style={{ marginBottom: "14px" }}>
+                <label>Instructions / Purpose for Recipient (Optional)</label>
+                <textarea
+                  placeholder="Specific actions requested or directives (e.g. 'Please examine and put up report')..."
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  disabled={loading}
+                  rows={3}
+                  maxLength={1000}
+                />
+              </div>
+
+              <div className="field-group" style={{ marginBottom: "14px" }}>
+                <label>Official Noting / Remarks (Optional)</label>
+                <textarea
+                  placeholder="File noting or background remarks accompanying this movement..."
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  disabled={loading}
+                  rows={3}
+                  maxLength={1000}
+                />
               </div>
             </>
           )}
@@ -528,7 +537,7 @@ export const DakMovementModal: React.FC<Props> = ({ dak, mode, transferId, onClo
                 Confirming receipt will transfer operational custody of this Dak to you. You will become the confirmed active holder.
               </p>
 
-              {dak.pendingTransfer?.includesPhysicalOriginal && (
+              {activeTransferIncludesPhysical && (
                 <div
                   style={{
                     padding: "12px",

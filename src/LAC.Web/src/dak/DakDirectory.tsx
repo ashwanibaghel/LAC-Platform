@@ -255,7 +255,8 @@ export const DakDirectory: React.FC = () => {
                 <option value="">All Statuses</option>
                 <option value="Registered">Registered (Intake)</option>
                 <option value="InProcess">In Process</option>
-                <option value="Disposed">Resolved</option>
+                <option value="Resolved">Resolved</option>
+                <option value="Disposed">Disposed (Historical)</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
             </label>

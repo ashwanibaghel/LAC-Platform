@@ -1,9 +1,24 @@
 import { useEffect, useState } from "react";
 import type { DakMovement } from "./types";
-import { formatDakStatus, formatElapsedTime } from "./dakConfig";
+import { formatElapsedTime } from "./dakConfig";
 
 interface Props {
   dakId: string;
+}
+
+function formatActionLabel(action: string): string {
+  switch (action) {
+    case "PhysicalReturnConfirmed":
+      return "Physical Return Confirmed";
+    case "CustodyConfirmed":
+      return "Custody Confirmed";
+    case "PulledBack":
+      return "Pulled Back";
+    case "Disposed":
+      return "Resolved (Disposed)";
+    default:
+      return action;
+  }
 }
 
 export function DakTimeline({ dakId }: Props) {
@@ -32,7 +47,7 @@ export function DakTimeline({ dakId }: Props) {
         }
       });
 
-    return () => {
+  return () => {
       active = false;
     };
   }, [dakId]);
@@ -48,10 +63,20 @@ export function DakTimeline({ dakId }: Props) {
           <div className="timeline-badge">#{m.sequenceNumber}</div>
           <div className="timeline-content">
             <div className="timeline-header">
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <span className={`status-pill status-${m.action.toLowerCase()}`}>
-                  {formatDakStatus(m.action)}
+                  {formatActionLabel(m.action)}
                 </span>
+                {m.eventVersion !== undefined && m.eventVersion > 0 && (
+                  <span className="contract-tag" title={`Event version ${m.eventVersion}`}>
+                    v{m.eventVersion}
+                  </span>
+                )}
+                {m.transferId && (
+                  <span className="contract-tag" title={`Transfer correlation ID: ${m.transferId}`}>
+                    Tr: {m.transferId.slice(0, 8)}
+                  </span>
+                )}
                 <span className="subtext" style={{ fontSize: "11px" }}>
                   {formatElapsedTime(m.actionAt)}
                 </span>
@@ -89,6 +114,12 @@ export function DakTimeline({ dakId }: Props) {
             {m.remarks && (
               <div className="timeline-remarks">
                 <strong>Noting / Remarks:</strong> {m.remarks}
+              </div>
+            )}
+
+            {m.stateChanges?.completionAttested && (
+              <div className="timeline-remarks" style={{ background: "#f0fdf4", borderColor: "#bbf7d0", color: "#166534" }}>
+                <strong>✓ Completion Attested:</strong> Official action was certified complete.
               </div>
             )}
           </div>
