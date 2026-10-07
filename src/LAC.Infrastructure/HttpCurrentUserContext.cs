@@ -21,7 +21,7 @@ public sealed class HttpCurrentUserContext(IHttpContextAccessor httpContextAcces
 
     public string? Username => User?.Identity?.Name ?? User?.FindFirstValue("username") ?? User?.FindFirstValue(ClaimTypes.Name);
 
-    public string? DisplayName => User?.FindFirstValue("display_name") ?? Username;
+    public string? DisplayName => httpContextAccessor.HttpContext?.Items["rbac_actor_name"] as string ?? User?.FindFirstValue("display_name") ?? Username;
 
     public Guid? DesignationId
     {
@@ -35,6 +35,8 @@ public sealed class HttpCurrentUserContext(IHttpContextAccessor httpContextAcces
     public string? DesignationCode => User?.FindFirstValue("designation_code");
 
     public string? DesignationName => User?.FindFirstValue("designation_name");
+    public Guid? OnBehalfOfUserId => httpContextAccessor.HttpContext?.Items["rbac_supervisor_id"] as Guid?;
+    public string? OnBehalfOfDisplayName => httpContextAccessor.HttpContext?.Items["rbac_supervisor_name"] as string;
 
     public IReadOnlyList<string> Roles => User?.FindAll(ClaimTypes.Role).Select(c => c.Value).Distinct().ToList() ?? [];
 

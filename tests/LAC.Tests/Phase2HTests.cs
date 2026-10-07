@@ -166,6 +166,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         }
 
+        await TestWorkAllocations.GrantGlobalAsync(db, user.Id);
         return (client, user);
     }
 
@@ -185,6 +186,7 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         };
         db.Workstreams.Add(ws);
         await db.SaveChangesAsync();
+        await TestWorkAllocations.GrantGlobalAsync(db, SeedData.BootstrapAdminId);
         return ws;
     }
 
@@ -407,15 +409,15 @@ public sealed class Phase2HTests : IClassFixture<Phase2HTestFactory>
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         var attentionRes = await client.GetAsync("/api/attention/my");
-        Assert.Equal(HttpStatusCode.Forbidden, attentionRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, attentionRes.StatusCode);
 
         var calendarRes = await client.GetAsync("/api/scheduled-events/calendar");
-        Assert.Equal(HttpStatusCode.Forbidden, calendarRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, calendarRes.StatusCode);
 
         var createRes = await client.PostAsJsonAsync("/api/scheduled-events", new CreateScheduledEventApiRequest(
             ws.Id, desk.Id, null, "CourtHearing", "Inactive Test", null, today.AddDays(1), null, "Routine"
         ));
-        Assert.Equal(HttpStatusCode.Forbidden, createRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, createRes.StatusCode);
     }
 
     [Fact]

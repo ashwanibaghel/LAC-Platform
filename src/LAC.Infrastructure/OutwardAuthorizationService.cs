@@ -155,6 +155,12 @@ public sealed class OutwardAuthorizationService(LacDbContext db) : IOutwardAutho
             .FirstOrDefaultAsync(o => o.Id == outwardId && o.RecordStatus == RecordStatus.Active, ct);
 
         if (outward is null) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.Matters.Where(x => x.Id == outward.MatterId).Select(x => x.VillageId).ToListAsync(ct);
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, outward.WorkstreamId.HasValue ? null : OperationalWorkKind.Correspondence,
+                outward.WorkstreamId, geo, outward.IssuingDeskId, ct)) return false;
+        }
 
         // 3. Fetch distinct ScopeModes for permissionCode
         var scopes = await (

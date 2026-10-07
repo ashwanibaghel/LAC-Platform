@@ -130,6 +130,7 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
         var loginRes = await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, userPass));
         Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
 
+        using (var allocationScope = _factory.Services.CreateScope()) await TestWorkAllocations.GrantGlobalAsync(allocationScope.ServiceProvider.GetRequiredService<LacDbContext>(), userId);
         return (userClient, userId);
     }
 

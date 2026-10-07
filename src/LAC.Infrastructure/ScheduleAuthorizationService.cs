@@ -106,6 +106,11 @@ public sealed class ScheduleAuthorizationService(
         Guid userId,
         CancellationToken ct = default)
     {
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.Matters.Where(x => x.Id == evt.MatterId).Select(x => x.VillageId).ToListAsync(ct);
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, null, evt.WorkstreamId, geo, evt.ResponsibleOfficeDeskId, ct)) return false;
+        }
         var isUserActive = await db.AppUsers.AsNoTracking()
             .AnyAsync(u => u.Id == userId && u.IsActive && u.RecordStatus == RecordStatus.Active, ct);
 

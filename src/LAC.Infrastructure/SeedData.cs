@@ -16,6 +16,7 @@ public static class SeedData
     public static async Task SeedAsync(LacDbContext db, IConfiguration? configuration, ILogger? logger = null, CancellationToken ct = default)
     {
         await EnsureIdentityFoundationAsync(db, configuration, logger, ct);
+        await WorkCatalogSeed.SeedAsync(db, ct);
 
         var bootstrapComplete = await db.Districts.AsNoTracking().Where(x => x.Name == "South West Delhi").Select(x => new
         {
@@ -187,7 +188,6 @@ public static class SeedData
             }
 
             var hasher = new PasswordHasher<AppUser>();
-            var admDesignation = await db.Designations.FirstOrDefaultAsync(d => d.Code == "ADM", ct);
             var primaryWorkstream = await db.Workstreams.FirstOrDefaultAsync(w => w.Code == "LAND_ACQUISITION", ct);
 
             var user = new AppUser
@@ -196,7 +196,7 @@ public static class SeedData
                 Username = username,
                 NormalizedUsername = username.ToUpperInvariant(),
                 DisplayName = displayName,
-                DesignationId = admDesignation?.Id,
+                DesignationId = null,
                 IsActive = true,
                 PasswordChangedAt = DateTimeOffset.UtcNow
             };
@@ -223,6 +223,17 @@ public static class SeedData
                 });
             }
 
+            await db.SaveChangesAsync(ct);
+        }
+
+        // Correct only the known technical bootstrap identity's legacy seeded ADM stamp.
+        // Civil ADM officers and other SYSTEM_ADMIN identities retain their designations.
+        var legacyBootstrap = await db.AppUsers.SingleOrDefaultAsync(u => u.Id == BootstrapAdminId
+            && u.Designation != null && u.Designation.Code == "ADM"
+            && u.UserRoles.Any(ur => ur.Role.Code == "SYSTEM_ADMIN"), ct);
+        if (legacyBootstrap is not null)
+        {
+            legacyBootstrap.DesignationId = null;
             await db.SaveChangesAsync(ct);
         }
     }

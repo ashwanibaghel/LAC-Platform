@@ -3,6 +3,7 @@ using System;
 using LAC.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace LAC.Infrastructure.Migrations
 {
     [DbContext(typeof(LacDbContext))]
-    partial class LacDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261006220754_AddDynamicWorkAllocationAndSessionSecurity")]
+    partial class AddDynamicWorkAllocationAndSessionSecurity
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2653,16 +2656,9 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("PhysicalOriginalUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("PhysicalState")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("Priority")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<int>("ProcessingCycle")
-                        .HasColumnType("integer");
 
                     b.Property<DateOnly>("ReceivedDate")
                         .HasColumnType("date");
@@ -2680,25 +2676,11 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("RegistrationRequestId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ResolutionRemarks")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("ResolvedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ResolvedByUserId")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("Revision")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
-
-                    b.Property<string>("RoutingState")
-                        .IsRequired()
-                        .HasColumnType("text");
 
                     b.Property<string>("SenderAddress")
                         .HasColumnType("text");
@@ -2755,8 +2737,6 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("Priority");
 
-                    b.HasIndex("ResolvedByUserId");
-
                     b.HasIndex("WorkstreamId");
 
                     b.HasIndex("RegisteredByUserId", "RegistrationRequestId")
@@ -2767,11 +2747,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.ToTable("Daks", t =>
                         {
-                            t.HasCheckConstraint("CK_Daks_CustodyStates", "\"RoutingState\" IN ('Unassigned','WithHolder','InTransit','LegacyUnconfirmed') AND \"PhysicalState\" IN ('Unknown','NotPresent','AtRecordedLocation','Held','InTransit','ReturnPending') AND \"ProcessingCycle\" > 0");
-
                             t.HasCheckConstraint("CK_Daks_DiaryNumber", "length(\"DiaryNumberKey\") > 0");
-
-                            t.HasCheckConstraint("CK_Daks_Resolution", "\"Status\" <> 'Resolved' OR (\"ResolvedAt\" IS NOT NULL AND \"ResolvedByUserId\" IS NOT NULL AND \"ResolutionRemarks\" IS NOT NULL AND length(btrim(\"ResolutionRemarks\", E' \\t\\r\\n')) > 0)");
                         });
                 });
 
@@ -2811,9 +2787,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid>("OfficeDeskId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTimeOffset?>("ReceivedAt")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("RecordStatus")
                         .IsRequired()
                         .HasColumnType("text");
@@ -2835,10 +2808,7 @@ namespace LAC.Infrastructure.Migrations
 
                     b.HasIndex("OfficeDeskId");
 
-                    b.ToTable("DakAssignments", t =>
-                        {
-                            t.HasCheckConstraint("CK_DakAssignments_ReceivedHolder", "\"ReceivedAt\" IS NULL OR \"AssignedUserId\" IS NOT NULL");
-                        });
+                    b.ToTable("DakAssignments");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakAttachment", b =>
@@ -3087,9 +3057,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid?>("DocumentId")
                         .HasColumnType("uuid");
 
-                    b.Property<int>("EventVersion")
-                        .HasColumnType("integer");
-
                     b.Property<string>("FromDeskCodeSnapshot")
                         .HasColumnType("text");
 
@@ -3120,9 +3087,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<int>("SequenceNumber")
                         .HasColumnType("integer");
 
-                    b.Property<string>("StateSnapshotJson")
-                        .HasColumnType("text");
-
                     b.Property<string>("ToDeskCodeSnapshot")
                         .HasColumnType("text");
 
@@ -3136,9 +3100,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<Guid?>("ToUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("TransferId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("WorkstreamIdSnapshot")
@@ -3166,114 +3127,7 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("DakId", "SequenceNumber")
                         .IsUnique();
 
-                    b.HasIndex("TransferId", "DakId");
-
                     b.ToTable("DakMovements");
-                });
-
-            modelBuilder.Entity("LAC.Domain.DakTransfer", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("DakId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("DestinationKind")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("FromDeskId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FromStatus")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("FromRoutingState")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("FromHolderUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<bool>("IncludesPhysicalOriginal")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Instructions")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("PhysicalReceivedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PhysicalReturnProvenance")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("PhysicalReturnedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("PullBackReason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<DateTimeOffset?>("PulledBackAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTimeOffset?>("ReceivedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Remarks")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<Guid>("SenderUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("SentAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ToDeskId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("ToUserId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DakId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_DakTransfers_OnePending")
-                        .HasFilter("\"State\" = 'Pending'");
-
-                    b.HasIndex("FromDeskId");
-
-                    b.HasIndex("FromHolderUserId");
-
-                    b.HasIndex("ToDeskId");
-
-                    b.HasIndex("SenderUserId", "State");
-
-                    b.HasIndex("ToUserId", "State");
-
-                    b.ToTable("DakTransfers", t =>
-                        {
-                            t.HasCheckConstraint("CK_DakTransfers_Dispatch", "\"Purpose\" IN ('Marked','Forwarded','Returned') AND \"DestinationKind\" IN ('Officer','RecordRoom') AND ((\"Purpose\" = 'Marked' AND \"FromHolderUserId\" IS NULL) OR (\"Purpose\" <> 'Marked' AND \"FromHolderUserId\" IS NOT NULL AND \"SenderUserId\" = \"FromHolderUserId\"))");
-
-                            t.HasCheckConstraint("CK_DakTransfers_Physical", "(\"PhysicalReceivedAt\" IS NULL OR (\"IncludesPhysicalOriginal\" AND \"State\" = 'Received' AND \"PhysicalReceivedAt\" = \"ReceivedAt\")) AND (\"PhysicalReturnedAt\" IS NULL OR (\"IncludesPhysicalOriginal\" AND \"State\" = 'PulledBack' AND \"PhysicalReturnedAt\" >= \"PulledBackAt\" AND \"PhysicalReturnProvenance\" IS NOT NULL AND length(btrim(\"PhysicalReturnProvenance\", E' \\t\\r\\n')) > 0)) AND (NOT \"IncludesPhysicalOriginal\" OR \"State\" <> 'Received' OR \"PhysicalReceivedAt\" IS NOT NULL)");
-
-                            t.HasCheckConstraint("CK_DakTransfers_State", "(\"State\" = 'Pending' AND \"ReceivedAt\" IS NULL AND \"PulledBackAt\" IS NULL) OR (\"State\" = 'Received' AND \"ReceivedAt\" IS NOT NULL AND \"ReceivedAt\" >= \"SentAt\" AND \"PulledBackAt\" IS NULL) OR (\"State\" = 'PulledBack' AND \"PulledBackAt\" IS NOT NULL AND \"PulledBackAt\" >= \"SentAt\" AND \"ReceivedAt\" IS NULL AND \"PullBackReason\" IS NOT NULL AND length(btrim(\"PullBackReason\", E' \\t\\r\\n')) > 0)");
-                        });
                 });
 
             modelBuilder.Entity("LAC.Domain.DakVillageLink", b =>
@@ -3313,50 +3167,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasFilter("\"RecordStatus\" = 'Active'");
 
                     b.ToTable("DakVillageLinks");
-                });
-
-            modelBuilder.Entity("LAC.Domain.DakWorkflowCommandReceipt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Action")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ActorUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("DakId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("PayloadHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<Guid>("RequestId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ResultJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("DakId");
-
-                    b.HasIndex("ActorUserId", "RequestId")
-                        .IsUnique();
-
-                    b.ToTable("DakWorkflowCommandReceipts", t =>
-                        {
-                            t.HasCheckConstraint("CK_DakWorkflowCommands_RequestId", "\"RequestId\" <> '00000000-0000-0000-0000-000000000000'::uuid");
-                        });
                 });
 
             modelBuilder.Entity("LAC.Domain.Designation", b =>
@@ -5513,10 +5323,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Purpose")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -8266,11 +8072,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasForeignKey("RegisteredByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("LAC.Domain.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("ResolvedByUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("LAC.Domain.Workstream", "Workstream")
                         .WithMany()
                         .HasForeignKey("WorkstreamId")
@@ -8450,12 +8251,6 @@ namespace LAC.Infrastructure.Migrations
                         .HasForeignKey("ToUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("LAC.Domain.DakTransfer", null)
-                        .WithMany()
-                        .HasForeignKey("TransferId", "DakId")
-                        .HasPrincipalKey("Id", "DakId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.Navigation("ActionByUser");
 
                     b.Navigation("Dak");
@@ -8469,45 +8264,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("ToDesk");
 
                     b.Navigation("ToUser");
-                });
-
-            modelBuilder.Entity("LAC.Domain.DakTransfer", b =>
-                {
-                    b.HasOne("LAC.Domain.Dak", "Dak")
-                        .WithMany("Transfers")
-                        .HasForeignKey("DakId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.OfficeDesk", null)
-                        .WithMany()
-                        .HasForeignKey("FromDeskId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("LAC.Domain.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("FromHolderUserId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("LAC.Domain.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("SenderUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.OfficeDesk", null)
-                        .WithMany()
-                        .HasForeignKey("ToDeskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("ToUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Dak");
                 });
 
             modelBuilder.Entity("LAC.Domain.DakVillageLink", b =>
@@ -8527,21 +8283,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("Dak");
 
                     b.Navigation("Village");
-                });
-
-            modelBuilder.Entity("LAC.Domain.DakWorkflowCommandReceipt", b =>
-                {
-                    b.HasOne("LAC.Domain.AppUser", null)
-                        .WithMany()
-                        .HasForeignKey("ActorUserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("LAC.Domain.Dak", null)
-                        .WithMany()
-                        .HasForeignKey("DakId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("LAC.Domain.DhcAssistedSyncItem", b =>
@@ -10086,8 +9827,6 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("MatterLinks");
 
                     b.Navigation("Movements");
-
-                    b.Navigation("Transfers");
 
                     b.Navigation("VillageLinks");
                 });

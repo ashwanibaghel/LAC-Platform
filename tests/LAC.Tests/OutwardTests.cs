@@ -116,6 +116,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         };
         db.Workstreams.Add(ws);
         await db.SaveChangesAsync();
+        await TestWorkAllocations.GrantGlobalAsync(db, SeedData.BootstrapAdminId);
         return ws;
     }
 
@@ -209,6 +210,7 @@ public sealed class OutwardTests : IClassFixture<OutwardTestFactory>
         var loginRes = await userClient.PostAsJsonAsync("/api/auth/login", new LoginRequest(username, userPass));
         Assert.Equal(HttpStatusCode.OK, loginRes.StatusCode);
 
+        using (var allocationScope = _factory.Services.CreateScope()) await TestWorkAllocations.GrantGlobalAsync(allocationScope.ServiceProvider.GetRequiredService<LacDbContext>(), userId);
         return (userClient, userId);
     }
 

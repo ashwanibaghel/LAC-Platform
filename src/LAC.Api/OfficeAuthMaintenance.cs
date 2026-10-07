@@ -127,6 +127,7 @@ public static class OfficeAuthMaintenance
         if (string.IsNullOrWhiteSpace(newPassword)) throw new ArgumentException("Password must not be blank.", nameof(newPassword));
         user.PasswordHash = hasher.HashPassword(user, newPassword);
         user.PasswordChangedAt = DateTimeOffset.UtcNow;
+        user.SessionVersion = Guid.NewGuid();
         await db.SaveChangesAsync();
     }
 

@@ -117,6 +117,9 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
 
         var matter = await db.Matters.AsNoTracking().SingleOrDefaultAsync(m => m.Id == matterId, ct);
         if (matter is null) return false;
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct)
+            && !await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, matter.WorkstreamId.HasValue ? null : OperationalWorkKind.General,
+                matter.WorkstreamId, [matter.VillageId], null, ct)) return false;
 
         if (matter.RecordStatus != RecordStatus.Active)
             return false;

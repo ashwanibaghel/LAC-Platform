@@ -398,7 +398,7 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
     }
 
     [Fact]
-    public async Task MyHistory_InactiveUser_Returns403()
+    public async Task MyHistory_InactiveUser_Returns401()
     {
         var ws = await CreateWorkstreamAsync("WS_INACTIVE", "Inactive WS");
         var (client, userId) = await CreateScopedUserClientAsync(
@@ -416,7 +416,7 @@ public sealed class Phase2GTests : IClassFixture<Phase2GTestFactory>
         }
 
         var res = await client.GetAsync("/api/activity/my-history");
-        Assert.Equal(HttpStatusCode.Forbidden, res.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
     [Fact]

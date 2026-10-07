@@ -109,6 +109,12 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
         if (workItem is null || workItem.RecordStatus != RecordStatus.Active)
             return false;
 
+        if (await AssistantResourceAuthorization.IsAssistantAsync(db, userId, ct))
+        {
+            var geo = await db.WorkItemMatterLinks.Where(x => x.WorkItemId == workItemId && x.RecordStatus == RecordStatus.Active).Select(x => x.Matter.VillageId).ToListAsync(ct);
+            var desk = await db.WorkItemAssignments.Where(x => x.WorkItemId == workItemId && x.IsActive).Select(x => (Guid?)x.OfficeDeskId).FirstOrDefaultAsync(ct);
+            if (!await AssistantResourceAuthorization.CheckAsync(db, userId, permissionCode, null, workItem.WorkstreamId, geo, desk, ct)) return false;
+        }
         var scopes = await (
             from ur in db.UserRoles
             join r in db.Roles on ur.RoleId equals r.Id
