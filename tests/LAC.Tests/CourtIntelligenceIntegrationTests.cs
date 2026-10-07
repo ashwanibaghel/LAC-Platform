@@ -22,6 +22,65 @@ public sealed class CourtIntelligenceIntegrationTests
     private const string Url = "https://delhihighcourt.nic.in/app/showlogo/synthetic-422026.pdf/2026";
 
     [Fact]
+    public async Task Legacy_office_action_question_cannot_authorize_an_unresolved_office()
+    {
+        using var env=new Harness();var c=await env.Register("W.P.(C) 42/2026","delhihighcourt|wpc|42|2026");await env.Write(c.Id,Artifact(c.Id));
+        using var result=await env.Client.PostAsJsonAsync($"/api/court-cases/{c.Id}/intelligence/ask",new {question="What does our LAC need to do?",language="English"});
+        result.EnsureSuccessStatusCode();var answer=await result.Content.ReadFromJsonAsync<JsonElement>();Assert.True(answer.GetProperty("insufficientEvidence").GetBoolean());
+        Assert.Empty(answer.GetProperty("claims").EnumerateArray());Assert.Contains("needs review",answer.GetProperty("actionConclusion").GetString());Assert.Empty(env.Transport.Requests);
+    }
+
+    [Fact]
+    public async Task Confirmed_order_links_join_existing_award_and_khasra_views_without_materializing_manual_links()
+    {
+        using var env=new Harness();Guid caseId,awardId,khasraId;
+        using(var services=env.Factory.Services.CreateScope())
+        {
+            var db=services.ServiceProvider.GetRequiredService<LacDbContext>();var (c,o)=CourtScopePersistenceTests.Source(db);
+            var v=new Village {Name="Projection village",SubDivision=new SubDivision {Name="Projection subdivision",District=new District {Name="Projection district"}}};
+            var award=new Award {AwardNumber="Scope/1"};var khasra=new Khasra {Village=v,DisplayNumber="29//8/4",NormalizedNumber="29//8/4"};
+            db.AddRange(v,award,khasra);await db.SaveChangesAsync();var revision=await new CourtIntelligencePersistence(db).PersistAsync(c.Id,o.Id,o.OrderDate!.Value,CourtScopePersistenceTests.Url,CourtScopePersistenceTests.Scope());
+            foreach(var (type,target) in new[]{("Award",award.Id),("Khasra",khasra.Id)})
+                db.Add(new CourtOrderRecordLink {RevisionId=revision.Id,ExtractedEntityId=type,EntityType=type,AwardId=type=="Award" ? target : null,KhasraId=type=="Khasra" ? target : null,
+                    MatchState=CourtRecordMatchState.Confirmed,ReviewedByUserId=SeedData.BootstrapAdminId,ReviewedAt=DateTimeOffset.UtcNow,ReviewReason="Synthetic projection fixture"});
+            await db.SaveChangesAsync();caseId=c.Id;awardId=award.Id;khasraId=khasra.Id;
+        }
+        var awards=await env.Client.GetFromJsonAsync<JsonElement>($"/api/awards/{awardId}/court-cases");Assert.Equal(caseId,Assert.Single(awards.EnumerateArray()).GetProperty("id").GetGuid());
+        var history=await env.Client.GetFromJsonAsync<JsonElement>($"/api/khasras/{khasraId}/history");Assert.Equal(caseId,Assert.Single(history.GetProperty("courtCases").EnumerateArray()).GetProperty("courtCaseId").GetGuid());
+        var overview=await env.Client.GetFromJsonAsync<JsonElement>($"/api/awards/{awardId}/workspace");Assert.Equal(1,overview.GetProperty("courtCaseCount").GetInt32());
+        using(var services=env.Factory.Services.CreateScope()) {var db=services.ServiceProvider.GetRequiredService<LacDbContext>();Assert.Empty(db.Set<CourtCaseAward>());Assert.Empty(db.Set<CourtCaseKhasra>());}
+    }
+
+    [Fact]
+    public async Task Structured_scope_get_is_passive_and_explicit_persistence_is_idempotent()
+    {
+        using var env=new Harness();var c=await env.Register("W.P.(C) 42/2026","delhihighcourt|wpc|42|2026",sourceRawCaseNumber:true);
+        var artifact=Artifact(c.Id);var order=artifact["orders"]![0]!;var scope=CourtScopePersistenceTests.Scope();
+        scope["source"]!["orderDate"]="2026-01-01";scope["source"]!["officialUrl"]=Url;
+        order["lacOrderScope"]=scope;order["sha256"]=new string('a',64);order["sourceVerificationComplete"]=true;
+        await env.Write(c.Id,artifact);var before=await env.Snapshot(c.Id);var bytes=await File.ReadAllTextAsync(env.ArtifactPath(c.Id));
+        using(var get=await env.Client.GetAsync($"/api/court-cases/{c.Id}/intelligence"))
+        {get.EnsureSuccessStatusCode();var view=await get.Content.ReadFromJsonAsync<JsonElement>();Assert.False(view.GetProperty("orders")[0].GetProperty("lacOrderScope").GetProperty("lacActionable").GetBoolean());}
+        using(var services=env.Factory.Services.CreateScope())Assert.Empty(services.ServiceProvider.GetRequiredService<LacDbContext>().CourtOrderIntelligence);
+        for(var i=0;i<2;i++)using(var result=await env.Client.PostAsync($"/api/court-cases/{c.Id}/intelligence/persist",null))result.EnsureSuccessStatusCode();
+        using(var services=env.Factory.Services.CreateScope())
+        {var db=services.ServiceProvider.GetRequiredService<LacDbContext>();Assert.Single(db.CourtOrderIntelligence);Assert.Single(db.CourtOrderIntelligenceRevisions);Assert.Empty(db.CourtOrderRecordLinks);}
+        Assert.Equal(before,await env.Snapshot(c.Id));Assert.Equal(bytes,await File.ReadAllTextAsync(env.ArtifactPath(c.Id)));Assert.Empty(env.Transport.Requests);
+    }
+    [Fact]
+    public async Task Structured_scope_needs_verified_coverage_and_review_routes_enforce_existing_permissions()
+    {
+        using var env=new Harness();var c=await env.Register("W.P.(C) 42/2026","delhihighcourt|wpc|42|2026");
+        var artifact=Artifact(c.Id);var scope=CourtScopePersistenceTests.Scope();scope["source"]!["orderDate"]="2026-01-01";scope["source"]!["officialUrl"]=Url;
+        artifact["orders"]![0]!["lacOrderScope"]=scope;artifact["orders"]![0]!["sha256"]=new string('a',64);await env.Write(c.Id,artifact);
+        using(var get=await env.Client.GetAsync($"/api/court-cases/{c.Id}/intelligence"))Assert.Equal(HttpStatusCode.ServiceUnavailable,get.StatusCode);
+        using(var services=env.Factory.Services.CreateScope())
+        {var db=services.ServiceProvider.GetRequiredService<LacDbContext>();db.UserRoles.RemoveRange(await db.UserRoles.Where(x=>x.UserId==SeedData.BootstrapAdminId).ToListAsync());await db.SaveChangesAsync();}
+        using(var post=await env.Client.PostAsync($"/api/court-cases/{c.Id}/intelligence/persist",null))Assert.Equal(HttpStatusCode.Forbidden,post.StatusCode);
+        using(var reverse=await env.Client.GetAsync($"/api/villages/{Guid.NewGuid()}/court-orders"))Assert.Equal(HttpStatusCode.Forbidden,reverse.StatusCode);
+    }
+
+    [Fact]
     public async Task Zero_briefs_disclose_offline_runtime_and_unavailable_action_semantics_without_mutating_records()
     {
         using var env = new Harness();
@@ -429,12 +488,14 @@ public sealed class CourtIntelligenceIntegrationTests
             Client = Factory.CreateClient();
             Transport.Root = Root;
         }
-        public async Task<CourtCase> Register(string number, string identity)
+        public async Task<CourtCase> Register(string number, string identity,bool sourceRawCaseNumber=false)
         {
             using var scope = Factory.Services.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
             var courtCase = new CourtCase { CourtName = "Delhi High Court", CaseNumber = number, CurrentStatus = "Pending" };
-            db.Add(courtCase); db.Add(Observation(courtCase.Id, identity, new DateOnly(2026, 1, 1)));
+            var observation=Observation(courtCase.Id, identity, new DateOnly(2026, 1, 1));
+            if(sourceRawCaseNumber)observation.RawCaseNumber=number;
+            db.Add(courtCase); db.Add(observation);
             await db.SaveChangesAsync(); return courtCase;
         }
         public string ArtifactPath(Guid id) => Path.Combine(Root, "court-intelligence", "v1", id.ToString(), "current.json");

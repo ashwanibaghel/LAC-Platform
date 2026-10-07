@@ -12,6 +12,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { ConfirmedCourtOrders } from "./court/ConfirmedCourtOrders";
 import { ExportMenu } from "./components/ExportMenu";
 import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
@@ -822,7 +823,7 @@ function Village() {
       {(section === "overview" || (section !== "khasras" && section !== "core" && section !== "matters")) && <VillageOverviewWorkspace id={id} />}
       {section === "khasras" && <VillageKhasras id={id} />}
       {section === "core" && <VillageCoreRecordsWorkspace id={id} />}
-      {section === "matters" && <VillageMatters id={id} />}
+      {section === "matters" && <><VillageMatters id={id} /><ConfirmedCourtOrders entity="villages" id={id} /></>}
     </>
   );
 }
@@ -2225,6 +2226,7 @@ function Khasra() {
         )}
       </section>
       <KhasraHistory id={id} history={history} />
+      <ConfirmedCourtOrders entity="khasras" id={id} />
       <section className="section">
         <h2>Source / LR information</h2>
         {k.lrEntries.length ? (
@@ -2551,6 +2553,7 @@ function Award() {
           <p>This does not imply possession of the whole Award.</p><DataTable headers={["Date", "Event", "Status", "Affected Khasras"]}>{possession.data?.map(item => <tr key={item.id}><td>{date(item.possessionDate)}</td><td>{item.eventType || "—"}</td><td>{item.status || "—"}</td><td>{item.khasraCount}</td></tr>)}</DataTable>
         </section>
       )}
+      <ConfirmedCourtOrders entity="awards" id={id} />
       {a.courtCaseCount > 0 && (
         <section className="section">
           <h2>Court cases</h2>

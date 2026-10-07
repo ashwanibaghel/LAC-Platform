@@ -1,0 +1,640 @@
+{
+  "structured": {
+    "orderDate": "2026-10-07",
+    "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/synthetic-order-scope.pdf/2026",
+    "status": "Validated",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "facts": [
+      {
+        "page": 1,
+        "evidence": "1. Khasra Nos. 29//8/4 and 29//18/4 measuring 3 bighas in village Pochanpur were acquired under Award No. 63/86-87.",
+        "value": "1. Khasra Nos. 29//8/4 and 29//18/4 measuring 3 bighas in village Pochanpur were acquired under Award No. 63/86-87.",
+        "category": "COURT_FINDING",
+        "field": "land",
+        "scope": "Current",
+        "actor": null,
+        "deadlineText": null
+      },
+      {
+        "page": 1,
+        "evidence": "2. Possession was taken on 1 August 2012.",
+        "value": "2. Possession was taken on 1 August 2012.",
+        "category": "COURT_FINDING",
+        "field": "land",
+        "scope": "Current",
+        "actor": null,
+        "deadlineText": null
+      },
+      {
+        "page": 1,
+        "evidence": "3. Compensation has been deposited with Reference Court.",
+        "value": "3. Compensation has been deposited with Reference Court.",
+        "category": "COURT_FINDING",
+        "field": "land",
+        "scope": "Current",
+        "actor": null,
+        "deadlineText": null
+      },
+      {
+        "page": 1,
+        "evidence": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+        "value": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+        "category": "COURT_DIRECTION",
+        "field": "direction",
+        "scope": "Current",
+        "actor": "Land Acquisition Collector",
+        "deadlineText": "within four weeks from today"
+      }
+    ],
+    "coverage": {
+      "allSelectedChunksProcessed": true
+    },
+    "sourceVerificationComplete": true,
+    "lacOrderScope": {
+      "contract": "court-lac-order-scope/v1",
+      "source": {
+        "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/synthetic-order-scope.pdf/2026",
+        "orderDate": "2026-10-07",
+        "pdfSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sourceObservationId": "00000000-0000-4000-8000-000000000042"
+      },
+      "extraction": {
+        "state": "Validated",
+        "fullRelevantTextChecked": true,
+        "pageCount": 1,
+        "extractorVersion": "lac-scope-v1",
+        "reviewReasons": [
+          "Office authority requires server-side jurisdiction resolution"
+        ]
+      },
+      "lacRelevant": true,
+      "lacRelevanceState": "Relevant",
+      "lacAuthorityScope": "ThisOffice",
+      "lacActionable": true,
+      "missingState": "NotStated",
+      "purposes": [
+        {
+          "id": "99f48d9568af7e63c11bdffd",
+          "category": "possession",
+          "subject": {
+            "rawText": "2. Possession was taken on 1 August 2012.",
+            "value": "2. Possession was taken on 1 August 2012.",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "f244c1edc608eeb51868db3c"
+            ]
+          }
+        },
+        {
+          "id": "fda6e161ba500b0ee2aaf962",
+          "category": "compensation",
+          "subject": {
+            "rawText": "3. Compensation has been deposited with Reference Court.",
+            "value": "3. Compensation has been deposited with Reference Court.",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "a50c9726cdee5d1163eebe00"
+            ]
+          }
+        },
+        {
+          "id": "d80c712b75c7ef37d9065e70",
+          "category": "status affidavit",
+          "subject": {
+            "rawText": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "value": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "state": "Explicit",
+            "attribution": "COURT_DIRECTION",
+            "scope": "Current",
+            "evidenceIds": [
+              "c94cccc92318fbc742052b9f"
+            ]
+          }
+        }
+      ],
+      "villages": [
+        {
+          "id": "c9ce532e58a08b3fffe28dcb",
+          "name": {
+            "rawText": "Pochanpur",
+            "value": "Pochanpur",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          },
+          "matchCandidate": "Pochanpur"
+        }
+      ],
+      "awards": [
+        {
+          "id": "07def4bcc6c1746e15338c45",
+          "number": {
+            "rawText": "63/86-87",
+            "value": "63/86-87",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          },
+          "date": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "villageRefs": [
+            "c9ce532e58a08b3fffe28dcb"
+          ],
+          "parcelRefs": [
+            "54e94cd310a55e41c41ea2b6",
+            "98395c1126bd6083be44ad59"
+          ]
+        }
+      ],
+      "parcels": [
+        {
+          "id": "54e94cd310a55e41c41ea2b6",
+          "number": {
+            "rawText": "29//8/4",
+            "value": "29//8/4",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          },
+          "normalizedNumber": "29//8/4",
+          "qualifier": null,
+          "area": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "areaUnit": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "villageRefs": [
+            "c9ce532e58a08b3fffe28dcb"
+          ],
+          "awardRefs": [
+            "07def4bcc6c1746e15338c45"
+          ]
+        },
+        {
+          "id": "98395c1126bd6083be44ad59",
+          "number": {
+            "rawText": "29//18/4",
+            "value": "29//18/4",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          },
+          "normalizedNumber": "29//18/4",
+          "qualifier": null,
+          "area": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "areaUnit": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "villageRefs": [
+            "c9ce532e58a08b3fffe28dcb"
+          ],
+          "awardRefs": [
+            "07def4bcc6c1746e15338c45"
+          ]
+        }
+      ],
+      "parcelGroups": [
+        {
+          "id": "8109de6336b1abb6c7be028d",
+          "parcelRefs": [
+            "54e94cd310a55e41c41ea2b6",
+            "98395c1126bd6083be44ad59"
+          ],
+          "area": {
+            "rawText": "3",
+            "value": 3.0,
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          },
+          "areaUnit": {
+            "rawText": "bighas",
+            "value": "bighas",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "e049b732ff40617f72707f62"
+            ]
+          }
+        }
+      ],
+      "possession": [
+        {
+          "id": "cfbd3c3ba7f220dde9ec184b",
+          "status": {
+            "rawText": "2. Possession was taken on 1 August 2012.",
+            "value": "Taken",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "f244c1edc608eeb51868db3c"
+            ]
+          },
+          "language": {
+            "rawText": "2. Possession was taken on 1 August 2012.",
+            "value": "2. Possession was taken on 1 August 2012.",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "f244c1edc608eeb51868db3c"
+            ]
+          },
+          "date": {
+            "rawText": "1 August 2012",
+            "value": "2012-08-01",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "f244c1edc608eeb51868db3c"
+            ]
+          },
+          "parcelRefs": [],
+          "villageRefs": []
+        }
+      ],
+      "compensation": [
+        {
+          "id": "4a08c9e4280d9f491ffb7c04",
+          "status": {
+            "rawText": "3. Compensation has been deposited with Reference Court.",
+            "value": "Deposited",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "a50c9726cdee5d1163eebe00"
+            ]
+          },
+          "language": {
+            "rawText": "3. Compensation has been deposited with Reference Court.",
+            "value": "3. Compensation has been deposited with Reference Court.",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "a50c9726cdee5d1163eebe00"
+            ]
+          },
+          "amount": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "currency": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "rate": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "rateUnit": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "beneficiary": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "depositReference": {
+            "rawText": "Reference Court",
+            "value": "Reference Court",
+            "state": "Explicit",
+            "attribution": "COURT_FINDING",
+            "scope": "Current",
+            "evidenceIds": [
+              "a50c9726cdee5d1163eebe00"
+            ]
+          },
+          "parcelRefs": [],
+          "awardRefs": []
+        }
+      ],
+      "directions": [
+        {
+          "id": "70a1974c18adbd566712d638",
+          "directedTo": {
+            "rawText": "Land Acquisition Collector",
+            "value": "Land Acquisition Collector",
+            "state": "Explicit",
+            "attribution": "COURT_DIRECTION",
+            "scope": "Current",
+            "evidenceIds": [
+              "c94cccc92318fbc742052b9f"
+            ]
+          },
+          "action": {
+            "rawText": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "value": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "state": "Explicit",
+            "attribution": "COURT_DIRECTION",
+            "scope": "Current",
+            "evidenceIds": [
+              "c94cccc92318fbc742052b9f"
+            ]
+          },
+          "object": {
+            "rawText": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "value": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+            "state": "Explicit",
+            "attribution": "COURT_DIRECTION",
+            "scope": "Current",
+            "evidenceIds": [
+              "c94cccc92318fbc742052b9f"
+            ]
+          },
+          "deadline": {
+            "rawText": "within four weeks from today",
+            "value": "within four weeks from today",
+            "state": "Explicit",
+            "attribution": "COURT_DIRECTION",
+            "scope": "Current",
+            "evidenceIds": [
+              "c94cccc92318fbc742052b9f"
+            ]
+          },
+          "nextHearingDate": {
+            "rawText": null,
+            "value": null,
+            "state": "NotStated",
+            "attribution": null,
+            "scope": null,
+            "evidenceIds": []
+          },
+          "modality": "Mandatory",
+          "lacAuthorityScope": "ThisOffice",
+          "lacActionable": true,
+          "jurisdiction": "District Alpha",
+          "parcelRefs": []
+        }
+      ],
+      "directionChanges": [],
+      "evidence": [
+        {
+          "id": "0eadbef7c1d5742c26e30487",
+          "page": 1,
+          "paragraph": null,
+          "anchorId": null,
+          "start": 0,
+          "end": 88,
+          "text": "HIGH COURT OF DELHI W.P.(C) 42/2026 A versus Land Acquisition Collector (District Alpha)",
+          "location": "Caption",
+          "attribution": "OTHER",
+          "scope": "Current",
+          "extractionMethod": "NativeText",
+          "spanBasis": "WhitespaceNormalizedPage"
+        },
+        {
+          "id": "e049b732ff40617f72707f62",
+          "page": 1,
+          "paragraph": null,
+          "anchorId": 0,
+          "start": 99,
+          "end": 214,
+          "text": "1. Khasra Nos. 29//8/4 and 29//18/4 measuring 3 bighas in village Pochanpur were acquired under Award No. 63/86-87.",
+          "location": "Body",
+          "attribution": "COURT_FINDING",
+          "scope": "Current",
+          "extractionMethod": "NativeText",
+          "spanBasis": "WhitespaceNormalizedPage"
+        },
+        {
+          "id": "f244c1edc608eeb51868db3c",
+          "page": 1,
+          "paragraph": null,
+          "anchorId": 1,
+          "start": 215,
+          "end": 256,
+          "text": "2. Possession was taken on 1 August 2012.",
+          "location": "Body",
+          "attribution": "COURT_FINDING",
+          "scope": "Current",
+          "extractionMethod": "NativeText",
+          "spanBasis": "WhitespaceNormalizedPage"
+        },
+        {
+          "id": "a50c9726cdee5d1163eebe00",
+          "page": 1,
+          "paragraph": null,
+          "anchorId": 2,
+          "start": 257,
+          "end": 313,
+          "text": "3. Compensation has been deposited with Reference Court.",
+          "location": "Body",
+          "attribution": "COURT_FINDING",
+          "scope": "Current",
+          "extractionMethod": "NativeText",
+          "spanBasis": "WhitespaceNormalizedPage"
+        },
+        {
+          "id": "c94cccc92318fbc742052b9f",
+          "page": 1,
+          "paragraph": null,
+          "anchorId": 3,
+          "start": 314,
+          "end": 420,
+          "text": "4. Land Acquisition Collector (District Alpha) shall file a status affidavit within four weeks from today.",
+          "location": "Body",
+          "attribution": "COURT_DIRECTION",
+          "scope": "Current",
+          "extractionMethod": "NativeText",
+          "spanBasis": "WhitespaceNormalizedPage"
+        }
+      ],
+      "relevanceBasis": [
+        {
+          "term": "Land Acquisition Collector",
+          "evidenceId": "0eadbef7c1d5742c26e30487",
+          "location": "Caption",
+          "authorityText": "Land Acquisition Collector",
+          "jurisdiction": "District Alpha"
+        },
+        {
+          "term": "Land Acquisition Collector",
+          "evidenceId": "c94cccc92318fbc742052b9f",
+          "location": "Body",
+          "authorityText": "Land Acquisition Collector",
+          "jurisdiction": "District Alpha"
+        }
+      ]
+    },
+    "courtOrderIntelligenceId": "00000000-0000-4000-8000-000000000043",
+    "scopeRevisionId": "00000000-0000-4000-8000-000000000044",
+    "recordLinks": [
+      {
+        "id": "00000000-0000-4000-8000-000000000045",
+        "extractedEntityId": "07def4bcc6c1746e15338c45",
+        "entityType": "Award",
+        "awardId": "00000000-0000-4000-8000-000000000046",
+        "matchState": "Candidate",
+        "matchReason": "Award number equivalent; officer review required.",
+        "version": 0,
+        "origin": "CourtOrderExtraction",
+        "officeRecord": {
+          "awardNumber": "63/86-87",
+          "awardDate": "1986-09-19"
+        }
+      }
+    ]
+  },
+  "caption": {
+    "contract": "court-lac-order-scope/v1",
+    "source": {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/synthetic-scope.pdf/2026",
+      "orderDate": "2026-10-07",
+      "pdfSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceObservationId": null
+    },
+    "extraction": {
+      "state": "Validated",
+      "fullRelevantTextChecked": true,
+      "pageCount": 1,
+      "extractorVersion": "lac-scope-v1",
+      "reviewReasons": [
+        "Office authority requires server-side jurisdiction resolution"
+      ]
+    },
+    "lacRelevant": true,
+    "lacRelevanceState": "Relevant",
+    "lacAuthorityScope": "UnknownLAC",
+    "lacActionable": false,
+    "missingState": "NotStated",
+    "purposes": [],
+    "villages": [],
+    "awards": [],
+    "parcels": [],
+    "parcelGroups": [],
+    "possession": [],
+    "compensation": [],
+    "directions": [],
+    "directionChanges": [],
+    "evidence": [
+      {
+        "id": "0eadbef7c1d5742c26e30487",
+        "page": 1,
+        "paragraph": null,
+        "anchorId": null,
+        "start": 0,
+        "end": 88,
+        "text": "HIGH COURT OF DELHI W.P.(C) 42/2026 A versus Land Acquisition Collector (District Alpha)",
+        "location": "Caption",
+        "attribution": "OTHER",
+        "scope": "Current",
+        "extractionMethod": "NativeText",
+        "spanBasis": "WhitespaceNormalizedPage"
+      }
+    ],
+    "relevanceBasis": [
+      {
+        "term": "Land Acquisition Collector",
+        "evidenceId": "0eadbef7c1d5742c26e30487",
+        "location": "Caption",
+        "authorityText": "Land Acquisition Collector",
+        "jurisdiction": "District Alpha"
+      }
+    ]
+  },
+  "nonlac": {
+    "contract": "court-lac-order-scope/v1",
+    "source": {
+      "officialUrl": "https://delhihighcourt.nic.in/app/showlogo/synthetic-scope.pdf/2026",
+      "orderDate": "2026-10-07",
+      "pdfSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "sourceObservationId": null
+    },
+    "extraction": {
+      "state": "Validated",
+      "fullRelevantTextChecked": true,
+      "pageCount": 1,
+      "extractorVersion": "lac-scope-v1",
+      "reviewReasons": []
+    },
+    "lacRelevant": false,
+    "lacRelevanceState": "NotRelevant",
+    "lacAuthorityScope": "UnknownLAC",
+    "lacActionable": false,
+    "missingState": "NotStated",
+    "purposes": [],
+    "villages": [],
+    "awards": [],
+    "parcels": [],
+    "parcelGroups": [],
+    "possession": [],
+    "compensation": [],
+    "directions": [],
+    "directionChanges": [],
+    "evidence": [],
+    "relevanceBasis": []
+  }
+}

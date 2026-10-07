@@ -191,6 +191,25 @@ public static class CourtIntelligenceCaseData
         foreach (var order in artifact.GetProperty("orders").EnumerateArray())
         {
             ValidateOrderSource(order, index);
+            if (order.TryGetProperty("lacOrderScope", out var structured))
+            {
+                var scope = JsonNode.Parse(structured.GetRawText())!.AsObject();
+                CourtScopeContract.Validate(scope, order.TryGetProperty("sha256", out var hash) ? hash.GetString() ?? "" : "");
+                if (scope["extraction"]?["fullRelevantTextChecked"]?.GetValue<bool>() == true
+                    && (!order.TryGetProperty("sourceVerificationComplete", out var verified) || verified.ValueKind != JsonValueKind.True))
+                    throw new InvalidDataException("Complete structured scope requires verified official source coverage.");
+                if (scope["source"]?["officialUrl"]?.GetValue<string>() != order.GetProperty("officialUrl").GetString()
+                    || scope["source"]?["orderDate"]?.GetValue<string>() != order.GetProperty("orderDate").GetString())
+                    throw new InvalidDataException("Scope belongs to another order.");
+                foreach (var direction in scope["directions"]!.AsArray())
+                    if (!order.GetProperty("facts").EnumerateArray().Any(f => f.GetProperty("category").GetString() == "COURT_DIRECTION"
+                        && f.GetProperty("scope").GetString() == "Current" && f.GetProperty("evidence").GetString() == direction?["action"]?["rawText"]?.GetValue<string>()))
+                        throw new InvalidDataException("Scope direction lacks independently validated Court attribution.");
+                foreach(var change in scope["directionChanges"]!.AsArray())
+                    if(!order.GetProperty("facts").EnumerateArray().Any(f=>f.GetProperty("field").GetString()==change?["kind"]?.GetValue<string>()
+                        && f.GetProperty("scope").GetString()=="Current" && f.GetProperty("evidence").GetString()==change?["language"]?["rawText"]?.GetValue<string>()))
+                        throw new InvalidDataException("Scope direction change lacks independently validated Court attribution.");
+            }
             if (order.GetProperty("facts").ValueKind != JsonValueKind.Array
                 || order.GetProperty("status").ValueKind != JsonValueKind.String) throw new InvalidDataException("Invalid order shape.");
             foreach (var key in new[] { "facts", "summaryFacts" })
@@ -238,6 +257,8 @@ public static class CourtIntelligenceCaseData
         if (node.ValueKind == JsonValueKind.Array) foreach (var child in node.EnumerateArray()) WalkSources(child, index);
         else if (node.ValueKind == JsonValueKind.Object) foreach (var property in node.EnumerateObject())
         {
+            // Structured source/evidence has its own versioned validator above.
+            if (property.Name == "lacOrderScope") continue;
             if (property.Name == "text" && property.Value.ValueKind != JsonValueKind.String)
                 throw new InvalidDataException("Invalid displayed proposition.");
             if (property.Name == "source" && property.Value.ValueKind != JsonValueKind.Null)

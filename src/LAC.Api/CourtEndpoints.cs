@@ -303,7 +303,7 @@ public static class CourtEndpoints
         group.MapPost("/{id:guid}/intelligence/ask", async (
             Guid id, AskCourtIntelligenceRequest request, IHttpClientFactory clients, LacDbContext db,
             ICourtAuthorizationService courtAuth, ICurrentUserContext currentUser,
-            HttpContext context, LocalStoragePaths paths, CourtQuestionConversation conversation, CancellationToken ct) =>
+            HttpContext context, LocalStoragePaths paths, CourtQuestionConversation conversation, CourtStructuredIntelligenceService structured, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -313,10 +313,16 @@ public static class CourtEndpoints
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
                 var lease = conversation.Enter(currentUser.UserId.Value, context.Request.Cookies["lac_session"], id);
+                if(!string.IsNullOrWhiteSpace(request.Question) && (request.Language is null or "Auto" or "English")
+                    && await structured.OfficeActionAnswerAsync(index,currentUser.UserId.Value,request.Question,ct) is System.Text.Json.JsonElement officeAnswer)
+                {
+                    conversation.Remember(lease,request.Question,officeAnswer);
+                    return Results.Ok(officeAnswer);
+                }
                 var result = await CourtIntelligenceQuestions.AskAsync(id, request.Question, clients, ct,
                     index.CaseNumber, index.Orders, paths.ExtractionRoot,
                     new(currentUser.DisplayName, currentUser.DesignationName), request.History,
-                    request.Language, lease.Context);
+                    request.Language ?? "Auto", lease.Context);
                 if (result is IValueHttpResult { Value: System.Text.Json.JsonElement answer }
                     && result is IStatusCodeHttpResult { StatusCode: 200 })
                     conversation.Remember(lease, request.Question, answer);
@@ -347,7 +353,7 @@ public static class CourtEndpoints
         });
         group.MapGet("/{id:guid}/intelligence", async (
             Guid id, LocalStoragePaths paths, LacDbContext db, ICourtAuthorizationService courtAuth,
-            ICurrentUserContext currentUser, HttpContext context, CourtQuestionConversation conversation, CourtRuntimeService runtime, CancellationToken ct) =>
+            ICurrentUserContext currentUser, HttpContext context, CourtQuestionConversation conversation, CourtRuntimeService runtime, CourtStructuredIntelligenceService structured, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanViewCourtCaseAsync(id, currentUser.UserId.Value, ct)) return Results.Forbid();
@@ -357,7 +363,7 @@ public static class CourtEndpoints
                 var index = await CourtIntelligenceCaseData.LoadAsync(db, id, ct);
                 if (index is null) return Results.NotFound();
                 conversation.Enter(currentUser.UserId.Value, context.Request.Cookies["lac_session"], id);
-                var view = await CourtIntelligenceCaseData.ViewAsync(paths.ExtractionRoot, index, ct);
+                var view = await structured.ViewAsync(index, currentUser.UserId.Value, ct);
                 return Results.Ok(CourtRuntimeService.Attach(view, await runtime.StatusAsync(index, view, ct)));
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException or FormatException or UnauthorizedAccessException)
