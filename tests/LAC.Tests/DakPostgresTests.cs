@@ -138,7 +138,7 @@ public sealed class DakPostgresTests
         await using var db = database.Context();
         var workflow = new DakWorkflowService(db, new TestInMemoryDocumentStorage());
         foreach (var recordStatus in Enum.GetValues<RecordStatus>())
-        foreach (var status in Enum.GetValues<DakStatus>())
+        foreach (var status in Enum.GetValues<DakStatus>().Where(s => s != DakStatus.Resolved))
         {
             var command = Command($"Legacy/{recordStatus}/{status}", Guid.NewGuid());
             var first = await workflow.RegisterAsync(command, actorId);
@@ -169,7 +169,7 @@ public sealed class DakPostgresTests
     {
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false);
         await using var db = database.Context();
-        var previous = db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA"));
+        var previous = db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("HardenDakIntakePhaseA")).Last();
         await db.GetService<IMigrator>().MigrateAsync(previous);
         var activeId = Guid.NewGuid();
         var archivedId = Guid.NewGuid();
@@ -204,7 +204,7 @@ public sealed class DakPostgresTests
     {
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false);
         await using var db = database.Context();
-        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
+        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("HardenDakIntakePhaseA")).Last());
         var blankId = Guid.NewGuid();
         await InsertLegacyAsync(db, " \t ", RecordStatus.Archived, DakStatus.Cancelled, blankId);
         var error = await Assert.ThrowsAsync<PostgresException>(() => db.Database.MigrateAsync());
@@ -236,7 +236,7 @@ public sealed class DakPostgresTests
     {
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false);
         await using var db = database.Context();
-        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
+        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("HardenDakIntakePhaseA")).Last());
         var blankId = Guid.NewGuid();
         var disposedId = Guid.NewGuid();
         var cancelledId = Guid.NewGuid();
@@ -291,7 +291,7 @@ public sealed class DakPostgresTests
         dak.RecordStatus = RecordStatus.Archived;
         dak.Status = DakStatus.Disposed;
         await db.SaveChangesAsync();
-        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().Last(m => !m.EndsWith("HardenDakIntakePhaseA")));
+        await db.GetService<IMigrator>().MigrateAsync(db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("HardenDakIntakePhaseA")).Last());
         await using var connection = new NpgsqlConnection(database.ConnectionString);
         await connection.OpenAsync();
         await using var command = new NpgsqlCommand("SELECT count(*) FROM information_schema.columns WHERE table_name = 'Daks' AND column_name = 'DiaryNumberKey'", connection);

@@ -98,6 +98,7 @@ public sealed class UserWorkstreamMembership
 
 public sealed class OfficeDesk : OfficialRecord
 {
+    public OfficeDeskPurpose Purpose { get; set; } = OfficeDeskPurpose.General;
     public string Code { get; set; } = "";
     public string Name { get; set; } = "";
     public string? Description { get; set; }

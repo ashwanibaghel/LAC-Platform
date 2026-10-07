@@ -1,6 +1,7 @@
 namespace LAC.Api;
 
 using System.IO;
+using System.Text.Json;
 using LAC.Domain;
 using LAC.Infrastructure;
 using Microsoft.AspNetCore.Builder;
@@ -21,6 +22,8 @@ public static partial class DakEndpoints
                 return Results.Problem(statusCode: ex.StatusCode, title: ex.Message, detail: ex.Message);
             }
         });
+
+        MapCustodyEndpoints(dak);
 
         // 1. Register Inward Dak
         dak.MapPost("/", async (
@@ -306,7 +309,7 @@ public static partial class DakEndpoints
                 d.MainDocumentId != null,
                 d.Revision,
                 d.CreatedAt,
-                d.RecordStatus.ToString()
+                d.RecordStatus.ToString(), d.RoutingState.ToString(), d.PhysicalState.ToString()
             )).ToListAsync(ct);
 
             return Results.Ok(new { items, totalCount, page = p, pageSize = ps });
@@ -410,6 +413,7 @@ public static partial class DakEndpoints
                          && d.CurrentAssignment != null
                          && d.CurrentAssignment.RecordStatus == RecordStatus.Active
                          && d.CurrentAssignment.IsActive
+                         && d.Status != DakStatus.Resolved && d.RoutingState != DakRoutingState.InTransit
                          && activeDeskIds.Contains(d.CurrentAssignment.OfficeDeskId)
                          && d.CurrentAssignment.OfficeDesk.IsActive
                          && d.CurrentAssignment.OfficeDesk.RecordStatus == RecordStatus.Active);
@@ -619,6 +623,9 @@ public static partial class DakEndpoints
                     : new DakLinkItemDto(link.Id, null, "Restricted record", "Matter", false));
             }
 
+            var pendingDelivery = await db.DakTransfers.AsNoTracking().SingleOrDefaultAsync(t => t.DakId == id && t.State == DakTransferState.Pending, ct);
+            var pendingNeedsAttention = pendingDelivery != null && (!await db.UserDeskMemberships.AnyAsync(m => m.UserId == pendingDelivery.ToUserId && m.OfficeDeskId == pendingDelivery.ToDeskId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active && m.User.IsActive && m.User.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active && m.OfficeDesk.Purpose == (pendingDelivery.DestinationKind == DakDestinationKind.RecordRoom ? OfficeDeskPurpose.RecordRoom : OfficeDeskPurpose.General), ct) ||
+                !await db.UserRoles.AnyAsync(u => u.UserId == pendingDelivery.ToUserId && u.Role.IsActive && u.Role.RecordStatus == RecordStatus.Active && u.Role.RolePermissions.Any(p => p.Permission.Code == PermissionCodes.DakReceive && (p.ScopeMode == ScopeMode.All || p.ScopeMode == ScopeMode.Workstream || p.ScopeMode == ScopeMode.Assigned)), ct));
             var detailDto = new DakDetailDto(
                 dakRecord.Id,
                 dakRecord.DiaryNumber,
@@ -654,7 +661,8 @@ public static partial class DakEndpoints
                     dakRecord.CurrentAssignment.IsActive,
                     isDeskActive,
                     isUserEligible,
-                    needsAttention
+                    needsAttention, dakRecord.CurrentAssignment.ReceivedAt,
+                    dakRecord.CurrentAssignment.IsActive && dakRecord.CurrentAssignment.RecordStatus == RecordStatus.Active && dakRecord.CurrentAssignment.ReceivedAt != null
                 ),
                 dakRecord.Attachments.Select(a => new DakAttachmentDto(a.Id, a.DocumentId, a.Document.OriginalFileName, a.Title, a.AttachmentType, a.SequenceOrder, a.CreatedAt)).ToList(),
                 villageLinks,
@@ -665,7 +673,9 @@ public static partial class DakEndpoints
                 dakRecord.CreatedBy,
                 dakRecord.UpdatedAt,
                 dakRecord.UpdatedBy,
-                dakRecord.RecordStatus.ToString()
+                dakRecord.RecordStatus.ToString(), dakRecord.RoutingState.ToString(), dakRecord.PhysicalState.ToString(), dakRecord.ProcessingCycle, pendingDelivery?.Id, pendingDelivery?.ToUserId,
+                needsAttention || pendingNeedsAttention || dakRecord.RoutingState == DakRoutingState.LegacyUnconfirmed || dakRecord.PhysicalState == DakPhysicalState.ReturnPending,
+                dakRecord.ResolvedAt, dakRecord.ResolvedByUserId, dakRecord.ResolutionRemarks
             );
 
             return Results.Ok(detailDto);
@@ -783,10 +793,12 @@ public static partial class DakEndpoints
                     m.ActionByDisplayNameSnapshot,
                     m.ActionAt,
                     m.Remarks,
-                    m.InstructionsSnapshot
+                    m.InstructionsSnapshot, m.TransferId, m.EventVersion, null
                 )).ToListAsync(ct);
-
-            return Results.Ok(movements);
+            var snapshots = await db.DakMovements.AsNoTracking().Where(m => m.DakId == id && m.StateSnapshotJson != null)
+                .ToDictionaryAsync(m => m.Id, m => m.StateSnapshotJson!, ct);
+            return Results.Ok(movements.Select(m => snapshots.TryGetValue(m.Id, out var snapshot)
+                ? m with { StateChanges = PublicCustodyStateChanges(snapshot) } : m));
         }).RequirePermission(PermissionCodes.DakView);
 
         // 5b. Operational Lookup: Movement Target Desks & Eligible Members
@@ -800,7 +812,8 @@ public static partial class DakEndpoints
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             var userId = currentUser.UserId.Value;
 
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakMove, userId, ct))
+            var initial = await db.Daks.AnyAsync(d => d.Id == id && (d.Status == DakStatus.Registered && d.RoutingState == DakRoutingState.Unassigned || d.RoutingState == DakRoutingState.LegacyUnconfirmed && d.CurrentAssignment != null && d.CurrentAssignment.IsActive && d.CurrentAssignment.AssignedUserId == null), ct);
+            if (!await dakAuth.CanAccessDakAsync(id, initial ? PermissionCodes.DakMark : PermissionCodes.DakMove, userId, ct))
                 return Results.Forbid();
 
             var desks = await db.OfficeDesks.AsNoTracking()
@@ -808,6 +821,7 @@ public static partial class DakEndpoints
                 .OrderBy(d => d.Name)
                 .Select(d => new
                 {
+                    purpose = d.Purpose.ToString(),
                     id = d.Id,
                     code = d.Code,
                     name = d.Name,
@@ -832,13 +846,15 @@ public static partial class DakEndpoints
                 .ToListAsync(ct);
 
             return Results.Ok(new { desks });
-        }).RequirePermission(PermissionCodes.DakMove);
+        });
 
         // 6. Move Dak (Marked, Forwarded, Returned)
         dak.MapPost("/{id:guid}/move", async (
             Guid id,
             MoveDakRequest request,
+            HttpRequest http,
             DakWorkflowService workflow,
+            LacDbContext db,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
             CancellationToken ct) =>
@@ -853,20 +869,26 @@ public static partial class DakEndpoints
                 return Results.BadRequest(new { message = $"Action '{request.Action}' is invalid for Move. Only Marked, Forwarded, and Returned are allowed." });
             }
 
-            if (!await dakAuth.CanAccessDakAsync(id, PermissionCodes.DakMove, userId, ct))
-                return Results.Forbid();
+            if (!await dakAuth.CanAccessDakAsync(id, action == DakMovementAction.Marked ? PermissionCodes.DakMark : PermissionCodes.DakMove, userId, ct))
+            {
+                var header = http.Headers["Idempotency-Key"];
+                if (header.Count != 1 || !Guid.TryParse(header[0], out var replayKey) ||
+                    !await db.DakWorkflowCommandReceipts.AnyAsync(r => r.ActorUserId == userId && r.RequestId == replayKey && r.DakId == id, ct))
+                    return Results.Forbid();
+            }
 
             try
             {
-                var cmd = new MoveDakCommand(action, request.ToDeskId, request.ToUserId, request.Remarks, request.Instructions, request.ExpectedRevision);
-                var updated = await workflow.MoveAsync(id, cmd, userId, ct);
-                return Results.Ok(new { id = updated.Id, revision = updated.Revision, status = updated.Status.ToString() });
+                var updated = await workflow.SendAsync(id, new SendDakCommand(action, request.ToDeskId, request.ToUserId ?? Guid.Empty,
+                    DakDestinationKind.Officer, false, request.Remarks, request.Instructions, request.ExpectedRevision, CustodyRequestKey(http)), userId, ct);
+                return Results.Ok(new { id = updated.DakId, updated.CommandId, updated.TransferId, updated.Revision, updated.Status,
+                    updated.RoutingState, updated.PhysicalState, updated.ConfirmedHolderUserId });
             }
             catch (DakWorkflowException ex)
             {
                 return Results.Problem(statusCode: ex.StatusCode, title: ex.Message, detail: ex.Message);
             }
-        }).RequirePermission(PermissionCodes.DakMove);
+        });
 
         // 7. Dispose Dak
         dak.MapPost("/{id:guid}/dispose", async (
@@ -999,6 +1021,8 @@ public static partial class DakEndpoints
             if (!await auth.CanAccessDakAsync(id, PermissionCodes.DakView, user.UserId.Value, ct)) return Results.Forbid();
             return Results.Ok(await db.Daks.AsNoTracking().Where(d => d.Id == id).Select(d => new
             {
+                physicalState = d.PhysicalState.ToString(),
+                lastConfirmedCustodianUserId = d.PhysicalOriginalUserId,
                 d.HasPhysicalOriginal, deskId = d.PhysicalOriginalDeskId, userId = d.PhysicalOriginalUserId,
                 locationNote = d.PhysicalOriginalLocationNote, provenanceNote = d.PhysicalOriginalProvenanceNote,
                 updatedAt = d.PhysicalOriginalUpdatedAt, updatedByUserId = d.PhysicalOriginalUpdatedByUserId, d.Revision
@@ -1017,6 +1041,16 @@ public static partial class DakEndpoints
                 return Results.BadRequest(new { message = "A location can only be recorded when physical original existence is confirmed." });
             await workflow.MutateIntakeAsync(id, request.ExpectedRevision, user.UserId.Value, "PhysicalOriginalUpdated", async (dak, c) =>
             {
+                if (dak.PhysicalState is DakPhysicalState.InTransit or DakPhysicalState.ReturnPending)
+                    throw new DakWorkflowException("Use receive or confirm-return to settle physical custody.", 409);
+                if (dak.RoutingState == DakRoutingState.WithHolder || await db.DakTransfers.AnyAsync(t => t.DakId == id, c))
+                {
+                    var sameCustody = dak.PhysicalOriginalUserId == request.UserId && dak.PhysicalOriginalDeskId == request.DeskId && dak.HasPhysicalOriginal == request.HasPhysicalOriginal;
+                    var firstSelfObservation = dak.PhysicalOriginalUserId == null && request.HasPhysicalOriginal == true && request.UserId == user.UserId &&
+                        (dak.Status == DakStatus.Registered && dak.RoutingState == DakRoutingState.Unassigned || await db.DakAssignments.AnyAsync(a => a.DakId == id && a.ReceivedAt != null && a.IsActive && a.AssignedUserId == user.UserId && a.OfficeDeskId == request.DeskId, c));
+                    var unnamedObservation = dak.PhysicalOriginalUserId == null && dak.PhysicalOriginalDeskId == null && request.UserId == null && request.DeskId == null;
+                    if (!sameCustody && !firstSelfObservation && !unnamedObservation) throw new DakWorkflowException("Physical custodian changes require acknowledged transfer.", 409);
+                }
                 if (request.DeskId.HasValue && !await db.OfficeDesks.AnyAsync(d => d.Id == request.DeskId && d.IsActive && d.RecordStatus == RecordStatus.Active, c))
                     throw new DakWorkflowException("Physical location desk is inactive or missing.");
                 if (request.UserId.HasValue && !await db.AppUsers.AnyAsync(u => u.Id == request.UserId && u.IsActive && u.RecordStatus == RecordStatus.Active, c))
@@ -1024,6 +1058,8 @@ public static partial class DakEndpoints
                 if (request.DeskId.HasValue && request.UserId.HasValue && !await db.UserDeskMemberships.AnyAsync(m =>
                     m.OfficeDeskId == request.DeskId && m.UserId == request.UserId && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active, c))
                     throw new DakWorkflowException("Physical custodian is not an active member of the specified desk.");
+                var wasHeld = dak.PhysicalState == DakPhysicalState.Held;
+                dak.PhysicalState = request.HasPhysicalOriginal == null ? DakPhysicalState.Unknown : request.HasPhysicalOriginal == false ? DakPhysicalState.NotPresent : wasHeld ? DakPhysicalState.Held : DakPhysicalState.AtRecordedLocation;
                 dak.HasPhysicalOriginal = request.HasPhysicalOriginal;
                 dak.PhysicalOriginalDeskId = request.DeskId;
                 dak.PhysicalOriginalUserId = request.UserId;
@@ -1361,7 +1397,9 @@ public sealed record DakListItemDto(
     bool HasDocument,
     int Revision,
     DateTimeOffset CreatedAt,
-    string RecordStatus
+    string RecordStatus,
+    string RoutingState = "Unassigned",
+    string PhysicalState = "Unknown"
 );
 
 public sealed record DakDetailDto(
@@ -1396,7 +1434,16 @@ public sealed record DakDetailDto(
     string? CreatedBy,
     DateTimeOffset UpdatedAt,
     string? UpdatedBy,
-    string RecordStatus
+    string RecordStatus,
+    string RoutingState = "Unassigned",
+    string PhysicalState = "Unknown",
+    int ProcessingCycle = 1,
+    Guid? PendingTransferId = null,
+    Guid? PendingReceiverUserId = null,
+    bool NeedsAttention = false,
+    DateTimeOffset? ResolvedAt = null,
+    Guid? ResolvedByUserId = null,
+    string? ResolutionRemarks = null
 );
 
 public sealed record DakAssignmentDto(
@@ -1412,7 +1459,9 @@ public sealed record DakAssignmentDto(
     bool IsActive,
     bool IsDeskActive,
     bool IsUserEligible,
-    bool NeedsAttention
+    bool NeedsAttention,
+    DateTimeOffset? ReceivedAt = null,
+    bool IsConfirmed = false
 );
 
 public sealed record DakAttachmentDto(
@@ -1445,7 +1494,10 @@ public sealed record DakMovementDto(
     string ActionByDisplayName,
     DateTimeOffset ActionAt,
     string? Remarks,
-    string? Instructions
+    string? Instructions,
+    Guid? TransferId = null,
+    int EventVersion = 0,
+    JsonElement? StateChanges = null
 );
 
 public sealed record UpdateDakMetadataRequest(

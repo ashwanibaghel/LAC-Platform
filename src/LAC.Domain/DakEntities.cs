@@ -12,7 +12,8 @@ public enum DakStatus
     Registered = 0,
     InProcess = 1,
     Disposed = 2,
-    Cancelled = 3
+    Cancelled = 3,
+    Resolved = 4
 }
 
 public enum DakMovementAction
@@ -22,7 +23,13 @@ public enum DakMovementAction
     Forwarded = 2,
     Returned = 3,
     Disposed = 4,
-    Cancelled = 5
+    Cancelled = 5,
+    Received = 6,
+    PulledBack = 7,
+    PhysicalReturnConfirmed = 8,
+    Resolved = 9,
+    Reopened = 10,
+    CustodyConfirmed = 11
 }
 
 public sealed class DakCategory : OfficialRecord
@@ -80,6 +87,13 @@ public sealed class Dak : OfficialRecord
     public Document? MainDocument { get; set; }
 
     public int Revision { get; set; }
+    public DakRoutingState RoutingState { get; set; } = DakRoutingState.Unassigned;
+    public DakPhysicalState PhysicalState { get; set; } = DakPhysicalState.Unknown;
+    public int ProcessingCycle { get; set; } = 1;
+    public DateTimeOffset? ResolvedAt { get; set; }
+    public Guid? ResolvedByUserId { get; set; }
+    public string? ResolutionRemarks { get; set; }
+    public ICollection<DakTransfer> Transfers { get; set; } = new List<DakTransfer>();
 
     public DakAssignment? CurrentAssignment { get; set; }
     public ICollection<DakMovement> Movements { get; set; } = new List<DakMovement>();
@@ -115,6 +129,7 @@ public sealed class DakAssignment : OfficialRecord
     public AppUser AssignedByUser { get; set; } = null!;
 
     public DateTimeOffset AssignedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? ReceivedAt { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTimeOffset? ClosedAt { get; set; }
     public string? Instructions { get; set; }
@@ -154,6 +169,9 @@ public sealed class DakMovement
     public string ActionByDisplayNameSnapshot { get; set; } = "";
 
     public string? Remarks { get; set; }
+    public Guid? TransferId { get; set; }
+    public int EventVersion { get; set; }
+    public string? StateSnapshotJson { get; set; }
     public string? InstructionsSnapshot { get; set; }
     public Guid? DocumentId { get; set; }
     public Document? Document { get; set; }

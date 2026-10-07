@@ -1318,6 +1318,12 @@ public sealed class ActivityProjectionService(
             DakMovementAction.Returned => $"Returned to {toDesk ?? "desk"}",
             DakMovementAction.Disposed => "Marked Dak as completed/disposed",
             DakMovementAction.Cancelled => "Cancelled Dak registration",
+            DakMovementAction.Received => $"Received Dak at {toDesk ?? "desk"}",
+            DakMovementAction.PulledBack => "Pulled back unreceived Dak dispatch",
+            DakMovementAction.PhysicalReturnConfirmed => "Confirmed actual physical original recovery",
+            DakMovementAction.Resolved => "Resolved Dak with completion attestation",
+            DakMovementAction.Reopened => "Reopened resolved Dak with supervisory permission",
+            DakMovementAction.CustodyConfirmed => "Confirmed present-day legacy Dak holding",
             _ => $"{action} at {toDesk ?? fromDesk ?? "desk"}"
         };
     }

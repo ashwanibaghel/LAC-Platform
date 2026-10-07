@@ -805,8 +805,11 @@ public static class RbacEndpoints
                 wsId = request.WorkstreamId.Value;
             }
 
+            if (!Enum.TryParse<OfficeDeskPurpose>(request.Purpose, true, out var purpose) || !Enum.IsDefined(purpose)) return Results.BadRequest(new { message = "Invalid desk purpose." });
+
             var desk = new OfficeDesk
             {
+                Purpose = purpose,
                 Code = code,
                 Name = request.Name.Trim(),
                 Description = request.Description?.Trim(),
@@ -836,6 +839,10 @@ public static class RbacEndpoints
                 wsId = request.WorkstreamId.Value;
             }
 
+            if (request.Purpose != null) {
+                if (!Enum.TryParse<OfficeDeskPurpose>(request.Purpose, true, out var purpose) || !Enum.IsDefined(purpose)) return Results.BadRequest(new { message = "Invalid desk purpose." });
+                desk.Purpose = purpose;
+            }
             desk.Name = request.Name.Trim();
             desk.Description = request.Description?.Trim();
             desk.WorkstreamId = wsId;
@@ -1023,8 +1030,8 @@ public sealed record DeskListItemDto(
     DateTimeOffset CreatedAt
 );
 
-public sealed record CreateDeskRequest(string Code, string Name, string? Description, Guid? WorkstreamId);
-public sealed record UpdateDeskRequest(string Name, string? Description, Guid? WorkstreamId);
+public sealed record CreateDeskRequest(string Code, string Name, string? Description, Guid? WorkstreamId, string Purpose = "General");
+public sealed record UpdateDeskRequest(string Name, string? Description, Guid? WorkstreamId, string? Purpose = null);
 
 public sealed record UserDeskMembershipDto(
     Guid Id,

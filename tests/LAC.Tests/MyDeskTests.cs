@@ -164,6 +164,17 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         return (await res.Content.ReadFromJsonAsync<IdResponse>())!.Id;
     }
 
+    private async Task SetLegacyAssignmentAsync(Guid id, Guid deskId, Guid? userId)
+    {
+        using var scope = _factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        var dak = await db.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == id);
+        var admin = await db.AppUsers.SingleAsync(u => u.Username == DakTestFactory.TestAdminUser);
+        if (dak.CurrentAssignment == null) db.DakAssignments.Add(new DakAssignment { DakId = id, OfficeDeskId = deskId, AssignedUserId = userId, AssignedByUserId = admin.Id });
+        else { dak.CurrentAssignment.OfficeDeskId = deskId; dak.CurrentAssignment.AssignedUserId = userId; }
+        dak.Status = DakStatus.InProcess; dak.RoutingState = DakRoutingState.LegacyUnconfirmed; dak.Revision++;
+        await db.SaveChangesAsync();
+    }
+
     private async Task<Guid> RegisterAndMarkDakAsync(
         HttpClient adminClient,
         Guid deskId,
@@ -186,8 +197,7 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
             Instructions: "Process promptly",
             ExpectedRevision: 0
         );
-        var moveRes = await adminClient.PostAsJsonAsync($"/api/dak/{dakId}/move", moveReq);
-        Assert.Equal(HttpStatusCode.OK, moveRes.StatusCode);
+        await SetLegacyAssignmentAsync(dakId, deskId, null);
 
         return dakId;
     }
@@ -223,13 +233,11 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
 
         // Dak 2 on Desk B, assigned to Officer 1
         var dak2 = await RegisterAndMarkDakAsync(adminClient, deskB, "Dak 2 on Desk B");
-        var assignDak2Res = await adminClient.PostAsJsonAsync($"/api/dak/{dak2}/move", new MoveDakRequest("Forwarded", deskB, officer1Id, "Forwarded to Off 1", null, 1));
-        Assert.Equal(HttpStatusCode.OK, assignDak2Res.StatusCode);
+        await SetLegacyAssignmentAsync(dak2, deskB, officer1Id);
 
         // Dak 3 on Desk A, assigned to Officer 2
         var dak3 = await RegisterAndMarkDakAsync(adminClient, deskA, "Dak 3 on Desk A");
-        var assignDak3Res = await adminClient.PostAsJsonAsync($"/api/dak/{dak3}/move", new MoveDakRequest("Forwarded", deskA, officer2Id, "Forwarded to Off 2", null, 1));
-        Assert.Equal(HttpStatusCode.OK, assignDak3Res.StatusCode);
+        await SetLegacyAssignmentAsync(dak3, deskA, officer2Id);
 
         // --------------------------------------------------------------------
         // Test 1: Assigned scope sees active Dak on live desk
@@ -563,8 +571,12 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         // Test 21: Disposed with non-null inactive CurrentAssignment excluded
         // --------------------------------------------------------------------
         var dakDispose = await RegisterAndMarkDakAsync(adminClient, desk, "Dak To Dispose");
-        var dispRes = await adminClient.PostAsJsonAsync($"/api/dak/{dakDispose}/dispose", new DisposeDakRequest("Disposed per officer order", ExpectedRevision: 1));
-        Assert.Equal(HttpStatusCode.OK, dispRes.StatusCode);
+        using (var closedScope = _factory.Services.CreateScope()) {
+            var closedDb = closedScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var closed = await closedDb.Daks.Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == dakDispose);
+            closed.Status = DakStatus.Disposed; closed.CurrentAssignment!.IsActive = false; closed.CurrentAssignment.ClosedAt = DateTimeOffset.UtcNow;
+            await closedDb.SaveChangesAsync();
+        }
 
         // Verify in DB that CurrentAssignment IS NOT null, but IsActive is false
         using (var scope = _factory.Services.CreateScope())

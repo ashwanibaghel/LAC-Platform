@@ -85,7 +85,9 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
         var filtered = query.Where(d =>
             (hasWorkstream && d.WorkstreamId.HasValue && userWorkstreamIds.Contains(d.WorkstreamId.Value))
             || (hasAssigned && d.CurrentAssignment != null && d.CurrentAssignment.IsActive && userDeskIds.Contains(d.CurrentAssignment.OfficeDeskId))
-            || (hasWorkstream && isInDakCorrespondence && d.Status == DakStatus.Registered && (d.CurrentAssignment == null || !d.CurrentAssignment.IsActive))
+            || ((hasAssigned || hasWorkstream) && permissionCode == PermissionCodes.DakView && db.DakTransfers.Any(t => t.DakId == d.Id
+                && (t.State == DakTransferState.Pending && (t.ToUserId == userId || t.SenderUserId == userId) || t.State == DakTransferState.PulledBack && t.IncludesPhysicalOriginal && t.PhysicalReturnedAt == null && t.SenderUserId == userId)))
+            || (hasWorkstream && isInDakCorrespondence && (d.Status == DakStatus.Registered && (d.CurrentAssignment == null || !d.CurrentAssignment.IsActive) || d.RoutingState == DakRoutingState.LegacyUnconfirmed && d.CurrentAssignment != null && d.CurrentAssignment.IsActive && d.CurrentAssignment.AssignedUserId == null))
         );
 
         return new DakListAuthorizationResult(true, filtered);
@@ -125,6 +127,12 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
         var hasWorkstream = scopes.Contains(ScopeMode.Workstream);
         var hasAssigned = scopes.Contains(ScopeMode.Assigned);
 
+        if ((hasAssigned || hasWorkstream) &&
+            (permissionCode == PermissionCodes.DakView || permissionCode == PermissionCodes.DakReceive || permissionCode == PermissionCodes.DakPullBack) &&
+            await db.DakTransfers.AnyAsync(t => t.DakId == dakId &&
+                (t.State == DakTransferState.Pending || permissionCode == PermissionCodes.DakPullBack && t.State == DakTransferState.PulledBack || permissionCode == PermissionCodes.DakView && t.State == DakTransferState.PulledBack && t.IncludesPhysicalOriginal && t.PhysicalReturnedAt == null && t.SenderUserId == userId) &&
+                (t.ToUserId == userId || t.SenderUserId == userId), ct)) return true;
+
         // Check Workstream scope
         if (hasWorkstream)
         {
@@ -142,7 +150,7 @@ public sealed class DakAuthorizationService(LacDbContext db) : IDakAuthorization
             }
 
             // Intake queue match: Registered + unassigned
-            var isUnassignedRegistered = dak.Status == DakStatus.Registered && (dak.CurrentAssignment == null || !dak.CurrentAssignment.IsActive);
+            var isUnassignedRegistered = dak.Status == DakStatus.Registered && (dak.CurrentAssignment == null || !dak.CurrentAssignment.IsActive) || dak.RoutingState == DakRoutingState.LegacyUnconfirmed && dak.CurrentAssignment is { IsActive: true, AssignedUserId: null, ReceivedAt: null };
             if (isUnassignedRegistered)
             {
                 var hasDakCorr = await db.UserWorkstreamMemberships
