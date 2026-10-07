@@ -24,6 +24,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<LAC.Domain.Calculators.CompensationCalculator>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 if (!builder.Environment.IsEnvironment("Testing"))
 {
@@ -222,6 +223,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 var api = app.MapGroup("/api");
+// Pure calculators use normal cookie authentication without workflow allocation permissions.
+app.MapGroup("/api/calculators").MapCompensationCalculatorEndpoints();
 api.MapRbacEndpoints();
 api.MapWorkAllocationEndpoints();
 api.MapOfficerAssistantEndpoints();
