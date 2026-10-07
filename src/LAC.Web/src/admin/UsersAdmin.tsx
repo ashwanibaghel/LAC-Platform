@@ -1,10 +1,24 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
-import type { Designation, Workstream, DeskItem, UserDeskMembershipItem, RoleDetail, OfficerItem, OfficerDetail } from "./types";
+import type {
+  Designation,
+  Workstream,
+  DeskItem,
+  UserDeskMembershipItem,
+  RoleDetail,
+  OfficerItem,
+  OfficerDetail,
+  AccountOptionsResponse,
+  Allocation,
+  AllocationInput,
+  AllocationScope,
+  ScopeKind,
+} from "./types";
 import { PasswordInput } from "../auth/PasswordInput";
 import "./admin.css";
 
 export const UsersAdmin: React.FC = () => {
   const [users, setUsers] = useState<OfficerItem[]>([]);
+  const [accountOptions, setAccountOptions] = useState<AccountOptionsResponse | null>(null);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [workstreams, setWorkstreams] = useState<Workstream[]>([]);
   const [roles, setRoles] = useState<RoleDetail[]>([]);
@@ -22,6 +36,8 @@ export const UsersAdmin: React.FC = () => {
   // Modals & Drawers state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingOfficer, setEditingOfficer] = useState<OfficerDetail | null>(null);
+  const [officerAllocations, setOfficerAllocations] = useState<Allocation[]>([]);
+  const [allocationsLoading, setAllocationsLoading] = useState(false);
   const [inspectingOfficer, setInspectingOfficer] = useState<OfficerItem | null>(null);
   const [resetTargetUser, setResetTargetUser] = useState<OfficerItem | null>(null);
   const [deskTargetUser, setDeskTargetUser] = useState<OfficerItem | null>(null);
@@ -39,6 +55,7 @@ export const UsersAdmin: React.FC = () => {
   // Form states - Create User Modal
   const [newUsername, setNewUsername] = useState("");
   const [newDisplayName, setNewDisplayName] = useState("");
+  const [autoGeneratePassword, setAutoGeneratePassword] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [newDesignationId, setNewDesignationId] = useState("");
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
@@ -49,8 +66,30 @@ export const UsersAdmin: React.FC = () => {
   const [assignDeskId, setAssignDeskId] = useState("");
   const [assignDeskPrimary, setAssignDeskPrimary] = useState(false);
 
-  // Reset Password State
-  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  // Allocation Add/Edit Sub-Form state in drawer
+  const [showAllocForm, setShowAllocForm] = useState(false);
+  const [editingAllocation, setEditingAllocation] = useState<Allocation | null>(null);
+  const [allocWorkDefId, setAllocWorkDefId] = useState("");
+  const [allocOrderRef, setAllocOrderRef] = useState("");
+  const [allocReason, setAllocReason] = useState("");
+  const [allocValidFrom, setAllocValidFrom] = useState(new Date().toISOString().split("T")[0]);
+  const [allocValidTo, setAllocValidTo] = useState("");
+  const [allocScopes, setAllocScopes] = useState<AllocationScope[]>([]);
+  const [newScopeKind, setNewScopeKind] = useState<ScopeKind>("Global");
+  const [newScopeDistrictId, setNewScopeDistrictId] = useState("");
+  const [newScopeSubDivId, setNewScopeSubDivId] = useState("");
+  const [newScopeVillageId, setNewScopeVillageId] = useState("");
+  const [allocSubmitting, setAllocSubmitting] = useState(false);
+
+  // One-Time Credential Modal (for officer creation or password reset)
+  const [showCredentialModal, setShowCredentialModal] = useState(false);
+  const [credentialData, setCredentialData] = useState<{
+    username: string;
+    temporaryCredential: string;
+    expiresAt?: string;
+  } | null>(null);
+  const [credentialAcknowledged, setCredentialAcknowledged] = useState(false);
+  const [copiedNotice, setCopiedNotice] = useState(false);
 
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -59,38 +98,74 @@ export const UsersAdmin: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const [usersRes, desigRes, wsRes, rolesRes, desksRes] = await Promise.all([
+      const [usersRes, desigRes, wsRes, rolesRes, desksRes, optRes] = await Promise.all([
         fetch("/api/admin/users", { credentials: "include" }),
         fetch("/api/admin/designations", { credentials: "include" }),
         fetch("/api/admin/workstreams", { credentials: "include" }),
         fetch("/api/admin/roles", { credentials: "include" }),
         fetch("/api/admin/desks", { credentials: "include" }),
+        fetch("/api/admin/account-options", { credentials: "include" }),
       ]);
 
-      if (!usersRes.ok || !desigRes.ok || !wsRes.ok || !rolesRes.ok || !desksRes.ok) {
-        throw new Error("Failed to load user administration data.");
+      if (!usersRes.ok) {
+        if (usersRes.status === 401) throw new Error("Session expired. Please log in again.");
+        if (usersRes.status === 403) throw new Error("Access denied: Users.Manage permission required.");
+        throw new Error(`Failed to load users (status ${usersRes.status}).`);
       }
 
       setUsers((await usersRes.json()) as OfficerItem[]);
-      setDesignations((await desigRes.json()) as Designation[]);
-      setWorkstreams((await wsRes.json()) as Workstream[]);
-      setRoles((await rolesRes.json()) as RoleDetail[]);
-      setDesks((await desksRes.json()) as DeskItem[]);
+      if (desigRes.ok) setDesignations((await desigRes.json()) as Designation[]);
+      if (wsRes.ok) setWorkstreams((await wsRes.json()) as Workstream[]);
+      if (rolesRes.ok) setRoles((await rolesRes.json()) as RoleDetail[]);
+      if (desksRes.ok) setDesks((await desksRes.json()) as DeskItem[]);
+      if (optRes.ok) {
+        const opts = (await optRes.json()) as AccountOptionsResponse;
+        setAccountOptions(opts);
+        if (opts.districts.length > 0 && !newScopeDistrictId) {
+          setNewScopeDistrictId(opts.districts[0].id);
+        }
+        if (opts.subdivisions.length > 0 && !newScopeSubDivId) {
+          setNewScopeSubDivId(opts.subdivisions[0].id);
+        }
+        if (opts.villages.length > 0 && !newScopeVillageId) {
+          setNewScopeVillageId(opts.villages[0].id);
+        }
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load data.");
+      setError(err instanceof Error ? err.message : "Failed to load directory data.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [newScopeDistrictId, newScopeSubDivId, newScopeVillageId]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
+  // Load allocations for an officer
+  const loadOfficerAllocations = useCallback(async (userId: string) => {
+    try {
+      setAllocationsLoading(true);
+      const res = await fetch(`/api/admin/users/${userId}/allocations`, { credentials: "include" });
+      if (res.ok) {
+        const data = (await res.json()) as Allocation[];
+        setOfficerAllocations(data);
+      } else {
+        setOfficerAllocations([]);
+      }
+    } catch {
+      setOfficerAllocations([]);
+    } finally {
+      setAllocationsLoading(false);
+    }
+  }, []);
+
   // Open Edit Officer Drawer
   const openEditDrawer = async (officer: OfficerItem) => {
     try {
       setEditDrawerLoading(true);
+      setShowAllocForm(false);
+      setEditingAllocation(null);
       const res = await fetch(`/api/admin/users/${officer.id}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load officer details.");
       const detail = (await res.json()) as OfficerDetail;
@@ -103,6 +178,9 @@ export const UsersAdmin: React.FC = () => {
       setEditWorkstreamIds(wsIds);
       const primaryWs = detail.workstreams.find((w) => w.isPrimary);
       setEditPrimaryWorkstreamId(primaryWs ? primaryWs.id : wsIds[0] || "");
+
+      // Load allocations
+      await loadOfficerAllocations(officer.id);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error loading officer.");
     } finally {
@@ -110,15 +188,189 @@ export const UsersAdmin: React.FC = () => {
     }
   };
 
-  const handleSaveOfficerAllocations = async (e: React.FormEvent) => {
+  // Save basic profile, roles, and workstreams (leaves allocations intact)
+  const handleSaveOfficerProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingOfficer) return;
 
-    // Staged pending Codex RBAC hardened allocation contract to fix known privilege escalation gap
-    setActionMessage("Officer allocations staged in UI. Backend persistence paused pending Codex RBAC hardened authorization contract.");
-    setEditingOfficer(null);
+    try {
+      setActionLoading(true);
+      setActionMessage(null);
+
+      const payload = {
+        displayName: editDisplayName.trim(),
+        designationId: editDesignationId || null,
+        roleIds: accountOptions?.canAssignRoles ? editRoleIds : undefined,
+        workstreamIds: accountOptions?.canManageAllocations ? editWorkstreamIds : undefined,
+        primaryWorkstreamId: accountOptions?.canManageAllocations ? (editPrimaryWorkstreamId || null) : undefined,
+      };
+
+      const res = await fetch(`/api/admin/users/${editingOfficer.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error("Access denied: You do not possess the required permission to assign these roles or branches.");
+        }
+        const err = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message || "Failed to update officer profile.");
+      }
+
+      setActionMessage(`Profile & roles for ${editDisplayName.trim()} saved successfully.`);
+      await loadData();
+      await openEditDrawer({ ...editingOfficer, displayName: editDisplayName.trim() } as unknown as OfficerItem);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error updating officer.");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
+  // Add scope to the currently edited allocation
+  const handleAddScopeToBuilder = () => {
+    let scope: AllocationScope;
+    if (newScopeKind === "Global") {
+      scope = { kind: "Global" };
+    } else if (newScopeKind === "District") {
+      scope = { kind: "District", districtId: newScopeDistrictId || null };
+    } else if (newScopeKind === "Subdivision") {
+      scope = { kind: "Subdivision", subDivisionId: newScopeSubDivId || null };
+    } else {
+      scope = { kind: "Village", villageId: newScopeVillageId || null };
+    }
+
+    setAllocScopes((prev) => [...prev, scope]);
+  };
+
+  // Open Allocation Add form
+  const openNewAllocationForm = () => {
+    setEditingAllocation(null);
+    const worksList = accountOptions?.works || [];
+    setAllocWorkDefId(worksList.length > 0 ? worksList[0].id : "");
+    setAllocOrderRef("");
+    setAllocReason("");
+    setAllocValidFrom(new Date().toISOString().split("T")[0]);
+    setAllocValidTo("");
+    setAllocScopes([{ kind: "Global" }]);
+    setShowAllocForm(true);
+  };
+
+  // Open Allocation Edit form
+  const openEditAllocationForm = (alloc: Allocation) => {
+    setEditingAllocation(alloc);
+    setAllocWorkDefId(alloc.workDefinitionId);
+    setAllocOrderRef(alloc.workOrderReference);
+    setAllocReason(alloc.reason || "");
+    setAllocValidFrom(alloc.validFrom ? alloc.validFrom.split("T")[0] : "");
+    setAllocValidTo(alloc.validTo ? alloc.validTo.split("T")[0] : "");
+    setAllocScopes(alloc.scopes || [{ kind: "Global" }]);
+    setShowAllocForm(true);
+  };
+
+  // Submit Add or Edit Allocation
+  const handleSubmitAllocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOfficer || !allocWorkDefId || allocScopes.length === 0) {
+      alert("Please specify a work category and at least one geographic scope.");
+      return;
+    }
+
+    try {
+      setAllocSubmitting(true);
+      const input: AllocationInput = {
+        workDefinitionId: allocWorkDefId,
+        validFrom: new Date(allocValidFrom).toISOString(),
+        validTo: allocValidTo ? new Date(allocValidTo).toISOString() : null,
+        workOrderReference: allocOrderRef.trim() || "OFFICE-ORDER/2026/ALLOC",
+        reason: allocReason.trim() || null,
+        scopes: allocScopes,
+      };
+
+      if (editingAllocation) {
+        // PUT update allocation
+        const res = await fetch(`/api/admin/users/${editingOfficer.id}/allocations/${editingAllocation.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            allocation: input,
+            expectedRevision: editingAllocation.revision,
+          }),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          if (res.status === 409) {
+            await loadOfficerAllocations(editingOfficer.id);
+            throw new Error("Revision conflict: Allocation was modified concurrently. Refreshed.");
+          }
+          const err = (await res.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message || "Failed to update allocation.");
+        }
+      } else {
+        // POST create allocation
+        const res = await fetch(`/api/admin/users/${editingOfficer.id}/allocations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+          credentials: "include",
+        });
+
+        if (!res.ok) {
+          if (res.status === 409) {
+            throw new Error("Revision or duplicate conflict on allocation creation.");
+          }
+          const err = (await res.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(err?.message || "Failed to create allocation.");
+        }
+      }
+
+      setShowAllocForm(false);
+      setEditingAllocation(null);
+      await loadOfficerAllocations(editingOfficer.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error saving allocation.");
+    } finally {
+      setAllocSubmitting(false);
+    }
+  };
+
+  // Revoke Allocation
+  const handleRevokeAllocation = async (alloc: Allocation) => {
+    if (!editingOfficer) return;
+    if (!confirm(`Are you sure you want to REVOKE the work allocation "${alloc.workName}" (Order: ${alloc.workOrderReference})?\n\nRevoking this allocation will also immediately cascade to revoke any assistant allocations delegated from it.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/admin/users/${editingOfficer.id}/allocations/${alloc.id}/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedRevision: alloc.revision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadOfficerAllocations(editingOfficer.id);
+          alert("Revision conflict: Stale allocation revision. Reloaded latest records.");
+          return;
+        }
+        throw new Error("Failed to revoke allocation.");
+      }
+
+      await loadOfficerAllocations(editingOfficer.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error revoking allocation.");
+    }
+  };
+
+  // Desks Management
   const loadUserDesks = async (userId: string) => {
     try {
       setUserDesksLoading(true);
@@ -203,19 +455,21 @@ export const UsersAdmin: React.FC = () => {
     }
   };
 
+  // Create Officer
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setActionLoading(true);
       setActionMessage(null);
+
       const payload = {
         username: newUsername.trim(),
         displayName: newDisplayName.trim(),
-        password: newPassword,
+        password: autoGeneratePassword ? null : (newPassword || null),
         designationId: newDesignationId || null,
-        roleIds: [], // Basic identity creation only; privileged roles staged pending Codex RBAC contract
-        workstreamIds: selectedWorkstreamIds,
-        primaryWorkstreamId: primaryWorkstreamId || null,
+        roleIds: accountOptions?.canAssignRoles ? selectedRoleIds : [],
+        workstreamIds: accountOptions?.canManageAllocations ? selectedWorkstreamIds : [],
+        primaryWorkstreamId: accountOptions?.canManageAllocations ? (primaryWorkstreamId || null) : null,
       };
 
       const response = await fetch("/api/admin/users", {
@@ -226,9 +480,18 @@ export const UsersAdmin: React.FC = () => {
       });
 
       if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error("Access denied: You do not possess the required permission to assign these roles or create accounts.");
+        }
         const err = (await response.json().catch(() => null)) as { message?: string } | null;
         throw new Error(err?.message || "Failed to create officer account.");
       }
+
+      const resData = (await response.json()) as {
+        id: string;
+        temporaryCredential?: string;
+        credentialExpiresAt?: string;
+      };
 
       setShowCreateModal(false);
       setNewUsername("");
@@ -238,8 +501,20 @@ export const UsersAdmin: React.FC = () => {
       setSelectedRoleIds([]);
       setSelectedWorkstreamIds([]);
       setPrimaryWorkstreamId("");
-      setActionMessage("Officer account created successfully.");
       await loadData();
+
+      if (resData.temporaryCredential) {
+        setCredentialData({
+          username: payload.username,
+          temporaryCredential: resData.temporaryCredential,
+          expiresAt: resData.credentialExpiresAt,
+        });
+        setCredentialAcknowledged(false);
+        setCopiedNotice(false);
+        setShowCredentialModal(true);
+      } else {
+        setActionMessage("Officer account created successfully.");
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create officer.");
     } finally {
@@ -247,6 +522,7 @@ export const UsersAdmin: React.FC = () => {
     }
   };
 
+  // Status toggle
   const handleToggleStatus = async (user: OfficerItem) => {
     try {
       const response = await fetch(`/api/admin/users/${user.id}/toggle-status`, {
@@ -260,14 +536,61 @@ export const UsersAdmin: React.FC = () => {
     }
   };
 
+  // Reset Password (now hardened with session invalidation)
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetTargetUser) return;
 
-    // Staged pending Codex RBAC backend session invalidation hardening
-    alert("Temporary password reset execution is paused pending Codex RBAC backend session invalidation hardening. Active sessions currently survive credential changes.");
-    setResetTargetUser(null);
-    setResetPasswordValue("");
+    try {
+      setActionLoading(true);
+      const res = await fetch(`/api/admin/users/${resetTargetUser.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 403) {
+          throw new Error("Access denied: Password reset of administrative accounts requires Access.Manage.");
+        }
+        const err = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message || "Failed to reset password.");
+      }
+
+      const data = (await res.json()) as {
+        message: string;
+        temporaryCredential?: string;
+        credentialExpiresAt?: string;
+      };
+
+      const targetUsername = resetTargetUser.username;
+      setResetTargetUser(null);
+
+      if (data.temporaryCredential) {
+        setCredentialData({
+          username: targetUsername,
+          temporaryCredential: data.temporaryCredential,
+          expiresAt: data.credentialExpiresAt,
+        });
+        setCredentialAcknowledged(false);
+        setCopiedNotice(false);
+        setShowCredentialModal(true);
+      } else {
+        setActionMessage(data.message || "Password reset successfully.");
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error resetting password.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const copyCredentialToClipboard = () => {
+    if (!credentialData) return;
+    void navigator.clipboard.writeText(credentialData.temporaryCredential);
+    setCopiedNotice(true);
+    setTimeout(() => setCopiedNotice(false), 2500);
   };
 
   // Helper for Civil Rank Class
@@ -280,6 +603,21 @@ export const UsersAdmin: React.FC = () => {
     if (c.includes("KANUNGO")) return "kanungo";
     if (c.includes("PATWARI")) return "patwari";
     return "staff";
+  };
+
+  // Scope label formatter
+  const formatScopeLabel = (scope: AllocationScope) => {
+    if (scope.kind === "Global") return "Global (All Jurisdictions)";
+    if (scope.kind === "District") {
+      const d = accountOptions?.districts.find((x) => x.id === scope.districtId);
+      return `District: ${d?.name || scope.districtId || "Specified"}`;
+    }
+    if (scope.kind === "Subdivision") {
+      const s = accountOptions?.subdivisions.find((x) => x.id === scope.subDivisionId);
+      return `Subdivision: ${s?.name || scope.subDivisionId || "Specified"}`;
+    }
+    const v = accountOptions?.villages.find((x) => x.id === scope.villageId);
+    return `Village: ${v?.name || scope.villageId || "Specified"}`;
   };
 
   // Filtered Officers List
@@ -423,13 +761,14 @@ export const UsersAdmin: React.FC = () => {
           <tbody>
             {filteredOfficers.map((u) => {
               const rankClass = getRankClass(u.designation?.code);
-              const initials = u.displayName
-                .split(" ")
-                .filter(Boolean)
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join("")
-                .toUpperCase() || "OF";
+              const initials =
+                u.displayName
+                  .split(" ")
+                  .filter(Boolean)
+                  .map((n) => n[0])
+                  .slice(0, 2)
+                  .join("")
+                  .toUpperCase() || "OF";
 
               return (
                 <tr key={u.id}>
@@ -455,28 +794,24 @@ export const UsersAdmin: React.FC = () => {
                   </td>
                   <td>
                     <span className={`status ${u.isActive ? "success" : "warning"}`}>
-                      {u.isActive ? "Active" : "Inactive"}
+                      {u.isActive ? "Active" : "Disabled"}
                     </span>
                   </td>
                   <td>
-                    <div className="role-tags-container">
-                      {u.roles.length ? (
-                        u.roles.map((r) => (
-                          <span key={r} className={`role-tag ${r === "SYSTEM_ADMIN" ? "admin" : ""}`}>
-                            {r.replace("_", " ")}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="subtext">No roles</span>
-                      )}
+                    <div className="role-tags-list">
+                      {u.roles.map((r) => (
+                        <span key={r} className="role-tag">
+                          {r}
+                        </span>
+                      ))}
                     </div>
                   </td>
                   <td>
-                    <div className="role-tags-container">
-                      {u.workstreams.length ? (
-                        u.workstreams.map((w, idx) => (
-                          <span key={w} className={`workstream-tag ${idx === 0 ? "primary" : ""}`}>
-                            {w}
+                    <div className="workstream-tags-list">
+                      {u.workstreams.length > 0 ? (
+                        u.workstreams.map((ws) => (
+                          <span key={ws} className="workstream-tag">
+                            {ws}
                           </span>
                         ))
                       ) : (
@@ -503,13 +838,15 @@ export const UsersAdmin: React.FC = () => {
                   <td>
                     <div className="rbac-action-buttons">
                       <button
+                        type="button"
                         className="rbac-btn-edit"
-                        onClick={() => openEditDrawer(u)}
-                        title="Edit Designation, Roles, and Branch allocations"
+                        onClick={() => void openEditDrawer(u)}
+                        title="Edit Designation, Roles, and Work Allocations"
                       >
                         Edit Allocations
                       </button>
                       <button
+                        type="button"
                         className="rbac-btn-inspect"
                         onClick={() => setInspectingOfficer(u)}
                         title="Inspect effective operational powers and scopes in plain English"
@@ -517,11 +854,30 @@ export const UsersAdmin: React.FC = () => {
                         Access Inspector
                       </button>
                       <button
-                        className="rbac-btn-edit"
+                        type="button"
+                        className="rbac-btn-desk"
                         onClick={() => openManageDesksModal(u)}
                         title="Manage assigned office desks and primary seat"
                       >
                         Desks
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{ padding: "3px 8px", fontSize: "11px" }}
+                        onClick={() => setResetTargetUser(u)}
+                        title="Reset password with server session invalidation"
+                      >
+                        Reset PW
+                      </button>
+                      <button
+                        type="button"
+                        className="quiet-button"
+                        style={{ padding: "3px 6px", fontSize: "11px" }}
+                        onClick={() => void handleToggleStatus(u)}
+                        title="Toggle active status"
+                      >
+                        {u.isActive ? "Disable" : "Enable"}
                       </button>
                     </div>
                   </td>
@@ -535,15 +891,19 @@ export const UsersAdmin: React.FC = () => {
       {/* Slide-over Drawer: Edit Officer Allocation */}
       {editingOfficer && (
         <div className="drawer-backdrop" onClick={() => setEditingOfficer(null)}>
-          <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="drawer-panel" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "800px" }}>
             <div className="drawer-header">
               <div>
                 <h3>Edit Officer Allocations</h3>
                 <p>
-                  Update civil designation, multiple roles, and branch assignments for <strong>{editingOfficer.displayName}</strong> (@{editingOfficer.username})
+                  Update civil designation, multiple roles, and specific work responsibilities for <strong>{editingOfficer.displayName}</strong> (@{editingOfficer.username})
                 </p>
               </div>
-              <button className="drawer-close-btn" onClick={() => setEditingOfficer(null)}>
+              <button
+                type="button"
+                className="drawer-close-btn"
+                onClick={() => setEditingOfficer(null)}
+              >
                 ✕
               </button>
             </div>
@@ -551,362 +911,559 @@ export const UsersAdmin: React.FC = () => {
             {editDrawerLoading ? (
               <div className="state"><strong>Loading officer allocations...</strong></div>
             ) : (
-              <form onSubmit={handleSaveOfficerAllocations} style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-                <div className="drawer-body">
-                  {/* Staged Allocation UX Notice */}
-                  <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", color: "#0369a1", padding: "10px 12px", borderRadius: "6px", marginBottom: "16px", fontSize: "12px" }}>
-                    <strong>Staged Allocation UX:</strong>
-                    <p style={{ margin: "4px 0 0", color: "#0c4a6e" }}>
-                      Role and work allocations are staged in this administrative UX. Live save via PUT /api/admin/users/:id is paused while Codex RBAC hardens role-assignment validation to prevent privilege escalation.
-                    </p>
+              <div className="drawer-body" style={{ overflowY: "auto", padding: "16px 20px" }}>
+                {/* 1. Profile, Designation, and Roles Section */}
+                <form onSubmit={handleSaveOfficerProfile} style={{ marginBottom: "24px" }}>
+                  <h4 style={{ margin: "0 0 12px 0", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px" }}>
+                    1. Civil Identity & Authority Roles
+                  </h4>
+
+                  <div className="form-group" style={{ marginBottom: "12px" }}>
+                    <label>Display / Official Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editDisplayName}
+                      onChange={(e) => setEditDisplayName(e.target.value)}
+                    />
                   </div>
 
-                  {/* Official Identity */}
-                  <div>
-                    <div className="form-section-title">1. Official Identity & Civil Rank</div>
-                    <div className="form-group" style={{ marginBottom: "12px" }}>
-                      <label>Official Display Name</label>
-                      <input
-                        type="text"
-                        required
-                        value={editDisplayName}
-                        onChange={(e) => setEditDisplayName(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Civil Designation (Post / Rank)</label>
-                      <select
-                        value={editDesignationId}
-                        onChange={(e) => setEditDesignationId(e.target.value)}
-                      >
-                        <option value="">No Civil Designation</option>
-                        {designations.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name} ({d.code})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                  <div className="form-group" style={{ marginBottom: "12px" }}>
+                    <label>Civil Designation (Post / Rank)</label>
+                    <select
+                      value={editDesignationId}
+                      onChange={(e) => setEditDesignationId(e.target.value)}
+                    >
+                      <option value="">-- No Official Post Assigned --</option>
+                      {designations.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.code})
+                        </option>
+                      ))}
+                    </select>
+                    <small style={{ color: "#64748b" }}>
+                      Civil rank does not automatically grant system permissions. Authority requires explicit role assignment.
+                    </small>
                   </div>
 
-                  {/* Authority Roles (Multi-Role Model) */}
-                  <div>
-                    <div className="form-section-title">2. Authority Roles (Multi-Role Assignment)</div>
-                    <p className="subtext" style={{ margin: "0 0 8px 0" }}>
-                      Select all authority roles this officer holds. Multi-role assignment allows combined responsibility (e.g. Intake Officer + Record Verifier).
-                    </p>
-                    <div className="multi-select-grid">
+                  <div className="form-group" style={{ marginBottom: "12px" }}>
+                    <label>Assigned Authority Roles</label>
+                    {!accountOptions?.canAssignRoles && (
+                      <div style={{ color: "#d97706", fontSize: "12px", marginBottom: "4px" }}>
+                        Role assignment requires <code>Roles.Assign</code> or <code>Access.Manage</code> permission.
+                      </div>
+                    )}
+                    <div className="multi-select-grid" style={{ maxHeight: "140px", opacity: accountOptions?.canAssignRoles ? 1 : 0.65 }}>
                       {roles.map((r) => (
-                        <label key={r.id} className="multi-select-item">
+                        <label key={r.id} className="checkbox-item">
                           <input
                             type="checkbox"
+                            disabled={!accountOptions?.canAssignRoles}
                             checked={editRoleIds.includes(r.id)}
-                            onChange={() => {
-                              setEditRoleIds((prev) =>
-                                prev.includes(r.id) ? prev.filter((id) => id !== r.id) : [...prev, r.id]
-                              );
+                            onChange={(e) => {
+                              if (e.target.checked) setEditRoleIds((prev) => [...prev, r.id]);
+                              else setEditRoleIds((prev) => prev.filter((id) => id !== r.id));
                             }}
                           />
-                          <div>
-                            <strong>{r.name}</strong>
-                            <div style={{ fontSize: "11px", color: "#64748b" }}>{r.code}</div>
-                          </div>
+                          <span><strong>{r.name}</strong> <code>({r.code})</code></span>
                         </label>
                       ))}
                     </div>
                   </div>
 
-                  {/* Functional Branches & Primary Branch */}
-                  <div>
-                    <div className="form-section-title">3. Functional Branches (Workstreams)</div>
-                    <p className="subtext" style={{ margin: "0 0 8px 0" }}>
-                      Assign branches where this officer operates. Radio selects their primary administrative branch.
-                    </p>
-                    <div className="multi-select-grid">
-                      {workstreams.map((w) => {
-                        const isAssigned = editWorkstreamIds.includes(w.id);
+                  <div className="form-group" style={{ marginBottom: "12px" }}>
+                    <label>Functional Branches (Workstreams)</label>
+                    <div className="multi-select-grid" style={{ maxHeight: "110px" }}>
+                      {workstreams.map((ws) => (
+                        <label key={ws.id} className="checkbox-item">
+                          <input
+                            type="checkbox"
+                            checked={editWorkstreamIds.includes(ws.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEditWorkstreamIds((prev) => [...prev, ws.id]);
+                                if (!editPrimaryWorkstreamId) setEditPrimaryWorkstreamId(ws.id);
+                              } else {
+                                setEditWorkstreamIds((prev) => prev.filter((id) => id !== ws.id));
+                                if (editPrimaryWorkstreamId === ws.id) setEditPrimaryWorkstreamId("");
+                              }
+                            }}
+                          />
+                          <span>{ws.name} ({ws.code})</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="primary-button"
+                    style={{ padding: "6px 14px", fontSize: "13px" }}
+                    disabled={actionLoading}
+                  >
+                    {actionLoading ? "Saving..." : "Save Identity & Roles"}
+                  </button>
+                </form>
+
+                {/* 2. Statutory Work Allocations Section */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e2e8f0", paddingBottom: "6px", marginBottom: "12px" }}>
+                    <h4 style={{ margin: 0 }}>
+                      2. Statutory Work Allocations ({officerAllocations.filter((a) => !a.revokedAt).length} Active)
+                    </h4>
+                    {accountOptions?.canManageAllocations && (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        style={{ padding: "4px 10px", fontSize: "12px" }}
+                        onClick={openNewAllocationForm}
+                      >
+                        + Add Work Allocation
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Operational Visibility Invariant Callout */}
+                  <div className="contract-notice-banner" style={{ marginBottom: "12px" }}>
+                    <strong>Operational Invariant: Broad View vs. Operational Allocation</strong>
+                    <span>
+                      Officer broad View may remain available across all records outside allocated geography. Allocations govern operational mutation authority (approving, signing, certifying), not a visibility wall.
+                    </span>
+                  </div>
+
+                  {/* Add / Edit Allocation Sub-Form */}
+                  {showAllocForm && (
+                    <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #cbd5e1", marginBottom: "16px" }}>
+                      <h5 style={{ margin: "0 0 10px 0" }}>
+                        {editingAllocation ? "Edit Allocation Scope & Dates" : "Assign New Statutory Responsibility"}
+                      </h5>
+                      <form onSubmit={handleSubmitAllocation} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <div className="form-group">
+                          <label>Work Definition Responsibility *</label>
+                          <select
+                            value={allocWorkDefId}
+                            onChange={(e) => setAllocWorkDefId(e.target.value)}
+                            disabled={!!editingAllocation}
+                          >
+                            {accountOptions?.works.map((w) => (
+                              <option key={w.id} value={w.id}>
+                                {w.name} ({w.code} - Kind: {w.kind})
+                              </option>
+                            ))}
+                          </select>
+                          {editingAllocation && (
+                            <small style={{ color: "#64748b" }}>Changing Work Category requires revoking and re-creating.</small>
+                          )}
+                        </div>
+
+                        <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                          <div className="form-group">
+                            <label>Valid From *</label>
+                            <input
+                              type="date"
+                              required
+                              value={allocValidFrom}
+                              onChange={(e) => setAllocValidFrom(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label>Valid To (Optional - Temporary Allocation)</label>
+                            <input
+                              type="date"
+                              value={allocValidTo}
+                              onChange={(e) => setAllocValidTo(e.target.value)}
+                            />
+                            <small style={{ color: "#64748b" }}>Leave blank for permanent / ongoing allocation.</small>
+                          </div>
+                        </div>
+
+                        <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                          <div className="form-group">
+                            <label>Work Order Reference *</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. F.1(12)/LAC/S/2026/894"
+                              value={allocOrderRef}
+                              onChange={(e) => setAllocOrderRef(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="form-group">
+                            <label>Reason / Statutory Ground</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Allocation under Section 19 notification"
+                              value={allocReason}
+                              onChange={(e) => setAllocReason(e.target.value)}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Geographic Scopes List */}
+                        <div className="form-group">
+                          <label>Geographic Scopes (Union of Targets) *</label>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                            {allocScopes.map((sc, i) => (
+                              <span
+                                key={i}
+                                style={{ background: "#e0f2fe", color: "#0369a1", padding: "4px 8px", borderRadius: "4px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+                              >
+                                {formatScopeLabel(sc)}
+                                <button
+                                  type="button"
+                                  onClick={() => setAllocScopes((prev) => prev.filter((_, idx) => idx !== i))}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#b91c1c" }}
+                                >
+                                  ✕
+                                </button>
+                              </span>
+                            ))}
+                            {allocScopes.length === 0 && (
+                              <span style={{ color: "#b91c1c", fontSize: "12px" }}>At least one scope is required.</span>
+                            )}
+                          </div>
+
+                          {/* Add Scope Row */}
+                          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", background: "#f1f5f9", padding: "8px", borderRadius: "6px" }}>
+                            <select
+                              value={newScopeKind}
+                              onChange={(e) => setNewScopeKind(e.target.value as ScopeKind)}
+                              style={{ padding: "4px 8px" }}
+                            >
+                              <option value="Global">Global (All LAC)</option>
+                              <option value="District">District</option>
+                              <option value="Subdivision">Subdivision</option>
+                              <option value="Village">Village</option>
+                            </select>
+
+                            {newScopeKind === "District" && (
+                              <select
+                                value={newScopeDistrictId}
+                                onChange={(e) => setNewScopeDistrictId(e.target.value)}
+                                style={{ padding: "4px 8px" }}
+                              >
+                                {accountOptions?.districts.map((d) => (
+                                  <option key={d.id} value={d.id}>{d.name}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {newScopeKind === "Subdivision" && (
+                              <select
+                                value={newScopeSubDivId}
+                                onChange={(e) => setNewScopeSubDivId(e.target.value)}
+                                style={{ padding: "4px 8px" }}
+                              >
+                                {accountOptions?.subdivisions.map((s) => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            {newScopeKind === "Village" && (
+                              <select
+                                value={newScopeVillageId}
+                                onChange={(e) => setNewScopeVillageId(e.target.value)}
+                                style={{ padding: "4px 8px" }}
+                              >
+                                {accountOptions?.villages.map((v) => (
+                                  <option key={v.id} value={v.id}>{v.name}</option>
+                                ))}
+                              </select>
+                            )}
+
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              style={{ padding: "4px 10px", fontSize: "12px" }}
+                              onClick={handleAddScopeToBuilder}
+                            >
+                              + Add Target
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "8px" }}>
+                          <button
+                            type="button"
+                            className="quiet-button"
+                            onClick={() => setShowAllocForm(false)}
+                            disabled={allocSubmitting}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            className="primary-button"
+                            disabled={allocSubmitting}
+                          >
+                            {allocSubmitting ? "Saving..." : editingAllocation ? "Update Allocation" : "Assign Allocation"}
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+                  )}
+
+                  {/* Allocations Cards List */}
+                  {allocationsLoading ? (
+                    <div className="state"><strong>Loading officer allocations...</strong></div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      {officerAllocations.map((alloc) => {
+                        const isRevoked = !!alloc.revokedAt;
+                        const isTemporary = !!alloc.validTo;
+
                         return (
-                          <div key={w.id} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                            <label className="multi-select-item">
-                              <input
-                                type="checkbox"
-                                checked={isAssigned}
-                                onChange={() => {
-                                  setEditWorkstreamIds((prev) => {
-                                    const updated = prev.includes(w.id)
-                                      ? prev.filter((id) => id !== w.id)
-                                      : [...prev, w.id];
-                                    if (!updated.includes(editPrimaryWorkstreamId)) {
-                                      setEditPrimaryWorkstreamId(updated[0] || "");
-                                    }
-                                    return updated;
-                                  });
-                                }}
-                              />
-                              <span>{w.name}</span>
-                            </label>
-                            {isAssigned && (
-                              <label style={{ fontSize: "11px", color: "#2563eb", marginLeft: "22px", cursor: "pointer" }}>
-                                <input
-                                  type="radio"
-                                  name="primaryWorkstream"
-                                  checked={editPrimaryWorkstreamId === w.id}
-                                  onChange={() => setEditPrimaryWorkstreamId(w.id)}
-                                />{" "}
-                                Primary Branch
-                              </label>
+                          <div
+                            key={alloc.id}
+                            style={{
+                              background: isRevoked ? "#f8fafc" : "#ffffff",
+                              border: isRevoked ? "1px dashed #cbd5e1" : "1px solid #cbd5e1",
+                              borderRadius: "8px",
+                              padding: "12px 14px",
+                              opacity: isRevoked ? 0.7 : 1,
+                            }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                              <div>
+                                <span style={{ fontWeight: 700, fontSize: "14px", color: isRevoked ? "#64748b" : "#0f172a" }}>
+                                  {alloc.workName}
+                                </span>
+                                <span style={{ marginLeft: "8px", fontSize: "11px", background: "#f1f5f9", padding: "2px 6px", borderRadius: "4px", color: "#475569" }}>
+                                  {alloc.workCode}
+                                </span>
+                                {isTemporary && !isRevoked && (
+                                  <span style={{ marginLeft: "6px", fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                    ⏱ Temporary Allocation
+                                  </span>
+                                )}
+                                {isRevoked && (
+                                  <span style={{ marginLeft: "6px", fontSize: "11px", background: "#fee2e2", color: "#991b1b", padding: "2px 6px", borderRadius: "4px", fontWeight: 600 }}>
+                                    Revoked
+                                  </span>
+                                )}
+                              </div>
+                              <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                                Rev {alloc.revision}
+                              </span>
+                            </div>
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", margin: "8px 0" }}>
+                              {alloc.scopes.map((sc, i) => (
+                                <span
+                                  key={i}
+                                  style={{ background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", padding: "2px 6px", borderRadius: "4px", fontSize: "11px" }}
+                                >
+                                  📍 {formatScopeLabel(sc)}
+                                </span>
+                              ))}
+                            </div>
+
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "12px", color: "#64748b" }}>
+                              <span>Order: <strong>{alloc.workOrderReference}</strong></span>
+                              <span>Valid: <strong>{new Date(alloc.validFrom).toLocaleDateString()}</strong> to <strong>{alloc.validTo ? new Date(alloc.validTo).toLocaleDateString() : "Ongoing"}</strong></span>
+                              {alloc.reason && <span>Reason: <em>{alloc.reason}</em></span>}
+                            </div>
+
+                            {!isRevoked && accountOptions?.canManageAllocations && (
+                              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", marginTop: "10px", borderTop: "1px solid #f1f5f9", paddingTop: "8px" }}>
+                                <button
+                                  type="button"
+                                  className="secondary-button"
+                                  style={{ padding: "3px 8px", fontSize: "11px" }}
+                                  onClick={() => openEditAllocationForm(alloc)}
+                                >
+                                  Edit Scope/Dates
+                                </button>
+                                <button
+                                  type="button"
+                                  className="quiet-button"
+                                  style={{ padding: "3px 8px", fontSize: "11px", color: "#b91c1c" }}
+                                  onClick={() => void handleRevokeAllocation(alloc)}
+                                >
+                                  Revoke
+                                </button>
+                              </div>
                             )}
                           </div>
                         );
                       })}
-                    </div>
-                  </div>
 
-                  {/* Account Actions */}
-                  <div>
-                    <div className="form-section-title">4. Account State & Credentials</div>
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      <button
-                        type="button"
-                        className="quiet-button text-action"
-                        onClick={() => handleToggleStatus(editingOfficer as any)}
-                      >
-                        {editingOfficer.isActive ? "Deactivate Account" : "Activate Account"}
-                      </button>
-                      <button
-                        type="button"
-                        className="quiet-button text-action"
-                        onClick={() => {
-                          setResetTargetUser(editingOfficer as any);
-                          setResetPasswordValue("");
-                        }}
-                      >
-                        Issue Temporary Password Reset (Security Update Pending)
-                      </button>
+                      {officerAllocations.length === 0 && (
+                        <div style={{ padding: "20px", textAlign: "center", background: "#f8fafc", borderRadius: "6px", color: "#64748b" }}>
+                          No statutory work allocations assigned to this officer.
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
-
-                <div className="drawer-footer">
-                  <button
-                    type="button"
-                    className="quiet-button"
-                    onClick={() => setEditingOfficer(null)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="primary-button"
-                    disabled={actionLoading}
-                  >
-                    {actionLoading ? "Saving..." : "Save Allocations (Staged — Pending Hardened RBAC)"}
-                  </button>
-                </div>
-              </form>
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Slide-over Drawer: Plain-English Access Inspector */}
+      {/* Access Inspector Modal */}
       {inspectingOfficer && (
-        <div className="drawer-backdrop" onClick={() => setInspectingOfficer(null)}>
-          <div className="drawer-panel" onClick={(e) => e.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <h3>Access Inspector: Executive Summary</h3>
-                <p>Plain-English operational authority and effective powers</p>
-              </div>
-              <button className="drawer-close-btn" onClick={() => setInspectingOfficer(null)}>
-                ✕
-              </button>
-            </div>
+        <div className="modal-backdrop" onClick={() => setInspectingOfficer(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "650px" }}>
+            <h3>Access Inspector: {inspectingOfficer.displayName}</h3>
+            <p className="subtext">
+              Plain-language overview of civil post, assigned software authority roles, and functional branch memberships.
+            </p>
 
-            <div className="drawer-body">
-              {/* Officer Identity Card */}
-              <div className="inspector-officer-banner">
-                <div className={`officer-avatar ${getRankClass(inspectingOfficer.designation?.code)}`} style={{ width: "48px", height: "48px", fontSize: "16px" }}>
-                  {inspectingOfficer.displayName
-                    .split(" ")
-                    .filter(Boolean)
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase()}
-                </div>
-                <div>
-                  <div style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a" }}>
-                    {inspectingOfficer.displayName}
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#64748b" }}>
-                    @{inspectingOfficer.username} · Civil Rank:{" "}
-                    <strong>{inspectingOfficer.designation?.name || "Unassigned"}</strong>
-                  </div>
-                  <div style={{ marginTop: "6px", display: "flex", gap: "6px" }}>
-                    {inspectingOfficer.roles.map((r) => (
-                      <span key={r} className="role-tag">
-                        {r.replace("_", " ")}
-                      </span>
-                    ))}
-                  </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px", margin: "16px 0" }}>
+              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Civil Designation</span>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a", marginTop: "2px" }}>
+                  {inspectingOfficer.designation?.name || "No designation"}
                 </div>
               </div>
 
-              {/* Plain English Operational Powers */}
-              <div className="inspector-powers-grid">
-                {/* Land Records & Award Powers */}
-                <div className="power-card">
-                  <div className="power-card-header">
-                    <span className="power-card-title">
-                      🏛 Land Records & Award Formulation
-                    </span>
-                    <span className="scope-indicator all">Platform-wide Scope</span>
-                  </div>
-                  <ul className="power-item-list">
-                    <li className="power-item">
-                      <i>✓</i> Can inspect and verify village Khasra and Khatauni land registers.
-                    </li>
-                    <li className="power-item">
-                      <i>✓</i> Authorized to review draft Statement-A schedules and revenue reports.
-                    </li>
-                    {inspectingOfficer.roles.includes("LAC_OFFICER") && (
-                      <li className="power-item">
-                        <i>✓</i> Statutory authority to approve and sign Land Acquisition Awards.
-                      </li>
-                    )}
-                  </ul>
-                </div>
-
-                {/* Correspondence & Inward Dak Powers */}
-                <div className="power-card">
-                  <div className="power-card-header">
-                    <span className="power-card-title">
-                      📥 Correspondence & Dak Intake
-                    </span>
-                    <span className="scope-indicator workstream">Branch Scope</span>
-                  </div>
-                  <ul className="power-item-list">
-                    <li className="power-item">
-                      <i>✓</i> Access to incoming letters and communications delivered to assigned desks.
-                    </li>
-                    {inspectingOfficer.roles.includes("INTAKE_OFFICER") ? (
-                      <li className="power-item">
-                        <i>✓</i> Can stamp, index, and register newly received inward dak into the central register.
-                      </li>
-                    ) : (
-                      <li className="power-item">
-                        <i>✓</i> Can receive, acknowledge, and forward dak within assigned branch movement channels.
-                      </li>
-                    )}
-                  </ul>
-                </div>
-
-                {/* Matters & Note Sheets */}
-                <div className="power-card">
-                  <div className="power-card-header">
-                    <span className="power-card-title">
-                      ⚖ Matters & Note Sheets
-                    </span>
-                    <span className="scope-indicator assigned">Assigned Matters Only</span>
-                  </div>
-                  <ul className="power-item-list">
-                    <li className="power-item">
-                      <i>✓</i> Authorized to review case matters and acquisition dossiers assigned to their desk.
-                    </li>
-                    <li className="power-item">
-                      <i>✓</i> Can compose departmental notes and attach references to the noting mirror.
-                    </li>
-                  </ul>
-                </div>
-
-                {/* Court Litigation & High Court */}
-                <div className="power-card">
-                  <div className="power-card-header">
-                    <span className="power-card-title">
-                      ⚖ Court & Litigation
-                    </span>
-                    <span className="scope-indicator workstream">Workstream Scope</span>
-                  </div>
-                  <ul className="power-item-list">
-                    <li className="power-item">
-                      <i>✓</i> View court reference matters, upcoming hearing dates, and judicial order sheets.
-                    </li>
-                  </ul>
+              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Assigned Authority Roles</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+                  {inspectingOfficer.roles.map((r) => (
+                    <span key={r} className="role-tag" style={{ fontSize: "12px" }}>{r}</span>
+                  ))}
                 </div>
               </div>
 
-              {/* Delegation & Assistant Rule */}
-              <div className="contract-notice-banner">
-                <strong>Officer Assistant Delegation Rights:</strong>
-                <span>
-                  This officer may attach Data Entry Operators (DEOs) or Dealing Assistants to assist with their assigned responsibilities. Delegated permissions will be strictly bounded as a subset of the powers shown above.
-                </span>
+              <div style={{ background: "#f8fafc", padding: "12px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Functional Branches</span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "6px" }}>
+                  {inspectingOfficer.workstreams.map((ws) => (
+                    <span key={ws} className="workstream-tag" style={{ fontSize: "12px" }}>{ws}</span>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="drawer-footer">
-              <button className="primary-button" onClick={() => setInspectingOfficer(null)}>
-                Close Inspector
+            <div className="form-footer">
+              <button type="button" className="secondary-button" onClick={() => setInspectingOfficer(null)}>
+                Close
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Create New Officer Account Modal */}
+      {/* Desk Assignment Modal */}
+      {deskTargetUser && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "600px" }}>
+            <h3>Manage Desks: {deskTargetUser.displayName}</h3>
+            {userDesksLoading ? (
+              <div className="state"><strong>Loading desks...</strong></div>
+            ) : (
+              <div>
+                <h4 style={{ margin: "0 0 8px 0" }}>Active Seats ({activeMemberships.length})</h4>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                  {activeMemberships.map((m) => (
+                    <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc", padding: "8px 12px", borderRadius: "6px" }}>
+                      <div>
+                        <strong>{m.deskName}</strong> <code>({m.deskCode})</code>
+                        {m.isPrimary && <span className="status success" style={{ marginLeft: "8px" }}>Primary Seat</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        {!m.isPrimary && (
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            style={{ padding: "2px 8px", fontSize: "11px" }}
+                            onClick={() => void handleSetPrimaryDesk(m.id)}
+                          >
+                            Set Primary
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="quiet-button"
+                          style={{ padding: "2px 8px", fontSize: "11px", color: "#b91c1c" }}
+                          onClick={() => void handleRemoveDesk(m.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {activeMemberships.length === 0 && <span className="subtext">No active desks assigned.</span>}
+                </div>
+
+                <form onSubmit={handleAssignDesk} style={{ borderTop: "1px solid #e2e8f0", paddingTop: "12px", display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155" }}>Assign New Desk</label>
+                    <select
+                      required
+                      value={assignDeskId}
+                      onChange={(e) => setAssignDeskId(e.target.value)}
+                      style={{ width: "100%", marginTop: "4px" }}
+                    >
+                      <option value="">Choose desk...</option>
+                      {desks.filter((d) => d.isActive).map((d) => (
+                        <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button type="submit" className="primary-button" disabled={actionLoading || !assignDeskId}>
+                    Assign Desk
+                  </button>
+                </form>
+              </div>
+            )}
+
+            <div className="form-footer" style={{ marginTop: "16px" }}>
+              <button type="button" className="secondary-button" onClick={() => setDeskTargetUser(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Officer Modal */}
       {showCreateModal && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: "650px" }}>
-            <h3>Create New Officer / Staff Account</h3>
+          <div className="modal-card" style={{ maxWidth: "650px", maxHeight: "90vh", overflowY: "auto" }}>
+            <h3>Create New Officer Account</h3>
             <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
-              Provision a new official login with civil rank, authority roles, and branch memberships.
+              Creates an official platform identity. Role assignment and allocation management reflect server authorization capabilities.
             </p>
 
             <form onSubmit={handleCreateUser} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div className="form-group">
-                  <label>Official Display Name</label>
+                  <label>Official Username *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Sh. Vikram Singh"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value.toLowerCase())}
+                    placeholder="e.g. s.verma"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Full Name *</label>
+                  <input
+                    type="text"
+                    required
                     value={newDisplayName}
                     onChange={(e) => setNewDisplayName(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Official Username</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. tehsildar.vikram"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="e.g. Sh. Satish Verma"
                   />
                 </div>
               </div>
 
               <div className="form-group">
-                <label>Initial Temporary Password</label>
-                <PasswordInput
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Set initial temporary password"
-                  required
-                />
-                <small style={{ color: "#64748b" }}>
-                  Officer will be prompted to reset password on first login. Plaintext is never stored.
-                </small>
-              </div>
-
-              <div className="form-group">
-                <label>Civil Designation (Post / Rank)</label>
+                <label>Civil Designation</label>
                 <select
                   value={newDesignationId}
                   onChange={(e) => setNewDesignationId(e.target.value)}
                 >
-                  <option value="">Select Civil Designation</option>
+                  <option value="">-- No Official Designation --</option>
                   {designations.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name} ({d.code})
@@ -915,22 +1472,48 @@ export const UsersAdmin: React.FC = () => {
                 </select>
               </div>
 
-              {/* Roles - Staged for Basic Identity Creation */}
               <div className="form-group">
-                <label>Assigned Authority Role(s)</label>
-                <div style={{ marginBottom: "6px", fontSize: "12px", color: "#64748b" }}>
-                  <em>Basic identity provisioning only. Role allocations are staged pending Codex RBAC role-assignment authorization contract.</em>
-                </div>
-                <div className="multi-select-grid" style={{ maxHeight: "150px", opacity: 0.65 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={autoGeneratePassword}
+                    onChange={(e) => setAutoGeneratePassword(e.target.checked)}
+                  />
+                  <span>Auto-generate secure 24-hour temporary credential (Recommended)</span>
+                </label>
+                {!autoGeneratePassword && (
+                  <div style={{ marginTop: "8px" }}>
+                    <PasswordInput
+                      required
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Initial password (min 12 chars)"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Roles */}
+              <div className="form-group">
+                <label>Assigned Authority Roles</label>
+                {!accountOptions?.canAssignRoles && (
+                  <div style={{ color: "#d97706", fontSize: "12px", marginBottom: "4px" }}>
+                    Role assignment requires <code>Roles.Assign</code> authority.
+                  </div>
+                )}
+                <div className="multi-select-grid" style={{ maxHeight: "120px", opacity: accountOptions?.canAssignRoles ? 1 : 0.65 }}>
                   {roles.map((r) => (
-                    <label key={r.id} className="multi-select-item" style={{ cursor: "not-allowed" }} title="Role assignment disabled during basic account provisioning">
+                    <label key={r.id} className="checkbox-item">
                       <input
                         type="checkbox"
-                        disabled={true}
+                        disabled={!accountOptions?.canAssignRoles}
                         checked={selectedRoleIds.includes(r.id)}
-                        onChange={() => {}}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedRoleIds((prev) => [...prev, r.id]);
+                          else setSelectedRoleIds((prev) => prev.filter((id) => id !== r.id));
+                        }}
                       />
-                      <span>{r.name}</span>
+                      <span><strong>{r.name}</strong> ({r.code})</span>
                     </label>
                   ))}
                 </div>
@@ -938,61 +1521,40 @@ export const UsersAdmin: React.FC = () => {
 
               {/* Workstreams */}
               <div className="form-group">
-                <label>Functional Branch(es)</label>
-                <div className="multi-select-grid" style={{ maxHeight: "150px" }}>
-                  {workstreams.map((w) => {
-                    const isSelected = selectedWorkstreamIds.includes(w.id);
-                    return (
-                      <div key={w.id} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                        <label className="multi-select-item">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {
-                              setSelectedWorkstreamIds((prev) => {
-                                const updated = prev.includes(w.id)
-                                  ? prev.filter((id) => id !== w.id)
-                                  : [...prev, w.id];
-                                if (!updated.includes(primaryWorkstreamId)) {
-                                  setPrimaryWorkstreamId(updated[0] || "");
-                                }
-                                return updated;
-                              });
-                            }}
-                          />
-                          <span>{w.name}</span>
-                        </label>
-                        {isSelected && (
-                          <label style={{ fontSize: "11px", color: "#2563eb", marginLeft: "22px" }}>
-                            <input
-                              type="radio"
-                              name="createPrimaryWorkstream"
-                              checked={primaryWorkstreamId === w.id}
-                              onChange={() => setPrimaryWorkstreamId(w.id)}
-                            />{" "}
-                            Primary
-                          </label>
-                        )}
-                      </div>
-                    );
-                  })}
+                <label>Functional Branches</label>
+                <div className="multi-select-grid" style={{ maxHeight: "100px" }}>
+                  {workstreams.map((ws) => (
+                    <label key={ws.id} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={selectedWorkstreamIds.includes(ws.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedWorkstreamIds((prev) => [...prev, ws.id]);
+                            if (!primaryWorkstreamId) setPrimaryWorkstreamId(ws.id);
+                          } else {
+                            setSelectedWorkstreamIds((prev) => prev.filter((id) => id !== ws.id));
+                            if (primaryWorkstreamId === ws.id) setPrimaryWorkstreamId("");
+                          }
+                        }}
+                      />
+                      <span>{ws.name}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
 
-              <div className="modal-actions" style={{ marginTop: "10px" }}>
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
                 <button
                   type="button"
                   className="quiet-button"
                   onClick={() => setShowCreateModal(false)}
+                  disabled={actionLoading}
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={actionLoading}
-                >
-                  {actionLoading ? "Creating..." : "Create Officer Account"}
+                <button type="submit" className="primary-button" disabled={actionLoading}>
+                  {actionLoading ? "Creating Officer..." : "Create Officer Account"}
                 </button>
               </div>
             </form>
@@ -1000,151 +1562,21 @@ export const UsersAdmin: React.FC = () => {
         </div>
       )}
 
-      {/* Manage Desks Modal */}
-      {deskTargetUser && (
-        <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: "700px" }}>
-            <h3>Manage Office Desks: {deskTargetUser.displayName} (@{deskTargetUser.username})</h3>
-            <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
-              Operational physical/digital seats assigned to this officer for dak movement and file custody.
-            </p>
-
-            {userDesksLoading ? (
-              <div className="state">Loading desk memberships...</div>
-            ) : (
-              <div>
-                <div style={{ marginBottom: "16px" }}>
-                  <h4 style={{ margin: "10px 0 6px 0" }}>Active Desk Memberships ({activeMemberships.length})</h4>
-                  {activeMemberships.length === 0 ? (
-                    <p className="subtext">Officer is not currently assigned to any active office desk.</p>
-                  ) : (
-                    <table style={{ width: "100%", fontSize: "13px" }}>
-                      <thead>
-                        <tr>
-                          <th>Desk Name</th>
-                          <th>Code</th>
-                          <th>Branch</th>
-                          <th>Primary Seat</th>
-                          <th>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {activeMemberships.map((m) => (
-                          <tr key={m.id}>
-                            <td><strong>{m.deskName}</strong></td>
-                            <td><code>{m.deskCode}</code></td>
-                            <td>{m.workstreamName || "—"}</td>
-                            <td>
-                              {m.isPrimary ? (
-                                <span className="status success">Primary Seat</span>
-                              ) : (
-                                <button
-                                  className="quiet-button text-action"
-                                  onClick={() => handleSetPrimaryDesk(m.id)}
-                                >
-                                  Make Primary
-                                </button>
-                              )}
-                            </td>
-                            <td>
-                              <button
-                                className="quiet-button text-action"
-                                style={{ color: "#b91c1c" }}
-                                onClick={() => handleRemoveDesk(m.id)}
-                              >
-                                Remove
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                {/* Assign New Desk */}
-                <form onSubmit={handleAssignDesk} style={{ borderTop: "1px solid #e2e8f0", paddingTop: "14px", marginTop: "14px" }}>
-                  <h4 style={{ margin: "0 0 10px 0" }}>Assign New Office Desk</h4>
-                  <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: "12px", fontWeight: 600, color: "#475569" }}>Select Desk</label>
-                      <select
-                        style={{ width: "100%", padding: "7px 10px", borderRadius: "6px", border: "1px solid #cbd5e1" }}
-                        value={assignDeskId}
-                        onChange={(e) => setAssignDeskId(e.target.value)}
-                        required
-                      >
-                        <option value="">Choose an available office desk</option>
-                        {desks
-                          .filter((d) => d.isActive && !activeMemberships.some((m) => m.officeDeskId === d.id))
-                          .map((d) => (
-                            <option key={d.id} value={d.id}>
-                              {d.name} ({d.code}) {d.workstreamName ? `— ${d.workstreamName}` : ""}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", paddingBottom: "8px" }}>
-                      <input
-                        type="checkbox"
-                        checked={assignDeskPrimary}
-                        onChange={(e) => setAssignDeskPrimary(e.target.checked)}
-                      />
-                      Set as Primary Seat
-                    </label>
-                    <button
-                      type="submit"
-                      className="primary-button"
-                      disabled={!assignDeskId || actionLoading}
-                    >
-                      Assign Desk
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: "20px" }}>
-              <button
-                type="button"
-                className="quiet-button"
-                onClick={() => setDeskTargetUser(null)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reset Password Modal */}
+      {/* Reset Password Modal (Hardened) */}
       {resetTargetUser && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: "480px" }}>
-            <h3>Issue Temporary Password Reset</h3>
-            <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
-              Set initial temporary credential for <strong>{resetTargetUser.displayName}</strong> (@{resetTargetUser.username}).
+          <div className="modal-card" style={{ maxWidth: "500px" }}>
+            <h3>Reset Password: {resetTargetUser.displayName}</h3>
+            <p className="subtext">
+              Generates a new secure temporary credential and immediately invalidates all active sessions for <strong>@{resetTargetUser.username}</strong> on the server.
             </p>
 
             <form onSubmit={handleResetPassword}>
-              <div style={{ background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", padding: "10px 12px", borderRadius: "6px", marginBottom: "16px", fontSize: "12.5px" }}>
-                <strong>Backend Security Update Pending</strong>
-                <p style={{ margin: "4px 0 0", color: "#78350f", fontSize: "12px" }}>
-                  Password reset execution is temporarily disabled while Codex RBAC implements session revocation hardening to prevent active sessions from surviving credential changes.
-                </p>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: "16px" }}>
-                <label>New Temporary Password</label>
-                <PasswordInput
-                  value={resetPasswordValue}
-                  onChange={(e) => setResetPasswordValue(e.target.value)}
-                  placeholder="Enter temporary password"
-                  required
-                />
-                <small style={{ color: "#64748b" }}>
-                  Stored passwords are never displayed in plaintext.
-                </small>
+              <div className="contract-warning-banner" style={{ margin: "14px 0" }}>
+                <strong>Server Hardened Security Invariant:</strong>
+                <span>
+                  All existing sessions for this officer will be terminated immediately. The generated temporary password will be displayed once.
+                </span>
               </div>
 
               <div className="modal-actions">
@@ -1152,18 +1584,96 @@ export const UsersAdmin: React.FC = () => {
                   type="button"
                   className="quiet-button"
                   onClick={() => setResetTargetUser(null)}
+                  disabled={actionLoading}
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  className="primary-button"
-                  disabled={true}
-                >
-                  Backend Security Update Pending
+                <button type="submit" className="primary-button" disabled={actionLoading}>
+                  {actionLoading ? "Resetting..." : "Generate Temporary Credential & Invalidate Sessions"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* One-Time Temporary Credential Display Modal */}
+      {showCredentialModal && credentialData && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "520px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+              <span style={{ fontSize: "24px" }}>🔑</span>
+              <h3 style={{ margin: 0 }}>One-Time Temporary Credential</h3>
+            </div>
+            <p className="subtext" style={{ margin: "4px 0 14px 0" }}>
+              This credential has been generated securely and will <strong>NEVER</strong> be displayed again.
+            </p>
+
+            <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", marginBottom: "16px" }}>
+              <div style={{ marginBottom: "10px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Username</span>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>@{credentialData.username}</div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Temporary Password</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "4px" }}>
+                  <code style={{ fontSize: "16px", fontWeight: 700, background: "#e2e8f0", padding: "6px 12px", borderRadius: "6px", letterSpacing: "1px", flex: 1 }}>
+                    {credentialData.temporaryCredential}
+                  </code>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={copyCredentialToClipboard}
+                    style={{ whiteSpace: "nowrap" }}
+                  >
+                    {copiedNotice ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+
+              {credentialData.expiresAt && (
+                <div style={{ marginTop: "10px", fontSize: "12px", color: "#64748b" }}>
+                  Expires: <strong>{new Date(credentialData.expiresAt).toLocaleString("en-IN")}</strong> (24 hours)
+                </div>
+              )}
+            </div>
+
+            <div className="contract-warning-banner" style={{ marginBottom: "16px" }}>
+              <strong>Mandatory First-Login Policy:</strong>
+              <span>
+                The officer must replace this temporary password with a personal password of at least 12 characters upon first login before accessing operational modules.
+              </span>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "13px", color: "#1e293b" }}>
+                <input
+                  type="checkbox"
+                  style={{ marginTop: "3px" }}
+                  checked={credentialAcknowledged}
+                  onChange={(e) => setCredentialAcknowledged(e.target.checked)}
+                />
+                <span>
+                  <strong>I confirm:</strong> I have recorded this temporary credential and will communicate it securely to the officer. I understand it cannot be recovered.
+                </span>
+              </label>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!credentialAcknowledged}
+                onClick={() => {
+                  setShowCredentialModal(false);
+                  setCredentialData(null);
+                  setCredentialAcknowledged(false);
+                }}
+              >
+                Acknowledge & Close
+              </button>
+            </div>
           </div>
         </div>
       )}

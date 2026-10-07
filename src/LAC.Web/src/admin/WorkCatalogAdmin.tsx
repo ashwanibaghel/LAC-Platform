@@ -1,209 +1,253 @@
-import React, { useState, useMemo } from "react";
-import type { WorkCatalogItem } from "./types";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import type { WorkDefinitionItem, WorkKind, Workstream } from "./types";
 import "./admin.css";
 
-const STANDARD_WORK_CATALOG: WorkCatalogItem[] = [
-  {
-    id: "work-1",
-    code: "WORK_STMT_A",
-    name: "Statement-A Verification & Formulation",
-    workstreamCode: "LAND_RECORDS",
-    workstreamName: "Land Records",
-    description: "Preparation, revenue verification, and joint inspection of Statement-A land schedule prior to declaration.",
-    statutoryBasis: "RFCTLARR 2013 Sec 19 / LAA 1894 Sec 6",
-    associatedPermissions: ["Award.View", "Award.Edit", "Khasra.Verify"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-2",
-    code: "WORK_LR_VERIF",
-    name: "Land Record (Khatauni/Khasra) Verification",
-    workstreamCode: "LAND_RECORDS",
-    workstreamName: "Land Records",
-    description: "Verification of ownership entries, khatauni shares, and unrecorded co-sharers from Delhi revenue registers.",
-    statutoryBasis: "Delhi Land Revenue Act 1954",
-    associatedPermissions: ["Khasra.Verify", "Award.View"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-3",
-    code: "WORK_AWARD_FORM",
-    name: "Award Inquiry & Formulation",
-    workstreamCode: "LAND_RECORDS",
-    workstreamName: "Land Records",
-    description: "Conduct of Section 11/23 inquiry, market value assessment, solatium calculation, and award pronouncement.",
-    statutoryBasis: "RFCTLARR 2013 Sec 23-30 / LAA 1894 Sec 11",
-    associatedPermissions: ["Award.View", "Award.Edit", "Award.Sign"],
-    defaultScopeMode: "All",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-4",
-    code: "WORK_COMP_DISBUR",
-    name: "Compensation Calculation & Disbursement",
-    workstreamCode: "MATTERS",
-    workstreamName: "Matters & Notes",
-    description: "Preparation of payment vouchers, apportionment among lawful tenure holders, and treasury escrow management.",
-    statutoryBasis: "RFCTLARR 2013 Sec 77 / LAA 1894 Sec 31",
-    associatedPermissions: ["Matter.View", "Matter.Edit", "Matter.Sign"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-5",
-    code: "WORK_POSS_DEMARC",
-    name: "Possession Handover & Demarcation",
-    workstreamCode: "LAND_RECORDS",
-    workstreamName: "Land Records",
-    description: "Execution of Kabza Karwayi (taking over physical possession) and delivery to the Requisitioning Body.",
-    statutoryBasis: "RFCTLARR 2013 Sec 38 / LAA 1894 Sec 16",
-    associatedPermissions: ["Award.View", "Khasra.Verify"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-6",
-    code: "WORK_COURT_LITIG",
-    name: "Reference Court & High Court Litigation",
-    workstreamCode: "COURT",
-    workstreamName: "Court & Litigation",
-    description: "Processing Section 18/64 references, filing counter-affidavits, monitoring stay orders, and compliance reports.",
-    statutoryBasis: "RFCTLARR 2013 Sec 64 / LAA 1894 Sec 18 / Delhi HC Rules",
-    associatedPermissions: ["Court.View", "Court.Create", "Court.Edit"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-7",
-    code: "WORK_DAK_INTAKE",
-    name: "Inward Dak & Communication Intake",
-    workstreamCode: "DAK",
-    workstreamName: "Correspondence",
-    description: "Receipt, digital stamping, metadata extraction, and initial desk assignment of incoming office letters.",
-    statutoryBasis: "Manual of Office Procedure (MOP) Para 14-22",
-    associatedPermissions: ["Dak.View", "Dak.Register"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-8",
-    code: "WORK_OUTWARD_DISP",
-    name: "Outward Dispatch & Inter-Departmental Communication",
-    workstreamCode: "DAK",
-    workstreamName: "Correspondence",
-    description: "Dispatch registration, speed post / email delivery tracking, and acknowledgment verification.",
-    statutoryBasis: "Manual of Office Procedure (MOP) Para 85-98",
-    associatedPermissions: ["Outward.View", "Outward.Create"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-9",
-    code: "WORK_RTI_GRIEV",
-    name: "RTI & Public Grievance Disposal",
-    workstreamCode: "ADMIN",
-    workstreamName: "Administration",
-    description: "Time-bound reply formulation, record collation, and appellate reply management for RTI requests.",
-    statutoryBasis: "Right to Information Act 2005 Sec 6 & 7",
-    associatedPermissions: ["Dak.View", "Matter.View"],
-    defaultScopeMode: "Assigned",
-    isStandard: true,
-    isActive: true,
-  },
-  {
-    id: "work-10",
-    code: "WORK_RECORD_ARCH",
-    name: "Revenue Record Room Archival & Inspection",
-    workstreamCode: "ADMIN",
-    workstreamName: "Administration",
-    description: "Custody, digitization, inspection requests, and certified copy issuance from legacy revenue basta.",
-    statutoryBasis: "Punjab Land Records Manual Ch. 4 / Delhi Rules",
-    associatedPermissions: ["Award.View", "Audit.View"],
-    defaultScopeMode: "Workstream",
-    isStandard: true,
-    isActive: true,
-  },
+const WORK_KINDS: WorkKind[] = [
+  "LandAcquisition",
+  "Award",
+  "LandRecords",
+  "Nm",
+  "Enm",
+  "Possession",
+  "Accounts",
+  "Compensation",
+  "StatementA",
+  "Court",
+  "Rti",
+  "Correspondence",
+  "General",
 ];
 
 export const WorkCatalogAdmin: React.FC = () => {
-  const [items, setItems] = useState<WorkCatalogItem[]>(STANDARD_WORK_CATALOG);
+  const [works, setWorks] = useState<WorkDefinitionItem[]>([]);
+  const [workstreams, setWorkstreams] = useState<Workstream[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedBranch, setSelectedBranch] = useState("ALL");
-  const [selectedScope, setSelectedScope] = useState("ALL");
+  const [selectedWorkstreamId, setSelectedWorkstreamId] = useState("ALL");
+  const [selectedKind, setSelectedKind] = useState("ALL");
+  const [selectedStatus, setSelectedStatus] = useState("ALL");
 
   // Create Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
-  const [newBranch, setNewBranch] = useState("LAND_RECORDS");
-  const [newBasis, setNewBasis] = useState("");
+  const [newKind, setNewKind] = useState<WorkKind>("General");
+  const [newWorkstreamId, setNewWorkstreamId] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [newDefaultScope, setNewDefaultScope] = useState<"All" | "Workstream" | "Assigned" | "Own">("Workstream");
-  const [modalNotice, setModalNotice] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
+  // Edit Modal
+  const [editingWork, setEditingWork] = useState<WorkDefinitionItem | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [worksRes, wsRes] = await Promise.all([
+        fetch("/api/admin/works", { credentials: "include" }),
+        fetch("/api/admin/workstreams", { credentials: "include" }),
+      ]);
+
+      if (!worksRes.ok) {
+        if (worksRes.status === 401) throw new Error("Session expired. Please log in again.");
+        if (worksRes.status === 403) throw new Error("Access denied: WorkCatalog.Manage permission required.");
+        throw new Error(`Failed to load work catalog (status ${worksRes.status}).`);
+      }
+
+      const worksData = (await worksRes.json()) as WorkDefinitionItem[];
+      setWorks(worksData);
+
+      if (wsRes.ok) {
+        const wsData = (await wsRes.json()) as Workstream[];
+        setWorkstreams(wsData);
+        if (wsData.length > 0 && !newWorkstreamId) {
+          setNewWorkstreamId(wsData[0].id);
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load work catalog.");
+    } finally {
+      setLoading(false);
+    }
+  }, [newWorkstreamId]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const workstreamMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const ws of workstreams) {
+      map.set(ws.id, ws.name);
+    }
+    return map;
+  }, [workstreams]);
+
+  const filteredWorks = useMemo(() => {
+    return works.filter((w) => {
       const matchesSearch =
         searchQuery.trim() === "" ||
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (item.statutoryBasis && item.statutoryBasis.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase());
+        w.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.kind.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.description.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const matchesBranch = selectedBranch === "ALL" || item.workstreamCode === selectedBranch;
-      const matchesScope = selectedScope === "ALL" || item.defaultScopeMode === selectedScope;
+      const matchesWorkstream =
+        selectedWorkstreamId === "ALL" || w.workstreamId === selectedWorkstreamId;
 
-      return matchesSearch && matchesBranch && matchesScope;
+      const matchesKind = selectedKind === "ALL" || w.kind === selectedKind;
+
+      const matchesStatus =
+        selectedStatus === "ALL" ||
+        (selectedStatus === "ACTIVE" && w.isActive) ||
+        (selectedStatus === "INACTIVE" && !w.isActive);
+
+      return matchesSearch && matchesWorkstream && matchesKind && matchesStatus;
     });
-  }, [items, searchQuery, selectedBranch, selectedScope]);
+  }, [works, searchQuery, selectedWorkstreamId, selectedKind, selectedStatus]);
 
-  const handleCreateWork = (e: React.FormEvent) => {
+  const handleCreateWork = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCode.trim() || !newName.trim()) return;
+    if (!newCode.trim() || !newName.trim() || !newWorkstreamId) return;
 
-    const branchNameMap: Record<string, string> = {
-      LAND_RECORDS: "Land Records",
-      MATTERS: "Matters & Notes",
-      COURT: "Court & Litigation",
-      DAK: "Correspondence",
-      ADMIN: "Administration",
-    };
+    try {
+      setCreateLoading(true);
+      setCreateError(null);
+      const res = await fetch("/api/admin/works", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: newCode.trim().toUpperCase(),
+          name: newName.trim(),
+          description: newDesc.trim(),
+          kind: newKind,
+          workstreamId: newWorkstreamId,
+        }),
+        credentials: "include",
+      });
 
-    const newItem: WorkCatalogItem = {
-      id: `work-custom-${Date.now()}`,
-      code: newCode.trim().toUpperCase(),
-      name: newName.trim(),
-      workstreamCode: newBranch,
-      workstreamName: branchNameMap[newBranch] || newBranch,
-      description: newDesc.trim() || "Custom statutory work responsibility.",
-      statutoryBasis: newBasis.trim() || "Office Order Allocation",
-      associatedPermissions: ["Matter.View"],
-      defaultScopeMode: newDefaultScope,
-      isStandard: false,
-      isActive: true,
-    };
+      if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error("A work category with this code already exists. Please choose a unique code.");
+        }
+        if (res.status === 403) {
+          throw new Error("Access denied: WorkCatalog.Manage permission required.");
+        }
+        const errJson = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errJson?.message || `Failed to create work (status ${res.status}).`);
+      }
 
-    setItems((prev) => [newItem, ...prev]);
-    setModalNotice("Staged custom work created in catalog. Note: Backend persistence contract for custom work definitions is awaiting Codex RBAC's work catalog API.");
-    setTimeout(() => {
       setShowCreateModal(false);
-      setModalNotice(null);
       setNewCode("");
       setNewName("");
-      setNewBasis("");
       setNewDesc("");
-    }, 1500);
+      setNewKind("General");
+      setActionMessage("New work category created and added to the official catalog.");
+      await loadData();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Error creating work category.");
+    } finally {
+      setCreateLoading(false);
+    }
   };
+
+  const openEditModal = (item: WorkDefinitionItem) => {
+    setEditingWork(item);
+    setEditName(item.name);
+    setEditDesc(item.description);
+    setEditIsActive(item.isActive);
+    setEditError(null);
+  };
+
+  const handleUpdateWork = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWork || !editName.trim()) return;
+
+    try {
+      setEditLoading(true);
+      setEditError(null);
+      const res = await fetch(`/api/admin/works/${editingWork.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName.trim(),
+          description: editDesc.trim(),
+          isActive: editIsActive,
+          expectedRevision: editingWork.revision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadData();
+          throw new Error("Revision conflict: The work category was modified concurrently. Data reloaded.");
+        }
+        if (res.status === 403) {
+          throw new Error("Access denied: WorkCatalog.Manage permission required.");
+        }
+        const errJson = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errJson?.message || `Failed to update work (status ${res.status}).`);
+      }
+
+      setEditingWork(null);
+      setActionMessage(`Work category "${editName.trim()}" updated successfully.`);
+      await loadData();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Error updating work category.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleToggleActive = async (item: WorkDefinitionItem) => {
+    try {
+      setActionMessage(null);
+      const res = await fetch(`/api/admin/works/${item.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: item.name,
+          description: item.description,
+          isActive: !item.isActive,
+          expectedRevision: item.revision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadData();
+          alert("Revision conflict: This work item was modified concurrently. Catalog has been refreshed.");
+          return;
+        }
+        throw new Error(`Failed to toggle status (status ${res.status}).`);
+      }
+
+      setActionMessage(`Work "${item.name}" ${!item.isActive ? "activated" : "deactivated"}.`);
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error toggling work status.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="rbac-admin-root">
+        <div className="state"><strong>Loading official work catalog...</strong></div>
+      </div>
+    );
+  }
 
   return (
     <div className="rbac-admin-root">
@@ -212,7 +256,7 @@ export const WorkCatalogAdmin: React.FC = () => {
         <div className="rbac-header-title">
           <h2>Statutory Work Catalog</h2>
           <p>
-            Specific statutory responsibilities and operational task categories, distinct from physical/digital seats (OfficeDesks) and functional branches (Workstreams).
+            Configurable catalog of official statutory responsibilities and operational categories. Works govern officer operational allocation distinct from civil designations, authority roles, or desk seating.
           </p>
         </div>
         <div className="rbac-actions-group">
@@ -222,13 +266,17 @@ export const WorkCatalogAdmin: React.FC = () => {
         </div>
       </div>
 
-      {/* Model Distinction Banner */}
+      {actionMessage && <div className="form-message">{actionMessage}</div>}
+      {error && <div className="state error"><strong>Error:</strong> {error}</div>}
+
+      {/* Model Architecture Clarity Banner */}
       <div className="contract-notice-banner">
-        <strong>Model Architecture Notice: Work vs. Desk vs. Role</strong>
+        <strong>Official Architecture Distinction: Work vs. Role vs. Desk vs. Designation</strong>
         <span>
-          • <strong>Work</strong> = Specific statutory responsibility (e.g. Statement-A, Award Formulation, Compensation Disbursement).<br />
-          • <strong>OfficeDesk</strong> = Physical or digital operational seat/post (e.g. Dealing Assistant Desk North, Branch Incharge Seat).<br />
-          • <strong>Role</strong> = Reusable permission bundle (e.g. LAC_OFFICER, DEALING_ASSISTANT). Officers may hold multiple roles simultaneously.
+          • <strong>Work:</strong> Specific statutory responsibility (e.g. Compensation Disbursement, Award Formulation, Statement-A). Immutable Code, Kind & Workstream once defined.<br />
+          • <strong>Role:</strong> Reusable permission bundle (e.g. LAC_OFFICER, DEALING_ASSISTANT). Officers hold multiple roles simultaneously.<br />
+          • <strong>OfficeDesk:</strong> Operational/custody seat where physical or digital files arrive.<br />
+          • <strong>Designation:</strong> Civil administrative post/rank (e.g. SDM, Tehsildar, Naib Tehsildar). Never implies implicit authority without role/allocation.
         </span>
       </div>
 
@@ -238,7 +286,7 @@ export const WorkCatalogAdmin: React.FC = () => {
           <span className="rbac-search-icon">🔍</span>
           <input
             type="text"
-            placeholder="Search work category, statutory section, or keyword..."
+            placeholder="Search work title, code, kind, or description..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -246,179 +294,293 @@ export const WorkCatalogAdmin: React.FC = () => {
 
         <select
           className="rbac-filter-select"
-          value={selectedBranch}
-          onChange={(e) => setSelectedBranch(e.target.value)}
+          value={selectedWorkstreamId}
+          onChange={(e) => setSelectedWorkstreamId(e.target.value)}
         >
           <option value="ALL">All Functional Branches</option>
-          <option value="LAND_RECORDS">Land Records Branch</option>
-          <option value="MATTERS">Matters & Notes Branch</option>
-          <option value="COURT">Court & Litigation Branch</option>
-          <option value="DAK">Correspondence Branch</option>
-          <option value="ADMIN">General Administration</option>
+          {workstreams.map((ws) => (
+            <option key={ws.id} value={ws.id}>
+              {ws.name}
+            </option>
+          ))}
         </select>
 
         <select
           className="rbac-filter-select"
-          value={selectedScope}
-          onChange={(e) => setSelectedScope(e.target.value)}
+          value={selectedKind}
+          onChange={(e) => setSelectedKind(e.target.value)}
         >
-          <option value="ALL">All Default Scopes</option>
-          <option value="All">All LAC (Platform-wide)</option>
-          <option value="Workstream">Branch-wide (Workstream)</option>
-          <option value="Assigned">Assigned Matters Only</option>
-          <option value="Own">Own Submissions Only</option>
+          <option value="ALL">All Work Kinds</option>
+          {WORK_KINDS.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="rbac-filter-select"
+          value={selectedStatus}
+          onChange={(e) => setSelectedStatus(e.target.value)}
+        >
+          <option value="ALL">All Statuses</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="INACTIVE">Inactive Only</option>
         </select>
 
         <span style={{ fontSize: "13px", color: "#64748b", marginLeft: "auto" }}>
-          Showing <strong>{filteredItems.length}</strong> of {items.length} Work Categories
+          Showing <strong>{filteredWorks.length}</strong> of {works.length} Work Definitions
         </span>
       </div>
 
-      {/* Work Catalog Cards Grid */}
+      {/* Work Catalog Grid */}
       <div className="work-catalog-grid">
-        {filteredItems.map((work) => (
-          <div key={work.id} className="work-card">
+        {filteredWorks.map((work) => (
+          <div key={work.id} className={`work-card ${!work.isActive ? "work-card-inactive" : ""}`}>
             <div>
               <div className="work-card-header">
                 <div>
                   <span className="work-card-title">{work.name}</span>
-                  <div style={{ marginTop: "4px", display: "flex", gap: "6px", alignItems: "center" }}>
+                  <div style={{ marginTop: "4px", display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
                     <span className="work-card-code">{work.code}</span>
-                    <span className="workstream-tag primary">{work.workstreamName}</span>
+                    <span className="workstream-tag primary">
+                      {workstreamMap.get(work.workstreamId) || "Branch"}
+                    </span>
+                    <span className="workstream-tag" style={{ background: "#f1f5f9", color: "#334155" }}>
+                      Kind: {work.kind}
+                    </span>
                   </div>
                 </div>
-                <span className={`scope-indicator ${work.defaultScopeMode.toLowerCase()}`}>
-                  {work.defaultScopeMode} Scope
-                </span>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                  <span className={`status ${work.isActive ? "success" : "warning"}`}>
+                    {work.isActive ? "Active" : "Inactive"}
+                  </span>
+                  <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                    Rev {work.revision}
+                  </span>
+                </div>
               </div>
 
               <p className="work-card-desc" style={{ marginTop: "10px" }}>
-                {work.description}
+                {work.description || <em>No detailed description provided.</em>}
               </p>
             </div>
 
-            <div>
-              {work.statutoryBasis && (
-                <div style={{ fontSize: "12px", color: "#475569", marginBottom: "8px" }}>
-                  <strong>Statutory Basis:</strong> <span>{work.statutoryBasis}</span>
-                </div>
-              )}
-
-              <div className="work-card-meta">
-                <span>
-                  <strong>Permissions:</strong> {work.associatedPermissions.join(", ")}
-                </span>
-                <span style={{ color: work.isStandard ? "#059669" : "#d97706", fontWeight: 600 }}>
-                  {work.isStandard ? "Canonical Standard" : "Custom Defined"}
-                </span>
+            <div style={{ marginTop: "12px", paddingTop: "10px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ fontSize: "12px", color: "#64748b" }}>
+                <span>ID: <code>{work.id.substring(0, 8)}...</code></span>
+              </div>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ padding: "4px 10px", fontSize: "12px" }}
+                  onClick={() => openEditModal(work)}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  style={{ padding: "4px 8px", fontSize: "12px" }}
+                  onClick={() => void handleToggleActive(work)}
+                >
+                  {work.isActive ? "Deactivate" : "Activate"}
+                </button>
               </div>
             </div>
           </div>
         ))}
+
+        {filteredWorks.length === 0 && (
+          <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #cbd5e1" }}>
+            <p style={{ color: "#64748b", margin: 0 }}>No work categories match the selected filters.</p>
+          </div>
+        )}
       </div>
 
       {/* Create Work Modal */}
       {showCreateModal && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: "600px" }}>
+          <div className="modal-card" style={{ maxWidth: "620px" }}>
             <h3>Define New Statutory Work Category</h3>
             <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
-              Add a new statutory responsibility or operational task definition to the platform work catalog.
+              Creates a reusable responsibility category in the central work catalog. Code, Kind, and Branch are immutable after creation.
             </p>
 
-            {modalNotice ? (
-              <div className="form-message" style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0" }}>
-                {modalNotice}
+            {createError && (
+              <div className="state error" style={{ marginBottom: "12px" }}>
+                <strong>Error:</strong> {createError}
               </div>
-            ) : (
-              <form onSubmit={handleCreateWork} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div className="form-group">
-                  <label>Work Code (Identifier)</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. WORK_ENCROACH_EVICT"
-                    value={newCode}
-                    onChange={(e) => setNewCode(e.target.value)}
-                  />
-                  <small style={{ color: "#64748b" }}>Unique upper-case code for task allocation and audit records.</small>
-                </div>
-
-                <div className="form-group">
-                  <label>Work Name / Title</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Encroachment Eviction & Demolition"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Functional Branch (Workstream)</label>
-                  <select
-                    value={newBranch}
-                    onChange={(e) => setNewBranch(e.target.value)}
-                  >
-                    <option value="LAND_RECORDS">Land Records Branch</option>
-                    <option value="MATTERS">Matters & Notes Branch</option>
-                    <option value="COURT">Court & Litigation Branch</option>
-                    <option value="DAK">Correspondence Branch</option>
-                    <option value="ADMIN">General Administration</option>
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label>Statutory Basis / Reference</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Delhi Land Reforms Act 1954 Sec 86A / High Court Order"
-                    value={newBasis}
-                    onChange={(e) => setNewBasis(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Description of Responsibility</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Describe the operational scope and statutory tasks involved in this work."
-                    value={newDesc}
-                    onChange={(e) => setNewDesc(e.target.value)}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Default Authority Scope</label>
-                  <select
-                    value={newDefaultScope}
-                    onChange={(e) => setNewDefaultScope(e.target.value as any)}
-                  >
-                    <option value="Workstream">Workstream (Branch-wide)</option>
-                    <option value="All">All LAC (Platform-wide)</option>
-                    <option value="Assigned">Assigned Matters Only</option>
-                    <option value="Own">Own Submissions Only</option>
-                  </select>
-                </div>
-
-                <div className="contract-warning-banner">
-                  <strong>Backend Contract Notice:</strong>
-                  <span>
-                    This custom definition is staged in the UI. Backend persistence will be activated when Codex RBAC releases the Work Catalog API endpoint.
-                  </span>
-                </div>
-
-                <div className="modal-actions" style={{ marginTop: "10px" }}>
-                  <button type="button" className="quiet-button" onClick={() => setShowCreateModal(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="primary-button">
-                    Save Work Category
-                  </button>
-                </div>
-              </form>
             )}
+
+            <form onSubmit={handleCreateWork} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="form-group">
+                <label>Work Code (Immutable Identifier) *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. WORK_ENCROACH_EVICT"
+                  value={newCode}
+                  onChange={(e) => setNewCode(e.target.value.toUpperCase().replace(/\s+/g, "_"))}
+                />
+                <small style={{ color: "#64748b" }}>
+                  Unique uppercase identifier used in official allocations and audit attribution.
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label>Work Name / Title *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Encroachment Eviction & Demolition"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <div className="form-group">
+                  <label>Operational Kind *</label>
+                  <select
+                    value={newKind}
+                    onChange={(e) => setNewKind(e.target.value as WorkKind)}
+                  >
+                    {WORK_KINDS.map((k) => (
+                      <option key={k} value={k}>
+                        {k}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Functional Branch (Workstream) *</label>
+                  <select
+                    value={newWorkstreamId}
+                    onChange={(e) => setNewWorkstreamId(e.target.value)}
+                    required
+                  >
+                    {workstreams.map((ws) => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name} ({ws.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Description of Responsibility</label>
+                <textarea
+                  rows={3}
+                  placeholder="Describe the operational scope, statutory remit, and duties covered under this work category."
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="contract-notice-banner" style={{ margin: "4px 0" }}>
+                <strong>Server Contract Guarantee:</strong>
+                <span>
+                  POST to <code>/api/admin/works</code> validated with <code>WorkCatalog.Manage</code> authority. Invalid shapes or duplicate codes fail with clear validation.
+                </span>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={createLoading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={createLoading}>
+                  {createLoading ? "Creating Work..." : "Save Work Category"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Work Modal */}
+      {editingWork && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "600px" }}>
+            <h3>Edit Work Category</h3>
+            <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
+              Update title, description, and status for <strong>{editingWork.code}</strong>. Kind and branch remain immutable.
+            </p>
+
+            {editError && (
+              <div className="state error" style={{ marginBottom: "12px" }}>
+                <strong>Error:</strong> {editError}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateWork} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div style={{ display: "flex", gap: "10px", background: "#f8fafc", padding: "10px 14px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                <div>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Work Code:</span>{" "}
+                  <strong>{editingWork.code}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Kind:</span>{" "}
+                  <strong>{editingWork.kind}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase" }}>Revision:</span>{" "}
+                  <strong>{editingWork.revision}</strong>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Work Name / Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Description of Responsibility</label>
+                <textarea
+                  rows={3}
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={editIsActive}
+                    onChange={(e) => setEditIsActive(e.target.checked)}
+                  />
+                  <span>Active for Allocation (Officers can be assigned to this work)</span>
+                </label>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => setEditingWork(null)}
+                  disabled={editLoading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={editLoading}>
+                  {editLoading ? "Updating..." : "Update Work Category"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

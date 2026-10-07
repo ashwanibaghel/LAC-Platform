@@ -1,222 +1,402 @@
-import React, { useState, useEffect, useMemo } from "react";
-import type { OfficerItem, OfficerAssistantDelegation } from "./types";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import type {
+  OfficerAssistantSummary,
+  OfficerAssistantDetail,
+  DelegationOptionsResponse,
+  AssistantInput,
+  AllocationInput,
+  Designation,
+} from "./types";
 import "./admin.css";
 
-// Staged canonical delegations demonstrating the real Delhi office pattern
-const INITIAL_DELEGATIONS: OfficerAssistantDelegation[] = [
-  {
-    id: "del-1",
-    assistantUserId: "user-deo-rajesh",
-    assistantUsername: "deo.rajesh",
-    assistantDisplayName: "Rajesh Kumar (DEO)",
-    supervisingOfficerId: "officer-sdm-verma",
-    supervisingOfficerName: "Sh. R. K. Verma",
-    supervisingOfficerDesignation: "SDM / Land Acquisition Collector",
-    delegatedWorkCodes: ["WORK_STMT_A", "WORK_LR_VERIF", "WORK_DAK_INTAKE"],
-    delegatedPermissionCodes: ["Dak.View", "Dak.Register", "Award.View", "Khasra.Verify"],
-    notes: "Attached to SDM/LAC for Statement-A verification and dak digitization.",
-    isActive: true,
-    delegatedAt: "2026-09-15T10:30:00Z",
-  },
-  {
-    id: "del-2",
-    assistantUserId: "user-deo-sunita",
-    assistantUsername: "deo.sunita",
-    assistantDisplayName: "Sunita Sharma (DEO)",
-    supervisingOfficerId: "officer-sdm-verma",
-    supervisingOfficerName: "Sh. R. K. Verma",
-    supervisingOfficerDesignation: "SDM / Land Acquisition Collector",
-    delegatedWorkCodes: ["WORK_COMP_DISBUR", "WORK_COURT_LITIG"],
-    delegatedPermissionCodes: ["Matter.View", "Court.View"],
-    notes: "Attached to SDM/LAC for compensation voucher drafting and court hearing diary.",
-    isActive: true,
-    delegatedAt: "2026-09-20T14:15:00Z",
-  },
-  {
-    id: "del-3",
-    assistantUserId: "user-deo-amit",
-    assistantUsername: "deo.amit",
-    assistantDisplayName: "Amit Yadav (DEO)",
-    supervisingOfficerId: "officer-tehsildar-singh",
-    supervisingOfficerName: "Sh. Vikram Singh",
-    supervisingOfficerDesignation: "Tehsildar (LAC)",
-    delegatedWorkCodes: ["WORK_LR_VERIF", "WORK_POSS_DEMARC"],
-    delegatedPermissionCodes: ["Khasra.Verify", "Award.View"],
-    notes: "Attached to Tehsildar for field demarcation and khatauni tallying.",
-    isActive: true,
-    delegatedAt: "2026-09-25T09:45:00Z",
-  },
-];
-
-const AVAILABLE_PERMISSIONS = [
-  { code: "Dak.View", label: "View Inward Dak & Desks", category: "Correspondence" },
-  { code: "Dak.Register", label: "Register New Inward Dak", category: "Correspondence" },
-  { code: "Outward.View", label: "View Outward Dispatch", category: "Correspondence" },
-  { code: "Outward.Create", label: "Draft Outward Letter", category: "Correspondence" },
-  { code: "Award.View", label: "Inspect Awards & Land Records", category: "Land Records" },
-  { code: "Award.Edit", label: "Edit Draft Award Schedule", category: "Land Records" },
-  { code: "Khasra.Verify", label: "Verify Khasra & Ownership", category: "Land Records" },
-  { code: "Matter.View", label: "View Matters & Note Sheets", category: "Matters" },
-  { code: "Matter.Edit", label: "Draft Note Sheets", category: "Matters" },
-  { code: "Matter.Sign", label: "Approve & E-Sign Note Sheet", category: "Matters" },
-  { code: "Court.View", label: "View Court Cases & Hearings", category: "Court" },
-  { code: "Court.Create", label: "Register New Court Reference", category: "Court" },
-];
-
 export const OfficerAssistantAdmin: React.FC = () => {
-  const [delegations, setDelegations] = useState<OfficerAssistantDelegation[]>(INITIAL_DELEGATIONS);
-  const [officers, setOfficers] = useState<OfficerItem[]>([]);
-  const [loadingOfficers, setLoadingOfficers] = useState(true);
+  const [assistants, setAssistants] = useState<OfficerAssistantSummary[]>([]);
+  const [delegationOptions, setDelegationOptions] = useState<DelegationOptionsResponse | null>(null);
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterOfficerId, setFilterOfficerId] = useState("ALL");
+  const [filterStatus, setFilterStatus] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
 
-  // Attach Assistant Modal
-  const [showAttachModal, setShowAttachModal] = useState(false);
-  const [selectedSupervisorId, setSelectedSupervisorId] = useState("");
-  const [assistantUsername, setAssistantUsername] = useState("");
-  const [assistantDisplayName, setAssistantDisplayName] = useState("");
-  const [tempPassword, setTempPassword] = useState("");
-  const [selectedWorkCodes, setSelectedWorkCodes] = useState<string[]>([]);
-  const [selectedPermCodes, setSelectedPermCodes] = useState<string[]>([]);
-  const [delegationNotes, setDelegationNotes] = useState("");
-  const [stagedNotification, setStagedNotification] = useState<string | null>(null);
+  // Create Modal
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createUsername, setCreateUsername] = useState("");
+  const [createDisplayName, setCreateDisplayName] = useState("");
+  const [createDesignationId, setCreateDesignationId] = useState("");
+  const [createRoleIds, setCreateRoleIds] = useState<string[]>([]);
+  const [createPermCodes, setCreatePermCodes] = useState<string[]>([]);
+  const [createDeskIds, setCreateDeskIds] = useState<string[]>([]);
+  const [createAllocations, setCreateAllocations] = useState<AllocationInput[]>([]);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  // Load actual officers from backend
-  useEffect(() => {
-    fetch("/api/admin/users", { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: OfficerItem[]) => {
-        setOfficers(data);
-        if (data.length > 0 && !selectedSupervisorId) {
-          // Default to first active officer with a designation
-          const firstOfficer = data.find((u) => u.isActive && u.designation) || data[0];
-          setSelectedSupervisorId(firstOfficer.id);
+  // Edit Modal
+  const [editingAssistant, setEditingAssistant] = useState<OfficerAssistantDetail | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editDesignationId, setEditDesignationId] = useState("");
+  const [editRoleIds, setEditRoleIds] = useState<string[]>([]);
+  const [editPermCodes, setEditPermCodes] = useState<string[]>([]);
+  const [editDeskIds, setEditDeskIds] = useState<string[]>([]);
+  const [editAllocations, setEditAllocations] = useState<AllocationInput[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Temporary Credential Modal (One-time Display)
+  const [showCredentialModal, setShowCredentialModal] = useState(false);
+  const [credentialData, setCredentialData] = useState<{
+    username: string;
+    temporaryCredential: string;
+    expiresAt?: string;
+  } | null>(null);
+  const [credentialAcknowledged, setCredentialAcknowledged] = useState(false);
+  const [copiedNotice, setCopiedNotice] = useState(false);
+
+  // Child Allocation Builder State
+  const [builderParentAllocationId, setBuilderParentAllocationId] = useState("");
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [asstRes, optRes, desigRes] = await Promise.all([
+        fetch("/api/officers/me/assistants", { credentials: "include" }),
+        fetch("/api/officers/me/assistants/delegation-options", { credentials: "include" }),
+        fetch("/api/admin/designations", { credentials: "include" }),
+      ]);
+
+      if (!asstRes.ok) {
+        if (asstRes.status === 401) throw new Error("Session expired. Please log in again.");
+        if (asstRes.status === 403) throw new Error("Access denied: Assistants.Manage permission required.");
+        throw new Error(`Failed to load assistants list (status ${asstRes.status}).`);
+      }
+
+      const asstData = (await asstRes.json()) as OfficerAssistantSummary[];
+      setAssistants(asstData);
+
+      if (optRes.ok) {
+        const optData = (await optRes.json()) as DelegationOptionsResponse;
+        setDelegationOptions(optData);
+        if (optData.allocations.length > 0 && !builderParentAllocationId) {
+          setBuilderParentAllocationId(optData.allocations[0].id);
         }
-      })
-      .catch(() => setOfficers([]))
-      .finally(() => setLoadingOfficers(false));
-  }, []);
+      }
 
-  // Determine selected supervising officer and held powers
-  const currentSupervisor = useMemo(() => {
-    return officers.find((o) => o.id === selectedSupervisorId) || null;
-  }, [officers, selectedSupervisorId]);
-
-  // Determine what permissions the supervisor possesses
-  // In Delhi LAC model, if supervisor is SYSTEM_ADMIN or has full roles, they possess all powers.
-  // Otherwise, their permissions are constrained to their roles.
-  const supervisorHeldPermissions = useMemo(() => {
-    if (!currentSupervisor) return new Set<string>();
-    const roles = currentSupervisor.roles || [];
-    if (roles.includes("SYSTEM_ADMIN")) {
-      return new Set(AVAILABLE_PERMISSIONS.map((p) => p.code));
+      if (desigRes.ok) {
+        const desigData = (await desigRes.json()) as Designation[];
+        setDesignations(desigData);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load assistant data.");
+    } finally {
+      setLoading(false);
     }
-    const held = new Set<string>();
-    if (roles.includes("LAC_OFFICER") || roles.includes("BRANCH_INCHARGE")) {
-      AVAILABLE_PERMISSIONS.forEach((p) => held.add(p.code));
-    } else {
-      if (roles.includes("INTAKE_OFFICER")) {
-        held.add("Dak.View");
-        held.add("Dak.Register");
-        held.add("Outward.View");
-      }
-      if (roles.includes("RECORD_VERIFIER")) {
-        held.add("Award.View");
-        held.add("Khasra.Verify");
-      }
-      if (roles.includes("DEALING_ASSISTANT")) {
-        held.add("Matter.View");
-        held.add("Matter.Edit");
-        held.add("Dak.View");
-        held.add("Court.View");
-      }
-      // If none matched, grant base read permissions
-      held.add("Dak.View");
-      held.add("Award.View");
-      held.add("Matter.View");
-      held.add("Court.View");
-    }
-    return held;
-  }, [currentSupervisor]);
+  }, [builderParentAllocationId]);
 
-  // Filter delegations
-  const filteredDelegations = useMemo(() => {
-    return delegations.filter((d) => {
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const filteredAssistants = useMemo(() => {
+    return assistants.filter((a) => {
       const matchesSearch =
         searchQuery.trim() === "" ||
-        d.assistantDisplayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.assistantUsername.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        d.supervisingOfficerName.toLowerCase().includes(searchQuery.toLowerCase());
+        a.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.username.toLowerCase().includes(searchQuery.toLowerCase());
 
-      const matchesOfficer = filterOfficerId === "ALL" || d.supervisingOfficerId === filterOfficerId;
+      const matchesStatus =
+        filterStatus === "ALL" ||
+        (filterStatus === "ACTIVE" && a.isActive) ||
+        (filterStatus === "INACTIVE" && !a.isActive);
 
-      return matchesSearch && matchesOfficer;
+      return matchesSearch && matchesStatus;
     });
-  }, [delegations, searchQuery, filterOfficerId]);
+  }, [assistants, searchQuery, filterStatus]);
 
-  const handleToggleWork = (code: string) => {
-    setSelectedWorkCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
+  const availableSupervisorPermissions = useMemo(() => {
+    if (!delegationOptions) return [];
+    return delegationOptions.permissions;
+  }, [delegationOptions]);
+
+  const openCreateModal = () => {
+    setCreateUsername("");
+    setCreateDisplayName("");
+    setCreateDesignationId(designations.find((d) => d.code === "DEO")?.id || "");
+    setCreateRoleIds([]);
+    setCreatePermCodes([]);
+    setCreateDeskIds([]);
+    setCreateAllocations([]);
+    setCreateError(null);
+    setShowCreateModal(true);
   };
 
-  const handleTogglePerm = (code: string) => {
-    if (!supervisorHeldPermissions.has(code)) return; // Strictly locked
-    setSelectedPermCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
-    );
-  };
+  const handleAddChildAllocation = (
+    isEdit: boolean,
+    parentAllocationId: string
+  ) => {
+    if (!delegationOptions || !parentAllocationId) return;
+    const parent = delegationOptions.allocations.find((a) => a.id === parentAllocationId);
+    if (!parent) return;
 
-  const handleAttachAssistant = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentSupervisor || !assistantUsername.trim() || !assistantDisplayName.trim()) return;
-
-    // Filter delegated permissions to strictly ensure containment
-    const sanitizedPerms = selectedPermCodes.filter((c) => supervisorHeldPermissions.has(c));
-
-    const newDelegation: OfficerAssistantDelegation = {
-      id: `del-staged-${Date.now()}`,
-      assistantUserId: `user-${assistantUsername.trim().toLowerCase()}`,
-      assistantUsername: assistantUsername.trim().toLowerCase(),
-      assistantDisplayName: assistantDisplayName.trim(),
-      supervisingOfficerId: currentSupervisor.id,
-      supervisingOfficerName: currentSupervisor.displayName,
-      supervisingOfficerDesignation: currentSupervisor.designation?.name || "Gazetted Officer",
-      delegatedWorkCodes: selectedWorkCodes,
-      delegatedPermissionCodes: sanitizedPerms,
-      notes: delegationNotes.trim() || `Delegated assistant operating on behalf of ${currentSupervisor.displayName}.`,
-      isActive: true,
-      delegatedAt: new Date().toISOString(),
+    const childInput: AllocationInput = {
+      workDefinitionId: parent.workDefinitionId,
+      validFrom: parent.validFrom,
+      validTo: parent.validTo,
+      workOrderReference: parent.workOrderReference,
+      reason: `Delegated from ${parent.workName} (${parent.workOrderReference})`,
+      scopes: parent.scopes,
+      delegatedFromAllocationId: parent.id,
     };
 
-    setDelegations((prev) => [newDelegation, ...prev]);
-    setStagedNotification(
-      `Staged delegation policy saved: DEO ${assistantDisplayName} attached to ${currentSupervisor.displayName}. Notice: Real account creation & backend persistence awaits Codex RBAC's delegation contract.`
-    );
-
-    setTimeout(() => {
-      setShowAttachModal(false);
-      setStagedNotification(null);
-      setAssistantUsername("");
-      setAssistantDisplayName("");
-      setTempPassword("");
-      setSelectedWorkCodes([]);
-      setSelectedPermCodes([]);
-      setDelegationNotes("");
-    }, 2000);
+    if (isEdit) {
+      setEditAllocations((prev) => [...prev, childInput]);
+    } else {
+      setCreateAllocations((prev) => [...prev, childInput]);
+    }
   };
 
-  const handleRevokeDelegation = (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to revoke delegation for ${name}?`)) return;
-    setDelegations((prev) =>
-      prev.map((d) => (d.id === id ? { ...d, isActive: false, revokedAt: new Date().toISOString() } : d))
-    );
+  const handleCreateAssistant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!createUsername.trim() || !createDisplayName.trim()) return;
+
+    try {
+      setCreateLoading(true);
+      setCreateError(null);
+
+      const assistantPayload: AssistantInput = {
+        displayName: createDisplayName.trim(),
+        designationId: createDesignationId || null,
+        roleIds: createRoleIds,
+        permissionCodes: createPermCodes,
+        allocations: createAllocations,
+        deskIds: createDeskIds,
+      };
+
+      const res = await fetch("/api/officers/me/assistants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: createUsername.trim().toLowerCase(),
+          assistant: assistantPayload,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error("Username already exists or allocation conflict detected.");
+        }
+        if (res.status === 403) {
+          throw new Error("Access denied: Ceiling violation or insufficient delegation permissions.");
+        }
+        const errJson = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errJson?.message || `Failed to create assistant (status ${res.status}).`);
+      }
+
+      const data = (await res.json()) as {
+        id: string;
+        assistantRevision: number;
+        temporaryCredential?: string;
+        credentialExpiresAt?: string;
+      };
+
+      setShowCreateModal(false);
+      await loadData();
+
+      if (data.temporaryCredential) {
+        setCredentialData({
+          username: createUsername.trim().toLowerCase(),
+          temporaryCredential: data.temporaryCredential,
+          expiresAt: data.credentialExpiresAt,
+        });
+        setCredentialAcknowledged(false);
+        setCopiedNotice(false);
+        setShowCredentialModal(true);
+      } else {
+        setActionMessage(`Assistant ${createDisplayName.trim()} created successfully.`);
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Error creating assistant.");
+    } finally {
+      setCreateLoading(false);
+    }
   };
 
-  if (loadingOfficers) {
+  const openEditModal = async (asst: OfficerAssistantSummary) => {
+    try {
+      setEditLoading(true);
+      setEditError(null);
+      const res = await fetch(`/api/officers/me/assistants/${asst.id}`, { credentials: "include" });
+      if (!res.ok) {
+        throw new Error(`Failed to load assistant details (status ${res.status}).`);
+      }
+      const detail = (await res.json()) as OfficerAssistantDetail;
+      setEditingAssistant(detail);
+      setEditDisplayName(detail.displayName);
+      setEditDesignationId(detail.designationId || "");
+      setEditRoleIds(detail.roleIds || []);
+      setEditPermCodes(detail.permissionCodes || []);
+      setEditDeskIds(detail.deskIds || []);
+      const allocInputs: AllocationInput[] = (detail.allocations || []).map((a) => ({
+        workDefinitionId: a.workDefinitionId,
+        validFrom: a.validFrom,
+        validTo: a.validTo,
+        workOrderReference: a.workOrderReference,
+        reason: a.reason,
+        scopes: a.scopes,
+        delegatedFromAllocationId: a.delegatedFromAllocationId || null,
+      }));
+      setEditAllocations(allocInputs);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error opening assistant.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleUpdateAssistant = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAssistant || !editDisplayName.trim()) return;
+
+    try {
+      setEditLoading(true);
+      setEditError(null);
+
+      const assistantPayload: AssistantInput = {
+        displayName: editDisplayName.trim(),
+        designationId: editDesignationId || null,
+        roleIds: editRoleIds,
+        permissionCodes: editPermCodes,
+        allocations: editAllocations,
+        deskIds: editDeskIds,
+      };
+
+      const res = await fetch(`/api/officers/me/assistants/${editingAssistant.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assistant: assistantPayload,
+          expectedRevision: editingAssistant.assistantRevision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadData();
+          throw new Error("Revision conflict: Assistant was modified concurrently. Data reloaded.");
+        }
+        if (res.status === 403) {
+          throw new Error("Access denied: Delegation ceiling exceeded.");
+        }
+        const errJson = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(errJson?.message || `Failed to update assistant (status ${res.status}).`);
+      }
+
+      setEditingAssistant(null);
+      setActionMessage(`Assistant ${editDisplayName.trim()} delegation updated successfully.`);
+      await loadData();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Error updating assistant delegation.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleResetCredential = async (asst: OfficerAssistantSummary) => {
+    if (!confirm(`Generate a new temporary credential for assistant ${asst.displayName} (@${asst.username})?\n\nThis will immediately invalidate all active sessions for this assistant.`)) {
+      return;
+    }
+
+    try {
+      setActionMessage(null);
+      const res = await fetch(`/api/officers/me/assistants/${asst.id}/reset-credential`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedRevision: asst.assistantRevision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadData();
+          alert("Revision conflict: Assistant record changed concurrently. Directory refreshed.");
+          return;
+        }
+        throw new Error(`Failed to reset credential (status ${res.status}).`);
+      }
+
+      const data = (await res.json()) as {
+        id: string;
+        assistantRevision: number;
+        temporaryCredential?: string;
+        credentialExpiresAt?: string;
+      };
+
+      await loadData();
+
+      if (data.temporaryCredential) {
+        setCredentialData({
+          username: asst.username,
+          temporaryCredential: data.temporaryCredential,
+          expiresAt: data.credentialExpiresAt,
+        });
+        setCredentialAcknowledged(false);
+        setCopiedNotice(false);
+        setShowCredentialModal(true);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error resetting assistant credential.");
+    }
+  };
+
+  const handleRevokeAssistant = async (asst: OfficerAssistantSummary) => {
+    if (!confirm(`Are you sure you want to REVOKE assistant ${asst.displayName}?\n\nRevocation permanently disables this assistant account and revokes all active child delegations. Old sessions will be invalidated immediately.`)) {
+      return;
+    }
+
+    try {
+      setActionMessage(null);
+      const res = await fetch(`/api/officers/me/assistants/${asst.id}/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expectedRevision: asst.assistantRevision,
+        }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          await loadData();
+          alert("Revision conflict: Stale assistant revision. Data refreshed.");
+          return;
+        }
+        throw new Error(`Failed to revoke assistant (status ${res.status}).`);
+      }
+
+      setActionMessage(`Assistant ${asst.displayName} revoked and disabled.`);
+      await loadData();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error revoking assistant.");
+    }
+  };
+
+  const copyCredentialToClipboard = () => {
+    if (!credentialData) return;
+    void navigator.clipboard.writeText(credentialData.temporaryCredential);
+    setCopiedNotice(true);
+    setTimeout(() => setCopiedNotice(false), 2500);
+  };
+
+  if (loading) {
     return (
       <div className="rbac-admin-root">
-        <div className="state"><strong>Loading assistant directory...</strong></div>
+        <div className="state"><strong>Loading officer assistant directory...</strong></div>
       </div>
     );
   }
@@ -228,23 +408,27 @@ export const OfficerAssistantAdmin: React.FC = () => {
         <div className="rbac-header-title">
           <h2>Officer Assistants & DEO Delegations</h2>
           <p>
-            Supervising officers can attach Data Entry Operators (DEOs) and Dealing Assistants to execute specific responsibilities on their behalf with strict audit attribution.
+            Attached Data Entry Operators (DEOs) and Dealing Assistants executing delegated statutory work on behalf of the supervising officer with strict containment and live audit attribution.
           </p>
         </div>
         <div className="rbac-actions-group">
-          <button className="primary-button" onClick={() => setShowAttachModal(true)}>
+          <button className="primary-button" onClick={openCreateModal}>
             + Attach Assistant / DEO
           </button>
         </div>
       </div>
 
-      {/* Audit Attribution & Security Banner */}
+      {actionMessage && <div className="form-message">{actionMessage}</div>}
+      {error && <div className="state error"><strong>Error:</strong> {error}</div>}
+
+      {/* Audit Attribution & Containment Banner */}
       <div className="contract-notice-banner">
-        <strong>Office Security & Audit Invariant:</strong>
+        <strong>Office Security & Delegation Invariants:</strong>
         <span>
-          • <strong>Audit Attribution:</strong> Every operation performed by an assistant is recorded as <em>"DEO X on behalf of Officer Y"</em>.<br />
-          • <strong>Containment Rule:</strong> An assistant can <em>never</em> receive permissions that the supervising officer does not possess.<br />
-          • <strong>Credential Policy:</strong> Plaintext passwords are never shown or stored. Only temporary initial passwords or reset links are issued.
+          • <strong>Audit Attribution:</strong> Every operation performed by an assistant is permanently recorded as <em>"DEO X on behalf of Officer Y"</em>.<br />
+          • <strong>Permission Ceiling:</strong> An assistant can <em>never</em> receive permissions or roles that the supervising officer does not currently hold.<br />
+          • <strong>Work Allocation Containment:</strong> Child allocations must be derived from an active parent officer allocation.<br />
+          • <strong>Temporary Credentials:</strong> Plaintext passwords are not stored. Temporary credentials are shown exactly once.
         </span>
       </div>
 
@@ -254,7 +438,7 @@ export const OfficerAssistantAdmin: React.FC = () => {
           <span className="rbac-search-icon">🔍</span>
           <input
             type="text"
-            placeholder="Search assistant name, username, or supervising officer..."
+            placeholder="Search assistant display name or username..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -262,272 +446,572 @@ export const OfficerAssistantAdmin: React.FC = () => {
 
         <select
           className="rbac-filter-select"
-          value={filterOfficerId}
-          onChange={(e) => setFilterOfficerId(e.target.value)}
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value as any)}
         >
-          <option value="ALL">All Supervising Officers</option>
-          {officers.map((off) => (
-            <option key={off.id} value={off.id}>
-              {off.displayName} ({off.designation?.name || "Officer"})
-            </option>
-          ))}
+          <option value="ALL">All Statuses</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="INACTIVE">Revoked / Inactive</option>
         </select>
 
         <span style={{ fontSize: "13px", color: "#64748b", marginLeft: "auto" }}>
-          Showing <strong>{filteredDelegations.length}</strong> Delegations
+          Showing <strong>{filteredAssistants.length}</strong> of {assistants.length} Attached Assistants
         </span>
       </div>
 
-      {/* Delegations Table */}
-      <div className="rbac-table-container">
-        <table className="rbac-table">
-          <thead>
-            <tr>
-              <th>Assistant / DEO</th>
-              <th>Audit Attribution</th>
-              <th>Delegated Work Categories</th>
-              <th>Delegated Permissions</th>
-              <th>Status</th>
-              <th>Attached Date</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredDelegations.map((d) => (
-              <tr key={d.id}>
-                <td>
-                  <div className="officer-cell">
-                    <div className="officer-avatar assistant">DEO</div>
-                    <div className="officer-info">
-                      <span className="officer-name">{d.assistantDisplayName}</span>
-                      <span className="officer-user">@{d.assistantUsername}</span>
-                    </div>
-                  </div>
-                </td>
-                <td>
-                  <div className="attribution-tag">
-                    <span className="deo-name">{d.assistantDisplayName.split(" ")[0]}</span>
-                    <span>on behalf of</span>
-                    <span className="officer-name">{d.supervisingOfficerName}</span>
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px" }}>
-                    {d.supervisingOfficerDesignation}
-                  </div>
-                </td>
-                <td>
-                  <div className="role-tags-container">
-                    {d.delegatedWorkCodes.map((code) => (
-                      <span key={code} className="workstream-tag primary">
-                        {code.replace("WORK_", "")}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td>
-                  <div className="role-tags-container">
-                    {d.delegatedPermissionCodes.map((code) => (
-                      <span key={code} className="role-tag">
-                        {code}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td>
-                  <span className={`status ${d.isActive ? "success" : "neutral"}`}>
-                    {d.isActive ? "Active Delegation" : "Revoked"}
-                  </span>
-                </td>
-                <td>
-                  <span style={{ fontSize: "12px", color: "#64748b" }}>
-                    {new Date(d.delegatedAt).toLocaleDateString()}
-                  </span>
-                </td>
-                <td>
-                  <div className="rbac-action-buttons">
-                    {d.isActive ? (
-                      <button
-                        className="rbac-btn-edit"
-                        style={{ color: "#b91c1c" }}
-                        onClick={() => handleRevokeDelegation(d.id, d.assistantDisplayName)}
-                      >
-                        Revoke Delegation
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: "12px", color: "#94a3b8" }}>Revoked</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Assistant Cards List */}
+      <div className="officer-grid">
+        {filteredAssistants.map((asst) => (
+          <div key={asst.id} className="officer-card">
+            <div className="officer-card-header">
+              <div>
+                <span className="officer-name">{asst.displayName}</span>
+                <span className="officer-username">@{asst.username}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                <span className={`status ${asst.isActive ? "success" : "warning"}`}>
+                  {asst.isActive ? "Active Attached" : "Revoked"}
+                </span>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                  Rev {asst.assistantRevision}
+                </span>
+              </div>
+            </div>
+
+            <div className="officer-meta-row">
+              <span className="meta-label">Civil Designation:</span>
+              <span className="meta-value">
+                {designations.find((d) => d.id === asst.designationId)?.name || "Data Entry Operator (DEO)"}
+              </span>
+            </div>
+
+            <div className="officer-meta-row">
+              <span className="meta-label">Credential Status:</span>
+              <span className="meta-value">
+                {asst.mustChangePassword ? (
+                  <span style={{ color: "#d97706", fontWeight: 600 }}>Temporary (Must Change Password)</span>
+                ) : (
+                  <span style={{ color: "#059669", fontWeight: 600 }}>Operational</span>
+                )}
+              </span>
+            </div>
+
+            <div className="officer-card-footer">
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ padding: "4px 10px", fontSize: "12px" }}
+                onClick={() => void openEditModal(asst)}
+                disabled={!asst.isActive}
+              >
+                Edit Delegation
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                style={{ padding: "4px 10px", fontSize: "12px" }}
+                onClick={() => void handleResetCredential(asst)}
+                disabled={!asst.isActive}
+              >
+                Reset Credential
+              </button>
+              {asst.isActive && (
+                <button
+                  type="button"
+                  className="quiet-button"
+                  style={{ padding: "4px 8px", fontSize: "12px", color: "#b91c1c" }}
+                  onClick={() => void handleRevokeAssistant(asst)}
+                >
+                  Revoke
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {filteredAssistants.length === 0 && (
+          <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px", background: "#f8fafc", borderRadius: "8px", border: "1px dashed #cbd5e1" }}>
+            <p style={{ color: "#64748b", margin: 0 }}>No attached assistants found matching query.</p>
+          </div>
+        )}
       </div>
 
-      {/* Attach Assistant Modal */}
-      {showAttachModal && (
+      {/* Create Assistant Modal */}
+      {showCreateModal && (
         <div className="modal-backdrop">
-          <div className="modal-card" style={{ maxWidth: "680px" }}>
-            <h3>Attach Assistant / DEO Account</h3>
+          <div className="modal-card" style={{ maxWidth: "700px", maxHeight: "90vh", overflowY: "auto" }}>
+            <h3>Attach New Assistant / DEO</h3>
             <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
-              Configure a dedicated login account for an assistant and delegate a subset of your official authority.
+              Provisions a dedicated login for an assistant operating on your behalf. Permissions and works must be bounded by your active allocations.
             </p>
 
-            {stagedNotification ? (
-              <div className="form-message" style={{ background: "#ecfdf5", color: "#065f46", border: "1px solid #a7f3d0" }}>
-                {stagedNotification}
+            {createError && (
+              <div className="state error" style={{ marginBottom: "12px" }}>
+                <strong>Error:</strong> {createError}
               </div>
-            ) : (
-              <form onSubmit={handleAttachAssistant} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                {/* Supervisor Selection */}
-                <div className="form-group">
-                  <label>Supervising Officer</label>
-                  <select
-                    value={selectedSupervisorId}
-                    onChange={(e) => setSelectedSupervisorId(e.target.value)}
-                    required
-                  >
-                    {officers.map((off) => (
-                      <option key={off.id} value={off.id}>
-                        {off.displayName} ({off.designation?.name || "Officer"}) — Roles: {off.roles.join(", ") || "Standard"}
-                      </option>
-                    ))}
-                  </select>
-                  <small style={{ color: "#64748b" }}>
-                    The assistant will operate under this officer's constitutional authority.
-                  </small>
-                </div>
+            )}
 
-                {/* Assistant Details */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  <div className="form-group">
-                    <label>Assistant Full Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Manisha Rawat (DEO)"
-                      value={assistantDisplayName}
-                      onChange={(e) => setAssistantDisplayName(e.target.value)}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Assistant Username</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. deo.manisha"
-                      value={assistantUsername}
-                      onChange={(e) => setAssistantUsername(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {/* Temporary Password */}
+            <form onSubmit={handleCreateAssistant} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="form-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div className="form-group">
-                  <label>Initial Temporary Password</label>
+                  <label>Assistant Username *</label>
                   <input
-                    type="password"
+                    type="text"
                     required
-                    placeholder="Set temporary initial password"
-                    value={tempPassword}
-                    onChange={(e) => setTempPassword(e.target.value)}
+                    placeholder="e.g. deo.rajesh"
+                    value={createUsername}
+                    onChange={(e) => setCreateUsername(e.target.value.toLowerCase())}
                   />
-                  <small style={{ color: "#64748b" }}>
-                    Assistant will be prompted to reset password on first login. Plaintext is never stored.
-                  </small>
+                  <small style={{ color: "#64748b" }}>Unique login handle for assistant.</small>
                 </div>
 
-                {/* Delegated Work Categories */}
                 <div className="form-group">
-                  <label>Delegated Work Categories</label>
-                  <div className="multi-select-grid">
-                    {[
-                      { code: "WORK_STMT_A", name: "Statement-A Verification" },
-                      { code: "WORK_LR_VERIF", name: "Land Record Verification" },
-                      { code: "WORK_AWARD_FORM", name: "Award Formulation Assistance" },
-                      { code: "WORK_COMP_DISBUR", name: "Compensation Calculation" },
-                      { code: "WORK_DAK_INTAKE", name: "Inward Dak Digitization" },
-                      { code: "WORK_OUTWARD_DISP", name: "Outward Dispatch Preparation" },
-                      { code: "WORK_COURT_LITIG", name: "Court Hearing Diary Collation" },
-                    ].map((w) => (
-                      <label key={w.code} className="multi-select-item">
-                        <input
-                          type="checkbox"
-                          checked={selectedWorkCodes.includes(w.code)}
-                          onChange={() => handleToggleWork(w.code)}
-                        />
-                        <span>{w.name}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <label>Full Display Name *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Rajesh Kumar (DEO)"
+                    value={createDisplayName}
+                    onChange={(e) => setCreateDisplayName(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Designation</label>
+                <select
+                  value={createDesignationId}
+                  onChange={(e) => setCreateDesignationId(e.target.value)}
+                >
+                  <option value="">Select Designation...</option>
+                  {designations.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Roles Selection */}
+              <div className="form-group">
+                <label>Delegated Role Bundle(s)</label>
+                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "6px" }}>
+                  Select from roles you currently hold. System Admin and privileged management roles cannot be delegated.
+                </div>
+                <div className="multi-select-grid" style={{ maxHeight: "130px" }}>
+                  {delegationOptions?.roles.map((r) => (
+                    <label key={r.id} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={createRoleIds.includes(r.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setCreateRoleIds((prev) => [...prev, r.id]);
+                          else setCreateRoleIds((prev) => prev.filter((id) => id !== r.id));
+                        }}
+                      />
+                      <span><strong>{r.name}</strong> ({r.code})</span>
+                    </label>
+                  ))}
+                  {(!delegationOptions || delegationOptions.roles.length === 0) && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px", padding: "6px" }}>No delegable roles available.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Permission Ceiling Selection */}
+              <div className="form-group">
+                <label>Permission Ceiling (Restrictive Boundary)</label>
+                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "6px" }}>
+                  Must exist in chosen role and your own active permissions.
+                </div>
+                <div className="multi-select-grid" style={{ maxHeight: "130px" }}>
+                  {availableSupervisorPermissions.map((p) => (
+                    <label key={p.code} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={createPermCodes.includes(p.code)}
+                        onChange={(e) => {
+                          if (e.target.checked) setCreatePermCodes((prev) => [...prev, p.code]);
+                          else setCreatePermCodes((prev) => prev.filter((c) => c !== p.code));
+                        }}
+                      />
+                      <span><code>{p.code}</code> ({p.scopeMode})</span>
+                    </label>
+                  ))}
+                  {availableSupervisorPermissions.length === 0 && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px", padding: "6px" }}>No delegable permissions found.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Desks Selection */}
+              <div className="form-group">
+                <label>Operational Desks (Subset of Supervising Officer Desks)</label>
+                <div className="multi-select-grid" style={{ maxHeight: "100px" }}>
+                  {delegationOptions?.desks.map((d) => (
+                    <label key={d.id} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={createDeskIds.includes(d.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setCreateDeskIds((prev) => [...prev, d.id]);
+                          else setCreateDeskIds((prev) => prev.filter((id) => id !== d.id));
+                        }}
+                      />
+                      <span>{d.name} ({d.code})</span>
+                    </label>
+                  ))}
+                  {(!delegationOptions || delegationOptions.desks.length === 0) && (
+                    <div style={{ color: "#94a3b8", fontSize: "12px", padding: "6px" }}>No operational desks held.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Delegated Child Allocations */}
+              <div className="form-group">
+                <label>Delegated Work Allocations (Child Grants)</label>
+                <div style={{ fontSize: "12px", color: "#64748b", marginBottom: "6px" }}>
+                  Every child allocation must reference one of your active parent allocations.
                 </div>
 
-                {/* Delegated Permissions with Strict Containment */}
-                <div className="form-group">
-                  <label>
-                    Delegated Operational Powers (Subset of Supervisor's Authority)
-                  </label>
-                  <div className="multi-select-grid" style={{ maxHeight: "220px" }}>
-                    {AVAILABLE_PERMISSIONS.map((p) => {
-                      const supervisorHasIt = supervisorHeldPermissions.has(p.code);
+                {createAllocations.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
+                    {createAllocations.map((alloc, idx) => {
+                      const parent = delegationOptions?.allocations.find((a) => a.id === alloc.delegatedFromAllocationId);
                       return (
-                        <label
-                          key={p.code}
-                          className="multi-select-item"
-                          style={{
-                            opacity: supervisorHasIt ? 1 : 0.5,
-                            cursor: supervisorHasIt ? "pointer" : "not-allowed",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            disabled={!supervisorHasIt}
-                            checked={supervisorHasIt && selectedPermCodes.includes(p.code)}
-                            onChange={() => handleTogglePerm(p.code)}
-                          />
+                        <div key={idx} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                           <div>
-                            <div>{p.label}</div>
-                            <small style={{ color: "#64748b" }}>{p.code}</small>
-                            {!supervisorHasIt && (
-                              <div className="delegation-lock-notice">
-                                🔒 Supervisor lacks this power
-                              </div>
-                            )}
+                            <strong>{parent?.workName || "Work Allocation"}</strong>
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>
+                              Order: {alloc.workOrderReference} | Scopes: {alloc.scopes.map((s) => s.kind).join(", ")}
+                            </div>
                           </div>
-                        </label>
+                          <button
+                            type="button"
+                            className="quiet-button"
+                            style={{ color: "#b91c1c", fontSize: "12px" }}
+                            onClick={() => setCreateAllocations((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            Remove
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
-                </div>
+                )}
 
-                {/* Delegation Notes */}
-                <div className="form-group">
-                  <label>Official Allocation Order / Scope Remarks</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Specify office order number or tenure bounds..."
-                    value={delegationNotes}
-                    onChange={(e) => setDelegationNotes(e.target.value)}
-                  />
-                </div>
+                {delegationOptions && delegationOptions.allocations.length > 0 && (
+                  <div style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "12px", color: "#334155" }}>Add Delegated Work Allocation:</div>
+                    <select
+                      value={builderParentAllocationId}
+                      onChange={(e) => setBuilderParentAllocationId(e.target.value)}
+                    >
+                      {delegationOptions.allocations.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.workName} (Ref: {a.workOrderReference}) - {a.scopes.map((s) => s.kind).join(", ")}
+                        </option>
+                      ))}
+                    </select>
 
-                {/* Staged Contract Notice */}
-                <div className="contract-warning-banner">
-                  <strong>Codex RBAC Contract Dependency:</strong>
-                  <span>
-                    Delegations configured here are staged in the UI. Live persistence will activate once Codex RBAC's assistant delegation endpoints (<code>POST /api/admin/assistants/delegations</code>) are released.
-                  </span>
-                </div>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ alignSelf: "flex-start", padding: "4px 10px", fontSize: "12px" }}
+                      onClick={() =>
+                        handleAddChildAllocation(
+                          false,
+                          builderParentAllocationId
+                        )
+                      }
+                    >
+                      + Delegate Selected Allocation
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                <div className="modal-actions" style={{ marginTop: "10px" }}>
-                  <button type="button" className="quiet-button" onClick={() => setShowAttachModal(false)}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="primary-button">
-                    Save Assistant & Delegation
-                  </button>
-                </div>
-              </form>
+              <div className="contract-notice-banner" style={{ margin: "4px 0" }}>
+                <strong>One-Time Credential Issuance:</strong>
+                <span>
+                  The backend will issue a 24-hour temporary credential upon creation. You must convey this credential to the assistant.
+                </span>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => setShowCreateModal(false)}
+                  disabled={createLoading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={createLoading}>
+                  {createLoading ? "Attaching Assistant..." : "Attach Assistant & Issue Credential"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Delegation Modal */}
+      {editingAssistant && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "700px", maxHeight: "90vh", overflowY: "auto" }}>
+            <h3>Edit Assistant Delegation</h3>
+            <p className="subtext" style={{ margin: "4px 0 16px 0" }}>
+              Update display name, role ceiling, and delegated allocations for <strong>{editingAssistant.displayName}</strong> (@{editingAssistant.username}).
+            </p>
+
+            {editError && (
+              <div className="state error" style={{ marginBottom: "12px" }}>
+                <strong>Error:</strong> {editError}
+              </div>
             )}
+
+            <form onSubmit={handleUpdateAssistant} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="form-group">
+                <label>Assistant Display Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Designation</label>
+                <select
+                  value={editDesignationId}
+                  onChange={(e) => setEditDesignationId(e.target.value)}
+                >
+                  <option value="">Select Designation...</option>
+                  {designations.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Roles */}
+              <div className="form-group">
+                <label>Delegated Role Bundle(s)</label>
+                <div className="multi-select-grid" style={{ maxHeight: "120px" }}>
+                  {delegationOptions?.roles.map((r) => (
+                    <label key={r.id} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={editRoleIds.includes(r.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditRoleIds((prev) => [...prev, r.id]);
+                          else setEditRoleIds((prev) => prev.filter((id) => id !== r.id));
+                        }}
+                      />
+                      <span><strong>{r.name}</strong> ({r.code})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Permissions */}
+              <div className="form-group">
+                <label>Permission Ceiling</label>
+                <div className="multi-select-grid" style={{ maxHeight: "120px" }}>
+                  {availableSupervisorPermissions.map((p) => (
+                    <label key={p.code} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={editPermCodes.includes(p.code)}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditPermCodes((prev) => [...prev, p.code]);
+                          else setEditPermCodes((prev) => prev.filter((c) => c !== p.code));
+                        }}
+                      />
+                      <span><code>{p.code}</code> ({p.scopeMode})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Desks */}
+              <div className="form-group">
+                <label>Operational Desks</label>
+                <div className="multi-select-grid" style={{ maxHeight: "100px" }}>
+                  {delegationOptions?.desks.map((d) => (
+                    <label key={d.id} className="checkbox-item">
+                      <input
+                        type="checkbox"
+                        checked={editDeskIds.includes(d.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setEditDeskIds((prev) => [...prev, d.id]);
+                          else setEditDeskIds((prev) => prev.filter((id) => id !== d.id));
+                        }}
+                      />
+                      <span>{d.name} ({d.code})</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Child Allocations */}
+              <div className="form-group">
+                <label>Delegated Work Allocations</label>
+                {editAllocations.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "10px" }}>
+                    {editAllocations.map((alloc, idx) => {
+                      const parent = delegationOptions?.allocations.find((a) => a.id === alloc.delegatedFromAllocationId);
+                      return (
+                        <div key={idx} style={{ background: "#f8fafc", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <strong>{parent?.workName || "Work Allocation"}</strong>
+                            <div style={{ fontSize: "11px", color: "#64748b" }}>
+                              Order: {alloc.workOrderReference} | Scopes: {alloc.scopes.map((s) => s.kind).join(", ")}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="quiet-button"
+                            style={{ color: "#b91c1c", fontSize: "12px" }}
+                            onClick={() => setEditAllocations((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {delegationOptions && delegationOptions.allocations.length > 0 && (
+                  <div style={{ background: "#f1f5f9", padding: "10px", borderRadius: "6px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ fontWeight: 600, fontSize: "12px", color: "#334155" }}>Add Delegated Work Allocation:</div>
+                    <select
+                      value={builderParentAllocationId}
+                      onChange={(e) => setBuilderParentAllocationId(e.target.value)}
+                    >
+                      {delegationOptions.allocations.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.workName} (Ref: {a.workOrderReference}) - {a.scopes.map((s) => s.kind).join(", ")}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      style={{ alignSelf: "flex-start", padding: "4px 10px", fontSize: "12px" }}
+                      onClick={() =>
+                        handleAddChildAllocation(
+                          true,
+                          builderParentAllocationId
+                        )
+                      }
+                    >
+                      + Delegate Selected Allocation
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "10px" }}>
+                <button
+                  type="button"
+                  className="quiet-button"
+                  onClick={() => setEditingAssistant(null)}
+                  disabled={editLoading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="primary-button" disabled={editLoading}>
+                  {editLoading ? "Updating..." : "Save Delegation Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* One-time Temporary Credential Modal */}
+      {showCredentialModal && credentialData && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "520px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+              <span style={{ fontSize: "24px" }}>🔑</span>
+              <h3 style={{ margin: 0 }}>One-Time Temporary Credential</h3>
+            </div>
+            <p className="subtext" style={{ margin: "4px 0 14px 0" }}>
+              This credential has been generated securely and will <strong>NEVER</strong> be displayed again.
+            </p>
+
+            <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid #cbd5e1", marginBottom: "16px" }}>
+              <div style={{ marginBottom: "10px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Username</span>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>@{credentialData.username}</div>
+              </div>
+
+              <div>
+                <span style={{ fontSize: "12px", color: "#64748b", textTransform: "uppercase", fontWeight: 600 }}>Temporary Password</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "4px" }}>
+                  <code style={{ fontSize: "16px", fontWeight: 700, background: "#e2e8f0", padding: "6px 12px", borderRadius: "6px", letterSpacing: "1px", flex: 1 }}>
+                    {credentialData.temporaryCredential}
+                  </code>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={copyCredentialToClipboard}
+                    style={{ whiteSpace: "nowrap" }}
+                  >
+                    {copiedNotice ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+
+              {credentialData.expiresAt && (
+                <div style={{ marginTop: "10px", fontSize: "12px", color: "#64748b" }}>
+                  Expires: <strong>{new Date(credentialData.expiresAt).toLocaleString("en-IN")}</strong> (24 hours)
+                </div>
+              )}
+            </div>
+
+            <div className="contract-warning-banner" style={{ marginBottom: "16px" }}>
+              <strong>Mandatory First-Login Policy:</strong>
+              <span>
+                The assistant must replace this temporary password with a personal password of at least 12 characters upon first login before accessing operational modules.
+              </span>
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", cursor: "pointer", fontSize: "13px", color: "#1e293b" }}>
+                <input
+                  type="checkbox"
+                  style={{ marginTop: "3px" }}
+                  checked={credentialAcknowledged}
+                  onChange={(e) => setCredentialAcknowledged(e.target.checked)}
+                />
+                <span>
+                  <strong>I confirm:</strong> I have recorded this temporary credential and will communicate it securely to the assistant. I understand it cannot be recovered.
+                </span>
+              </label>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!credentialAcknowledged}
+                onClick={() => {
+                  setShowCredentialModal(false);
+                  setCredentialData(null);
+                  setCredentialAcknowledged(false);
+                }}
+              >
+                Acknowledge & Close
+              </button>
+            </div>
           </div>
         </div>
       )}

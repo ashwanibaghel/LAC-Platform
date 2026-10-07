@@ -17,6 +17,7 @@ import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LoginPage } from "./auth/LoginPage";
+import { ChangePasswordView } from "./auth/ChangePasswordView";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
 import { WorkCatalogAdmin } from "./admin/WorkCatalogAdmin";
@@ -3890,7 +3891,7 @@ function Party() {
   );
 }
 function AuthenticatedApp() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   if (loading) {
     return (
       <div className="login-loading-screen">
@@ -3900,6 +3901,9 @@ function AuthenticatedApp() {
   }
   if (!user) {
     return <LoginPage />;
+  }
+  if (user.mustChangePassword) {
+    return <ChangePasswordView user={user} onSuccess={logout} onLogout={logout} />;
   }
   return (
     <CalculatorProvider><AppShell>

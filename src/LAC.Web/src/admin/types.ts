@@ -94,30 +94,183 @@ export interface OfficerDetail {
   desks: UserDeskMembershipItem[];
 }
 
-/**
- * Model distinction:
- * Work represents a specific statutory responsibility or task category
- * (e.g. Statement-A, LR Verification, Award Formulation, Compensation Disbursement),
- * distinct from an operational seat (OfficeDesk) or functional branch (Workstream).
- */
+// -------------------------------------------------------------
+// Frozen Codex RBAC Backend Contract Types (from docs/anti-rbac-frontend-contract.md)
+// -------------------------------------------------------------
+
+export type ScopeKind = "Global" | "District" | "Subdivision" | "Village";
+
+export type WorkKind =
+  | "LandAcquisition"
+  | "Award"
+  | "LandRecords"
+  | "Nm"
+  | "Enm"
+  | "Possession"
+  | "Accounts"
+  | "Compensation"
+  | "StatementA"
+  | "Court"
+  | "Rti"
+  | "Correspondence"
+  | "General";
+
+export interface AllocationScope {
+  kind: ScopeKind; // required: no implicit Global
+  districtId?: string | null;
+  subDivisionId?: string | null;
+  villageId?: string | null;
+}
+
+export interface AllocationInput {
+  workDefinitionId: string;
+  validFrom: string;
+  validTo: string | null;
+  workOrderReference: string;
+  reason: string | null;
+  scopes: AllocationScope[]; // 1..100 explicit targets, union within allocation
+  delegatedFromAllocationId?: string | null; // required for assistant grants
+}
+
+export interface Allocation extends AllocationInput {
+  id: string;
+  userId: string;
+  workCode: string;
+  workName: string;
+  revision: number;
+  revokedAt: string | null;
+  revokedByUserId: string | null;
+}
+
+export interface IdRevision {
+  id: string;
+  revision: number;
+}
+
+export interface AccountOptionsResponse {
+  canAssignRoles: boolean;
+  canManageAllocations: boolean;
+  designations: Designation[];
+  roles: { id: string; code: string; name: string }[];
+  works: { id: string; code: string; name: string; kind: WorkKind; workstreamId: string }[];
+  districts: { id: string; name: string }[];
+  subdivisions: { id: string; name: string; districtId: string }[];
+  villages: { id: string; name: string; subDivisionId: string }[];
+}
+
+export interface WorkDefinitionItem {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  kind: WorkKind;
+  workstreamId: string;
+  isActive: boolean;
+  revision: number;
+}
+
+export interface CreateOfficer {
+  username: string;
+  displayName: string;
+  password?: string | null;
+  designationId: string | null;
+  roleIds?: string[] | null;
+  workstreamIds?: string[] | null;
+  primaryWorkstreamId?: string | null;
+  allocations?: AllocationInput[] | null;
+}
+
+export type EditOfficer = Omit<CreateOfficer, "username" | "password">;
+
+export interface AssistantInput {
+  displayName: string;
+  designationId: string | null;
+  roleIds: string[];
+  permissionCodes: string[];
+  allocations: AllocationInput[];
+  deskIds: string[];
+}
+
+export interface OfficerAssistantSummary {
+  id: string;
+  username: string;
+  displayName: string;
+  designationId: string | null;
+  isActive: boolean;
+  supervisingOfficerId: string;
+  assistantRevision: number;
+  mustChangePassword?: boolean;
+}
+
+export interface DelegationOptionsResponse {
+  allocations: Allocation[];
+  roles: { id: string; code: string; name: string; permissions: { code: string; scopeMode: string }[] }[];
+  permissions: { code: string; scopeMode: string }[];
+  desks: { id: string; code: string; name: string }[];
+  serverTime: string;
+}
+
+export interface OfficerAssistantDetail {
+  id: string;
+  username: string;
+  displayName: string;
+  designationId: string | null;
+  isActive: boolean;
+  supervisingOfficerId: string;
+  assistantRevision: number;
+  roleIds: string[];
+  permissionCodes: string[];
+  allocations: Allocation[];
+  deskIds: string[];
+}
+
+export interface TemporaryCredentialResponse {
+  id?: string;
+  message?: string;
+  temporaryCredential?: string;
+  credentialExpiresAt?: string;
+  assistantRevision?: number;
+}
+
+export interface RbacAuditLog {
+  id: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  changedAt: string;
+  changedBy?: string | null;
+  actorUserId?: string | null;
+  onBehalfOfUserId?: string | null;
+  actorDisplayNameSnapshot?: string | null;
+  onBehalfOfDisplayNameSnapshot?: string | null;
+  actorLabel?: string | null;
+  oldValues?: string | null;
+  newValues?: string | null;
+}
+
+export interface RbacAuditResponse {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: RbacAuditLog[];
+}
+
 export interface WorkCatalogItem {
   id: string;
   code: string;
   name: string;
-  workstreamCode: string;
-  workstreamName: string;
+  workstreamCode?: string;
+  workstreamName?: string;
   description: string;
+  kind?: WorkKind;
   statutoryBasis?: string;
-  associatedPermissions: string[];
-  defaultScopeMode: "All" | "Workstream" | "Assigned" | "Own";
-  isStandard: boolean;
+  associatedPermissions?: string[];
+  defaultScopeMode?: string;
+  isStandard?: boolean;
   isActive: boolean;
+  revision?: number;
 }
 
-/**
- * Officer Assistant / DEO Delegation Model:
- * Represents assistant account delegation operating on behalf of a supervising officer.
- */
 export interface OfficerAssistantDelegation {
   id: string;
   assistantUserId: string;
