@@ -416,6 +416,53 @@
   gap: 8px;
 }
 
+.comp-formula-duration-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+
+.comp-formula-duration-row label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.comp-formula-duration-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.comp-formula-duration-controls select {
+  width: auto !important;
+  font-size: 13px !important;
+  padding: 6px 8px !important;
+}
+
+.comp-inline-duration-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comp-inline-duration-wrap input {
+  font-size: 13px !important;
+  padding: 6px 8px !important;
+  width: 90px !important;
+}
+
+.comp-formula-server-hint {
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
+
 .comp-formula-help {
   margin: 0;
   font-size: 12px;

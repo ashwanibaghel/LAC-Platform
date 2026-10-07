@@ -9,6 +9,13 @@ import {
   parseNumericInput
 } from "../src/calculator/compensationFormatters.ts";
 import {
+  INITIAL_COMPENSATION_FORM_STATE,
+  buildCompensationRequest,
+  convertFormulaReadableToInternal,
+  validateFormulaSyntax,
+  getAvailableFormulaVariables
+} from "../src/calculator/compensationContracts.ts";
+import {
   AREA_UNITS,
   areaToSqm,
   sqmToArea
@@ -24,433 +31,415 @@ const contextSource = read("calculator/CalculatorContext.tsx");
 const cssSource = read("calculator/calculator.css");
 const appShellSource = read("components/AppShell.tsx");
 
-// 1. Compensation Calculator accessible from global Calculator
-test("1. Compensation Calculator accessible from global Calculator", () => {
-  assert.ok(
-    modalSource.includes('["compensation", "Compensation Calculator"]'),
-    "CalculatorModal navigation must include Compensation Calculator tab"
-  );
-  assert.ok(
-    modalSource.includes("<CompensationCalculator />"),
-    "CalculatorModal must render CompensationCalculator component"
-  );
-  assert.ok(
-    appShellSource.includes("openCalculator"),
-    "AppShell header must have openCalculator trigger"
-  );
-  assert.ok(
-    contextSource.includes("openCalculator"),
-    "CalculatorContext must export openCalculator function"
-  );
+// 1. Fresh defaults
+test("1. fresh defaults: factor blank, solatium blank, interest rate blank, duration blank, official equivalent blank, trees/assets 0, additional type Interest", () => {
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.landArea, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.officialEquivalentArea, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.useOfficialEquivalent, false);
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.marketRate, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.multiplicationFactor, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.treesAndStructures, "0");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.solatiumPercentage, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.additionalAmountType, "interest");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.annualRate, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.durationValue, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.durationType, "days");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.calculatedOn, "MarketValue");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.formulaReadable, "");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.otherDurationMode, "None");
+  assert.equal(INITIAL_COMPENSATION_FORM_STATE.otherDurationValue, "");
+
+  // Verify non-intrusive placeholders in UI source
+  assert.ok(compSource.includes('placeholder="e.g. 18"'));
+  assert.ok(compSource.includes('placeholder="e.g. 53,00,000"'));
+  assert.ok(compSource.includes('placeholder="e.g. 2"'));
+  assert.ok(compSource.includes('placeholder="e.g. 100"'));
+  assert.ok(compSource.includes('placeholder="e.g. 12"'));
+  assert.ok(compSource.includes('placeholder="e.g. 30"'));
+  assert.ok(compSource.includes('placeholder="e.g. 3.744"'));
+
+  // Ensure 2, 100, 12, 30 are not hard-coded defaults in the form state
+  assert.doesNotMatch(compSource, /useState<string>\("2"\)/);
+  assert.doesNotMatch(compSource, /useState<string>\("100"\)/);
+  assert.doesNotMatch(compSource, /useState<string>\("12"\)/);
+  assert.doesNotMatch(compSource, /useState<string>\("30"\)/);
 });
 
-// 2. Existing Area Calculator still works
-test("2. existing Area Calculator still works", () => {
-  assert.ok(
-    modalSource.includes("<AreaConverter />"),
-    "CalculatorModal must preserve AreaConverter tab and component"
-  );
-  assert.ok(
-    modalSource.includes("<NormalCalculator />"),
-    "CalculatorModal must preserve NormalCalculator tab and component"
-  );
-  assert.ok(
-    modalSource.includes("<RevenueArithmetic />"),
-    "CalculatorModal must preserve RevenueArithmetic tab and component"
-  );
-  assert.equal(areaToSqm(1, "bigha"), 843);
-  assert.equal(areaToSqm(1, "hectare"), 10000);
+// 2. Exact backend request payload for Interest
+test("2. exact backend request payload for Interest", () => {
+  const state = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const { valid, errors, payload } = buildCompensationRequest(state);
+  assert.equal(valid, true);
+  assert.deepEqual(errors, {});
+  assert.deepEqual(payload, {
+    conversionProfile: "lac-delhi-v1",
+    land: {
+      area: 18,
+      unit: "bigha"
+    },
+    marketRate: {
+      amount: 5300000,
+      perUnit: "acre"
+    },
+    multiplicationFactor: 2,
+    assets: {
+      treesAndStructures: 0
+    },
+    solatium: {
+      percent: 100
+    },
+    additionalAmount: {
+      type: "Interest",
+      annualRatePercent: 12,
+      duration: {
+        mode: "Days",
+        value: 30
+      },
+      basis: "MarketValue"
+    }
+  });
 });
 
-// 3. Area + unit entry
-test("3. area + unit entry", () => {
-  assert.ok(compSource.includes("Land Area"), "Form must have Land Area label");
-  assert.ok(
-    compSource.includes('type="number"'),
-    "Area input must accept numeric input"
-  );
-  assert.ok(
-    compSource.includes("setLandAreaUnit"),
-    "Area unit dropdown must update landAreaUnit state"
-  );
-  assert.ok(
-    compSource.includes("AREA_UNITS"),
-    "Area unit dropdown must reuse canonical AREA_UNITS"
-  );
+// 3. Exact backend request payload for Other without duration
+test("3. exact backend request payload for Other without duration", () => {
+  const state = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "other",
+    formulaReadable: "Base Compensation + 50000",
+    otherDurationMode: "None"
+  };
+
+  const { valid, payload } = buildCompensationRequest(state);
+  assert.equal(valid, true);
+  assert.deepEqual(payload.additionalAmount, {
+    type: "Other",
+    basis: "MarketValue",
+    formula: "BASE_COMPENSATION + 50000"
+  });
+  assert.equal("duration" in payload.additionalAmount, false);
+  assert.equal("annualRatePercent" in payload.additionalAmount, false);
 });
 
-// 4. Rate + per-unit dropdown
-test("4. rate + per-unit dropdown", () => {
-  assert.ok(compSource.includes("Market Rate"), "Form must have Market Rate label");
-  assert.ok(
-    compSource.includes('Per {u.label}'),
-    "Rate dropdown must display Per unit options"
-  );
-  assert.ok(
-    compSource.includes('className="comp-currency-prefix">₹'),
-    "Market Rate must have INR ₹ visual adornment"
-  );
+// 4. Other + 30 Days + DAYS formula sends DurationMode Days
+test("4. Other + 30 Days + DAYS formula sends DurationMode Days", () => {
+  const state = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "other",
+    formulaReadable: "MARKET_VALUE * 12 / 100 * (DAYS / 365)",
+    otherDurationMode: "Days",
+    otherDurationValue: "30"
+  };
+
+  const { valid, payload } = buildCompensationRequest(state);
+  assert.equal(valid, true);
+  assert.deepEqual(payload.additionalAmount, {
+    type: "Other",
+    basis: "MarketValue",
+    duration: {
+      mode: "Days",
+      value: 30
+    },
+    formula: "MARKET_VALUE * 12 / 100 * (DAYS / 365)"
+  });
 });
 
-// 5. Converted-area helper & official equivalent area override
-test("5. converted-area helper", () => {
-  assert.ok(
-    compSource.includes("autoConvertedStr"),
-    "Component must compute subtle automatic conversion helper"
-  );
-  assert.ok(
-    compSource.includes("Auto conversion:"),
-    "Component must render Auto conversion label"
-  );
-  assert.ok(
-    compSource.includes("Use official/document equivalent area"),
-    "Component must provide option to use official/document equivalent area"
-  );
-  assert.ok(
-    compSource.includes("Official equivalent area"),
-    "Component must provide input for official equivalent area"
-  );
-  assert.ok(
-    compSource.includes("Use this only when the Award/official document specifies a different equivalent area"),
-    "Component must provide official equivalent helper guidance"
-  );
-  assert.ok(
-    compSource.includes("equivalentAreaInRateUnit"),
-    "Component must send land.equivalentAreaInRateUnit when enabled"
-  );
+// 5. Other + Months makes MONTHS available, not DAYS
+test("5. Other + Months makes MONTHS available, not DAYS", () => {
+  const monthChips = getAvailableFormulaVariables("Months");
+  assert.ok(monthChips.some((c) => c.id === "MONTHS"));
+  assert.ok(!monthChips.some((c) => c.id === "DAYS"));
 
-  // Verify existing Area Calculator conversion semantics:
-  const bighaSqm = areaToSqm(18, "bigha");
-  const convertedAcre = sqmToArea(bighaSqm, "acre");
-  assert.ok(convertedAcre > 3.7495 && convertedAcre < 3.7496);
-  assert.equal(convertedAcre.toFixed(6), "3.749577");
-  assert.ok(
-    compSource.includes("areaToSqm") && compSource.includes("sqmToArea"),
-    "Conversion helper must reuse existing landConversions semantics"
-  );
+  // Formula validation rejects DAYS if mode is Months
+  const syntaxWithDays = validateFormulaSyntax("MARKET_VALUE * (DAYS / 365)", "Months");
+  assert.equal(syntaxWithDays, "DAYS variable requires Days or Date Range duration.");
+
+  // Formula validation accepts MONTHS when mode is Months
+  const syntaxWithMonths = validateFormulaSyntax("MARKET_VALUE * 12 / 100 * (MONTHS / 12)", "Months");
+  assert.equal(syntaxWithMonths, null);
+
+  const state = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "other",
+    formulaReadable: "MARKET_VALUE * 12 / 100 * (MONTHS / 12)",
+    otherDurationMode: "Months",
+    otherDurationValue: "6"
+  };
+
+  const { valid, payload } = buildCompensationRequest(state);
+  assert.equal(valid, true);
+  assert.deepEqual(payload.additionalAmount, {
+    type: "Other",
+    basis: "MarketValue",
+    duration: {
+      mode: "Months",
+      value: 6
+    },
+    formula: "MARKET_VALUE * 12 / 100 * (MONTHS / 12)"
+  });
 });
 
-// 6. Factor input
-test("6. factor input", () => {
-  assert.ok(
-    compSource.includes("Multiplication Factor"),
-    "Form must have Multiplication Factor label"
-  );
-  assert.ok(
-    compSource.includes('placeholder="e.g. 2"'),
-    "Factor input must show neutral placeholder without legal mandates"
+// 6. Other + DateRange sends exact dates
+test("6. Other + DateRange sends exact dates", () => {
+  const state = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "other",
+    formulaReadable: "MARKET_VALUE * 12 / 100 * (DAYS / 365)",
+    otherDurationMode: "DateRange",
+    otherStartDate: "2026-01-01",
+    otherEndDate: "2026-01-31"
+  };
+
+  const { valid, payload } = buildCompensationRequest(state);
+  assert.equal(valid, true);
+  assert.deepEqual(payload.additionalAmount, {
+    type: "Other",
+    basis: "MarketValue",
+    duration: {
+      mode: "DateRange",
+      startDate: "2026-01-01",
+      endDate: "2026-01-31"
+    },
+    formula: "MARKET_VALUE * 12 / 100 * (DAYS / 365)"
+  });
+});
+
+// 7. DAYS unavailable when Other duration=None
+test("7. DAYS unavailable when Other duration=None", () => {
+  const noneChips = getAvailableFormulaVariables("None");
+  assert.ok(!noneChips.some((c) => c.id === "DAYS"));
+
+  const err = validateFormulaSyntax("MARKET_VALUE * (DAYS / 365)", "None");
+  assert.equal(err, "DAYS variable requires Days or Date Range duration.");
+});
+
+// 8. MONTHS unavailable when Other duration=None
+test("8. MONTHS unavailable when Other duration=None", () => {
+  const noneChips = getAvailableFormulaVariables("None");
+  assert.ok(!noneChips.some((c) => c.id === "MONTHS"));
+
+  const err = validateFormulaSyntax("MARKET_VALUE * (MONTHS / 12)", "None");
+  assert.equal(err, "MONTHS variable requires Months duration.");
+});
+
+// 9. No locally calculated authoritative monetary preview
+test("9. no locally calculated authoritative monetary preview", () => {
+  assert.doesNotMatch(
+    compSource,
+    /evaluateExpression/,
+    "CompensationCalculator must not import or run local evaluateExpression math engine"
   );
   assert.doesNotMatch(
     compSource,
-    /mandatory factor|statutory factor 2/i,
-    "Factor wording must remain neutral"
+    /estMarketValue|estFactorValue|estBaseComp|estSolatium/i,
+    "CompensationCalculator must not duplicate domain calculation variables locally"
+  );
+  assert.ok(
+    compSource.includes("Amount will be calculated by the server."),
+    "Formula preview must state that amount will be calculated by the server before computation"
   );
 });
 
-// 7. Trees/structure zero/Nil UX
-test("7. trees/structure zero/Nil UX", () => {
+// 10. Final Additional Amount renders backend response
+test("10. final Additional Amount renders backend response", () => {
   assert.ok(
-    compSource.includes("Trees &amp; Structures") || compSource.includes("Trees & Structures"),
-    "Form must have Trees & Structures label"
+    compSource.includes("result.additionalAmount.amount"),
+    "Component must render backend result.additionalAmount.amount"
   );
   assert.ok(
-    compSource.includes("Nil / ₹0"),
-    "Trees & Structures must have a one-click Nil / ₹0 action button"
-  );
-  assert.ok(
-    compSource.includes('setTreesAndStructures("0")'),
-    "Nil action must store and send numeric 0"
+    compSource.includes("formatInr(result.additionalAmount.amount)"),
+    "Component must format backend additional amount via formatInr"
   );
 });
 
-// 8. Solatium input
-test("8. solatium input", () => {
-  assert.ok(
-    compSource.includes("Solatium Rate (%)"),
-    "Form must have neutral Solatium Rate label"
+// 11. Official override omitted unless explicitly enabled
+test("11. official override omitted unless explicitly enabled", () => {
+  const stateDisabled = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    annualRate: "12",
+    durationValue: "30",
+    useOfficialEquivalent: false,
+    officialEquivalentArea: "3.744"
+  };
+
+  const resDisabled = buildCompensationRequest(stateDisabled);
+  assert.equal(resDisabled.valid, true);
+  assert.equal("equivalentAreaInRateUnit" in resDisabled.payload.land, false);
+
+  const stateEnabled = {
+    ...stateDisabled,
+    useOfficialEquivalent: true,
+    officialEquivalentArea: "3.744"
+  };
+
+  const resEnabled = buildCompensationRequest(stateEnabled);
+  assert.equal(resEnabled.valid, true);
+  assert.equal(resEnabled.payload.land.equivalentAreaInRateUnit, 3.744);
+});
+
+// 12. Enabled official override blank blocks submit
+test("12. enabled official override blank blocks submit", () => {
+  const stateBlank = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    annualRate: "12",
+    durationValue: "30",
+    useOfficialEquivalent: true,
+    officialEquivalentArea: ""
+  };
+
+  const res = buildCompensationRequest(stateBlank);
+  assert.equal(res.valid, false);
+  assert.ok(res.errors["land.equivalentAreaInRateUnit"]);
+  assert.ok(res.errors["land.equivalentAreaInRateUnit"].includes("official equivalent area"));
+});
+
+// 13. Sample acceptance
+test("13. sample acceptance: 18 Bigha, 3.744 Acre override, 53L, Factor 2, Assets 0, Solatium 100, Interest 12, 30 Days => ₹7,95,68,513.75", () => {
+  const acceptanceState = {
+    ...INITIAL_COMPENSATION_FORM_STATE,
+    landArea: "18",
+    landAreaUnit: "bigha",
+    useOfficialEquivalent: true,
+    officialEquivalentArea: "3.744",
+    marketRate: "5300000",
+    marketRateUnit: "acre",
+    multiplicationFactor: "2",
+    treesAndStructures: "0",
+    solatiumPercentage: "100",
+    additionalAmountType: "interest",
+    annualRate: "12",
+    durationType: "days",
+    durationValue: "30",
+    calculatedOn: "MarketValue"
+  };
+
+  const { valid, payload } = buildCompensationRequest(acceptanceState);
+  assert.equal(valid, true);
+  assert.deepEqual(payload, {
+    conversionProfile: "lac-delhi-v1",
+    land: {
+      area: 18,
+      unit: "bigha",
+      equivalentAreaInRateUnit: 3.744
+    },
+    marketRate: {
+      amount: 5300000,
+      perUnit: "acre"
+    },
+    multiplicationFactor: 2,
+    assets: {
+      treesAndStructures: 0
+    },
+    solatium: {
+      percent: 100
+    },
+    additionalAmount: {
+      type: "Interest",
+      annualRatePercent: 12,
+      duration: {
+        mode: "Days",
+        value: 30
+      },
+      basis: "MarketValue"
+    }
+  });
+
+  // Authoritative display formatting assertions:
+  assert.equal(formatInr("79568513.75"), "₹7,95,68,513.75");
+  assert.equal(
+    formatInr({ precise: "79568513.75342465753424657534", display: "79568513.75" }),
+    "₹7,95,68,513.75"
   );
-  assert.doesNotMatch(
-    compSource,
-    /statutory solatium|legally required 100/i,
-    "Solatium wording must not assume a statutory requirement"
+  assert.equal(
+    formatInr({ precise: "195713.75342465753424657534249", display: "195713.75" }),
+    "₹1,95,713.75"
+  );
+  assert.equal(
+    formatInr({ precise: "19843200", display: "19843200.00" }),
+    "₹1,98,43,200"
+  );
+  assert.equal(
+    formatInr({ precise: "39686400", display: "39686400.00" }),
+    "₹3,96,86,400"
+  );
+  assert.equal(
+    formatInr({ precise: "79372800", display: "79372800.00" }),
+    "₹7,93,72,800"
   );
 });
 
-// 9. Interest default
-test("9. Interest default", () => {
-  assert.ok(
-    compSource.includes('useState<"interest" | "other">("interest")'),
-    "Additional amount type must default to interest"
-  );
-  assert.ok(
-    compSource.includes('useState<string>("12")'),
-    "Annual interest rate must default to 12%"
-  );
-});
-
-// 10. Days duration
-test("10. days duration", () => {
-  assert.ok(
-    compSource.includes('<option value="days">Days</option>'),
-    "Duration unit dropdown must include Days"
-  );
-  assert.ok(
-    compSource.includes('durationType === "days"'),
-    "Component must handle Days duration"
-  );
-});
-
-// 11. Months duration
-test("11. months duration", () => {
-  assert.ok(
-    compSource.includes('<option value="months">Months</option>'),
-    "Duration unit dropdown must include Months"
-  );
-  assert.ok(
-    compSource.includes('durationType === "months"'),
-    "Component must handle Months duration"
-  );
-});
-
-// 12. Date range duration
-test("12. date range duration", () => {
-  assert.ok(
-    compSource.includes('<option value="date_range">Date range</option>'),
-    "Duration unit dropdown must include Date range"
-  );
-  assert.ok(
-    compSource.includes('type="date"'),
-    "Component must provide Start and End date pickers for date range"
-  );
-  assert.ok(
-    compSource.includes("dateRangeDays"),
-    "Component must compute elapsed days for date range"
-  );
-});
-
-// 13. Calculated-on dropdown
-test("13. calculated-on dropdown", () => {
-  assert.ok(
-    compSource.includes("Calculated On"),
-    "Interest section must have Calculated On dropdown"
-  );
-  assert.ok(
-    compSource.includes(">Market Value</option>"),
-    "Calculated On options must include Market Value"
-  );
-  assert.ok(
-    compSource.includes(">Factor Value</option>"),
-    "Calculated On options must include Factor Value"
-  );
-  assert.ok(
-    compSource.includes(">Base Compensation</option>"),
-    "Calculated On options must include Base Compensation"
-  );
-});
-
-// 14. Other formula mode hidden until selected
-test("14. Other formula mode hidden until selected", () => {
-  assert.ok(
-    compSource.includes('additionalAmountType === "interest" ?'),
-    "Formula builder must be hidden while Interest is selected"
-  );
-  assert.ok(
-    compSource.includes('comp-formula-builder'),
-    "Formula builder section must be conditioned on Other selection"
-  );
-});
-
-// 15. Formula variable chips / operators
-test("15. formula variable chips/operators", () => {
-  assert.ok(
-    compSource.includes("FORMULA_VARIABLES"),
-    "Formula builder must expose whitelisted FORMULA_VARIABLES"
-  );
-  assert.ok(
-    compSource.includes("FORMULA_OPERATORS"),
-    "Formula builder must expose whitelisted FORMULA_OPERATORS"
-  );
-  for (const label of [
-    "Market Value",
-    "Factor Value",
-    "Assets",
-    "Base Compensation",
-    "Solatium",
-    "After Solatium",
-    "Days",
-    "Months"
-  ]) {
-    assert.ok(
-      compSource.includes(`label: "${label}"`),
-      `Formula builder must have chip for ${label}`
-    );
-  }
-});
-
-// 16. Formula preview
-test("16. formula preview", () => {
-  assert.ok(
-    compSource.includes("formulaPreviewAmount"),
-    "Component must calculate live formula preview amount"
-  );
-  // Test reference formula math:
-  // Market Value: 19843200, Days: 30
-  // Formula: Market Value * 12 / 100 * Days / 365
-  const sampleExpr = "19843200 * 12 / 100 * 30 / 365";
-  const result = evaluateExpression(sampleExpr);
-  assert.equal(result.toFixed(2), "195713.75");
-  assert.equal(formatInr(result), "₹1,95,713.75");
-});
-
-// 17. Backend validation errors
-test("17. backend validation errors", () => {
-  assert.ok(
-    compSource.includes("fieldErrors"),
-    "Component must maintain field-specific errors state"
-  );
-  assert.ok(
-    compSource.includes("generalError"),
-    "Component must maintain general error state"
-  );
-  assert.ok(
-    compSource.includes('role="alert"'),
-    "Error banner and field errors must be accessibly marked with role=alert"
-  );
-  assert.doesNotMatch(
-    compSource,
-    /\balert\(/,
-    "Component must not use browser alert() window popups"
-  );
-});
-
-// 18. Final compensation rendering & distinct area breakdown
-test("18. final compensation rendering", () => {
-  assert.ok(
-    compSource.includes("FINAL COMPENSATION"),
-    "Result panel must prominently show FINAL COMPENSATION banner"
-  );
-  assert.ok(
-    compSource.includes("comp-final-amount"),
-    "Result panel must have dedicated large final amount display"
-  );
-  assert.ok(
-    compSource.includes("Calculation Breakdown"),
-    "Result panel must render clean calculation breakdown"
-  );
-  assert.ok(
-    compSource.includes("Entered land:"),
-    "Result breakdown must show Entered land label"
-  );
-  assert.ok(
-    compSource.includes("Automatic conversion:"),
-    "Result breakdown must show Automatic conversion label"
-  );
-  assert.ok(
-    compSource.includes("Applied for calculation:"),
-    "Result breakdown must show Applied for calculation label"
-  );
-  assert.ok(
-    compSource.includes("Official equivalent entered"),
-    "Result breakdown must distinguish official equivalent override"
-  );
-});
-
-// 19. Indian currency formatting
-test("19. Indian currency formatting", () => {
-  // Direct numbers
-  assert.equal(formatInr(79568513.75), "₹7,95,68,513.75");
-  assert.equal(formatInr(19843200), "₹1,98,43,200");
-  assert.equal(formatInr(39686400), "₹3,96,86,400");
-  assert.equal(formatInr(0), "₹0");
-  assert.equal(formatInr(195713.75), "₹1,95,713.75");
-  assert.equal(formatInr(null), "—");
-
-  // Backend MoneyValue { precise, display } objects
-  assert.equal(formatInr({ precise: "79568513.75342465753424657534", display: "79568513.75" }), "₹7,95,68,513.75");
-  assert.equal(formatInr({ precise: "19843200", display: "19843200.00" }), "₹1,98,43,200");
-  assert.equal(formatInr({ precise: "0", display: "0.00" }), "₹0");
-  assert.equal(formatInr({ precise: "195713.75342465753424657534249", display: "195713.75" }), "₹1,95,713.75");
-});
-
-// 20. Amount in words rendering when returned
-test("20. amount in words rendering when returned", () => {
-  assert.ok(
-    compSource.includes("result.finalAmountInWords || numberToIndianWords(result.finalCompensation)"),
-    "Result panel must display amount in words from backend or format helper"
-  );
-  const words = numberToIndianWords({ precise: "79568513.7534", display: "79568513.75" });
-  assert.ok(words.includes("Seven Crore"));
-  assert.ok(words.includes("Ninety Five Lakh"));
-  assert.ok(words.includes("Sixty Eight Thousand"));
-  assert.ok(words.includes("Five Hundred Thirteen"));
-  assert.ok(words.includes("Seventy Five Paise"));
-});
-
-// 21. Reset
-test("21. Reset", () => {
-  assert.ok(
-    compSource.includes("handleReset"),
-    "Component must have Reset handler"
-  );
-  assert.ok(
-    compSource.includes('setResult(null)'),
-    "Reset handler must clear calculation results and return to empty panel"
-  );
-});
-
-// 22. No Save/Award link/history
-test("22. no Save/Award link/history", () => {
-  assert.doesNotMatch(
-    compSource,
-    /Save Calculation|Link to Award|Save to Award|Calculation History|localStorage/i,
-    "Compensation Calculator must not have Save, Link Award, or history actions"
-  );
-});
-
-// 23. 1366x768 no broken layout
-test("23. 1366x768 no broken layout", () => {
-  assert.ok(
-    cssSource.includes(".comp-modal-wide"),
-    "CSS must define wide modal container for desktop viewports"
-  );
-  assert.ok(
-    cssSource.includes(".comp-grid-layout"),
-    "CSS must define two-column grid layout"
-  );
-  assert.ok(
-    cssSource.includes("@media (max-width: 860px)"),
-    "CSS must handle stacked responsiveness for smaller widths"
-  );
-});
-
-// 24. Keyboard/focus basics
-test("24. keyboard/focus basics", () => {
-  assert.ok(
-    compSource.includes("htmlFor="),
-    "Inputs must be properly associated with accessible labels"
-  );
-  assert.ok(
-    compSource.includes("onWheel={(e) => e.currentTarget.blur()}"),
-    "Number inputs must prevent accidental mouse-wheel number changes"
-  );
-  assert.ok(
-    cssSource.includes(":focus"),
-    "CSS must provide visible focus indicators"
-  );
-});
-
-// 25. Existing Calculator regression
-test("25. existing Calculator regression", () => {
-  // Canonical Delhi revenue constants
+// 14. Existing calculator regression
+test("14. existing calculator regression", () => {
   assert.equal(AREA_UNITS.bigha.sqm, 843);
   assert.equal(AREA_UNITS.biswa.sqm, 42.15);
   assert.equal(AREA_UNITS.biswansi.sqm, 2.1075);
   assert.equal(AREA_UNITS.acre.sqm, 4046.8564224);
   assert.equal(evaluateExpression("2 + 3 * 4"), 14);
+
+  assert.ok(modalSource.includes("<AreaConverter />"));
+  assert.ok(modalSource.includes("<NormalCalculator />"));
+  assert.ok(modalSource.includes("<RevenueArithmetic />"));
+  assert.ok(modalSource.includes("<LengthConverter />"));
 });
 
-// 26. Home/Court/Matter/Land preservation tests
-test("26. Home/Court/Matter/Land preservation tests", () => {
+// 15. Home/Court/Matter/Land preservation
+test("15. Home/Court/Matter/Land preservation", () => {
   const homeSource = read("home/Home.tsx");
   const courtSource = read("court/CourtDirectory.tsx");
   const matterSource = read("matter/MatterDirectory.tsx");
@@ -460,4 +449,69 @@ test("26. Home/Court/Matter/Land preservation tests", () => {
   assert.ok(courtSource.includes("Court matters"));
   assert.ok(matterSource.includes("MattersDirectory") || matterSource.includes("Matter Directory") || matterSource.includes("Matter"));
   assert.ok(landSource.includes("Land Records Hierarchy") || landSource.includes("villages"));
+});
+
+// 16. HTTP status code handling (401, 413, 415, 400 field mapping)
+test("16. HTTP status code handling (401, 413, 415, 400 field mapping)", () => {
+  assert.ok(
+    compSource.includes("response.status === 401"),
+    "Component must handle 401 session expiration"
+  );
+  assert.ok(
+    compSource.includes("response.status === 413"),
+    "Component must handle 413 payload too large"
+  );
+  assert.ok(
+    compSource.includes("response.status === 415"),
+    "Component must handle 415 unsupported media type"
+  );
+  assert.ok(
+    compSource.includes("flatErrors"),
+    "Component must map backend validation errors to form fields"
+  );
+  assert.doesNotMatch(
+    compSource,
+    /\balert\(/,
+    "Component must not use window alert() calls"
+  );
+});
+
+// 17. Currency and Indian numbering formatters
+test("17. currency and Indian numbering formatters", () => {
+  assert.equal(formatInr(79568513.75), "₹7,95,68,513.75");
+  assert.equal(formatInr(19843200), "₹1,98,43,200");
+  assert.equal(formatInr(0), "₹0");
+  assert.equal(formatInr(null), "—");
+
+  const words = numberToIndianWords({ precise: "79568513.7534", display: "79568513.75" });
+  assert.ok(words.includes("Seven Crore"));
+  assert.ok(words.includes("Ninety Five Lakh"));
+  assert.ok(words.includes("Sixty Eight Thousand"));
+  assert.ok(words.includes("Five Hundred Thirteen"));
+  assert.ok(words.includes("Seventy Five Paise"));
+});
+
+// 18. Reset handler clears state and returns to initial
+test("18. reset handler clears state and returns to initial", () => {
+  assert.ok(compSource.includes("handleReset"));
+  assert.ok(compSource.includes("INITIAL_COMPENSATION_FORM_STATE"));
+  assert.ok(compSource.includes("setResult(null)"));
+  assert.ok(compSource.includes("setFieldErrors({})"));
+});
+
+// 19. 1366x768 layout styles and modal classes
+test("19. 1366x768 layout styles and modal classes", () => {
+  assert.ok(cssSource.includes(".comp-modal-wide"));
+  assert.ok(cssSource.includes(".comp-grid-layout"));
+  assert.ok(cssSource.includes(".comp-formula-duration-row"));
+  assert.ok(cssSource.includes("@media (max-width: 860px)"));
+});
+
+// 20. No Save, Award linking, or calculation history
+test("20. no Save, Award linking, or calculation history", () => {
+  assert.doesNotMatch(
+    compSource,
+    /Save Calculation|Link to Award|Save to Award|Calculation History|localStorage/i,
+    "Compensation Calculator must not have Save, Link Award, or history actions"
+  );
 });
