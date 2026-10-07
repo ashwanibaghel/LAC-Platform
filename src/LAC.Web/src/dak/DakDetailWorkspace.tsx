@@ -3,7 +3,8 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import type { DakDetail, DakCategory, PhysicalOriginalInfo } from "./types";
 import { DakTimeline } from "./DakTimeline";
-import { DakMovementModal } from "./DakMovementModal";
+import { DakMovementModal, type MovementModalMode } from "./DakMovementModal";
+import { formatDakStatus, isLongPendingReceipt, formatElapsedTime, DAK_PENDING_RECEIPT_ALERT_HOURS } from "./dakConfig";
 import "./dak.css";
 
 interface DeskOption {
@@ -22,7 +23,7 @@ interface DeskTargetOption {
 export const DakDetailWorkspace: React.FC = () => {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
 
   const currentDakIdRef = useRef<string>(id);
   useEffect(() => {
@@ -37,7 +38,7 @@ export const DakDetailWorkspace: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"overview" | "documents" | "links" | "timeline">("overview");
 
   // Modals visibility state
-  const [movementModalMode, setMovementModalMode] = useState<"move" | "dispose" | "cancel" | null>(null);
+  const [movementModalMode, setMovementModalMode] = useState<MovementModalMode | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
@@ -488,11 +489,38 @@ export const DakDetailWorkspace: React.FC = () => {
   if (error || !dak) return <div className="state error"><strong>Error:</strong> {error || "Dak not found."}</div>;
 
   const isTerminal = dak.recordStatus !== "Active" || dak.status === "Disposed" || dak.status === "Cancelled";
-  const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
-  const canMove = hasPermission("Dak.Move") && !isTerminal;
-  const canDispose = hasPermission("Dak.Dispose") && !isTerminal;
+  const isResolved = dak.status === "Disposed";
+
+  const currentUserId = user?.id || (user as any)?.userId;
+  const currentUserName = user?.displayName;
+
+  const canMove = hasPermission("Dak.Move") || hasPermission("Dak.Mark");
+  const canReceive = hasPermission("Dak.Receive");
+  const canPullBack = hasPermission("Dak.PullBack");
+  const canResolve = hasPermission("Dak.Resolve") || hasPermission("Dak.Dispose");
+  const canReopen = hasPermission("Dak.Reopen");
   const canCancel = hasPermission("Dak.Cancel") && !isTerminal;
   const canEdit = hasPermission("Dak.Edit") && !isTerminal;
+  const canAssignWork = hasPermission("WorkItem.Create") && !isTerminal;
+
+  // Deriving routing and custody states from authoritative backend contract
+  const routingState = dak.routingState || (dak.currentAssignment ? (dak.currentAssignment.isReceived === false ? "InTransit" : "WithHolder") : "Unassigned");
+  const pendingTransfer = dak.pendingTransfer;
+
+  const isInTransit = !isTerminal && (routingState === "InTransit" || Boolean(pendingTransfer && pendingTransfer.state === "Pending") || (dak.currentAssignment?.isReceived === false && dak.currentAssignment?.isActive));
+  const isReturnPending = dak.physicalState === "ReturnPending";
+  const isWithHolder = !isTerminal && !isInTransit && !isReturnPending && (routingState === "WithHolder" || Boolean(dak.currentAssignment?.isActive));
+
+  // Recipient identification
+  const recipientUserId = pendingTransfer?.toUserId || dak.currentAssignment?.assignedUserId;
+  const recipientDisplayName = pendingTransfer?.toUserDisplayName || dak.currentAssignment?.assignedUserDisplayName || "Assigned Officer";
+  const recipientDeskName = dak.currentAssignment?.deskName || "Target Desk";
+  const isCurrentUserRecipient = Boolean(currentUserId && recipientUserId && currentUserId === recipientUserId) || Boolean(currentUserName && recipientDisplayName && currentUserName.includes(recipientDisplayName));
+
+  // Sender identification
+  const senderUserId = pendingTransfer?.senderUserId || dak.currentAssignment?.assignedByUserId;
+  const senderDisplayName = dak.currentAssignment?.assignedByDisplayName || "Sender";
+  const isCurrentUserSender = Boolean(currentUserId && senderUserId && currentUserId === senderUserId) || Boolean(currentUserName && dak.currentAssignment?.assignedByDisplayName && currentUserName.includes(dak.currentAssignment.assignedByDisplayName)) || (!isCurrentUserRecipient && isInTransit);
 
   // Selected desk in physical modal draft
   const poDraftSelectedDesk = combinedDesks.find((d) => d.id === poDraftDeskId);
@@ -523,14 +551,19 @@ export const DakDetailWorkspace: React.FC = () => {
           <div className="eyebrow" style={{ display: "flex", gap: "10px", alignItems: "center" }}>
             <span>Inward Dak #{dak.diaryNumber}</span>
             <span className={`priority-pill priority-${dak.priority.toLowerCase()}`}>{dak.priority}</span>
-            <span className={`status-pill status-${dak.status.toLowerCase()}`}>{dak.status}</span>
-            {isTerminal && <span className="terminal-badge" title="Historical terminal record; modifications disabled">🔒 Read-Only Record</span>}
+            <span className={`status-pill status-${dak.status.toLowerCase()}`}>{formatDakStatus(dak.status)}</span>
+            {isTerminal && (
+              <span className="terminal-badge" title="Historical terminal record; modifications disabled">
+                {dak.status === "Cancelled" ? "🔒 Cancelled Record" : "🔒 Resolved Record"}
+              </span>
+            )}
           </div>
           <h1>{dak.subject}</h1>
           <p className="subtext">
             Received from <strong>{dak.senderName}</strong>
             {dak.senderDepartment ? ` (${dak.senderDepartment})` : ""} on{" "}
             {dak.receivedDate} via {dak.inwardMode}.
+            {dak.senderReferenceNumber && <span> • Ref: <strong>{dak.senderReferenceNumber}</strong></span>}
           </p>
         </div>
       </div>
@@ -548,44 +581,181 @@ export const DakDetailWorkspace: React.FC = () => {
         </div>
       )}
 
+      {/* Attention Alert for Long Pending Receipt (>48h configurable) */}
+      {!isTerminal && isLongPendingReceipt(dak.currentAssignment?.assignedAt || dak.createdAt) && (
+        <div className="hero-attention-alert">
+          <span className="alert-icon">⏱️</span>
+          <div>
+            <strong>Attention: Long Pending Receipt (&gt;{DAK_PENDING_RECEIPT_ALERT_HOURS}h)</strong>
+            <div>
+              This Dak has been awaiting receipt acknowledgment or desk progression for{" "}
+              <strong>{formatElapsedTime(dak.currentAssignment?.assignedAt || dak.createdAt)}</strong>. Expedited officer review recommended.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attention Alert for ReturnPending */}
+      {isReturnPending && (
+        <div className="hero-attention-alert" style={{ background: "#fef2f2", borderColor: "#fecaca" }}>
+          <span className="alert-icon">⚠️</span>
+          <div>
+            <strong style={{ color: "#991b1b" }}>Physical Paper Recovery Pending</strong>
+            <div style={{ color: "#7f1d1d" }}>
+              This Dak transfer was pulled back while sending the physical paper original. The paper original must be verified and recovered back to sender custody before new dispatches can be made.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dual Custody Card: Operational Assignment vs Physical Original Location */}
       <div className="dak-custody-card-dual">
-        {/* Box A: Current Operational Assignment */}
+        {/* Box A: Current Operational Assignment & Holder */}
         <div className="custody-box operational-box">
           <div className="custody-box-header">
             <span className="custody-box-icon">📋</span>
             <div>
-              <span className="custody-box-title">Current Operational Assignment</span>
-              <span className="custody-box-subtitle">Workflow & Task Responsibility</span>
+              <span className="custody-box-title">
+                {isResolved
+                  ? "Historical Custody at Resolution"
+                  : isReturnPending
+                  ? "Custody Status: Physical Recovery Pending"
+                  : isInTransit
+                  ? "Current Operational Custody (In Transit)"
+                  : "Current Operational Assignment & Holder"}
+              </span>
+              <span className="custody-box-subtitle">Workflow, Desk & Task Responsibility</span>
             </div>
           </div>
 
           <div className="custody-box-body">
-            {dak.currentAssignment ? (
-              <>
+            {isResolved ? (
+              <div className="resolved-custody-card">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <span className="badge" style={{ background: "#dcfce7", color: "#166534", fontWeight: 600, padding: "3px 8px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                    ✓ Resolved Record
+                  </span>
+                  <span style={{ fontSize: "12px", color: "#64748b" }}>
+                    Settled on {(() => {
+                      const dStr = dak.resolution?.resolvedAt || dak.updatedAt;
+                      if (!dStr) return "Record Closure";
+                      const d = new Date(dStr);
+                      return isNaN(d.getTime()) ? "Record Closure" : d.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+                    })()}
+                  </span>
+                </div>
+                <div className="custody-main-name">
+                  {dak.currentAssignment ? `${dak.currentAssignment.deskName} (${dak.currentAssignment.deskCode})` : "Finalized Custody"}
+                </div>
+                <div className="custody-sub-name" style={{ marginTop: "4px" }}>
+                  Last Confirmed Custodian: <strong>{dak.currentAssignment?.assignedUserDisplayName || "Designated Officer"}</strong>
+                </div>
+                {dak.resolution?.remarks && (
+                  <div className="hero-instructions-callout" style={{ marginTop: "10px", borderColor: "#bbf7d0", background: "#f0fdf4" }}>
+                    <div className="callout-label" style={{ color: "#166534" }}>Official Resolution Noting:</div>
+                    <div className="callout-text" style={{ color: "#14532d" }}>"{dak.resolution.remarks}"</div>
+                  </div>
+                )}
+              </div>
+            ) : isReturnPending ? (
+              <div className="return-pending-card">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <span className="badge" style={{ background: "#fef2f2", color: "#991b1b", fontWeight: 600, padding: "3px 8px", borderRadius: "12px", border: "1px solid #fecaca" }}>
+                    ⚠️ Return Pending
+                  </span>
+                  <span style={{ fontSize: "12px", color: "#7f1d1d" }}>
+                    Physical paper original recovery required
+                  </span>
+                </div>
+                <div className="custody-main-name">
+                  {dak.currentAssignment?.deskName || "Originating Desk"}
+                </div>
+                <div className="custody-sub-name" style={{ marginTop: "4px" }}>
+                  Confirmed Holder (Sender): <strong>{senderDisplayName}</strong>
+                </div>
+                <div className="subtext" style={{ marginTop: "6px", color: "#b91c1c" }}>
+                  Transfer was pulled back with physical file. File return must be confirmed before further movement.
+                </div>
+              </div>
+            ) : isInTransit ? (
+              <div className="in-transit-custody-card">
+                <div className="custody-main-name">
+                  {dak.currentAssignment?.deskName || "Dispatching Desk"}
+                  <span className="badge badge-warning" style={{ marginLeft: "8px", fontSize: "11px", background: "#fef3c7", color: "#92400e", padding: "2px 8px", borderRadius: "12px", border: "1px solid #fde68a" }}>
+                    ⏳ In Transit / Awaiting Receipt
+                  </span>
+                </div>
+
+                {/* Sender remains last confirmed holder */}
+                <div className="custody-sub-name" style={{ marginTop: "6px" }}>
+                  Last Confirmed Holder: <strong>{senderDisplayName}</strong>
+                </div>
+
+                {/* Pending recipient shown separately */}
+                <div className="in-transit-recipient-banner" style={{ marginTop: "10px", padding: "10px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: "11px", textTransform: "uppercase", fontWeight: 700, color: "#64748b", letterSpacing: "0.5px" }}>
+                    Intended Recipient (Pending Acknowledgment):
+                  </div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#0f172a", marginTop: "3px" }}>
+                    👤 {recipientDisplayName} <span style={{ fontWeight: 400, color: "#64748b" }}>— {recipientDeskName}</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#b45309", marginTop: "4px" }}>
+                    Dispatched on {new Date(pendingTransfer?.sentAt || dak.currentAssignment?.assignedAt || dak.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                    {" "}· {formatElapsedTime(pendingTransfer?.sentAt || dak.currentAssignment?.assignedAt || dak.createdAt)}
+                  </div>
+                </div>
+
+                {/* Official Instructions / Remarks from Sender */}
+                {(pendingTransfer?.remarks || pendingTransfer?.instructions || dak.currentAssignment?.instructions) ? (
+                  <div className="hero-instructions-callout" style={{ marginTop: "10px" }}>
+                    <div className="callout-label">Official Instructions / Remarks from Sender:</div>
+                    <div className="callout-text">
+                      "{pendingTransfer?.instructions || pendingTransfer?.remarks || dak.currentAssignment?.instructions}"
+                    </div>
+                  </div>
+                ) : (
+                  <div className="hero-instructions-empty" style={{ marginTop: "8px" }}>No specific instructions attached with this dispatch.</div>
+                )}
+              </div>
+            ) : dak.currentAssignment ? (
+              <div className="with-holder-custody-card">
                 <div className="custody-main-name">
                   {dak.currentAssignment.deskName} ({dak.currentAssignment.deskCode})
+                  <span className="badge" style={{ marginLeft: "8px", fontSize: "11px", background: "#f0fdf4", color: "#166534", padding: "2px 8px", borderRadius: "12px", border: "1px solid #bbf7d0" }}>
+                    ● Active Custody / In Possession
+                  </span>
                 </div>
-                <div className="custody-sub-name">
-                  Officer: <strong>{dak.currentAssignment.assignedUserDisplayName || "General Desk Assignment"}</strong>
+                <div className="custody-sub-name" style={{ marginTop: "4px" }}>
+                  Current Officer: <strong>{dak.currentAssignment.assignedUserDisplayName || "General Desk Assignment"}</strong>
                 </div>
-                <div className="custody-meta">
-                  Marked by {dak.currentAssignment.assignedByDisplayName} on{" "}
+                <div className="custody-meta" style={{ marginTop: "6px" }}>
+                  Marked by <strong>{dak.currentAssignment.assignedByDisplayName}</strong> on{" "}
                   {new Date(dak.currentAssignment.assignedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  {" "}({formatElapsedTime(dak.currentAssignment.assignedAt)})
                 </div>
-              </>
+
+                {/* Instruction / Noting Callout */}
+                {dak.currentAssignment.instructions ? (
+                  <div className="hero-instructions-callout" style={{ marginTop: "10px" }}>
+                    <div className="callout-label">Official Instructions / Remarks from Sender:</div>
+                    <div className="callout-text">"{dak.currentAssignment.instructions}"</div>
+                  </div>
+                ) : (
+                  <div className="hero-instructions-empty" style={{ marginTop: "8px" }}>No specific instructions or remarks attached.</div>
+                )}
+              </div>
             ) : (
               <div className="unmarked-custody-state">
                 <span className="unmarked-badge">⚠️ UNMARKED / Intake Queue</span>
                 <span className="subtext" style={{ display: "block", marginTop: "4px" }}>
-                  Awaiting initial marking to an office desk.
+                  Awaiting initial marking to an office desk or section officer.
                 </span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Box B: Physical Original Location (Rendered STRICTLY from persisted physicalOriginal) */}
+        {/* Box B: Physical Original Location */}
         <div className="custody-box physical-box">
           <div className="custody-box-header">
             <span className="custody-box-icon">📁</span>
@@ -608,7 +778,7 @@ export const DakDetailWorkspace: React.FC = () => {
             {physicalOriginal ? (
               <>
                 <div className="po-state-row">
-                  <span>State:</span>
+                  <span>Paper File Status:</span>
                   <span className={`po-state-badge po-state-${poCardState}`}>
                     {poCardState === "yes" ? "✓ Yes (Paper Original Confirmed)" : poCardState === "no" ? "✕ No (Digital Only)" : "❓ Unknown"}
                   </span>
@@ -646,40 +816,134 @@ export const DakDetailWorkspace: React.FC = () => {
         </div>
       </div>
 
-      {/* Primary Footer Actions Bar */}
-      {!isTerminal && (
+      {/* Primary Contextual Actions Bar */}
+      {!isTerminal ? (
         <div className="dak-workspace-actions-bar">
-          {canAssignWork && (
-            <Link
-              to={`/work/new?dakId=${dak.id}`}
-              className="primary-button"
-              style={{ background: "#0284c7" }}
+          {/* STATE 1: IN TRANSIT */}
+          {isInTransit ? (
+            <>
+              {/* Receiver gets RECEIVE */}
+              {isCurrentUserRecipient && canReceive && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  style={{ background: "#059669", borderColor: "#047857" }}
+                  onClick={() => setMovementModalMode("receive")}
+                >
+                  📥 Receive Dak
+                </button>
+              )}
+
+              {/* Sender gets PULL BACK until Receive */}
+              {isCurrentUserSender && canPullBack && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ color: "#b91c1c", borderColor: "#fca5a5", background: "#fef2f2" }}
+                  onClick={() => setMovementModalMode("pull-back")}
+                >
+                  ↩ Pull Back Dak
+                </button>
+              )}
+
+              {/* If third party */}
+              {!isCurrentUserRecipient && !isCurrentUserSender && (
+                <span style={{ fontSize: "13px", color: "#92400e", background: "#fffbeb", padding: "6px 12px", borderRadius: "6px", border: "1px solid #fde68a", display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                  ⏳ Awaiting receipt confirmation by <strong>{recipientDisplayName}</strong>
+                </span>
+              )}
+
+              {canEdit && (
+                <button className="secondary-button" onClick={() => setShowEditModal(true)}>
+                  Edit Details
+                </button>
+              )}
+
+              {canCancel && (
+                <button className="secondary-button" style={{ color: "#b91c1c", marginLeft: "auto" }} onClick={() => setMovementModalMode("cancel")}>
+                  Cancel Entry
+                </button>
+              )}
+            </>
+          ) : isReturnPending ? (
+            <>
+              {/* ReturnPending: sender gets Confirm Physical Return */}
+              <button
+                type="button"
+                className="primary-button"
+                style={{ background: "#dc2626", borderColor: "#b91c1c" }}
+                onClick={() => setMovementModalMode("confirm-return")}
+              >
+                📦 Confirm Physical Return
+              </button>
+
+              {canEdit && (
+                <button className="secondary-button" onClick={() => setShowEditModal(true)}>
+                  Edit Details
+                </button>
+              )}
+
+              {canCancel && (
+                <button className="secondary-button" style={{ color: "#b91c1c", marginLeft: "auto" }} onClick={() => setMovementModalMode("cancel")}>
+                  Cancel Entry
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              {/* STATE 2: ACTIVE WITH HOLDER */}
+              {canMove && (
+                <button className="primary-button" onClick={() => setMovementModalMode("send")}>
+                  {dak.currentAssignment ? "Send / Mark to Next Officer ➔" : "Send / Mark to Desk ➔"}
+                </button>
+              )}
+
+              {canResolve && isWithHolder && (
+                <button className="secondary-button" onClick={() => setMovementModalMode("resolve")}>
+                  ✓ Resolve Dak
+                </button>
+              )}
+
+              {canEdit && (
+                <button className="secondary-button" onClick={() => setShowEditModal(true)}>
+                  Edit Details
+                </button>
+              )}
+
+              {canAssignWork && (
+                <Link
+                  to={`/work/new?dakId=${dak.id}`}
+                  className="secondary-button"
+                >
+                  + Assign Work
+                </Link>
+              )}
+
+              {canCancel && (
+                <button className="secondary-button" style={{ color: "#b91c1c", marginLeft: "auto" }} onClick={() => setMovementModalMode("cancel")}>
+                  Cancel Entry
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        /* STATE 3: RESOLVED / TERMINAL */
+        <div className="terminal-actions-bar" style={{ display: "flex", gap: "12px", alignItems: "center", padding: "12px 16px", background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0", marginTop: "16px" }}>
+          <div className="terminal-note" style={{ flex: 1 }}>
+            <strong style={{ color: "#1e293b" }}>🔒 Dak is Resolved</strong>
+            <span style={{ display: "block", fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
+              Operational modifications are locked in read-only mode for official record keeping.
+            </span>
+          </div>
+
+          {canReopen && (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setMovementModalMode("reopen")}
             >
-              + Assign Work
-            </Link>
-          )}
-
-          {canMove && (
-            <button className="primary-button" onClick={() => setMovementModalMode("move")}>
-              {dak.currentAssignment ? "Forward / Return ➔" : "Mark to Desk ➔"}
-            </button>
-          )}
-
-          {canEdit && (
-            <button className="secondary-button" onClick={() => setShowEditModal(true)}>
-              Edit Details
-            </button>
-          )}
-
-          {canDispose && (
-            <button className="secondary-button" onClick={() => setMovementModalMode("dispose")}>
-              Dispose Dak
-            </button>
-          )}
-
-          {canCancel && (
-            <button className="secondary-button" style={{ color: "#b91c1c" }} onClick={() => setMovementModalMode("cancel")}>
-              Cancel Entry
+              ↺ Reopen Dak
             </button>
           )}
         </div>

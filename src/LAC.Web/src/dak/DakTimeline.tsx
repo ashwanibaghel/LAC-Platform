@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DakMovement } from "./types";
+import { formatDakStatus, formatElapsedTime } from "./dakConfig";
 
 interface Props {
   dakId: string;
@@ -47,7 +48,14 @@ export function DakTimeline({ dakId }: Props) {
           <div className="timeline-badge">#{m.sequenceNumber}</div>
           <div className="timeline-content">
             <div className="timeline-header">
-              <span className={`status-pill status-${m.action.toLowerCase()}`}>{m.action}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span className={`status-pill status-${m.action.toLowerCase()}`}>
+                  {formatDakStatus(m.action)}
+                </span>
+                <span className="subtext" style={{ fontSize: "11px" }}>
+                  {formatElapsedTime(m.actionAt)}
+                </span>
+              </div>
               <span className="timeline-date">
                 {new Date(m.actionAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
               </span>
@@ -55,26 +63,26 @@ export function DakTimeline({ dakId }: Props) {
 
             <div className="timeline-routing">
               {m.fromDeskName && (
-                <span>
+                <span className="routing-from">
                   <strong>From:</strong> {m.fromDeskName}
                   {m.fromUserDisplayName && ` (${m.fromUserDisplayName})`}
                 </span>
               )}
               {m.toDeskName && (
-                <span>
-                  <strong>To:</strong> {m.toDeskName}
+                <span className="routing-to">
+                  <strong>➔ To:</strong> {m.toDeskName}
                   {m.toUserDisplayName && ` (${m.toUserDisplayName})`}
                 </span>
               )}
             </div>
 
             <div className="timeline-actor">
-              <small className="subtext">Action taken by: {m.actionByDisplayName}</small>
+              <small className="subtext">Action taken by: <strong>{m.actionByDisplayName}</strong></small>
             </div>
 
             {m.instructions && (
               <div className="timeline-instructions">
-                <strong>Instructions:</strong> {m.instructions}
+                <strong>Instructions for Recipient:</strong> {m.instructions}
               </div>
             )}
 

@@ -526,6 +526,65 @@
   padding: 3px 8px;
 }
 
+/* Delivery Queue Tabs Bar in Directory */
+.directory-tabs-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 0;
+  overflow-x: auto;
+}
+
+.directory-tab-button {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.15s ease-in-out;
+  white-space: nowrap;
+}
+
+.directory-tab-button:hover {
+  color: #0284c7;
+}
+
+.directory-tab-button.active {
+  color: #0284c7;
+  border-bottom-color: #0284c7;
+  font-weight: 700;
+}
+
+.queue-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.directory-tab-button.active .queue-badge {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.queue-bucket-intro {
+  padding: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
 /* Compact Directory Table */
 .directory-filters {
   padding: 10px 14px;
@@ -752,3 +811,138 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Hero Custody & Contextual Action Styles */
+.hero-attention-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: #92400e;
+  font-size: 13px;
+}
+
+.hero-attention-alert .alert-icon {
+  font-size: 20px;
+}
+
+.hero-instructions-callout {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #0284c7;
+  border-radius: 6px;
+}
+
+.hero-instructions-callout .callout-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.hero-instructions-callout .callout-text {
+  font-size: 13px;
+  color: #1e293b;
+  font-style: italic;
+  line-height: 1.4;
+}
+
+.hero-instructions-empty {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.attention-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 6px;
+}
+
+.custody-meta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 6px;
+}
+
+.contract-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.disabled-contract {
+  opacity: 0.55;
+  cursor: not-allowed !important;
+  position: relative;
+}
+
+.terminal-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 18px;
+  margin-bottom: 20px;
+}
+
+.terminal-note {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.terminal-note strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.physical-transit-choice {
+  margin: 14px 0;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+
+.routing-from {
+  color: #475569;
+}
+
+.routing-to {
+  color: #0284c7;
+  font-weight: 600;
+}
+

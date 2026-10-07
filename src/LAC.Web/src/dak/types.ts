@@ -26,6 +26,7 @@ export interface DakAssignment {
   deskName: string;
   assignedUserId?: string;
   assignedUserDisplayName?: string;
+  assignedByUserId?: string;
   assignedByDisplayName: string;
   assignedAt: string;
   instructions?: string;
@@ -33,6 +34,8 @@ export interface DakAssignment {
   isDeskActive: boolean;
   isUserEligible: boolean;
   needsAttention: boolean;
+  isReceived?: boolean;
+  receivedAt?: string | null;
 }
 
 export interface DakAttachment {
@@ -77,6 +80,16 @@ export interface DakDetail {
   mainDocumentId?: string;
   mainDocumentFileName?: string;
   currentAssignment?: DakAssignment;
+  routingState?: "Unassigned" | "WithHolder" | "InTransit" | "LegacyUnconfirmed";
+  physicalState?: "Unknown" | "NotPresent" | "AtRecordedLocation" | "Held" | "InTransit" | "ReturnPending";
+  processingCycle?: number;
+  pendingTransfer?: PendingTransfer | null;
+  resolution?: {
+    resolvedAt: string;
+    resolvedByUserId: string;
+    completionAttested: boolean;
+    remarks: string;
+  } | null;
   attachments: DakAttachment[];
   villageLinks: DakLinkItem[];
   awardLinks: DakLinkItem[];
@@ -86,6 +99,29 @@ export interface DakDetail {
   createdBy?: string;
   updatedAt: string;
   updatedBy?: string;
+}
+
+export interface PendingTransfer {
+  id: string;
+  senderUserId: string;
+  fromHolderUserId?: string | null;
+  fromDeskId?: string | null;
+  toDeskId: string;
+  toUserId: string;
+  toUserDisplayName?: string;
+  destinationKind: "Officer" | "RecordRoom";
+  purpose: string;
+  state: "Pending" | "Received" | "PulledBack";
+  includesPhysicalOriginal: boolean;
+  sentAt: string;
+  receivedAt?: string | null;
+  physicalReceivedAt?: string | null;
+  pulledBackAt?: string | null;
+  pullBackReason?: string | null;
+  physicalReturnedAt?: string | null;
+  physicalReturnProvenance?: string | null;
+  remarks?: string | null;
+  instructions?: string | null;
 }
 
 export interface DakMovement {
@@ -189,4 +225,20 @@ export interface PhysicalOriginalUpdateRequest {
   locationNote?: string | null;
   provenanceNote: string;
   expectedRevision: number;
+}
+
+export interface DakDeliveryQueueItem {
+  id: string;
+  diaryNumber: string;
+  status: string;
+  routingState: string;
+  physicalState: string;
+  revision: number;
+}
+
+export interface DakDeliveryQueueResponse {
+  items: DakDeliveryQueueItem[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
 }
