@@ -122,7 +122,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   // User details
   const userDisplayName = user?.displayName || user?.username || "Officer";
-  const userDesignation = user?.designation?.name || null;
+  const isSystemAdmin = Boolean(user?.roles?.includes("SYSTEM_ADMIN"));
+  const userDesignation = user?.designation?.name
+    ? user.designation.name
+    : isSystemAdmin
+    ? "Technical System Administrator"
+    : null;
   const userInitials = userDisplayName
     .split(" ")
     .map((n) => n[0])
@@ -199,12 +204,14 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     {
       id: "admin",
       title: "Administration",
-      description: "User management, access roles, and audit trail",
+      description: "User management, access roles, work catalog, and audit trail",
       icon: <IconShield size={20} />,
       checkPermission: canAccessAdmin,
       links: [
-        { label: "User Management", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
+        { label: "Officers & Staff", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
         { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "Work Catalog", to: "/admin/work-catalog", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "Attached DEOs", to: "/admin/assistants", checkPermission: () => hasPermission("Users.Manage") },
         { label: "System Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
       ]
     }
@@ -260,8 +267,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     contextualNav = {
       categoryTitle: "Administration",
       links: [
-        { label: "Users", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
+        { label: "Officers & Staff", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
         { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "Work Catalog", to: "/admin/work-catalog", checkPermission: () => hasPermission("Access.Manage") },
+        { label: "Attached DEOs", to: "/admin/assistants", checkPermission: () => hasPermission("Users.Manage") },
         { label: "Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
       ]
     };

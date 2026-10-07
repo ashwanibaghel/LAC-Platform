@@ -17,8 +17,11 @@ import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
 import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LoginPage } from "./auth/LoginPage";
+import { ChangePasswordView } from "./auth/ChangePasswordView";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
+import { WorkCatalogAdmin } from "./admin/WorkCatalogAdmin";
+import { OfficerAssistantAdmin } from "./admin/OfficerAssistantAdmin";
 import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
 import { DakDirectory } from "./dak/DakDirectory";
 import { DakRegistration } from "./dak/DakRegistration";
@@ -510,10 +513,12 @@ export function Shell({ children }: { children: ReactNode }) {
     links.push(["Court Cases", "/court-cases", "🏛"]);
   }
   if (hasPermission("Users.Manage")) {
-    links.push(["Users", "/admin/users", "👥"]);
+    links.push(["Officers & Staff", "/admin/users", "👥"]);
+    links.push(["Attached DEOs", "/admin/assistants", "🤝"]);
   }
   if (hasPermission("Access.Manage")) {
     links.push(["Access & Roles", "/admin/access", "🛡"]);
+    links.push(["Work Catalog", "/admin/work-catalog", "📑"]);
   }
   if (hasPermission("Audit.View")) {
     links.push(["Audit Trail", "/admin/audit-logs", "📜"]);
@@ -3886,7 +3891,7 @@ function Party() {
   );
 }
 function AuthenticatedApp() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   if (loading) {
     return (
       <div className="login-loading-screen">
@@ -3896,6 +3901,9 @@ function AuthenticatedApp() {
   }
   if (!user) {
     return <LoginPage />;
+  }
+  if (user.mustChangePassword) {
+    return <ChangePasswordView user={user} onSuccess={logout} onLogout={logout} />;
   }
   return (
     <CalculatorProvider><AppShell>
@@ -3955,6 +3963,8 @@ function AuthenticatedApp() {
         <Route path="/outward/:id" element={<OutwardDetailWorkspace />} />
         <Route path="/admin/users" element={<UsersAdmin />} />
         <Route path="/admin/access" element={<AccessAdmin />} />
+        <Route path="/admin/work-catalog" element={<WorkCatalogAdmin />} />
+        <Route path="/admin/assistants" element={<OfficerAssistantAdmin />} />
         <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
         <Route path="*" element={<SearchPage />} />
       </Routes>

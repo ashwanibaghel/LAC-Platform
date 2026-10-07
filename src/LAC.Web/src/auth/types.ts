@@ -32,6 +32,9 @@ export interface CurrentUser {
   permissions: PermissionScope[];
   workstreams: Workstream[];
   desks: Desk[];
+  mustChangePassword?: boolean;
+  temporaryCredentialExpiresAt?: string | null;
+  supervisingOfficerId?: string | null;
 }
 
 
