@@ -12,6 +12,11 @@ reusable responsibility category. WorkAllocation assigns that responsibility to 
 user with geographic scopes, dates and a work-order reference. Desk remains a
 custody/operational seat. One-off tasks use `/api/work-items`, not Create Work.
 
+System Administrator is a technical security role, not a civil designation.
+A SYSTEM_ADMIN account may have no DesignationId. Official ADM accounts are
+independent officer identities. This distinction concerns software/security
+administration only, not civil hierarchy.
+
 Officer View follows existing role permission/scope rules and can remain broad
 without a geographic allocation. Operational mutations require matching current
 allocations plus the existing workflow/custody rules. Creating an allocation never

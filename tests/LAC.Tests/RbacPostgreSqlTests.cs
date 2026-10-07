@@ -79,6 +79,17 @@ public sealed class RbacPostgreSqlTests : IAsyncLifetime
         using var admin = factory.CreateClient(new WebApplicationFactoryClientOptions { HandleCookies = true });
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/auth/login", new LoginRequest(RbacFactory.TestAdminUser, RbacFactory.TestAdminPass))).StatusCode);
         await using var db = Db();
+        var bootstrap = await db.AppUsers.SingleAsync(u => u.Id == SeedData.BootstrapAdminId);
+        Assert.Null(bootstrap.DesignationId);
+        var credentialState = (bootstrap.PasswordHash, bootstrap.SessionVersion);
+        bootstrap.DesignationId = (await db.Designations.SingleAsync(d => d.Code == "ADM")).Id;
+        await db.SaveChangesAsync();
+        await SeedData.SeedAsync(db);
+        db.ChangeTracker.Clear();
+        bootstrap = await db.AppUsers.SingleAsync(u => u.Id == SeedData.BootstrapAdminId);
+        Assert.Null(bootstrap.DesignationId);
+        Assert.Equal(credentialState, (bootstrap.PasswordHash, bootstrap.SessionVersion));
+        Assert.Null((await admin.GetFromJsonAsync<CurrentUserResponse>("/api/auth/me"))!.Designation);
         Assert.Empty(await db.Database.GetPendingMigrationsAsync()); Assert.False(db.Database.HasPendingModelChanges());
         var work = await db.WorkDefinitions.SingleAsync(x => x.Code == "LR"); var villages = await db.Villages.Take(2).Select(x => x.Id).ToListAsync();
         var roleRes = await admin.PostAsJsonAsync("/api/admin/roles", new CreateRoleRequest("PG_LR", "PG LR", null,
