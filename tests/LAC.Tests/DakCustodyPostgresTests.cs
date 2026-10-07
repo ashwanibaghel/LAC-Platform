@@ -134,7 +134,7 @@ public sealed class DakCustodyPostgresTests
             await using var command = new NpgsqlCommand(sql, connection);
             await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
         }
-        var previous = db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("AddDakAcknowledgedCustody")).Last();
+        var previous = DakMigrationTargets.Before(db, DakMigrationTargets.AcknowledgedCustody);
         var error = await Assert.ThrowsAsync<PostgresException>(() => db.GetService<IMigrator>().MigrateAsync(previous));
         Assert.Contains("downgrade blocked", error.MessageText); Assert.Equal(10, await db.DakMovements.CountAsync());
     }
@@ -190,7 +190,7 @@ public sealed class DakCustodyPostgresTests
     public async Task Structural_preflight_fails_before_schema_changes_and_reports_raw_legacy_identity()
     {
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false); await using var db = database.Context();
-        var previous = db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("AddDakAcknowledgedCustody")).Last();
+        var previous = DakMigrationTargets.Before(db, DakMigrationTargets.AcknowledgedCustody);
         await db.GetService<IMigrator>().MigrateAsync(previous);
         var id = Guid.NewGuid(); var badDesk = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Daks\" (\"Id\",\"DiaryNumber\",\"ReceivedDate\",\"Subject\",\"SenderName\",\"InwardMode\",\"Priority\",\"Status\",\"Revision\",\"RecordStatus\",\"CreatedAt\",\"UpdatedAt\") VALUES ({id}, ' Raw/Stamp ', '2026-10-01', 'Legacy', 'Sender', 'Physical', 'Routine', 'InProcess', 5, 'Active', now(), now())");
@@ -208,7 +208,7 @@ public sealed class DakCustodyPostgresTests
     public async Task Additive_migration_preserves_legacy_facts_without_inventing_receipt_and_unused_schema_rolls_back()
     {
         await using var database = await DisposableDakDatabase.CreateAsync(migrate: false); await using var db = database.Context();
-        var previous = db.Database.GetMigrations().TakeWhile(m => !m.EndsWith("AddDakAcknowledgedCustody")).Last();
+        var previous = DakMigrationTargets.Before(db, DakMigrationTargets.AcknowledgedCustody);
         await db.GetService<IMigrator>().MigrateAsync(previous);
         var deskId = Guid.NewGuid(); var userId = Guid.NewGuid(); var dakId = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"AppUsers\" (\"Id\", \"Username\", \"DisplayName\", \"IsActive\", \"RecordStatus\", \"CreatedAt\", \"UpdatedAt\", \"PasswordHash\", \"NormalizedUsername\") VALUES ({userId}, 'legacy', 'Legacy officer', true, 'Active', now(), now(), '', 'LEGACY')");

@@ -1,6 +1,6 @@
 /**
  * Date / Time Contract Utilities for LAC Platform RBAC
- * 
+ *
  * Invariants:
  * - ISO 8601 offsets
  * - ValidFrom inclusive, ValidTo exclusive

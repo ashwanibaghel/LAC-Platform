@@ -49,6 +49,8 @@ public sealed class DakCustodyApiTests(DakTestFactory factory) : IClassFixture<D
         var username = $"recipient-{Guid.NewGuid():N}";
         var create = await admin.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Receiver", DakTestFactory.TestAdminPass, null, [roleId], null, null));
         var receiverId = (await create.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        using (var scope = factory.Services.CreateScope())
+            await TestWorkAllocations.GrantGlobalAsync(scope.ServiceProvider.GetRequiredService<LacDbContext>(), receiverId);
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync($"/api/admin/users/{receiverId}/desks", new AssignDeskRequest(to, true))).StatusCode);
         using var receiver = await Login(username);
         using var form = new MultipartFormDataContent { { new StringContent($"API/{Guid.NewGuid():N}"), "diaryNumber" },
