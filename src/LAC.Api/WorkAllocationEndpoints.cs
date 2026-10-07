@@ -106,6 +106,10 @@ public static class WorkAllocationEndpoints
             return Results.Ok(new { canAssignRoles = canAssign, canManageAllocations = await access.CanAsync(PermissionCodes.AllocationsManage, cancellationToken: ct),
                 designations = await db.Designations.Where(x => x.IsActive).Select(x => new { x.Id, x.Code, x.Name }).ToListAsync(ct), roles,
                 works = await db.WorkDefinitions.Where(x => x.IsActive).Select(x => new { x.Id, x.Code, x.Name, x.Kind, x.WorkstreamId }).ToListAsync(ct),
+                workstreams = await db.Workstreams.AsNoTracking().Where(x => x.IsActive && x.RecordStatus == RecordStatus.Active)
+                    .OrderBy(x => x.Name).Select(x => new { x.Id, x.Code, x.Name }).ToListAsync(ct),
+                desks = await db.OfficeDesks.AsNoTracking().Where(x => x.IsActive && x.RecordStatus == RecordStatus.Active)
+                    .OrderBy(x => x.Name).Select(x => new { x.Id, x.Code, x.Name, x.WorkstreamId }).ToListAsync(ct),
                 districts = await db.Districts.Select(x => new { x.Id, x.Name }).ToListAsync(ct),
                 subdivisions = await db.SubDivisions.Select(x => new { x.Id, x.Name, x.DistrictId }).ToListAsync(ct),
                 villages = await db.Villages.Select(x => new { x.Id, x.Name, x.SubDivisionId }).ToListAsync(ct) });

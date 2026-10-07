@@ -89,10 +89,14 @@ within their validation/revision rules. Revocation retains history.
 
 | Method/path | Request | Response | Authority |
 | --- | --- | --- | --- |
-| GET `/api/admin/account-options` | None | `{canAssignRoles, canManageAllocations, designations:[{id,code,name}], roles:[{id,code,name}], works:[{id,code,name,kind,workstreamId}], districts:[{id,name}], subdivisions:[{id,name,districtId}], villages:[{id,name,subDivisionId}]}` | Account/assignment/catalog/assistant administration; roles restricted to assignable bundles |
+| GET `/api/admin/account-options` | None | `{canAssignRoles, canManageAllocations, designations:[{id,code,name}], roles:[{id,code,name}], works:[{id,code,name,kind,workstreamId}], workstreams:[{id,code,name}], desks:[{id,code,name,workstreamId}], districts:[{id,name}], subdivisions:[{id,name,districtId}], villages:[{id,name,subDivisionId}]}` | Account/assignment/catalog/assistant administration; roles restricted to assignable bundles |
 | GET `/api/admin/works` | None | `[{id,code,name,description,kind,workstreamId,isActive,revision}]` | Same option-read authority |
 | POST `/api/admin/works` | `{code,name,description,kind,workstreamId}` | 201 `IdRevision` | WorkCatalog.Manage |
 | PUT `/api/admin/works/{id}` | `{name,description,isActive,expectedRevision}` | 200 `IdRevision` | WorkCatalog.Manage |
+
+The added workstreams/desks arrays contain only active records with active record
+status; a desk's workstreamId may be null. They are option metadata and grant no
+roles, work, memberships, custody, scopes or permissions. Access.Manage gates are unchanged.
 
 Create Role continues to use `/api/admin/roles` and Access.Manage. Role permission
 inputs remain `{permissionCode, scopeMode}` with `All`, `Workstream`, `Assigned`,
