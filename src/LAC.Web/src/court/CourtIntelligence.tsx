@@ -15,7 +15,9 @@ const scopeNotice = (scope: LacScope) => !scope.extraction.fullRelevantTextCheck
   : scope.lacRelevant && !(scope.directions as ScopeRow[]).length ? "LAC is identified in this order, but no LAC-specific direction is established."
   : scope.lacAuthorityScope === "OtherLAC" ? "This order refers to another LAC. No action is established for this office."
   : scope.lacAuthorityScope === "UnknownLAC" ? "LAC authority needs review. No action is established for this office." : "Court directions and office action are shown separately below.";
-const scopeMissing = (scope: LacScope) => scope.extraction.fullRelevantTextChecked && scope.missingState === "NotStated" ? "Not stated in this order." : "Needs review — extraction incomplete.";
+const scopeMissing = (scope?: LacScope) => typeof scope?.extraction?.fullRelevantTextChecked !== "boolean" || !scope.missingState
+  ? "Needs review — source coverage unavailable."
+  : scope.extraction.fullRelevantTextChecked && scope.missingState === "NotStated" ? "Not stated in this order." : "Needs review — extraction incomplete.";
 const ScopeFactView: React.FC<{ field: string; fact: ScopeFact; scope: LacScope }> = ({ field, fact, scope }) => <div className="court-scope-fact">
   <span className="court-scope-field">{scopeFieldLabel(field)}</span>
   <span>{fact.state === "NotStated" ? scopeMissing(scope) : fact.rawText ?? "Needs review — extraction incomplete."}
@@ -37,6 +39,17 @@ const ScopeRowView: React.FC<{ row: ScopeRow; scope: LacScope }> = ({ row, scope
     return String((entity?.name as ScopeFact)?.rawText ?? (entity?.number as ScopeFact)?.rawText ?? id);
   }).join(", ")}</small> : null; })}
 </div>;
+const CaseLandLacContext: React.FC<{ context: NonNullable<RegisteredIntelligence["caseLandLacContext"]>; orders: Order[] }> = ({ context, orders }) => <details className="court-card court-case-land-context"><summary>Case land / LAC context · supporting order chronology</summary>
+  <p className="court-intelligence-muted">Each entry retains its own source and attribution. Earlier facts are not silently carried into the selected order.</p>
+  {["villages", "awards", "parcels", "possession", "compensation"].map(section => <section key={section}><h4>{scopeSectionLabel(section)}</h4>
+    {(context[section] ?? []).map((entry, index) => {
+      const sourceScope = orders.find(order => order.officialUrl === entry.officialUrl && order.orderDate === entry.orderDate)?.lacOrderScope;
+      return <div key={index}><strong>{shownDate(entry.orderDate)}</strong>
+        {sourceScope ? <ScopeRowView row={entry.fact} scope={sourceScope} /> : <p className="court-intelligence-muted">{scopeMissing()}</p>}
+      </div>;
+    })}
+  </section>)}
+</details>;
 const ScopeParcelTable: React.FC<{ scope: LacScope }> = ({ scope }) => {
   const names = (row: ScopeRow, field: string, section: string, factField: string) => (row[field] as string[] ?? []).map(id => {
     const entity = (scope[section] as ScopeRow[]).find(item => item.id === id);
@@ -1174,14 +1187,7 @@ export const CourtIntelligence: React.FC<{ caseId: string; showMatterHeader?: bo
             <OrderScope order={selectedScopeOrder} compact />
             {linkReviewError && <p role="alert" className="court-scope-review-error">{linkReviewError}</p>}
           </section>}
-          {data.caseLandLacContext && <details className="court-card court-case-land-context"><summary>Case land / LAC context · supporting order chronology</summary>
-            <p className="court-intelligence-muted">Each entry retains its own source and attribution. Earlier facts are not silently carried into the selected order.</p>
-            {["villages", "awards", "parcels", "possession", "compensation"].map(section => <section key={section}><h4>{scopeSectionLabel(section)}</h4>
-              {(data.caseLandLacContext?.[section] ?? []).map((entry, index) => <div key={index}><strong>{shownDate(entry.orderDate)}</strong>
-                <ScopeRowView row={entry.fact} scope={{ evidence: entry.evidence, source: { officialUrl: entry.officialUrl, orderDate: entry.orderDate } } as LacScope} />
-              </div>)}
-            </section>)}
-          </details>}
+          {data.caseLandLacContext && <CaseLandLacContext context={data.caseLandLacContext} orders={data.orders} />}
           {showMatterHeader && (
             <div className="court-intelligence-matter">
               <h2>{data.caseNumber ?? "Court matter"}</h2>
