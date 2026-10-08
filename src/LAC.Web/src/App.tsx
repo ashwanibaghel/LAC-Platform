@@ -24,6 +24,7 @@ import { AccessAdmin } from "./admin/AccessAdmin";
 import { WorkCatalogAdmin } from "./admin/WorkCatalogAdmin";
 import { OfficerAssistantAdmin } from "./admin/OfficerAssistantAdmin";
 import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
+import { MyHelpersView } from "./office/MyHelpersView";
 import { DakDirectory } from "./dak/DakDirectory";
 import { DakRegistration } from "./dak/DakRegistration";
 import { DakDetailWorkspace } from "./dak/DakDetailWorkspace";
@@ -1418,6 +1419,8 @@ const toKhasraPayload = (row: KhasraRow) => ({
   awardDate: row.awardDate || null,
 });
 function VillageKhasras({ id }: { id: string }) {
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("Khasra.Edit") || hasPermission("LR.Edit");
   const [page, setPage] = useState(0);
   const [query, setQuery] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -1451,23 +1454,27 @@ function VillageKhasras({ id }: { id: string }) {
           <span>Canonical parcel records for this village.</span>
         </div>
         <div className="khasra-actions">
-          <button onClick={openAdd}>+ Add Khasra</button>
-          <label className="secondary-button file-button">
-            Upload Excel
-            <input
-              type="file"
-              accept=".xlsx"
-              onChange={(event) =>
-                event.target.files?.[0] && setImportFile(event.target.files[0])
-              }
-            />
-          </label>
-          <a
-            className="secondary-button"
-            href={`${api}/villages/${id}/khasras/import-template`}
-          >
-            Download Template
-          </a>
+          {canEdit && <button onClick={openAdd}>+ Add Khasra</button>}
+          {canEdit && (
+            <label className="secondary-button file-button">
+              Upload Excel
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={(event) =>
+                  event.target.files?.[0] && setImportFile(event.target.files[0])
+                }
+              />
+            </label>
+          )}
+          {canEdit && (
+            <a
+              className="secondary-button"
+              href={`${api}/villages/${id}/khasras/import-template`}
+            >
+              Download Template
+            </a>
+          )}
           <ExportMenu
             baseUrl={`${api}/villages/${id}/khasras/export`}
             query={query}
@@ -1518,6 +1525,7 @@ function VillageKhasras({ id }: { id: string }) {
         <>
           <RectangleKhasraGroups
             items={result.data.items}
+            canEdit={canEdit}
             onQuickView={setQuickId}
             onEdit={(k) => {
               setEdit(k);
@@ -1535,10 +1543,12 @@ function VillageKhasras({ id }: { id: string }) {
 }
 function RectangleKhasraGroups({
   items,
+  canEdit = true,
   onQuickView,
   onEdit,
 }: {
   items: any[];
+  canEdit?: boolean;
   onQuickView: (id: string) => void;
   onEdit: (item: any) => void;
 }) {
@@ -1563,7 +1573,7 @@ function RectangleKhasraGroups({
     "Recorded owner summary",
     "Acquisition status",
     "Linked award(s)",
-    "Actions",
+    ...(canEdit ? ["Actions"] : []),
   ];
   return (
     <div className="rectangle-groups">
@@ -1615,15 +1625,17 @@ function RectangleKhasraGroups({
                         ))
                       : "—"}
                   </td>
-                  <td>
-                    <button
-                      className="icon-action"
-                      aria-label={`Edit Khasra ${k.displayNumber}`}
-                      onClick={() => onEdit(k)}
-                    >
-                      Edit
-                    </button>
-                  </td>
+                  {canEdit && (
+                    <td>
+                      <button
+                        className="icon-action"
+                        aria-label={`Edit Khasra ${k.displayNumber}`}
+                        onClick={() => onEdit(k)}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
           </DataTable>
@@ -2406,6 +2418,8 @@ function Awards() {
 
 function Award() {
   const { id = "" } = useParams();
+  const { hasPermission } = useAuth();
+  const canEditAward = hasPermission("Award.Edit") || hasPermission("Award.Create");
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [adding, setAdding] = useState(false);
@@ -2445,7 +2459,14 @@ function Award() {
       <PageHeader
         eyebrow="Award workspace"
         title={a.awardNumber}
-        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><button className="secondary-button" onClick={() => setPdfImport(true)}>Import / Review Data ▾</button><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
+        actions={
+          <div className="award-actions">
+            {canEditAward && <button onClick={() => setAdding(true)}>+ Add / Link Khasra</button>}
+            {canEditAward && <button className="secondary-button" onClick={() => setPdfImport(true)}>Import / Review Data ▾</button>}
+            {canEditAward && <button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button>}
+            <ExportMenu baseUrl={`/api/awards/${id}/export`} query="" />
+          </div>
+        }
       >
         <p>
           {[
@@ -2854,7 +2875,7 @@ function AwardDocumentsSection({awardId}:{awardId:string}) {
   return <section className="award-documents"><div className="section-heading"><div><p className="section-eyebrow">Award record</p><h2>Documents</h2></div><span className="hint">Analysis runs in the background</span></div><NmUploadCard awardId={awardId}/>{result.data.map(doc=>{const j=localJobs[doc.id]||doc.job;const processing=j&&["Queued","Extracting","Analyzing","BuildingCandidates"].includes(j.status);const state=!j?"Not analyzed":processing?`${j.currentStage||"Analyzing"}…`:j.status==="Failed"?"Failed":j.reviewed?"Reviewed":j.ingestionSessionId?`Review ready · ${j.attention} need attention`:"Stored";return <div className="award-document-row" key={doc.id}><div className="document-icon">PDF</div><div className="document-main"><strong>{doc.originalFileName}</strong><span>{state}</span>{j?.status==="Failed"&&<span role="alert">{j.errorMessage||"Processing could not be completed. Check the worker health endpoint."}</span>}{processing&&<DocumentAnalysisProgress jobId={j.id} paused={Boolean(preview)} onComplete={()=>{setLocalJobs(x=>{const y={...x};delete y[doc.id];return y;});setRefresh(x=>x+1);}}/>}</div><div className="document-actions"><button className="quiet-button" onClick={()=>setPreview(doc)}>View PDF</button>{!j&&<button onClick={()=>analyze(doc)}>Analyze data</button>}{j?.ingestionSessionId&&<Link className="primary-link" to={`/awards/${awardId}/ingestion/${j.ingestionSessionId}`}>Review data</Link>}{j&&!processing&&<button className="quiet-button" onClick={()=>reanalyze(doc)}>Re-analyze</button>}</div></div>;})}{message&&<p className="form-message">{message}</p>}{preview&&<aside ref={viewerRef} className="document-viewer-modal" role="dialog" aria-modal="true" aria-label="Award document"><header><strong>{preview.originalFileName}</strong><div className="document-viewer-actions"><button className="quiet-button" onClick={()=>viewerRef.current?.requestFullscreen?.()}>Full screen</button><button className="quiet-button" onClick={()=>setPreview(undefined)}>Close</button></div></header><DocumentPdfViewer documentId={preview.id}/></aside>}</section>;
 }
 
-function NmUploadCard({awardId}:{awardId:string}){const [file,setFile]=useState<File>();const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);const [refresh,setRefresh]=useState(0);const nms=useApi<any[]>(`/awards/${awardId}/nm-documents?r=${refresh}`);const submit=async()=>{if(!file)return;try{setBusy(true);await uploadNmPdf(awardId,file);setMessage("NM uploaded and linked. Select Analyze pilot to create review-only OCR rows.");setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"NM upload failed.");}finally{setBusy(false);}};const analyze=async(id:string)=>{try{setBusy(true);const result:any=await post(`/nm-documents/${id}/analyze-pilot`,{});setMessage(`${result.rowsCreated} pilot review rows created. Nothing official was committed.`);setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"NM analysis failed.");}finally{setBusy(false);}};return <div className="award-document-row"><div className="document-icon">NM</div><div className="document-main"><strong>NM / recorded-person register</strong><span>Village and Award are fixed by this workspace. Pilot analysis is local and creates review rows only.</span>{nms.data?.map(n=><small key={n.id}>{n.originalFileName} · {n.status} · {n.rows} source rows <span className="row-actions">{n.rows===0&&<button disabled={busy} onClick={()=>analyze(n.id)}>Analyze pilot</button>}<Link to={`/awards/${awardId}/nm/${n.id}/review`}>Open review</Link></span></small>)}</div><div className="document-actions"><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0])}/><button disabled={!file||busy} onClick={submit}>{busy?"Uploading…":"Add NM"}</button></div>{message&&<p className="form-message">{message}</p>}</div>}
+function NmUploadCard({awardId}:{awardId:string}){const { hasPermission } = useAuth();const canUploadNm = hasPermission("Award.CoreDocument.Upload") || hasPermission("Award.Edit");const [file,setFile]=useState<File>();const [message,setMessage]=useState("");const [busy,setBusy]=useState(false);const [refresh,setRefresh]=useState(0);const nms=useApi<any[]>(`/awards/${awardId}/nm-documents?r=${refresh}`);const submit=async()=>{if(!file)return;try{setBusy(true);await uploadNmPdf(awardId,file);setMessage("NM uploaded and linked. Select Analyze pilot to create review-only OCR rows.");setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"NM upload failed.");}finally{setBusy(false);}};const analyze=async(id:string)=>{try{setBusy(true);const result:any=await post(`/nm-documents/${id}/analyze-pilot`,{});setMessage(`${result.rowsCreated} pilot review rows created. Nothing official was committed.`);setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"NM analysis failed.");}finally{setBusy(false);}};return <div className="award-document-row"><div className="document-icon">NM</div><div className="document-main"><strong>NM / recorded-person register</strong><span>Village and Award are fixed by this workspace. Pilot analysis is local and creates review rows only.</span>{nms.data?.map(n=><small key={n.id}>{n.originalFileName} · {n.status} · {n.rows} source rows <span className="row-actions">{canUploadNm&&n.rows===0&&<button disabled={busy} onClick={()=>analyze(n.id)}>Analyze pilot</button>}<Link to={`/awards/${awardId}/nm/${n.id}/review`}>Open review</Link></span></small>)}</div>{canUploadNm&&<div className="document-actions"><input type="file" accept="application/pdf,.pdf" onChange={e=>setFile(e.target.files?.[0])}/><button disabled={!file||busy} onClick={submit}>{busy?"Uploading…":"Add NM"}</button></div>}{message&&<p className="form-message">{message}</p>}</div>}
 
 function NmReviewWorkspace(){const {id:awardId="",nmId=""}=useParams();const [refresh,setRefresh]=useState(0);const [active,setActive]=useState<any>();const [reviewer,setReviewer]=useState("");const [message,setMessage]=useState("");const detail=useApi<any>(`/nm-documents/${nmId}/review-rows?r=${refresh}`);const khasras=useApi<Page<any>>(detail.data?path(`/villages/${detail.data.villageId}/khasras`,{page:0,pageSize:500}):undefined);const rows=detail.data?.rows||[];useEffect(()=>{if(!active&&rows.length)setActive(rows[0]);},[rows.length]);const current=rows.find((x:any)=>x.id===active?.id)||active;const saveKhasras=async(link:any,khasraId:string,unreadable=false)=>{if(!current)return;try{await put(`/nm-review-rows/${current.id}/khasra-selections`,{reviewer:reviewer||"Reviewer",selections:current.khasras.map((x:any)=>({reviewKhasraId:x.id,khasraId:x.id===link.id?(khasraId||null):x.suggestedKhasraId,markUnreadable:x.id===link.id?unreadable:x.status==="Unreadable"}))});setMessage("Khasra decision saved as staging only.");setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"Could not save Khasra selection.");}};const verify=async()=>{if(!current)return;try{await post(`/nm-review-rows/${current.id}/verify`,{verifiedBy:reviewer,sourcePage:current.sourcePage,sourceRow:current.sourceRow,sourceRegionJson:current.sourceRegionJson,recordedPersonText:current.recordedPersonText,fatherOrSpouseText:current.fatherOrSpouseText,rawShareText:current.rawShareText,rawAreaText:current.rawAreaText,entitlementAmount:current.entitlementAmount,entitlementBasisText:current.entitlementBasisText,khasras:current.khasras.map((x:any)=>({rawKhasraText:x.rawKhasraText,qualifier:x.qualifier,rawAreaText:x.rawAreaText,rawShareText:x.rawShareText,sourceRegionJson:x.sourceRegionJson}))});setMessage("Row verified in staging. It is still not committed to official data.");setRefresh(x=>x+1);}catch(e){setMessage(e instanceof Error?e.message:"This row still needs attention.");}};if(detail.loading)return <LoadingState/>;if(detail.error)return <ErrorState message={detail.error}/>;return <><Breadcrumbs items={[{label:"Awards",to:"/awards"},{label:"Award",to:`/awards/${awardId}`},{label:"NM review"}]}/><PageHeader eyebrow="Human review · local OCR" title="NM assisted review"><p>OCR suggestions and official values are separate. Select every canonical Khasra yourself before verification; this page never commits data.</p></PageHeader><div className="review-split"><section className="section"><div className="section-heading"><h2>Source records</h2><span className="hint">{rows.length} pilot rows</span></div>{rows.map((row:any)=><button className={`review-row ${current?.id===row.id?"active":""}`} key={row.id} onClick={()=>setActive(row)}><strong>Page {row.sourcePage} · {row.sourceRow}</strong><span>{row.recordedPersonText||"No person OCR"}</span><small>{row.status}</small></button>)}</section><section className="section nm-editor">{current?<><div className="section-heading"><h2>Review page {current.sourcePage}</h2><input placeholder="Your name" value={reviewer} onChange={e=>setReviewer(e.target.value)}/></div><label>Recorded person as per NM<textarea value={current.recordedPersonText||""} onChange={e=>setActive({...current,recordedPersonText:e.target.value})}/></label><div className="field-grid"><label>Area<input value={current.rawAreaText||""} onChange={e=>setActive({...current,rawAreaText:e.target.value})}/></label><label>Share<input value={current.rawShareText||""} onChange={e=>setActive({...current,rawShareText:e.target.value})}/></label><label>Entitlement amount<input value={current.entitlementAmount??""} onChange={e=>setActive({...current,entitlementAmount:e.target.value===""?null:Number(e.target.value)})}/></label></div><h3>Khasra selection</h3>{current.khasras.map((link:any)=><div className="nm-khasra" key={link.id}><span><strong>Raw OCR</strong>{link.rawKhasraText}</span><select value={link.suggestedKhasraId||""} onChange={e=>saveKhasras(link,e.target.value)}><option value="">Unresolved — choose canonical Khasra</option>{khasras.data?.items.map((k:any)=><option key={k.id} value={k.id}>{k.displayNumber}</option>)}</select><button className="quiet-button" onClick={()=>saveKhasras(link,"",true)}>Unreadable</button></div>)}<p className="hint">No OCR text is substituted or silently repaired. Clear selection leaves it unresolved.</p><button disabled={!reviewer.trim()} onClick={verify}>Verify this row</button>{message&&<p className="form-message">{message}</p>}</>:<EmptyState title="No review rows" detail="Run the limited pilot analysis from the Award document area."/>}</section><aside className="section nm-source">{detail.data&&current&&<><h2>Original NM · page {current.sourcePage}</h2><DocumentPdfViewer documentId={detail.data.documentId} initialPage={current.sourcePage}/><p className="hint">Source band: {current.sourceRegionJson}</p></>}</aside></div></>}
 
@@ -3893,6 +3914,94 @@ function Party() {
     </>
   );
 }
+export function AccessDenied({ message = "You do not have administrative authority to access this page." }: { message?: string }) {
+  return (
+    <div className="state error" role="alert" style={{ margin: "2rem auto", maxWidth: "600px", textAlign: "center", padding: "2.5rem 1.5rem" }}>
+      <h2 style={{ fontSize: "1.25rem", color: "#b91c1c", marginBottom: "0.5rem" }}>Access Denied</h2>
+      <p style={{ color: "#4b5563", marginBottom: "1.5rem" }}>{message}</p>
+      <Link to="/" className="btn btn-secondary" style={{ display: "inline-block" }}>
+        Return to Home
+      </Link>
+    </div>
+  );
+}
+
+function SystemAdminRoute({ children }: { children: React.ReactElement }) {
+  const { user } = useAuth();
+  const isSysAdmin = Boolean(user?.authority === "SYSTEM_ADMIN" || user?.roles?.includes("SYSTEM_ADMIN"));
+  if (!isSysAdmin) {
+    return <AccessDenied message="Advanced Security administration is restricted to System Administrators." />;
+  }
+  return children;
+}
+
+function WorkCatalogRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    hasPermission("WorkCatalog.Manage")
+  );
+  if (!allowed) {
+    return <AccessDenied message="Work Catalog administration is restricted to Office Administrators and System Administrators." />;
+  }
+  return children;
+}
+
+function AssistantsAdminRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    (user?.authority !== "OFFICE_SUPERVISOR" && hasPermission("Users.Manage"))
+  );
+  if (!allowed) {
+    return <AccessDenied message="Senior management of attached DEOs is restricted to Office Administrators and System Administrators." />;
+  }
+  return children;
+}
+
+function UsersAdminRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.authority === "OFFICE_SUPERVISOR" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    hasPermission("Users.Manage")
+  );
+  if (!allowed) {
+    return <AccessDenied message="Officer and staff management is restricted to authorized supervisors and administrators." />;
+  }
+  return children;
+}
+
+function AuditLogsRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.authority === "OFFICE_SUPERVISOR" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    hasPermission("Audit.View")
+  );
+  if (!allowed) {
+    return <AccessDenied message="System audit logs are restricted to authorized supervisors and administrators." />;
+  }
+  return children;
+}
+
+function MyHelpersRoute({ children }: { children: React.ReactElement }) {
+  const { user } = useAuth();
+  const isHelper = Boolean(user?.authority === "HELPER" || user?.roles?.includes("HELPER"));
+  if (isHelper) {
+    return <AccessDenied message="Helper accounts cannot manage assistant accounts." />;
+  }
+  return children;
+}
+
 function AuthenticatedApp() {
   const { user, loading, logout } = useAuth();
   if (loading) {
@@ -3964,11 +4073,12 @@ function AuthenticatedApp() {
         <Route path="/outward" element={<OutwardDirectory />} />
         <Route path="/outward/new" element={<OutwardRegistration />} />
         <Route path="/outward/:id" element={<OutwardDetailWorkspace />} />
-        <Route path="/admin/users" element={<UsersAdmin />} />
-        <Route path="/admin/access" element={<AccessAdmin />} />
-        <Route path="/admin/work-catalog" element={<WorkCatalogAdmin />} />
-        <Route path="/admin/assistants" element={<OfficerAssistantAdmin />} />
-        <Route path="/admin/audit-logs" element={<AuditLogsAdmin />} />
+        <Route path="/my-helpers" element={<MyHelpersRoute><MyHelpersView /></MyHelpersRoute>} />
+        <Route path="/admin/users" element={<UsersAdminRoute><UsersAdmin /></UsersAdminRoute>} />
+        <Route path="/admin/access" element={<SystemAdminRoute><AccessAdmin /></SystemAdminRoute>} />
+        <Route path="/admin/work-catalog" element={<WorkCatalogRoute><WorkCatalogAdmin /></WorkCatalogRoute>} />
+        <Route path="/admin/assistants" element={<AssistantsAdminRoute><OfficerAssistantAdmin /></AssistantsAdminRoute>} />
+        <Route path="/admin/audit-logs" element={<AuditLogsRoute><AuditLogsAdmin /></AuditLogsRoute>} />
         <Route path="*" element={<SearchPage />} />
       </Routes>
     </AppShell></CalculatorProvider>
@@ -4482,6 +4592,10 @@ function LrWorkspace() {
 }
 function LrRegister() {
   const { villageId = "", lrId = "" } = useParams();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("LR.Edit");
+  const canVerify = hasPermission("LR.Verify");
+  const canCommit = hasPermission("LR.Commit");
   const [page, setPage] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [message, setMessage] = useState("");
@@ -4539,9 +4653,11 @@ function LrRegister() {
         eyebrow={lr.villageName}
         title={lr.registerReference || "Village LR register"}
         actions={
-          <Link className="text-action" to={`/imports/lr?register=${lrId}`}>
-            Enter rows
-          </Link>
+          canEdit ? (
+            <Link className="text-action" to={`/imports/lr?register=${lrId}`}>
+              Enter rows
+            </Link>
+          ) : undefined
         }
       />
       <div className="metric-grid">
@@ -4612,12 +4728,12 @@ function LrRegister() {
               </td>
               <td>
                 <div className="row-actions">
-                  {row.verificationStatus !== "Committed" && (
+                  {canVerify && row.verificationStatus !== "Committed" && (
                     <button onClick={() => setStatus(row)}>
                       {row.khasraId ? "Verify" : "Needs review"}
                     </button>
                   )}
-                  {row.verificationStatus === "Verified" && (
+                  {canCommit && row.verificationStatus === "Verified" && (
                     <button
                       className="commit-button"
                       onClick={() => commit(row)}
@@ -4625,6 +4741,7 @@ function LrRegister() {
                       Commit
                     </button>
                   )}
+                  {!canVerify && !canCommit && "—"}
                 </div>
               </td>
             </tr>

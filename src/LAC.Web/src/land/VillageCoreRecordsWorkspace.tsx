@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthProvider";
 import type {
   CoreDocumentRole,
   IntakeItem,
@@ -114,6 +115,11 @@ function matchStateBadgeClass(state: IntakeMatchState): string {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({ id }) => {
+  const { hasPermission } = useAuth();
+  const canEdit =
+    hasPermission("Award.Create") ||
+    hasPermission("Award.Edit") ||
+    hasPermission("Award.CoreDocument.Upload");
   const [refresh, setRefresh] = useState(0);
   const [records, setRecords] = useState<AwardCoreRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,23 +214,25 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
             Statement A registers, and Possession proceedings.
           </p>
         </div>
-        <div className="village-core-actions">
-          <button
-            className="village-btn village-btn-outline"
-            onClick={() => {
-              setAwardError("");
-              setShowAddAwardModal(true);
-            }}
-          >
-            + Add Award Manually
-          </button>
-          <button
-            className="village-btn village-btn-primary"
-            onClick={() => setShowUploadModal(true)}
-          >
-            + Upload Core Documents
-          </button>
-        </div>
+        {canEdit && (
+          <div className="village-core-actions">
+            <button
+              className="village-btn village-btn-outline"
+              onClick={() => {
+                setAwardError("");
+                setShowAddAwardModal(true);
+              }}
+            >
+              + Add Award Manually
+            </button>
+            <button
+              className="village-btn village-btn-primary"
+              onClick={() => setShowUploadModal(true)}
+            >
+              + Upload Core Documents
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Records list */}
@@ -254,6 +262,7 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
             <AwardCoreCard
               key={award.id}
               award={award}
+              canEdit={canEdit}
               onAttach={(awardId, awardNumber, role) =>
                 setQuickAttach({ awardId, awardNumber, role })
               }
@@ -383,10 +392,11 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
 
 interface AwardCoreCardProps {
   award: AwardCoreRecord;
+  canEdit?: boolean;
   onAttach: (awardId: string, awardNumber: string, role: CoreDocumentRole) => void;
 }
 
-const AwardCoreCard: React.FC<AwardCoreCardProps> = ({ award, onAttach }) => {
+const AwardCoreCard: React.FC<AwardCoreCardProps> = ({ award, canEdit = true, onAttach }) => {
   return (
     <div className="village-award-card">
       <div className="village-award-card-header">
@@ -452,12 +462,14 @@ const AwardCoreCard: React.FC<AwardCoreCardProps> = ({ award, onAttach }) => {
                 ) : (
                   <div className="village-doc-missing-box">
                     <span className="village-doc-missing-text">— Not uploaded</span>
-                    <button
-                      className="village-doc-attach-btn"
-                      onClick={() => onAttach(award.id, award.awardNumber, role)}
-                    >
-                      + Attach
-                    </button>
+                    {canEdit && (
+                      <button
+                        className="village-doc-attach-btn"
+                        onClick={() => onAttach(award.id, award.awardNumber, role)}
+                      >
+                        + Attach
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

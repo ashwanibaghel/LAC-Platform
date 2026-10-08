@@ -35,6 +35,8 @@ export interface CurrentUser {
   mustChangePassword?: boolean;
   temporaryCredentialExpiresAt?: string | null;
   supervisingOfficerId?: string | null;
+  customDesignation?: string | null;
+  authority?: "SYSTEM_ADMIN" | "OFFICE_ADMIN" | "OFFICE_SUPERVISOR" | "STANDARD_OFFICER" | "HELPER";
 }
 
 

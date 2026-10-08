@@ -29,7 +29,7 @@ const appTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/App.tsx
 const appShellTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/components/AppShell.tsx"), "utf8"));
 const changePasswordTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/auth/ChangePasswordView.tsx"), "utf8"));
 
-test("1. AccountOptionsResponse consumes workstreams and desks", () => {
+test("1. Account options and office options contracts support workstreams and desks", () => {
   // Types definition check matching backend SHA 9c1077dd
   assert.ok(
     typesTs.includes("workstreams: { id: string; code: string; name: string }[]"),
@@ -42,12 +42,12 @@ test("1. AccountOptionsResponse consumes workstreams and desks", () => {
 
   // UsersAdmin options consumption check
   assert.ok(
-    usersAdminTsx.includes("setWorkstreams((opts.workstreams || []) as Workstream[])"),
-    "UsersAdmin populates workstreams from accountOptions.workstreams"
+    usersAdminTsx.includes('fetch("/api/office/accounts/options"'),
+    "UsersAdmin populates options from office accounts options"
   );
   assert.ok(
-    usersAdminTsx.includes("setDesks(opts.desks || [])"),
-    "UsersAdmin populates desks from accountOptions.desks"
+    usersAdminTsx.includes("options?.desks"),
+    "UsersAdmin populates desks from options.desks"
   );
 
   // Runtime mock deserialization test
@@ -75,14 +75,14 @@ test("1. AccountOptionsResponse consumes workstreams and desks", () => {
   assert.equal(sampleBackendPayload.desks[1].workstreamId, null, "Desk with nullable workstreamId accepted");
 });
 
-test("2. Users.Manage + Allocations.Manage UI works without successful /api/admin/workstreams, /roles or /desks calls", () => {
-  // In UsersAdmin loadData, it must ONLY call /api/admin/users and /api/admin/account-options
+test("2. Office account management UI works without calling /api/admin/workstreams, /roles or /desks calls", () => {
+  // In UsersAdmin loadData, it must ONLY call /api/office/accounts and /api/office/accounts/options
   const loadDataMatch = usersAdminTsx.match(/const loadData = useCallback\(async \(\) => \{([\s\S]*?)\}, \[/);
   assert.ok(loadDataMatch, "Found UsersAdmin loadData implementation");
   const loadDataBody = loadDataMatch[1];
 
-  assert.ok(loadDataBody.includes('fetch("/api/admin/users"'), "Calls /api/admin/users");
-  assert.ok(loadDataBody.includes('fetch("/api/admin/account-options"'), "Calls /api/admin/account-options");
+  assert.ok(loadDataBody.includes('fetch("/api/office/accounts"'), "Calls /api/office/accounts");
+  assert.ok(loadDataBody.includes('fetch("/api/office/accounts/options"'), "Calls /api/office/accounts/options");
 
   // Must NOT call Access.Manage catalog endpoints for options
   assert.ok(!loadDataBody.includes('fetch("/api/admin/workstreams"'), "Must NOT call /api/admin/workstreams");
@@ -91,21 +91,14 @@ test("2. Users.Manage + Allocations.Manage UI works without successful /api/admi
   assert.ok(!loadDataBody.includes('fetch("/api/admin/designations"'), "Must NOT call /api/admin/designations");
 });
 
-test("3. Assignable roles come only from accountOptions.roles", () => {
-  // Option source in UsersAdmin
+test("3. Authority and module choices come strictly from server office options", () => {
   assert.ok(
-    usersAdminTsx.includes("setRoles(opts.roles || [])"),
-    "Roles options set strictly from accountOptions.roles"
-  );
-
-  // Role checkbox rendering maps over roles (derived from accountOptions.roles)
-  assert.ok(
-    usersAdminTsx.includes("{roles.map((r) => ("),
-    "Role checkboxes map over accountOptions.roles state"
+    usersAdminTsx.includes('options?.canAssignOfficeSupervisor'),
+    "Supervisor assignment conditioned on options.canAssignOfficeSupervisor ceiling"
   );
   assert.ok(
-    usersAdminTsx.includes("disabled={!accountOptions?.canAssignRoles}"),
-    "Role selection is conditioned on accountOptions.canAssignRoles ceiling"
+    usersAdminTsx.includes('ALL_MODULES.map'),
+    "Module cards map over canonical module definitions"
   );
 });
 
@@ -144,45 +137,60 @@ test("5. Assistant UI does not require /api/admin/designations", () => {
   );
 });
 
-test("6. New allocation starts with zero scopes", () => {
-  const openNewAllocMatch = usersAdminTsx.match(/const openNewAllocationForm = \(\) => \{([\s\S]*?)\};/);
-  assert.ok(openNewAllocMatch, "Found openNewAllocationForm");
-  const openNewAllocBody = openNewAllocMatch[1];
-
-  assert.ok(
-    openNewAllocBody.includes("setAllocScopes([]);"),
-    "New allocation initializes with zero scopes ([])"
-  );
-  assert.ok(
-    !openNewAllocBody.includes('{ kind: "Global" }'),
-    "New allocation does NOT initialize with Global scope"
-  );
+test("6. Child allocation requires at least one selected scope", () => {
+  const parent = {
+    id: "alloc-parent-1",
+    workDefinitionId: "work-lr",
+    scopes: [{ kind: "Village", villageId: "vil-1" }],
+    validFrom: "2026-10-01T00:00:00+05:30",
+    validTo: null,
+  };
+  const emptyScopesResult = buildChildAllocation({
+    parent,
+    selectedScopeIndices: [],
+    childValidFrom: "2026-10-05",
+    childValidTo: null,
+  });
+  assert.equal(emptyScopesResult.valid, false);
+  assert.match(emptyScopesResult.error, /at least one scope/i);
 });
 
-test("7. Global is only added by explicit user action", () => {
-  assert.ok(
-    !usersAdminTsx.includes('alloc.scopes || [{ kind: "Global" }]'),
-    "No implicit Global fallback fallback when scopes are missing"
-  );
-  assert.ok(
-    usersAdminTsx.includes('if (newScopeKind === "Global") {\n      scope = { kind: "Global" };'),
-    "Global scope is only created upon explicit user selection in scope builder"
-  );
-  assert.ok(
-    usersAdminTsx.includes("At least one geographic scope must be consciously added"),
-    "Validation error raised if submitted with zero scopes"
-  );
+test("7. Child allocation scopes are bounded to parent scopes and cannot exceed parent", () => {
+  const parent = {
+    id: "alloc-parent-1",
+    workDefinitionId: "work-lr",
+    scopes: [{ kind: "Village", villageId: "vil-1" }],
+    validFrom: "2026-10-01T00:00:00+05:30",
+    validTo: null,
+  };
+  const result = buildChildAllocation({
+    parent,
+    selectedScopeIndices: [0],
+    childValidFrom: "2026-10-05",
+    childValidTo: null,
+  });
+  assert.equal(result.valid, true);
+  if (result.valid) {
+    assert.deepEqual(result.child.scopes, [{ kind: "Village", villageId: "vil-1" }]);
+  }
 });
 
-test("8. Blank Work Order Reference blocks allocation submit", () => {
-  assert.ok(
-    usersAdminTsx.includes("if (!allocOrderRef.trim()) {"),
-    "Checks for blank work order reference"
-  );
-  assert.ok(
-    usersAdminTsx.includes('setAllocFormError("Work Order Reference is required and must be explicitly entered.")'),
-    "Sets clear validation error when Work Order Reference is blank"
-  );
+test("8. Blank Valid From date blocks child allocation build", () => {
+  const parent = {
+    id: "alloc-parent-1",
+    workDefinitionId: "work-lr",
+    scopes: [{ kind: "Village", villageId: "vil-1" }],
+    validFrom: "2026-10-01T00:00:00+05:30",
+    validTo: null,
+  };
+  const result = buildChildAllocation({
+    parent,
+    selectedScopeIndices: [0],
+    childValidFrom: "",
+    childValidTo: null,
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.error, /Valid From date is required/);
 });
 
 test("9. No OFFICE-ORDER/2026/ALLOC fallback exists", () => {
@@ -378,19 +386,19 @@ test("14. Parent allocation [Bijwasan, Dwarka] can create one child with Bijwasa
 });
 
 test("15. Normal Create Officer has no manual password input/path", () => {
-  // In UsersAdmin, Create Officer modal sends password: null
-  assert.ok(
-    usersAdminTsx.includes("password: null,"),
-    "Create Officer payload sends password: null requesting generated temporary credential"
-  );
   // Verify manual PasswordInput is not rendered in the create officer modal
-  const createModalMatch = usersAdminTsx.match(/showCreateModal && \([\s\S]*?<form onSubmit=\{handleCreateUser\}[\s\S]*?>([\s\S]*?)<\/form>/);
+  const createModalMatch = usersAdminTsx.match(/showCreateModal && \([\s\S]*?<form onSubmit=\{handleCreateOfficerSubmit\}[\s\S]*?>([\s\S]*?)<\/form>/);
   assert.ok(createModalMatch, "Found Create Officer modal form");
   const createModalForm = createModalMatch[1];
 
   assert.ok(!createModalForm.includes("<PasswordInput"), "PasswordInput component is NOT in Create Officer form");
   assert.ok(!createModalForm.includes('type="password"'), "No manual password input in Create Officer form");
   assert.ok(!createModalForm.includes("autoGeneratePassword"), "No auto-generate toggle; generated credential is mandatory");
+
+  // In UsersAdmin, Create Officer submission payload does not accept or send manual password
+  const createSubmitMatch = usersAdminTsx.match(/const handleCreateOfficerSubmit = async[\s\S]*?const payload = \{([\s\S]*?)\};/);
+  assert.ok(createSubmitMatch, "Found Create Officer payload definition");
+  assert.ok(!createSubmitMatch[1].includes("password"), "Create Officer payload does not include password");
 });
 
 test("16. Temporary credential is cleared after acknowledgement", () => {
@@ -470,8 +478,8 @@ test("20. 409 reload behavior remains intact", () => {
   // UsersAdmin 409 handling
   assert.match(
     usersAdminTsx,
-    /if\s*\(\s*res\.status\s*===\s*409\s*\)\s*\{[\s\S]*?loadOfficerAllocations[\s\S]*?loadData/m,
-    "UsersAdmin reloads officer allocations and canonical data on 409 conflict"
+    /if\s*\(\s*res\.status\s*===\s*409\s*\)\s*\{[\s\S]*?loadData\(\)[\s\S]*?\/api\/office\/accounts\/\$\{editingOfficer\.id\}/m,
+    "UsersAdmin reloads canonical data and account details on 409 conflict"
   );
 
   // OfficerAssistantAdmin 409 handling
@@ -484,10 +492,10 @@ test("20. 409 reload behavior remains intact", () => {
 
 test("21. Technical SYSTEM_ADMIN display with designation null renders 'Technical Account' and preserves 'Unassigned' for ordinary users", () => {
   // In UsersAdmin table rendering:
-  // If user.designation is null and user.roles includes SYSTEM_ADMIN: renders "Technical Account" and "No civil designation"
+  // If user has authority SYSTEM_ADMIN and no designation/customDesignation: renders "Technical Account" and "No civil designation"
   assert.ok(
-    usersAdminTsx.includes('u.roles?.includes("SYSTEM_ADMIN") ? ('),
-    "UsersAdmin checks for SYSTEM_ADMIN role when designation is null"
+    usersAdminTsx.includes('u.authority === "SYSTEM_ADMIN" && !u.designationId && !u.customDesignation'),
+    "UsersAdmin checks for SYSTEM_ADMIN authority when designation is null"
   );
   assert.ok(
     usersAdminTsx.includes("Technical Account"),
@@ -498,7 +506,7 @@ test("21. Technical SYSTEM_ADMIN display with designation null renders 'Technica
     "UsersAdmin renders 'No civil designation' supporting text/title"
   );
   assert.ok(
-    usersAdminTsx.includes('<span className="subtext">Unassigned</span>'),
+    usersAdminTsx.includes("Unassigned"),
     "Ordinary user without designation and without SYSTEM_ADMIN retains 'Unassigned'"
   );
 
@@ -508,13 +516,13 @@ test("21. Technical SYSTEM_ADMIN display with designation null renders 'Technica
     "Access Inspector displays 'No civil designation (Technical System Administrator)' for SYSTEM_ADMIN"
   );
   assert.ok(
-    usersAdminTsx.includes('inspectingOfficer.roles.map((r) =>'),
-    "Access Inspector continues to render assigned roles including SYSTEM_ADMIN from server data"
+    usersAdminTsx.includes("inspectingOfficer.authority"),
+    "Access Inspector continues to render assigned authority from server data"
   );
 
   // AppShell:
   assert.ok(
-    /isSystemAdmin\s*\?\s*"Technical System Administrator"\s*:\s*null/.test(appShellTsx),
+    appShellTsx.includes('"Technical System Administrator"'),
     "AppShell displays 'Technical System Administrator' subtitle when user has SYSTEM_ADMIN and no designation"
   );
 
@@ -547,11 +555,5 @@ test("22. Create Account retains '-- No Official Designation --', supports SYSTE
     !usersAdminTsx.includes('{ code: "SYSTEM_ADMIN", name: "System Administrator" }') &&
     !usersAdminTsx.includes('{ id: "sys-admin", name: "System Administrator" }'),
     "No fake System Administrator designation is injected into designations catalog"
-  );
-
-  // Server role data still renders SYSTEM_ADMIN
-  assert.ok(
-    usersAdminTsx.includes('roles.map((r) =>'),
-    "Roles checklist maps over server roles"
   );
 });

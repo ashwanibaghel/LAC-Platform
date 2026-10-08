@@ -15,7 +15,8 @@ import {
   IconMenu,
   IconLogOut,
   IconChevronRight,
-  IconCalculator
+  IconCalculator,
+  IconUsers
 } from "./Icons";
 
 const api = "/api";
@@ -122,8 +123,18 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   // User details
   const userDisplayName = user?.displayName || user?.username || "Officer";
-  const isSystemAdmin = Boolean(user?.roles?.includes("SYSTEM_ADMIN"));
-  const userDesignation = user?.designation?.name
+  const isSystemAdmin = Boolean(
+    user?.roles?.includes("SYSTEM_ADMIN") || user?.authority === "SYSTEM_ADMIN"
+  );
+  const isOfficeAdmin = Boolean(user?.authority === "OFFICE_ADMIN");
+  const isOfficeSupervisor = Boolean(user?.authority === "OFFICE_SUPERVISOR");
+  const isHelper = Boolean(
+    user?.authority === "HELPER" || user?.roles?.includes("HELPER")
+  );
+
+  const userDesignation = user?.customDesignation
+    ? user.customDesignation
+    : user?.designation?.name
     ? user.designation.name
     : isSystemAdmin
     ? "Technical System Administrator"
@@ -142,7 +153,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const canAccessMatters = () => hasPermission("Matter.View") || hasPermission("Matter.Create");
   const canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View");
   const canAccessOversight = () => hasPermission("WorkItem.View") || hasPermission("Audit.View");
-  const canAccessAdmin = () => hasPermission("Users.Manage") || hasPermission("Access.Manage") || hasPermission("Audit.View");
+  const canAccessAdmin = () => {
+    if (!user || isHelper || user?.authority === "STANDARD_OFFICER") return false;
+    if (isSystemAdmin || isOfficeAdmin || isOfficeSupervisor) return true;
+    return hasPermission("Users.Manage") || hasPermission("Access.Manage") || hasPermission("Audit.View");
+  };
 
   // Module Launcher Configuration
   const modules: ModuleConfig[] = [
@@ -208,11 +223,36 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       icon: <IconShield size={20} />,
       checkPermission: canAccessAdmin,
       links: [
-        { label: "Officers & Staff", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
-        { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
-        { label: "Work Catalog", to: "/admin/work-catalog", checkPermission: () => hasPermission("Access.Manage") },
-        { label: "Attached DEOs", to: "/admin/assistants", checkPermission: () => hasPermission("Users.Manage") },
-        { label: "System Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
+        {
+          label: "Officers & Staff",
+          to: "/admin/users",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Users.Manage"),
+        },
+        {
+          label: "Access & Roles",
+          to: "/admin/access",
+          checkPermission: () =>
+            isSystemAdmin && hasPermission("Access.Manage"),
+        },
+        {
+          label: "Work Catalog",
+          to: "/admin/work-catalog",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage"),
+        },
+        {
+          label: "Attached DEOs",
+          to: "/admin/assistants",
+          checkPermission: () =>
+            (isSystemAdmin || isOfficeAdmin) && !isOfficeSupervisor,
+        },
+        {
+          label: "System Audit Trail",
+          to: "/admin/audit-logs",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Audit.View"),
+        },
       ]
     }
   ];
@@ -267,11 +307,44 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     contextualNav = {
       categoryTitle: "Administration",
       links: [
-        { label: "Officers & Staff", to: "/admin/users", checkPermission: () => hasPermission("Users.Manage") },
-        { label: "Access & Roles", to: "/admin/access", checkPermission: () => hasPermission("Access.Manage") },
-        { label: "Work Catalog", to: "/admin/work-catalog", checkPermission: () => hasPermission("Access.Manage") },
-        { label: "Attached DEOs", to: "/admin/assistants", checkPermission: () => hasPermission("Users.Manage") },
-        { label: "Audit Trail", to: "/admin/audit-logs", checkPermission: () => hasPermission("Audit.View") }
+        {
+          label: "Officers & Staff",
+          to: "/admin/users",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Users.Manage"),
+        },
+        {
+          label: "Access & Roles",
+          to: "/admin/access",
+          checkPermission: () =>
+            isSystemAdmin && hasPermission("Access.Manage"),
+        },
+        {
+          label: "Work Catalog",
+          to: "/admin/work-catalog",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage"),
+        },
+        {
+          label: "Attached DEOs",
+          to: "/admin/assistants",
+          checkPermission: () =>
+            (isSystemAdmin || isOfficeAdmin) && !isOfficeSupervisor,
+        },
+        {
+          label: "Audit Trail",
+          to: "/admin/audit-logs",
+          checkPermission: () =>
+            isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Audit.View"),
+        },
+      ]
+    };
+  } else if (path.startsWith("/my-helpers")) {
+    contextualNav = {
+      categoryTitle: "My Desk & Staff",
+      links: [
+        { label: "My Helpers", to: "/my-helpers" },
+        { label: "My Desk", to: "/my-desk" }
       ]
     };
   }
@@ -379,6 +452,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                   <strong>{userDisplayName}</strong>
                   {userDesignation && <span>{userDesignation}</span>}
                 </div>
+                {!isHelper && (
+                  <Link
+                    to="/my-helpers"
+                    className="lac-user-dropdown-item"
+                    onClick={() => setUserMenuOpen(false)}
+                  >
+                    <IconUsers size={15} />
+                    <span>My Helpers</span>
+                  </Link>
+                )}
                 <button
                   className="lac-user-dropdown-item lac-logout-item"
                   onClick={() => {
