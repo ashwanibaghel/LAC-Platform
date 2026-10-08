@@ -18,6 +18,13 @@ interface DakListResponse {
   pageSize: number;
 }
 
+interface DirectoryLookups {
+  desks: DeskOption[];
+  handlers?: { id: string; displayName: string }[];
+  categories?: DeskOption[];
+  workstreams?: DeskOption[];
+}
+
 export type DirectoryTab = "all" | "incoming" | "sent" | "with-me" | "resolved" | "attention";
 
 export const DakDirectory: React.FC = () => {
@@ -43,18 +50,25 @@ export const DakDirectory: React.FC = () => {
   const [priority, setPriority] = useState<string>("");
   const [deskId, setDeskId] = useState<string>("");
   const [desks, setDesks] = useState<DeskOption[]>([]);
+  const [lookups, setLookups] = useState<DirectoryLookups>({ desks: [] });
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const changeFilter = (key: string, value: string) => {
+    setFilters((previous) => ({ ...previous, [key]: value }));
+    setPage(0);
+  };
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load active desks for filter via operational lookup
   useEffect(() => {
     fetch("/api/dak/lookups/directory", { credentials: "include" })
-      .then((r) => r.json() as Promise<{ desks: DeskOption[] }>)
-      .then((data) => setDesks(data.desks))
+      .then((r) => { if (!r.ok) throw new Error("Could not load directory filters."); return r.json() as Promise<DirectoryLookups>; })
+      .then((data) => { setDesks(data.desks); setLookups(data); })
       .catch(() => {});
   }, []);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal: AbortSignal) => {
     try {
       setLoading(true);
       setError(null);
@@ -67,8 +81,9 @@ export const DakDirectory: React.FC = () => {
         if (status) params.append("status", status);
         if (priority) params.append("priority", priority);
         if (deskId) params.append("deskId", deskId);
+        for (const [key, value] of Object.entries(filters)) if (value) params.append(key, value);
 
-        const res = await fetch(`/api/dak?${params.toString()}`, { credentials: "include" });
+        const res = await fetch(`/api/dak?${params.toString()}`, { credentials: "include", signal });
         if (!res.ok) {
           if (res.status === 403) throw new Error("Access denied: You do not have permission to view Dak.");
           throw new Error("Failed to load inward Dak records.");
@@ -83,7 +98,7 @@ export const DakDirectory: React.FC = () => {
         params.append("page", page.toString());
         params.append("pageSize", pageSize.toString());
 
-        const res = await fetch(`/api/dak/delivery-queue?${params.toString()}`, { credentials: "include" });
+        const res = await fetch(`/api/dak/delivery-queue?${params.toString()}`, { credentials: "include", signal });
         if (!res.ok) {
           if (res.status === 403) throw new Error("Access denied: You do not have permission to view this delivery queue.");
           throw new Error("Failed to load delivery queue records.");
@@ -94,14 +109,16 @@ export const DakDirectory: React.FC = () => {
         setTotalCount(data.totalCount);
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load records.");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Failed to load records.");
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, [activeTab, page, pageSize, searchTerm, status, priority, deskId]);
+  }, [activeTab, page, pageSize, searchTerm, status, priority, deskId, filters]);
 
   useEffect(() => {
-    void loadData();
+    const controller = new AbortController();
+    void loadData(controller.signal);
+    return () => controller.abort();
   }, [loadData]);
 
   const handleTabChange = (newTab: DirectoryTab) => {
@@ -161,7 +178,7 @@ export const DakDirectory: React.FC = () => {
         </div>
         {hasPermission("Dak.Register") && (
           <button className="primary-button" onClick={() => navigate("/dak/register")}>
-            + Quick Intake Dak
+            + New Dak Entry
           </button>
         )}
       </div>
@@ -245,6 +262,7 @@ export const DakDirectory: React.FC = () => {
             <label className="filter-label">
               Status:
               <select
+                aria-label="Status:"
                 value={status}
                 onChange={(e) => {
                   setStatus(e.target.value);
@@ -264,6 +282,7 @@ export const DakDirectory: React.FC = () => {
             <label className="filter-label">
               Priority:
               <select
+                aria-label="Priority:"
                 value={priority}
                 onChange={(e) => {
                   setPriority(e.target.value);
@@ -279,8 +298,9 @@ export const DakDirectory: React.FC = () => {
             </label>
 
             <label className="filter-label">
-              Desk:
+              Current Desk:
               <select
+                aria-label="Current Desk:"
                 value={deskId}
                 onChange={(e) => {
                   setDeskId(e.target.value);
@@ -294,7 +314,49 @@ export const DakDirectory: React.FC = () => {
                 ))}
               </select>
             </label>
+            <label className="filter-label">Received From:
+              <input aria-label="Received From:" type="date" value={filters.receivedFrom || ""} onChange={(e) => changeFilter("receivedFrom", e.target.value)} />
+            </label>
+            <label className="filter-label">Received To:
+              <input aria-label="Received To:" type="date" value={filters.receivedTo || ""} onChange={(e) => changeFilter("receivedTo", e.target.value)} />
+            </label>
+            <button type="button" className="secondary-button" aria-expanded={showMoreFilters} aria-controls="dak-more-filters" onClick={() => setShowMoreFilters((v) => !v)}>More filters</button>
+            <button type="button" className="secondary-button" onClick={() => { setFilters({}); setStatus(""); setPriority(""); setDeskId(""); setQ(""); setSearchTerm(""); setPage(0); }}>Reset filters</button>
           </div>
+          {showMoreFilters && <div className="filter-controls dak-more-filters" id="dak-more-filters">
+            <label className="filter-label">Inward Mode:
+              <select aria-label="Inward Mode:" value={filters.inwardMode || ""} onChange={(e) => changeFilter("inwardMode", e.target.value)}>
+                <option value="">All Modes</option>
+                {["Physical", "Physical / By Hand", "Speed Post / Registered Post", "Courier", "Email", "e-Office / Portal", "Court Summon / Special Messenger"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+              </select>
+            </label>
+            <label className="filter-label">Category:
+              <select aria-label="Category:" value={filters.categoryId || ""} onChange={(e) => changeFilter("categoryId", e.target.value)}>
+                <option value="">All Categories</option>
+                {(lookups.categories || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="filter-label">Workstream:
+              <select aria-label="Workstream:" value={filters.workstreamId || ""} onChange={(e) => changeFilter("workstreamId", e.target.value)}>
+                <option value="">All Workstreams</option>
+                {(lookups.workstreams || []).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </label>
+            <label className="filter-label">Current Handler / Officer:
+              <select aria-label="Current Handler / Officer:" value={filters.handlerId || ""} onChange={(e) => changeFilter("handlerId", e.target.value)}>
+                <option value="">All Handlers</option>
+                {(lookups.handlers || []).map((u) => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+              </select>
+            </label>
+            <label className="filter-label">Sender / Department:
+              <input aria-label="Sender / Department:" type="text" value={filters.sender || ""} onChange={(e) => changeFilter("sender", e.target.value)} placeholder="Sender or department" />
+            </label>
+            <label className="filter-label">Has document:
+              <select aria-label="Has document:" value={filters.hasDocument || ""} onChange={(e) => changeFilter("hasDocument", e.target.value)}>
+                <option value="">All</option><option value="true">With attachment</option><option value="false">Without attachment</option>
+              </select>
+            </label>
+          </div>}
         </div>
       ) : (
         <div className="queue-bucket-intro">
@@ -318,26 +380,19 @@ export const DakDirectory: React.FC = () => {
             <table className="compact-dak-table">
               <thead>
                 <tr>
-                  <th style={{ width: "13%" }}>Diary No.</th>
-                  <th style={{ width: "10%" }}>Received Date</th>
-                  <th style={{ width: "18%" }}>From / Sender</th>
-                  <th style={{ width: "23%" }}>Subject</th>
-                  <th style={{ width: "16%" }}>Current Desk / Officer</th>
-                  <th style={{ width: "8%" }}>Workstream</th>
-                  <th style={{ width: "7%" }}>Status</th>
-                  <th style={{ width: "5%", textAlign: "center" }}>Doc</th>
+                  <th>Diary No.</th><th>Received Date</th><th>Sender / Department</th><th>Subject</th>
+                  <th>Inward Mode</th><th>Priority</th><th>Current Desk</th><th>Current Handler</th><th>Workstream</th><th>Status</th><th>Doc</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item) => {
                   const isLongPending = item.status !== "Disposed" && item.status !== "Cancelled" && isLongPendingReceipt(item.createdAt);
                   return (
-                    <tr key={item.id} className={!item.assignedDeskName ? "row-unmarked" : ""}>
+                    <tr key={item.id} className={!item.assignedDeskName ? "row-unmarked" : ""} onClick={() => navigate(`/dak/${item.id}`)}>
                       <td>
                         <Link to={`/dak/${item.id}`} className="entity-link diary-no-link">
                           {item.diaryNumber}
                         </Link>
-                        <div className="subtext mode-subtext">{item.inwardMode}</div>
                       </td>
                       <td>
                         <span className="date-display">{item.receivedDate}</span>
@@ -353,13 +408,12 @@ export const DakDirectory: React.FC = () => {
                           {item.subject}
                         </div>
                       </td>
+                      <td>{item.inwardMode}</td>
+                      <td><span className={`priority-pill priority-${item.priority.toLowerCase()}`}>{item.priority}</span></td>
                       <td>
                         {item.assignedDeskName ? (
                           <div className="custody-cell">
                             <strong className="desk-name-text">{item.assignedDeskName}</strong>
-                            {item.assignedUserDisplayName && (
-                              <div className="subtext officer-name-text">{item.assignedUserDisplayName}</div>
-                            )}
                             {isLongPending && (
                               <span className="attention-badge" title="Pending > 48h">
                                 ⏱ &gt;48h
@@ -372,6 +426,7 @@ export const DakDirectory: React.FC = () => {
                           </span>
                         )}
                       </td>
+                      <td>{item.assignedUserDisplayName || "—"}</td>
                       <td>
                         <span className="workstream-tag">{item.workstreamName || "General"}</span>
                       </td>
@@ -381,7 +436,7 @@ export const DakDirectory: React.FC = () => {
                         </span>
                       </td>
                       <td style={{ textAlign: "center" }}>
-                        {item.hasDocument ? <span title="Primary scan attached">📎</span> : <span style={{ color: "#cbd5e1" }}>—</span>}
+                        {item.hasDocument ? <span title="Document attached">📎</span> : <span style={{ color: "#cbd5e1" }}>—</span>}
                       </td>
                     </tr>
                   );

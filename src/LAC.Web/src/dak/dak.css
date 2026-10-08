@@ -945,3 +945,14 @@
   color: #0284c7;
   font-weight: 600;
 }
+.dak-directory-page .directory-filters { display: flex; flex-direction: column; align-items: stretch; gap: 12px; width: 100%; }
+.dak-directory-page .search-form { flex: none; align-items: center; }
+.dak-directory-page .search-form .search-input { height: 36px; min-width: 0; }
+.dak-directory-page .search-form button { flex: none; min-height: 36px; }
+.dak-directory-page .filter-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.dak-directory-page .filter-label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.dak-directory-page .filter-label input, .dak-directory-page .filter-label select { min-height: 34px; max-width: 220px; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+.dak-directory-page .dak-more-filters { border-top: 1px solid #e2e8f0; padding-top: 12px; }
+.dak-directory-page .compact-dak-table { min-width: 1120px; }
+.dak-directory-page .compact-dak-table tbody tr { cursor: pointer; }
+.dak-directory-page .compact-dak-table tbody tr:hover { background: #eff6ff; }

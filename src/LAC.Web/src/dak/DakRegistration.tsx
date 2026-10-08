@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import type { DakCategory } from "./types";
 import "./dak.css";
 import { officeCalendarDate } from "./officeDate.js";
+import { createDakRequestId } from "./requestId.js";
 
 interface WorkstreamOption {
   id: string;
@@ -15,6 +16,7 @@ export const DakRegistration: React.FC = () => {
   const navigate = useNavigate();
   const diaryInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submissionInFlight = useRef(false);
 
   // Form Fields
   const [diaryNumber, setDiaryNumber] = useState("");
@@ -41,7 +43,7 @@ export const DakRegistration: React.FC = () => {
   const [dueDate, setDueDate] = useState("");
 
   // Idempotency & Lookups state
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => createDakRequestId());
   const [categories, setCategories] = useState<DakCategory[]>([]);
   const [workstreams, setWorkstreams] = useState<WorkstreamOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -83,6 +85,7 @@ export const DakRegistration: React.FC = () => {
   };
 
   const handleRegister = async (action: "next" | "open") => {
+    if (submissionInFlight.current) return;
     setError(null);
     setSuccessBanner(null);
 
@@ -103,6 +106,7 @@ export const DakRegistration: React.FC = () => {
       return;
     }
 
+    submissionInFlight.current = true;
     setSubmitting(true);
 
     try {
@@ -163,13 +167,14 @@ export const DakRegistration: React.FC = () => {
       setInwardMode("Physical / By Hand");
 
       // Generate a fresh stable idempotency key for the next record
-      setRequestId(crypto.randomUUID());
+      setRequestId(createDakRequestId());
 
       // Autofocus Diary Number for immediate fast entry
       diaryInputRef.current?.focus();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to register Dak.");
     } finally {
+      submissionInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -184,15 +189,16 @@ export const DakRegistration: React.FC = () => {
   return (
     <div className="dak-quick-intake-page">
       <div className="breadcrumbs">
-        <Link to="/">Home</Link> <i>/</i> <Link to="/dak">Dak / Inward</Link> <i>/</i> <span>Quick Intake</span>
+        <Link to="/">Home</Link> <i>/</i> <Link to="/dak">Dak / Inward</Link> <i>/</i> <span>New Dak Entry</span>
       </div>
 
       <div className="intake-header">
         <div>
           <span className="eyebrow">Central Inward Intake</span>
-          <h1>Quick Dak Entry</h1>
+          <h1>New Dak Entry</h1>
         </div>
         <div className="intake-header-meta">
+          <Link to="/dak" className="secondary-button">Back to Dak Register</Link>
           <span>Date: <strong>{receivedDate}</strong> (Delhi IST)</span>
         </div>
       </div>

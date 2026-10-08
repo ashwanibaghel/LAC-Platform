@@ -209,7 +209,7 @@ public static partial class DakEndpoints
             return Results.Ok(new { categories, workstreams });
         }).RequirePermission(PermissionCodes.DakRegister);
 
-        // 1c. Operational Lookup: Directory Active Office Desks
+        // 1c. Operational Lookup: Active Canonical Directory Filters
         dak.MapGet("/lookups/directory", async (
             LacDbContext db,
             ICurrentUserContext currentUser,
@@ -223,7 +223,23 @@ public static partial class DakEndpoints
                 .Select(d => new { id = d.Id, code = d.Code, name = d.Name, isActive = d.IsActive })
                 .ToListAsync(ct);
 
-            return Results.Ok(new { desks });
+            var handlers = await db.AppUsers.AsNoTracking()
+                .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active
+                    && db.UserDeskMemberships.Any(m => m.UserId == u.Id && m.IsActive && m.RemovedAt == null
+                        && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)
+                    && db.UserRoles.Any(r => r.UserId == u.Id && r.Role.IsActive && r.Role.RecordStatus == RecordStatus.Active
+                        && r.Role.RolePermissions.Any(p => p.Permission.Code == PermissionCodes.DakReceive
+                            && (p.ScopeMode == ScopeMode.All || p.ScopeMode == ScopeMode.Assigned || p.ScopeMode == ScopeMode.Workstream))))
+                .OrderBy(u => u.DisplayName).ThenBy(u => u.Id)
+                .Select(u => new { id = u.Id, displayName = u.DisplayName }).ToListAsync(ct);
+            var categories = await db.DakCategories.AsNoTracking()
+                .Where(c => c.IsActive && c.RecordStatus == RecordStatus.Active).OrderBy(c => c.Name)
+                .Select(c => new { id = c.Id, code = c.Code, name = c.Name }).ToListAsync(ct);
+            var workstreams = await db.Workstreams.AsNoTracking()
+                .Where(w => w.IsActive && w.RecordStatus == RecordStatus.Active).OrderBy(w => w.Name)
+                .Select(w => new { id = w.Id, code = w.Code, name = w.Name }).ToListAsync(ct);
+
+            return Results.Ok(new { desks, handlers, categories, workstreams });
         }).RequirePermission(PermissionCodes.DakView);
 
         // 2. Collection Query with Union-of-Scopes Filtering
@@ -235,6 +251,14 @@ public static partial class DakEndpoints
             string? status,
             string? priority,
             Guid? deskId,
+            DateOnly? receivedFrom,
+            DateOnly? receivedTo,
+            string? inwardMode,
+            Guid? categoryId,
+            Guid? workstreamId,
+            Guid? handlerId,
+            string? sender,
+            bool? hasDocument,
             LacDbContext db,
             IDakAuthorizationService dakAuth,
             ICurrentUserContext currentUser,
@@ -252,6 +276,7 @@ public static partial class DakEndpoints
                     .ThenInclude(a => a!.AssignedUser)
                 .OrderByDescending(d => d.ReceivedDate)
                 .ThenByDescending(d => d.CreatedAt)
+                .ThenByDescending(d => d.Id)
                 .AsQueryable();
 
             // Authorize collection:
@@ -261,6 +286,9 @@ public static partial class DakEndpoints
 
             var query = authResult.Query;
             if (includeArchived != true) query = query.Where(d => d.RecordStatus == RecordStatus.Active);
+            if (receivedFrom.HasValue && receivedTo.HasValue && receivedFrom > receivedTo)
+                return Results.BadRequest(new { message = "Received From must be on or before Received To." });
+            query = new DakDirectoryFilters(receivedFrom, receivedTo, inwardMode, categoryId, workstreamId, handlerId, sender, hasDocument).Apply(query);
 
             // Apply search/filters
             if (!string.IsNullOrWhiteSpace(q))
@@ -306,7 +334,7 @@ public static partial class DakEndpoints
                 d.Workstream == null ? null : d.Workstream.Name,
                 d.CurrentAssignment != null && d.CurrentAssignment.IsActive && d.CurrentAssignment.OfficeDesk != null ? d.CurrentAssignment.OfficeDesk.Name : null,
                 d.CurrentAssignment != null && d.CurrentAssignment.IsActive && d.CurrentAssignment.AssignedUser != null ? d.CurrentAssignment.AssignedUser.DisplayName : null,
-                d.MainDocumentId != null,
+                d.MainDocumentId != null || d.Attachments.Any(a => a.RecordStatus == RecordStatus.Active),
                 d.Revision,
                 d.CreatedAt,
                 d.RecordStatus.ToString(), d.RoutingState.ToString(), d.PhysicalState.ToString()
