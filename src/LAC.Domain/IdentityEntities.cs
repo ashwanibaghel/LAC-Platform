@@ -30,6 +30,11 @@ public sealed class AppUser : OfficialRecord
     public AppUser? SupervisingOfficer { get; set; }
     public int AssistantRevision { get; set; }
     public Guid? DesignationId { get; set; }
+    public string? CustomDesignation { get; set; }
+    public bool OfficeAccessManaged { get; set; }
+    public int OfficeRevision { get; set; }
+    public LandAccessLevel LandAccess { get; set; }
+    public bool CanRegisterInwardDak { get; set; }
     public Designation? Designation { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTimeOffset? LastLoginAt { get; set; }

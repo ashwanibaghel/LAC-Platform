@@ -46,6 +46,7 @@ public sealed class DakCustodyApiTests(DakTestFactory factory) : IClassFixture<D
         }
         var from = await Desk("Sender"); var to = await Desk("Receiver");
         Assert.Equal(HttpStatusCode.Created, (await admin.PostAsJsonAsync($"/api/admin/users/{adminId}/desks", new AssignDeskRequest(from, true))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync("/api/auth/login", new LoginRequest(DakTestFactory.TestAdminUser, DakTestFactory.TestAdminPass))).StatusCode);
         var username = $"recipient-{Guid.NewGuid():N}";
         var create = await admin.PostAsJsonAsync("/api/admin/users", new CreateUserRequest(username, "Receiver", DakTestFactory.TestAdminPass, null, [roleId], null, null));
         var receiverId = (await create.Content.ReadFromJsonAsync<IdResponse>())!.Id;

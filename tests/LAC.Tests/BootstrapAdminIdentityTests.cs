@@ -47,7 +47,7 @@ public sealed class BootstrapAdminIdentityTests
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
         Assert.Null((await db.AppUsers.SingleAsync(u => u.Id == SeedData.BootstrapAdminId)).DesignationId);
-        Assert.Equal(7, await db.Designations.CountAsync());
+        Assert.Equal(12, await db.Designations.CountAsync());
         Assert.DoesNotContain(await db.Designations.Select(d => d.Name).ToListAsync(), name => name == "System Administrator");
     }
 

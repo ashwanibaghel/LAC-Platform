@@ -156,6 +156,11 @@ public static class RbacEndpoints
                 claims.Add(new("designation_code", user.Designation.Code));
                 claims.Add(new("designation_name", user.Designation.Name));
             }
+            else if (user.CustomDesignation is not null)
+            {
+                claims.Add(new("designation_code", "CUSTOM"));
+                claims.Add(new("designation_name", user.CustomDesignation));
+            }
 
             var activeRoles = user.UserRoles
                 .Where(ur => ur.Role.IsActive && ur.Role.RecordStatus == RecordStatus.Active)
@@ -215,11 +220,13 @@ public static class RbacEndpoints
                 user.Id,
                 user.Username,
                 user.DisplayName,
-                user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name) : null,
+                user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name)
+                    : user.CustomDesignation is not null ? new DesignationDto(Guid.Empty, "CUSTOM", user.CustomDesignation) : null,
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
                 activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
-                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId
+                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId,
+                user.CustomDesignation, await OfficeAuthorityService.GetAsync(db, user.Id, ct)
             );
 
             return Results.Ok(response);
@@ -288,11 +295,13 @@ public static class RbacEndpoints
                 user.Id,
                 user.Username,
                 user.DisplayName,
-                user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name) : null,
+                user.Designation is not null ? new DesignationDto(user.Designation.Id, user.Designation.Code, user.Designation.Name)
+                    : user.CustomDesignation is not null ? new DesignationDto(Guid.Empty, "CUSTOM", user.CustomDesignation) : null,
                 activeRoles.Select(r => r.Code).ToList(),
                 effectivePermissions.Select(kvp => new PermissionScopeDto(kvp.Key, kvp.Value.ToString())).ToList(),
                 activeWorkstreams.Select(w => new WorkstreamDto(w.Workstream.Id, w.Workstream.Code, w.Workstream.Name, w.IsPrimary)).ToList(),
-                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId
+                activeDesks, user.MustChangePassword, user.TemporaryCredentialExpiresAt, user.SupervisingOfficerId,
+                user.CustomDesignation, await OfficeAuthorityService.GetAsync(db, user.Id, ct)
             );
 
             return Results.Ok(response);
@@ -314,7 +323,8 @@ public static class RbacEndpoints
                     u.Id,
                     u.Username,
                     u.DisplayName,
-                    u.Designation == null ? null : new DesignationDto(u.Designation.Id, u.Designation.Code, u.Designation.Name),
+                    u.Designation != null ? new DesignationDto(u.Designation.Id, u.Designation.Code, u.Designation.Name)
+                        : u.CustomDesignation != null ? new DesignationDto(Guid.Empty, "CUSTOM", u.CustomDesignation) : null,
                     u.IsActive,
                     u.LastLoginAt,
                     u.CreatedAt,
@@ -372,7 +382,8 @@ public static class RbacEndpoints
                 u.Username,
                 u.DisplayName,
                 u.DesignationId,
-                u.Designation == null ? null : new DesignationDto(u.Designation.Id, u.Designation.Code, u.Designation.Name),
+                u.Designation != null ? new DesignationDto(u.Designation.Id, u.Designation.Code, u.Designation.Name)
+                    : u.CustomDesignation != null ? new DesignationDto(Guid.Empty, "CUSTOM", u.CustomDesignation) : null,
                 u.IsActive,
                 u.LastLoginAt,
                 u.PasswordChangedAt,
@@ -462,6 +473,7 @@ public static class RbacEndpoints
             }
 
             foreach (var input in request.Allocations ?? []) await allocations.StageAsync(user.Id, input, null, ct);
+            await OfficeAuthorityResponsibilities.StageAsync(db, user, distinctRoleIds, db.CurrentUser?.UserId, ct);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/admin/users/{user.Id}", new { user.Id, temporaryCredential = credential,
                 credentialExpiresAt = user.TemporaryCredentialExpiresAt });
@@ -535,6 +547,15 @@ public static class RbacEndpoints
 
             user.DisplayName = request.DisplayName.Trim();
             user.DesignationId = request.DesignationId.HasValue && request.DesignationId.Value != Guid.Empty ? request.DesignationId : null;
+            if (user.DesignationId.HasValue) user.CustomDesignation = null;
+            if (distinctRoleIds is not null && !distinctRoleIds.ToHashSet().SetEquals(user.UserRoles.Select(r => r.RoleId))
+                || distinctWsIds is not null && !distinctWsIds.ToHashSet().SetEquals(user.WorkstreamMemberships.Select(m => m.WorkstreamId)))
+            {
+                user.OfficeAccessManaged = false;
+                user.LandAccess = LandAccessLevel.None; user.CanRegisterInwardDak = false;
+                foreach (var selection in await db.OfficeModuleMemberships.Where(m => m.UserId == id && m.RecordStatus == RecordStatus.Active).ToListAsync(ct))
+                    selection.RecordStatus = RecordStatus.Archived;
+            }
 
             if (distinctRoleIds is not null)
             {
@@ -565,6 +586,8 @@ public static class RbacEndpoints
                 foreach (var old in await db.WorkAllocations.Where(x => x.UserId == user.Id && x.RevokedAt == null).ToListAsync(ct)) allocations.Revoke(old, actor.UserId!.Value);
                 foreach (var input in request.Allocations) await allocations.StageAsync(user.Id, input, user.SupervisingOfficerId, ct);
             }
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
+            if (distinctRoleIds is not null) await OfficeAuthorityResponsibilities.StageAsync(db, user, distinctRoleIds, actor.UserId, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new IdResponse(user.Id));
         }).RequirePermission(PermissionCodes.UsersManage);
@@ -590,6 +613,7 @@ public static class RbacEndpoints
             }
 
             user.IsActive = !user.IsActive;
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { id = user.Id, isActive = user.IsActive });
         }).RequirePermission(PermissionCodes.UsersManage);
@@ -604,6 +628,7 @@ public static class RbacEndpoints
             var credential = TemporaryCredentials.Issue(user, hasher, request.NewPassword);
             user.PasswordChangedAt = DateTimeOffset.UtcNow;
             user.SessionVersion = Guid.NewGuid();
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Password reset successfully.", temporaryCredential = string.IsNullOrWhiteSpace(request.NewPassword) ? credential : null,
                 credentialExpiresAt = user.TemporaryCredentialExpiresAt });
@@ -670,6 +695,8 @@ public static class RbacEndpoints
                 return Results.BadRequest(new { message = "Role code and name are required." });
 
             var code = request.Code.Trim().ToUpperInvariant();
+            if (code is "OFFICE_ADMIN" or "OFFICE_SUPERVISOR" || code.StartsWith(OfficeAccessPresets.Prefix, StringComparison.Ordinal))
+                return Results.BadRequest(new { message = "Office authority and preset role codes are reserved." });
             if (string.Equals(code, "SYSTEM_ADMIN", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest(new { message = "Role code 'SYSTEM_ADMIN' is reserved." });
 
@@ -732,6 +759,8 @@ public static class RbacEndpoints
                     return Results.BadRequest(new { message = "SYSTEM_ADMIN permissions must have ScopeMode.All." });
             }
 
+            if (role.Code.StartsWith(OfficeAccessPresets.Prefix, StringComparison.Ordinal) || role.Code is "OFFICE_ADMIN" or "OFFICE_SUPERVISOR")
+                return Results.BadRequest(new { message = "Server-owned office authority/preset bundles cannot be edited." });
             role.Name = request.Name.Trim();
             role.Description = request.Description?.Trim();
 
@@ -769,6 +798,8 @@ public static class RbacEndpoints
                 }
             }
 
+            foreach (var member in await db.AppUsers.Where(u => u.UserRoles.Any(r => r.RoleId == role.Id)).ToListAsync(ct))
+                await OfficeSessionSecurity.InvalidateAsync(db, member, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new IdResponse(role.Id));
         }).RequirePermission(PermissionCodes.AccessManage);
@@ -868,7 +899,7 @@ public static class RbacEndpoints
             db.OfficeDesks.Add(desk);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/admin/desks/{desk.Id}", new IdResponse(desk.Id));
-        }).RequirePermission(PermissionCodes.AccessManage);
+        }).RequirePermission(PermissionCodes.OfficeConfigurationManage);
 
         admin.MapPut("/desks/{id:guid}", async (Guid id, UpdateDeskRequest request, LacDbContext db, CancellationToken ct) =>
         {
@@ -895,9 +926,11 @@ public static class RbacEndpoints
             desk.Description = request.Description?.Trim();
             desk.WorkstreamId = wsId;
 
+            foreach (var member in await db.AppUsers.Where(u => u.DeskMemberships.Any(m => m.OfficeDeskId == desk.Id && m.IsActive)).ToListAsync(ct))
+                await OfficeSessionSecurity.InvalidateAsync(db, member, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new IdResponse(desk.Id));
-        }).RequirePermission(PermissionCodes.AccessManage);
+        }).RequirePermission(PermissionCodes.OfficeConfigurationManage);
 
         admin.MapPost("/desks/{id:guid}/toggle-status", async (Guid id, LacDbContext db, CancellationToken ct) =>
         {
@@ -905,9 +938,11 @@ public static class RbacEndpoints
             if (desk is null) return Results.NotFound();
 
             desk.IsActive = !desk.IsActive;
+            foreach (var member in await db.AppUsers.Where(u => u.DeskMemberships.Any(m => m.OfficeDeskId == desk.Id && m.IsActive)).ToListAsync(ct))
+                await OfficeSessionSecurity.InvalidateAsync(db, member, ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { id = desk.Id, isActive = desk.IsActive });
-        }).RequirePermission(PermissionCodes.AccessManage);
+        }).RequirePermission(PermissionCodes.OfficeConfigurationManage);
 
         // --- User Desk Memberships Administration ---
         admin.MapGet("/users/{userId:guid}/desks", async (Guid userId, LacDbContext db, CancellationToken ct) =>
@@ -971,6 +1006,7 @@ public static class RbacEndpoints
             };
 
             db.UserDeskMemberships.Add(membership);
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/admin/users/{userId}/desks/{membership.Id}", new IdResponse(membership.Id));
         }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
@@ -986,6 +1022,7 @@ public static class RbacEndpoints
             membership.IsActive = false;
             membership.IsPrimary = false;
             membership.RemovedAt = DateTimeOffset.UtcNow;
+            await OfficeSessionSecurity.InvalidateAsync(db, await db.AppUsers.SingleAsync(u => u.Id == userId, ct), ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Desk membership removed successfully." });
         }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
@@ -1011,6 +1048,7 @@ public static class RbacEndpoints
                 op.IsPrimary = false;
             }
             membership.IsPrimary = true;
+            await OfficeSessionSecurity.InvalidateAsync(db, await db.AppUsers.SingleAsync(u => u.Id == userId, ct), ct);
             await db.SaveChangesAsync(ct);
             return Results.Ok(new { message = "Primary desk set successfully." });
         }).RequirePermission(PermissionCodes.UsersManage).RequirePermission(PermissionCodes.AllocationsManage);
@@ -1031,7 +1069,9 @@ public sealed record CurrentUserResponse(
     IReadOnlyList<UserDeskDto> Desks,
     bool MustChangePassword = false,
     DateTimeOffset? TemporaryCredentialExpiresAt = null,
-    Guid? SupervisingOfficerId = null
+    Guid? SupervisingOfficerId = null,
+    string? CustomDesignation = null,
+    OfficeAuthority Authority = OfficeAuthority.STANDARD_OFFICER
 );
 public sealed record DesignationDto(Guid Id, string Code, string Name);
 public sealed record WorkstreamDto(Guid Id, string Code, string Name, bool IsPrimary);

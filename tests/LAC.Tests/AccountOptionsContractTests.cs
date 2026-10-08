@@ -123,8 +123,8 @@ public sealed class AccountOptionsContractTests(RbacFactory factory) : IClassFix
         (await db.Roles.SingleAsync(x => x.Id == inactive)).IsActive = false;
         (await db.Roles.SingleAsync(x => x.Id == archived)).RecordStatus = RecordStatus.Archived; await db.SaveChangesAsync();
         var user = await User(admin, await Role(admin, PermissionCodes.UsersManage, PermissionCodes.RolesAssign, PermissionCodes.LrView)); using var client = user.Client;
-        var options = await Options(client); Assert.True(options.GetProperty("canAssignRoles").GetBoolean());
-        Assert.Contains(reader, Ids(options, "roles"));
+        var options = await Options(client); Assert.False(options.GetProperty("canAssignRoles").GetBoolean());
+        Assert.Empty(Ids(options, "roles"));
         foreach (var id in new[] { writer, privileged, inactive, archived, SeedData.SystemAdminRoleId }) Assert.DoesNotContain(id, Ids(options, "roles"));
         var adminOptions = await Options(admin); Assert.True(adminOptions.GetProperty("canAssignRoles").GetBoolean());
         foreach (var id in new[] { reader, writer, privileged, SeedData.SystemAdminRoleId }) Assert.Contains(id, Ids(adminOptions, "roles"));

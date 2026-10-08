@@ -66,7 +66,7 @@ public static class OfficerAssistantEndpoints
             if (user.AssistantRevision != request.ExpectedRevision) return Results.Conflict();
             if (!user.IsActive) return Results.BadRequest(new { message = "Revoked assistant accounts cannot be reactivated through delegation edits." });
             await Stage(db, allocations, user, request.Assistant, current.UserId!.Value, ct);
-            user.AssistantRevision++; await db.SaveChangesAsync(ct);
+            user.AssistantRevision++; await OfficeSessionSecurity.InvalidateAsync(db, user, ct); await db.SaveChangesAsync(ct);
             return Results.Ok(new { user.Id, user.AssistantRevision });
         });
         assistants.MapPost("/{id:guid}/revoke", async (Guid id, RevisionRequest request, LacDbContext db, ICurrentUserContext current, WorkAllocationService allocations, CancellationToken ct) =>
@@ -98,7 +98,7 @@ public static class OfficerAssistantEndpoints
         if (string.IsNullOrWhiteSpace(input.DisplayName) || input.Allocations is null || input.RoleIds is null || input.PermissionCodes is null || input.DeskIds is null || input.Allocations.Count is < 1 or > 100
             || !await db.AppUsers.AnyAsync(x => x.Id == officerId && x.IsActive && x.SupervisingOfficerId == null, ct))
             throw new AllocationException(400, "An officer, display name and at least one bounded allocation are required.");
-        if (input.DesignationId.HasValue && !await db.Designations.AnyAsync(x => x.Id == input.DesignationId && x.IsActive, ct)) throw new AllocationException(400, "Unknown designation.");
+        if (input.DesignationId.HasValue && !await db.Designations.AnyAsync(x => x.Id == input.DesignationId && x.Code == "DEO" && x.IsActive && x.RecordStatus == RecordStatus.Active, ct)) throw new AllocationException(400, "Helpers may use only canonical DEO or the simplified custom designation contract.");
         var roleIds = input.RoleIds.Distinct().ToList();
         if (await db.Roles.AnyAsync(x => roleIds.Contains(x.Id) && x.IsSystemRole, ct)) throw new AllocationException(403, "Assistants cannot hold reserved system roles.");
         if (await db.Roles.CountAsync(x => roleIds.Contains(x.Id) && x.IsActive && x.RecordStatus == RecordStatus.Active, ct) != roleIds.Count)
@@ -110,11 +110,18 @@ public static class OfficerAssistantEndpoints
         var permissions = await db.Permissions.Where(x => permissionCodes.Contains(x.Code) && x.Category != "Administration").ToListAsync(ct);
         if (permissionCodes.Count == 0 || permissions.Count != permissionCodes.Count || permissionCodes.Any(x => !childCodes.Contains(x) || !parentCodes.Contains(x)))
             throw new AllocationException(403, "Assistant permissions must be operational permissions in both the selected roles and the officer's current roles.");
+        var parentScopes = await db.UserRoles.Where(x => x.UserId == officerId && x.Role.IsActive && x.Role.RecordStatus == RecordStatus.Active)
+            .SelectMany(x => x.Role.RolePermissions).ToListAsync(ct);
+        var childScopes = await db.RolePermissions.Where(x => roleIds.Contains(x.RoleId) && permissionCodes.Contains(x.Permission.Code)).ToListAsync(ct);
+        if (childScopes.Any(p => !parentScopes.Any(g => g.PermissionId == p.PermissionId && (g.ScopeMode == ScopeMode.All || g.ScopeMode == p.ScopeMode))))
+            throw new AllocationException(403, "Requested role scopes exceed the supervising officer's ceiling.");
         foreach (var desk in input.DeskIds.Distinct())
             if (!await db.UserDeskMemberships.AnyAsync(x => x.UserId == officerId && x.OfficeDeskId == desk && x.IsActive && x.RemovedAt == null
                 && x.RecordStatus == RecordStatus.Active && x.OfficeDesk.IsActive && x.OfficeDesk.RecordStatus == RecordStatus.Active, ct))
                 throw new AllocationException(403, "Assistant desk membership must be a subset of the officer's current desks.");
-        user.DisplayName = input.DisplayName.Trim(); user.DesignationId = input.DesignationId;
+        user.DisplayName = input.DisplayName.Trim();
+        user.DesignationId = input.DesignationId ?? await db.Designations.Where(d => d.Code == "DEO" && d.IsActive && d.RecordStatus == RecordStatus.Active).Select(d => d.Id).SingleAsync(ct);
+        user.CustomDesignation = null;
         db.UserRoles.RemoveRange(await db.UserRoles.Where(x => x.UserId == user.Id).ToListAsync(ct));
         foreach (var role in roleIds) db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = role });
         var oldLimits = await db.AssistantPermissionLimits.Where(x => x.UserId == user.Id).ToListAsync(ct);

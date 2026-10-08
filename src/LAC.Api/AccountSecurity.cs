@@ -9,7 +9,11 @@ public static class AccountSecurity
     public static async Task<bool> CanAssignRolesAsync(LacDbContext db, IAccessControlService access,
         IReadOnlyList<Guid> roleIds, CancellationToken ct)
     {
-        if (await access.CanAsync(PermissionCodes.AccessManage, cancellationToken: ct)) return true;
+        var callerId = db.CurrentUser?.UserId;
+        if (!callerId.HasValue) return false;
+        var authority = await OfficeAuthorityService.GetAsync(db, callerId.Value, ct);
+        if (authority == OfficeAuthority.SYSTEM_ADMIN) return true;
+        if (authority < OfficeAuthority.OFFICE_SUPERVISOR) return false;
         if (!await access.CanAsync(PermissionCodes.RolesAssign, cancellationToken: ct)) return false;
         var roles = await db.Roles.Include(r => r.RolePermissions).ThenInclude(p => p.Permission)
             .Where(r => roleIds.Contains(r.Id)).ToListAsync(ct);
@@ -17,10 +21,14 @@ public static class AccountSecurity
         // Assignment authority cannot bootstrap access administration or reserved system authority.
         foreach (var role in roles)
         {
-            if (role.Code == "SYSTEM_ADMIN") return false;
+            if (OfficeAuthorityService.Reserved(role.Code))
+            {
+                if (!Enum.TryParse<OfficeAuthority>(role.Code, out var level) || !OfficeAuthorityService.CanGrant(authority, level)) return false;
+                continue;
+            }
             foreach (var grant in role.RolePermissions)
             {
-                if (grant.Permission.Category == "Administration"
+                if ((grant.Permission.Category == "Administration" && grant.Permission.Code != PermissionCodes.AssistantsManage)
                     || !await access.CanAsync(grant.Permission.Code, cancellationToken: ct)) return false;
             }
         }
@@ -30,8 +38,11 @@ public static class AccountSecurity
     public static async Task<bool> CanMaintainCredentialsAsync(LacDbContext db, IAccessControlService access,
         Guid targetId, Guid callerId, CancellationToken ct)
     {
-        if (await access.CanAsync(PermissionCodes.AccessManage, cancellationToken: ct)) return true;
+        if (await OfficeAuthorityService.GetAsync(db, callerId, ct) == OfficeAuthority.SYSTEM_ADMIN) return true;
         if (targetId == callerId) return true;
+        if (!await OfficeAuthorityService.CanManageAsync(db, callerId, targetId, ct)) return false;
+        // The controlled authority roles define the administration ceiling, independent of designation.
+        if (await OfficeAuthorityService.GetAsync(db, callerId, ct) >= OfficeAuthority.OFFICE_SUPERVISOR) return true;
         // Dormant privileged memberships also need protection from credential takeover.
         if (await db.UserRoles.AnyAsync(x => x.UserId == targetId && (x.Role.IsSystemRole
                 || x.Role.RolePermissions.Any(p => p.Permission.Category == "Administration")), ct)) return false;

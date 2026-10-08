@@ -17,6 +17,7 @@ public static class SeedData
     {
         await EnsureIdentityFoundationAsync(db, configuration, logger, ct);
         await WorkCatalogSeed.SeedAsync(db, ct);
+        await OfficeAccessPresets.SeedAsync(db, ct);
 
         var bootstrapComplete = await db.Districts.AsNoTracking().Where(x => x.Name == "South West Delhi").Select(x => new
         {
@@ -76,7 +77,12 @@ public static class SeedData
             ("AAO", "Assistant Accounts Officer", 4),
             ("PATWARI", "Patwari", 5),
             ("DEO", "Data Entry Operator", 6),
-            ("RECORD_ROOM", "Record Room In-charge", 7)
+            ("RECORD_ROOM", "Record Room In-charge", 7),
+            ("TEHSILDAR", "Tehsildar", 8),
+            ("ASO", "Assistant Section Officer", 9),
+            ("SENIOR_ASSISTANT", "Senior Assistant", 10),
+            ("JUNIOR_ASSISTANT", "Junior Assistant", 11),
+            ("PA_ADM", "Personal Assistant to ADM", 12)
         };
 
         foreach (var (code, name, order) in initialDesignations)
@@ -308,7 +314,7 @@ public static class SeedData
         if (awardView is not null)
         {
             var awardViewRolePerms = await db.RolePermissions
-                .Where(rp => rp.PermissionId == awardView.Id && eligibleScopes.Contains(rp.ScopeMode))
+                .Where(rp => rp.PermissionId == awardView.Id && eligibleScopes.Contains(rp.ScopeMode) && !rp.Role.Code.StartsWith(OfficeAccessPresets.Prefix))
                 .ToListAsync(ct);
 
             foreach (var rp in awardViewRolePerms)
@@ -329,7 +335,7 @@ public static class SeedData
         if (awardEdit is not null)
         {
             var awardEditRolePerms = await db.RolePermissions
-                .Where(rp => rp.PermissionId == awardEdit.Id && eligibleScopes.Contains(rp.ScopeMode))
+                .Where(rp => rp.PermissionId == awardEdit.Id && eligibleScopes.Contains(rp.ScopeMode) && !rp.Role.Code.StartsWith(OfficeAccessPresets.Prefix))
                 .ToListAsync(ct);
 
             var targetPerms = new[] { courtCreate, courtEdit, courtProceedingManage, courtDocumentManage }

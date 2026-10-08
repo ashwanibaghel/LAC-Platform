@@ -1,5 +1,12 @@
 # Anti RBAC frontend contract
 
+Office account model V3 supersedes the normal account/authority selection contract
+below. See [V3 account API and exact presets](rbac-office-access-v3-contract.md).
+New normal workflows should use `/api/office/accounts` and `/api/office/me/helpers`.
+Raw security-role administration now requires actual SYSTEM_ADMIN authority;
+Users.Manage or Access.Manage alone cannot bypass the office hierarchy. Legacy
+allocation/role changes invalidate sessions and require a new login.
+
 Backend foundation for branch `codex/rbac-dynamic-allocation-audit`, based exclusively
 on `d44941636d54316350e8d6ee2dc03628281baace`. No frontend redesign is included.
 The following contracts are implemented; UI permissions are hints and the server

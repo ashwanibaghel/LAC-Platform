@@ -54,6 +54,7 @@ public static class WorkAllocationEndpoints
             var user = await db.AppUsers.SingleOrDefaultAsync(x => x.Id == userId && x.IsActive && x.RecordStatus == RecordStatus.Active, ct);
             if (user is null) return Results.NotFound();
             var allocation = await service.StageAsync(userId, input, user.SupervisingOfficerId, ct);
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/admin/users/{userId}/allocations/{allocation.Id}", new { allocation.Id, allocation.Revision });
         }).RequirePermission(PermissionCodes.AllocationsManage);
@@ -73,6 +74,7 @@ public static class WorkAllocationEndpoints
             allocation.ValidFrom = validated.ValidFrom; allocation.ValidTo = validated.ValidTo;
             allocation.WorkOrderReference = validated.WorkOrderReference; allocation.Reason = validated.Reason;
             allocation.DelegatedFromAllocationId = validated.DelegatedFromAllocationId; allocation.Revision++;
+            await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
             await db.SaveChangesAsync(ct); return Results.Ok(new { allocation.Id, allocation.Revision });
         }).RequirePermission(PermissionCodes.AllocationsManage);
         admin.MapPost("/users/{userId:guid}/allocations/{id:guid}/revoke", async (Guid userId, Guid id, RevisionRequest request,
@@ -81,7 +83,9 @@ public static class WorkAllocationEndpoints
             var allocation = await db.WorkAllocations.SingleOrDefaultAsync(x => x.Id == id && x.UserId == userId, ct);
             if (allocation is null) return Results.NotFound();
             if (allocation.Revision != request.ExpectedRevision) return Results.Conflict();
-            service.Revoke(allocation, current.UserId!.Value); await db.SaveChangesAsync(ct);
+            service.Revoke(allocation, current.UserId!.Value);
+            await OfficeSessionSecurity.InvalidateAsync(db, await db.AppUsers.SingleAsync(u => u.Id == userId, ct), ct);
+            await db.SaveChangesAsync(ct);
             return Results.Ok(new { allocation.Id, allocation.Revision });
         }).RequirePermission(PermissionCodes.AllocationsManage);
         api.MapGet("/auth/allocations", async (LacDbContext db, ICurrentUserContext current, CancellationToken ct) =>
@@ -98,7 +102,8 @@ public static class WorkAllocationEndpoints
         admin.MapGet("/account-options", async (LacDbContext db, IAccessControlService access, CancellationToken ct) =>
         {
             if (!await CanReadOptions(access, ct)) return Results.Forbid();
-            var canAssign = await access.CanAsync(PermissionCodes.AccessManage, cancellationToken: ct) || await access.CanAsync(PermissionCodes.RolesAssign, cancellationToken: ct);
+            var callerAuthority = await OfficeAuthorityService.GetAsync(db, db.CurrentUser!.UserId!.Value, ct);
+            var canAssign = callerAuthority >= OfficeAuthority.OFFICE_SUPERVISOR && (await access.CanAsync(PermissionCodes.AccessManage, cancellationToken: ct) || await access.CanAsync(PermissionCodes.RolesAssign, cancellationToken: ct));
             var roles = new List<object>();
             if (canAssign)
                 foreach (var role in await db.Roles.Where(x => x.IsActive && x.RecordStatus == RecordStatus.Active).ToListAsync(ct))

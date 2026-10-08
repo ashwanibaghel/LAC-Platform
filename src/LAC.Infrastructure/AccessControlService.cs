@@ -143,9 +143,12 @@ public sealed class AccessControlService(LacDbContext db, ICurrentUserContext cu
             if (parent is null) return new Dictionary<string, ScopeMode>();
             var limits = await db.AssistantPermissionLimits.Where(x => x.UserId == userId && x.Permission.Category != "Administration")
                 .Select(x => x.Permission.Code).ToListAsync(cancellationToken);
-            var parentCodes = await db.UserRoles.Where(x => x.UserId == parent.Id && x.Role.IsActive && x.Role.RecordStatus == RecordStatus.Active)
-                .SelectMany(x => x.Role.RolePermissions).Select(x => x.Permission.Code).Distinct().ToListAsync(cancellationToken);
-            permissionsWithScope.RemoveAll(x => !limits.Contains(x.Code) || !parentCodes.Contains(x.Code));
+            var parentGrants = await db.UserRoles.Where(x => x.UserId == parent.Id && x.Role.IsActive && x.Role.RecordStatus == RecordStatus.Active)
+                .SelectMany(x => x.Role.RolePermissions).Select(x => new { x.Permission.Code, x.ScopeMode }).ToListAsync(cancellationToken);
+            // The helper bundle is only a role source. Report the scope intersection, not a fictitious All ceiling.
+            permissionsWithScope = permissionsWithScope.Where(x => limits.Contains(x.Code)).SelectMany(child =>
+                parentGrants.Where(p => p.Code == child.Code && (child.ScopeMode == ScopeMode.All || p.ScopeMode == ScopeMode.All || p.ScopeMode == child.ScopeMode))
+                    .Select(p => new { child.Code, ScopeMode = child.ScopeMode == ScopeMode.All ? p.ScopeMode : child.ScopeMode })).ToList();
         }
 
         var result = new Dictionary<string, ScopeMode>(StringComparer.OrdinalIgnoreCase);

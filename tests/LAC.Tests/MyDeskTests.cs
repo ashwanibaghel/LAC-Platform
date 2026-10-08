@@ -222,6 +222,8 @@ public sealed class MyDeskTests : IClassFixture<DakTestFactory>
         // Assign Desk B to Officer 1 as secondary desk
         var assignBRes = await adminClient.PostAsJsonAsync($"/api/admin/users/{officer1Id}/desks", new AssignDeskRequest(deskB, IsPrimary: false));
         Assert.Equal(HttpStatusCode.Created, assignBRes.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client1.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client1.PostAsJsonAsync("/api/auth/login", new LoginRequest(officer1Username, TestCredentials.SharedPassword))).StatusCode);
 
         // 3. Create Officer 2 on Desk A
         var officer2Username = $"officer2_{Guid.NewGuid():N}"[..12];

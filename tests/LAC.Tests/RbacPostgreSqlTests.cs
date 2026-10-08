@@ -104,6 +104,8 @@ public sealed class RbacPostgreSqlTests : IAsyncLifetime
         var input = new WorkAllocationInput(work.Id, DateTimeOffset.UtcNow.AddDays(-1), null, "PG-ORDER", null, [new(AllocationScopeKind.Village, VillageId: villages[0])]);
         var allocationRes = await admin.PostAsJsonAsync($"/api/admin/users/{officer}/allocations", input);
         Assert.Equal(HttpStatusCode.Created, allocationRes.StatusCode); var allocation = (await allocationRes.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new LoginRequest("pg_officer", password))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/khatauni", new { villageId = villages[0], verificationStatus = "Draft" })).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/khatauni", new { villageId = villages[1], verificationStatus = "Draft" })).StatusCode);
         // Exercise a delegated account and composite-key edits on PostgreSQL, not just InMemory.
@@ -122,8 +124,12 @@ public sealed class RbacPostgreSqlTests : IAsyncLifetime
         var audit = await db.AuditLogs.SingleAsync(x => x.EntityId == record && x.Action == "Created");
         Assert.Equal(deoId, audit.ActorUserId); Assert.Equal(officer, audit.OnBehalfOfUserId);
         Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/officers/me/assistants/{deoId}", new UpdateAssistantRequest(assistantInput with { PermissionCodes = [PermissionCodes.LrView] }, 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await deo.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await deo.PostAsJsonAsync("/api/auth/login", new LoginRequest("pg_deo", permanent))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await deo.PostAsJsonAsync("/api/khatauni", new { villageId = villages[0], verificationStatus = "Draft" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{officer}/allocations/{allocation}", new UpdateAllocationRequest(input with { Scopes = [new(AllocationScopeKind.Village, VillageId: villages[1])] }, 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await deo.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await deo.PostAsJsonAsync("/api/auth/login", new LoginRequest("pg_deo", permanent))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await deo.GetAsync($"/api/villages/{villages[0]}/khatauni")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/users/{officer}/reset-password", new ResetPasswordRequest(TestCredentials.NewPassword()))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
@@ -139,7 +145,8 @@ public sealed class RbacPostgreSqlTests : IAsyncLifetime
     public async Task Upgrade_redacts_historical_credentials_and_schema_downgrade_reupgrade_succeeds()
     {
         await using var db = Db(); var migrator = db.GetService<IMigrator>();
-        var migrations = db.Database.GetMigrations().ToList(); var previous = migrations[^2];
+        var migrations = db.Database.GetMigrations().ToList();
+        var previous = migrations[migrations.IndexOf("20261006220754_AddDynamicWorkAllocationAndSessionSecurity") - 1];
         await migrator.MigrateAsync(previous);
         var id = Guid.NewGuid();
         await db.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"AppUsers\" (\"Id\",\"Username\",\"NormalizedUsername\",\"DisplayName\",\"PasswordHash\",\"IsActive\",\"CreatedAt\",\"UpdatedAt\",\"RecordStatus\") VALUES ({id}, 'old_officer', 'OLD_OFFICER', 'Old officer', 'synthetic-hash', true, now(), now(), 'Active')");

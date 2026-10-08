@@ -7,6 +7,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtOrderIntelligenceRevision> CourtOrderIntelligenceRevisions => Set<CourtOrderIntelligenceRevision>();
  public DbSet<CourtOrderRecordLink> CourtOrderRecordLinks => Set<CourtOrderRecordLink>();
  public ICurrentUserContext? CurrentUser => currentUser;
+ public DbSet<OfficeModuleMembership> OfficeModuleMemberships => Set<OfficeModuleMembership>();
  public Guid[]? AssistantPermissionCeiling { get; set; }
  public TimeProvider AuthorizationClock { get; set; } = TimeProvider.System;
  public Guid? RequestOfficerUserId { get; set; }
@@ -38,6 +39,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtExternalAssistedDecision> CourtExternalAssistedDecisions => Set<CourtExternalAssistedDecision>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
   Configurations.WorkAllocationConfiguration.Configure(b);
+  OfficeAccountConfiguration.Configure(b);
   b.Entity<RolePermission>().HasQueryFilter(x => AssistantPermissionCeiling == null || AssistantPermissionCeiling.Contains(x.PermissionId));
   foreach (var eventType in new[] { typeof(DakMovement), typeof(OutwardEvent), typeof(MatterEvent), typeof(WorkItemEvent), typeof(ScheduledEventEvent), typeof(CourtCaseEvent), typeof(RecordAccessEvent) }) { b.Entity(eventType).Property<Guid?>("OnBehalfOfUserId"); b.Entity(eventType).Property<string>("OnBehalfOfDisplayNameSnapshot"); }
   Configurations.DakModelConfiguration.Configure(b);

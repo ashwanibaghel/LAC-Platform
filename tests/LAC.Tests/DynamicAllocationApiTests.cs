@@ -21,6 +21,8 @@ public sealed class AllocationTestClock : TimeProvider
 public sealed class DynamicAllocationApiTests : IDisposable
 {
     private readonly RbacFactory root = new();
+    private readonly Dictionary<Guid, (string Name, string Password, HttpClient Client)> sessions = new();
+    private async Task Refresh(Guid id) { var session = sessions[id]; Assert.Equal(HttpStatusCode.OK, (await session.Client.PostAsJsonAsync("/api/auth/login", new LoginRequest(session.Name, session.Password))).StatusCode); }
     private readonly WebApplicationFactory<Program> factory;
     private readonly AllocationTestClock clock = new();
     public DynamicAllocationApiTests() => factory = root.WithWebHostBuilder(b => b.ConfigureServices(s =>
@@ -51,7 +53,8 @@ public sealed class DynamicAllocationApiTests : IDisposable
             (await db.Designations.SingleAsync(x => x.Code == "PATWARI")).Id, roles, null, null));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var id = (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
-        return (id, name, password, await Login(name, password));
+        var client = await Login(name, password); sessions[id] = (name, password, client);
+        return (id, name, password, client);
     }
     private async Task<(Guid Home, Guid Second, Guid Cross, Guid Work)> Geography()
     {
@@ -69,7 +72,9 @@ public sealed class DynamicAllocationApiTests : IDisposable
     {
         var response = await admin.PostAsJsonAsync($"/api/admin/users/{user}/allocations", input);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        return (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        var id = (await response.Content.ReadFromJsonAsync<IdResponse>())!.Id;
+        await Refresh(user);
+        return id;
     }
     private Task<HttpResponseMessage> Write(HttpClient client, Guid village) => client.PostAsJsonAsync("/api/khatauni",
         new { villageId = village, referenceNumber = $"PROOF_{Guid.NewGuid():N}", verificationStatus = "Draft" });
@@ -125,7 +130,7 @@ public sealed class DynamicAllocationApiTests : IDisposable
         Assert.Equal(HttpStatusCode.Created, (await Write(client, geo.Home)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await admin.PostAsJsonAsync($"/api/admin/users/{officer.Id}/allocations/{id}/revoke", new RevisionRequest(4))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/users/{officer.Id}/allocations/{id}/revoke", new RevisionRequest(0))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, geo.Home)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, geo.Home)).StatusCode);
     }
 
     [Fact]
@@ -141,9 +146,11 @@ public sealed class DynamicAllocationApiTests : IDisposable
         var designation = (await db.AppUsers.SingleAsync(x => x.Id == officer.Id)).DesignationId;
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{officer.Id}",
             new UpdateUserRequest("Edited officer", designation, null, null, null, [Input(geo.Work, geo.Home)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, geo.Home)).StatusCode); await Refresh(officer.Id);
         Assert.Equal(HttpStatusCode.Created, (await Write(client, geo.Home)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{officer.Id}",
             new UpdateUserRequest("Edited officer", designation, null, null, null, [Input(geo.Work, geo.Cross)]))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, geo.Home)).StatusCode); await Refresh(officer.Id);
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, geo.Home)).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await Write(client, geo.Cross)).StatusCode);
         Assert.Equal(designation, (await db.AppUsers.AsNoTracking().SingleAsync(x => x.Id == officer.Id)).DesignationId);
@@ -162,6 +169,7 @@ public sealed class DynamicAllocationApiTests : IDisposable
         var permanent = TestCredentials.NewPassword();
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/change-password", new ChangePasswordRequest(temporary, permanent))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(name, permanent))).StatusCode);
+        sessions[id] = (name, permanent, client);
         return (id, name, client);
     }
 
@@ -202,10 +210,12 @@ public sealed class DynamicAllocationApiTests : IDisposable
         var readerRole = await Role(admin, PermissionCodes.LrView);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{officer.Id}",
             new UpdateUserRequest("Proof Officer", null, [readerRole, assistantManage], null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, geo.Home)).StatusCode); await Refresh(assistant.Id);
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, geo.Home)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/villages/{geo.Home}/khatauni")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{officer.Id}/allocations/{parent}",
             new UpdateAllocationRequest(Input(geo.Work, geo.Second), 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode); await Refresh(assistant.Id);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/villages/{geo.Home}/khatauni")).StatusCode);
     }
 
@@ -260,7 +270,8 @@ public sealed class DynamicAllocationApiTests : IDisposable
         var assistant = await Assistant(owner, role, parent, Input(geo.Work, geo.Home), PermissionCodes.LrView, PermissionCodes.LrEdit); using var client = assistant.Client;
         Assert.Equal(HttpStatusCode.Created, (await Write(client, geo.Home)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/users/{officer.Id}/allocations/{parent}/revoke", new RevisionRequest(0))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, geo.Home)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Write(client, geo.Home)).StatusCode);
+        await Refresh(officer.Id);
         var reset = await owner.PostAsJsonAsync($"/api/officers/me/assistants/{assistant.Id}/reset-credential", new RevisionRequest(0));
         Assert.Equal(HttpStatusCode.OK, reset.StatusCode);
         using var json = JsonDocument.Parse(await reset.Content.ReadAsStringAsync()); var secret = json.RootElement.GetProperty("temporaryCredential").GetString()!;
@@ -284,6 +295,7 @@ public sealed class DynamicAllocationApiTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await otherOwner.PostAsJsonAsync($"/api/officers/me/assistants/{assistant.Id}/reset-credential", new RevisionRequest(0))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await owner.PutAsJsonAsync($"/api/officers/me/assistants/{assistant.Id}", new UpdateAssistantRequest(
             new AssistantInput("Edited DEO", null, [childRole], [PermissionCodes.LrView], [Input(geo.Work, geo.Home) with { DelegatedFromAllocationId = parent }], []), 0))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode); await Refresh(assistant.Id);
         Assert.Equal(HttpStatusCode.Forbidden, (await Write(client, geo.Home)).StatusCode);
         var reset = await owner.PostAsJsonAsync($"/api/officers/me/assistants/{assistant.Id}/reset-credential", new RevisionRequest(1));
         Assert.Equal(HttpStatusCode.OK, reset.StatusCode);

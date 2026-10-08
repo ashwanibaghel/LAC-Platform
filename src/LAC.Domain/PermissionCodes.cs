@@ -23,6 +23,7 @@ public static class PermissionCodes
     public const string DraftEdit = "Draft.Edit";
     public const string UsersManage = "Users.Manage";
     public const string AccessManage = "Access.Manage";
+    public const string OfficeConfigurationManage = "OfficeConfiguration.Manage";
     public const string RolesAssign = "Roles.Assign";
     public const string AllocationsManage = "Allocations.Manage";
     public const string WorkCatalogManage = "WorkCatalog.Manage";
@@ -88,6 +89,7 @@ public static class PermissionCodes
         new(DraftEdit, "Edit Drafts", "Edit and revise matter drafts", "Draft"),
         new(UsersManage, "Manage Users", "Create and manage system user accounts and credentials", "Administration"),
         new(AccessManage, "Manage Access & Roles", "Manage roles, permissions, workstreams, and designations", "Administration"),
+        new(OfficeConfigurationManage, "Manage Office Configuration", "Maintain operational desk configuration without technical role administration", "Administration"),
         new(RolesAssign, "Assign Roles", "Assign security roles within the caller's grant ceiling", "Administration"),
         new(AllocationsManage, "Manage Allocations", "Assign operational works, scopes and custody memberships", "Administration"),
         new(WorkCatalogManage, "Manage Work Catalog", "Create and edit reusable responsibility categories", "Administration"),

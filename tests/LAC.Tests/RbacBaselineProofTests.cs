@@ -111,10 +111,10 @@ public sealed class RbacBaselineProofTests : IClassFixture<RbacFactory>
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(path)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{user.Id}",
             new UpdateUserRequest("Proof officer", null, [role], [], null))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(path)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{user.Id}",
             new UpdateUserRequest("Proof officer", null, [], [workstream.Id], workstream.Id))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(path)).StatusCode);
     }
 
     [Fact]
@@ -140,6 +140,8 @@ public sealed class RbacBaselineProofTests : IClassFixture<RbacFactory>
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/awards/{award.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PutAsJsonAsync($"/api/admin/users/{user.Id}",
             new UpdateUserRequest("Edited proof officer", designation.Id, [lrRole], [lrWorkstream.Id], lrWorkstream.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(user.Username, user.Password))).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/api/villages/{village.Id}/khatauni")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync($"/api/awards/{award.Id}")).StatusCode);
         me = await client.GetFromJsonAsync<CurrentUserResponse>("/api/auth/me");
@@ -155,7 +157,7 @@ public sealed class RbacBaselineProofTests : IClassFixture<RbacFactory>
         var role = await Role(admin, new RolePermissionInput(PermissionCodes.UsersManage, ScopeMode.All));
         var user = await User(admin, roles: [role]);
         using var client = user.Client;
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/admin/users")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/auth/me")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await admin.PostAsync($"/api/admin/users/{user.Id}/toggle-status", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/admin/users")).StatusCode);
         using var fresh = Client();
@@ -206,7 +208,7 @@ public sealed class RbacBaselineProofTests : IClassFixture<RbacFactory>
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync($"/api/admin/users/{empty.Id}",
             new UpdateUserRequest("Proof officer", null, [broader], null, null))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/admin/users/{target.Id}/reset-password", new ResetPasswordRequest())).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync($"/api/admin/users/{empty.Id}",
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PutAsJsonAsync($"/api/admin/users/{empty.Id}",
             new UpdateUserRequest("Proof officer", null, [assigned], null, null))).StatusCode);
     }
 

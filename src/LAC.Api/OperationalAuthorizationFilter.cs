@@ -20,10 +20,11 @@ public static class OperationalAuthorizationFilter
         var user = await db.AppUsers.AsNoTracking().SingleOrDefaultAsync(u => u.Id == current.UserId, ct);
         db.AuthorizationClock = http.RequestServices.GetRequiredService<TimeProvider>();
         if (user is null || !user.IsActive) return Results.Unauthorized();
+        if (!await OfficeHierarchyFilter.AllowedAsync(ctx, db, user.Id, ct)) return Results.Forbid();
         if (!user.SupervisingOfficerId.HasValue) db.RequestOfficerUserId = user.Id;
         http.Items["rbac_actor_name"] = user.DisplayName;
         var path = http.Request.Path.Value!.ToLowerInvariant();
-        if (path.StartsWith("/api/auth/") || path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/"))
+        if (path.StartsWith("/api/auth/") || path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/") || path.StartsWith("/api/office/"))
             http.Response.Headers.CacheControl = "no-store";
         if (user.SupervisingOfficerId.HasValue)
         {
@@ -43,7 +44,7 @@ public static class OperationalAuthorizationFilter
         if (http.GetEndpoint() is Microsoft.AspNetCore.Routing.RouteEndpoint routeEndpoint
             && routeEndpoint.RoutePattern.Parameters.Any(p => p.IsCatchAll)) return await next(ctx);
         if (user.MustChangePassword) return Results.Json(new { message = "Replace the temporary credential before operational access." }, statusCode: 403);
-        if (path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/")) return await next(ctx);
+        if (path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/") || path.StartsWith("/api/office/")) return await next(ctx);
         var permissions = http.GetEndpoint()!.Metadata.GetOrderedMetadata<EndpointPermission>().Select(x => x.Code).Distinct().ToList();
         var hasExplicitPermission = permissions.Count > 0;
         var read = HttpMethods.IsGet(http.Request.Method) || HttpMethods.IsHead(http.Request.Method);

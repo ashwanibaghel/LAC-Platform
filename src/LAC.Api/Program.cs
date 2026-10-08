@@ -147,6 +147,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserContext, HttpCurrentUserContext>();
 builder.Services.AddScoped<IAccessControlService, AccessControlService>();
 builder.Services.AddScoped<WorkAllocationService>();
+builder.Services.AddScoped<OfficeAccountService>();
 builder.Services.AddScoped<AccessControlService>();
 builder.Services.AddScoped<IPasswordHasher<AppUser>, PasswordHasher<AppUser>>();
 
@@ -234,6 +235,7 @@ var api = app.MapGroup("/api");
 // Pure calculators use normal cookie authentication without workflow allocation permissions.
 app.MapGroup("/api/calculators").MapCompensationCalculatorEndpoints();
 api.MapRbacEndpoints();
+api.MapOfficeAccountEndpoints();
 api.MapWorkAllocationEndpoints();
 api.MapOfficerAssistantEndpoints();
 api.MapCoreDocumentIntakeEndpoints();
@@ -269,7 +271,7 @@ api.AddEndpointFilter(async (context, next) =>
         return Results.Unauthorized();
     }
 
-    return await OperationalAuthorizationFilter.InvokeAsync(context, next);
+    return await OfficeSecurityTransaction.InvokeAsync(context, next);
 });
 
 api.MapGet("/home", async (LacDbContext db, IMemoryCache cache, CancellationToken ct) =>
