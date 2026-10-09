@@ -94,55 +94,127 @@ export const OfficeDesksAdmin: React.FC = () => {
     setShowDeskModal(true);
   };
 
-  const handleSaveDesk = async (e: React.FormEvent) => {
+  const handleSaveDesk = (e: React.FormEvent) => {
     e.preventDefault();
     setModalError(null);
-    setModalLoading(true);
 
-    try {
-      if (editingDesk) {
-        const response = await fetch(`/api/admin/desks/${editingDesk.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: deskName.trim(),
-            description: deskDesc.trim() || null,
-            workstreamId: deskWorkstreamId || null,
-          }),
-          credentials: "include",
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err?.message || "Failed to update office desk.");
-        }
-        setActionMessage(`Updated office desk "${deskName.trim()}".`);
-      } else {
-        const response = await fetch("/api/admin/desks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code: deskCode.trim().toUpperCase(),
-            name: deskName.trim(),
-            description: deskDesc.trim() || null,
-            workstreamId: deskWorkstreamId || null,
-            purpose: "General",
-          }),
-          credentials: "include",
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err?.message || "Failed to create office desk.");
-        }
-        setActionMessage(`Created office desk "${deskName.trim()}".`);
+    const name = deskName.trim();
+    if (!name) {
+      setModalError("Desk Name is required.");
+      return;
+    }
+
+    if (!editingDesk) {
+      const code = deskCode.trim().toUpperCase();
+      if (!code) {
+        setModalError("Desk Code is required.");
+        return;
       }
 
-      setShowDeskModal(false);
-      setTimeout(() => setActionMessage(null), 5000);
-      await loadData();
-    } catch (err: any) {
-      setModalError(err instanceof Error ? err.message : "Error saving office desk.");
-    } finally {
-      setModalLoading(false);
+      const wsName = workstreams.find((w) => w.id === deskWorkstreamId)?.name || "General / Multi-branch";
+      const summaryItems = [
+        { label: "Desk Code", value: code, isAddition: true },
+        { label: "Desk Name", value: name, isAddition: true },
+        { label: "Branch / Workstream", value: wsName },
+        { label: "Description", value: deskDesc.trim() || "(None)" },
+      ];
+
+      setConfirmationDialog({
+        title: "Review & Create Office Desk",
+        deskName: `${name} (${code})`,
+        summaryItems,
+        message: `Create new office desk seat "${name}"?`,
+        confirmLabel: "Confirm & Create Desk",
+        confirmTone: "primary",
+        onConfirm: async () => {
+          setModalLoading(true);
+          try {
+            const response = await fetch("/api/admin/desks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                code,
+                name,
+                description: deskDesc.trim() || null,
+                workstreamId: deskWorkstreamId || null,
+                purpose: "General",
+              }),
+              credentials: "include",
+            });
+            if (!response.ok) {
+              const err = await response.json().catch(() => ({}));
+              throw new Error(err?.message || "Failed to create office desk.");
+            }
+            setConfirmationDialog(null);
+            setShowDeskModal(false);
+            setActionMessage(`Created office desk "${name}".`);
+            setTimeout(() => setActionMessage(null), 5000);
+            await loadData();
+          } catch (err: any) {
+            setConfirmationDialog(null);
+            setModalError(err instanceof Error ? err.message : "Error saving office desk.");
+          } finally {
+            setModalLoading(false);
+          }
+        },
+      });
+    } else {
+      // Editing existing desk
+      const diffItems: { label: string; value: string; isAddition?: boolean; isRemoval?: boolean }[] = [];
+      if (name !== editingDesk.name) {
+        diffItems.push({ label: "Desk Name", value: `${editingDesk.name} → ${name}` });
+      }
+      const oldWs = workstreams.find((w) => w.id === editingDesk.workstreamId)?.name || "General / Multi-branch";
+      const newWs = workstreams.find((w) => w.id === deskWorkstreamId)?.name || "General / Multi-branch";
+      if (oldWs !== newWs) {
+        diffItems.push({ label: "Branch / Workstream", value: `${oldWs} → ${newWs}` });
+      }
+      const oldDesc = editingDesk.description || "(None)";
+      const newDesc = deskDesc.trim() || "(None)";
+      if (oldDesc !== newDesc) {
+        diffItems.push({ label: "Description", value: `${oldDesc} → ${newDesc}` });
+      }
+      if (diffItems.length === 0) {
+        diffItems.push({ label: "Notice", value: "No field modifications detected." });
+      }
+
+      setConfirmationDialog({
+        title: "Confirm Desk Changes",
+        deskName: `${editingDesk.name} (${editingDesk.code})`,
+        summaryItems: diffItems,
+        message: `Apply updates to office desk "${editingDesk.name}"?`,
+        confirmLabel: "Confirm Changes",
+        confirmTone: "primary",
+        onConfirm: async () => {
+          setModalLoading(true);
+          try {
+            const response = await fetch(`/api/admin/desks/${editingDesk.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name,
+                description: deskDesc.trim() || null,
+                workstreamId: deskWorkstreamId || null,
+              }),
+              credentials: "include",
+            });
+            if (!response.ok) {
+              const err = await response.json().catch(() => ({}));
+              throw new Error(err?.message || "Failed to update office desk.");
+            }
+            setConfirmationDialog(null);
+            setShowDeskModal(false);
+            setActionMessage(`Updated office desk "${name}".`);
+            setTimeout(() => setActionMessage(null), 5000);
+            await loadData();
+          } catch (err: any) {
+            setConfirmationDialog(null);
+            setModalError(err instanceof Error ? err.message : "Error saving office desk.");
+          } finally {
+            setModalLoading(false);
+          }
+        },
+      });
     }
   };
 
@@ -405,6 +477,21 @@ export const OfficeDesksAdmin: React.FC = () => {
               {confirmationDialog.message && (
                 <div style={{ lineHeight: 1.45 }}>
                   {confirmationDialog.message}
+                </div>
+              )}
+
+              {confirmationDialog.summaryItems && confirmationDialog.summaryItems.length > 0 && (
+                <div className="rbac-confirm-diff-list">
+                  {confirmationDialog.summaryItems.map((item, idx) => (
+                    <div key={idx} className="rbac-diff-row">
+                      <span style={{ width: "140px", color: "#64748b", fontWeight: 600, flexShrink: 0 }}>
+                        {item.label}:
+                      </span>
+                      <span className={item.isAddition ? "rbac-diff-add" : item.isRemoval ? "rbac-diff-remove" : ""} style={{ flex: 1 }}>
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
 

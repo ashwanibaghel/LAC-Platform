@@ -244,6 +244,15 @@ export const MyHelpersView: React.FC = () => {
     if (fullName !== editingHelper.fullName) {
       diffItems.push({ label: "Name", value: `${editingHelper.fullName} → ${fullName}` });
     }
+    const oldDesig = editingHelper.customDesignation
+      ? `${editingHelper.customDesignation} (Custom)`
+      : editingHelper.effectiveDesignation || "Data Entry Operator (DEO)";
+    const newDesig = editDesignationChoice === "OTHER"
+      ? `${editCustomDesignation.trim()} (Custom)`
+      : options?.designation?.name || "Data Entry Operator (DEO)";
+    if (oldDesig !== newDesig) {
+      diffItems.push({ label: "Designation", value: `${oldDesig} → ${newDesig}` });
+    }
     if (oldAccessLabel !== newAccessLabel) {
       diffItems.push({ label: "Access Level", value: `${oldAccessLabel} → ${newAccessLabel}` });
     }
