@@ -510,12 +510,15 @@ test("19. 1366x768 layout styles and modal classes", () => {
 });
 
 // 20. No Save, Award linking, or calculation history
-test("20. no Save, Award linking, or calculation history", () => {
+test("20. private server history remains separate from Award linking and localStorage", () => {
   assert.doesNotMatch(
     compSource,
-    /Save Calculation|Link to Award|Save to Award|Calculation History|localStorage/i,
-    "Compensation Calculator must not have Save, Link Award, or history actions"
+    /Link to Award|Save to Award|localStorage/i,
+    "Private history must not mutate Awards or use browser storage as its database"
   );
+  assert.match(compSource, /\/api\/calculators\/compensation\/history/);
+  assert.match(compSource, /saved\.saved !== true/);
+  assert.match(compSource, /createCalculationSubmissionKey\(\)/);
 });
 
 // 21. successful result + Area edit => old result invalidated

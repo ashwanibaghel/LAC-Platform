@@ -1,6 +1,6 @@
-import React, { useEffect, useId, useMemo, useState } from "react";
-import { AREA_UNITS, areaToSqm, sqmToArea } from "./landConversions";
-import { formatInr, parseNumericInput } from "./compensationFormatters";
+import React, { useEffect, useId, useMemo, useState, useRef } from "react";
+import { AREA_UNITS, areaToSqm, sqmToArea, parseAreaInput } from "./landConversions";
+import { formatInr } from "./compensationFormatters";
 import {
   type MoneyValue,
   type AreaCalculation,
@@ -12,6 +12,7 @@ import {
   type AdditionalAmountPayload,
   type CompensationRequest,
   type CompensationFormState,
+  createCalculationSubmissionKey,
   INITIAL_COMPENSATION_FORM_STATE,
   BASE_FORMULA_VARIABLES,
   ALL_RECOGNIZED_VARIABLES,
@@ -47,8 +48,13 @@ export {
   isResultValidForState
 };
 
+import { CompensationHistory, type SavedCalculation } from "./CompensationHistory";
 export function CompensationCalculator() {
   const formId = useId();
+  const [view, setView] = useState<"calculator" | "history">("calculator");
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const submission = useRef<{ signature: string; key: string } | null>(null);
+  const inFlight = useRef(false);
 
   // Step 1: Land & Rate
   const [landArea, setLandArea] = useState<string>(INITIAL_COMPENSATION_FORM_STATE.landArea);
@@ -150,7 +156,8 @@ export function CompensationCalculator() {
   }, [currentSignature, calculatedSignature, result]);
 
   // Automatic conversion calculation using canonical Area Calculator constants
-  const areaNumber = parseNumericInput(landArea);
+  const areaInterpretation = parseAreaInput(landArea, landAreaUnit);
+  const areaNumber = areaInterpretation.number ?? NaN;
   const isDifferentUnit = landAreaUnit !== marketRateUnit;
 
   const autoConvertedArea = useMemo(() => {
@@ -216,7 +223,32 @@ export function CompensationCalculator() {
     });
   };
 
+  function useAsNew(inputs: CompensationFormState) {
+    setLandArea(inputs.landArea);
+    setLandAreaUnit(inputs.landAreaUnit);
+    setMarketRate(inputs.marketRate);
+    setMarketRateUnit(inputs.marketRateUnit);
+    setUseOfficialEquivalent(inputs.useOfficialEquivalent);
+    setOfficialEquivalentArea(inputs.officialEquivalentArea);
+    setMultiplicationFactor(inputs.multiplicationFactor);
+    setTreesAndStructures(inputs.treesAndStructures);
+    setSolatiumPercentage(inputs.solatiumPercentage);
+    setAdditionalAmountType(inputs.additionalAmountType);
+    setAnnualRate(inputs.annualRate);
+    setDurationType(inputs.durationType);
+    setDurationValue(inputs.durationValue);
+    setStartDate(inputs.startDate);
+    setEndDate(inputs.endDate);
+    setCalculatedOn(inputs.calculatedOn);
+    setFormulaReadable(inputs.formulaReadable);
+    setOtherDurationMode(inputs.otherDurationMode);
+    setOtherDurationValue(inputs.otherDurationValue);
+    setOtherStartDate(inputs.otherStartDate);
+    setOtherEndDate(inputs.otherEndDate);
+    setResult(null); setSavedId(null); setCalculatedSignature(null); setHasCalculated(false); setGeneralError(""); setFieldErrors({}); submission.current = null; setView("calculator");
+  }
   const handleReset = () => {
+    submission.current = null; setSavedId(null);
     setLandArea(INITIAL_COMPENSATION_FORM_STATE.landArea);
     setLandAreaUnit(INITIAL_COMPENSATION_FORM_STATE.landAreaUnit);
     setMarketRate(INITIAL_COMPENSATION_FORM_STATE.marketRate);
@@ -251,6 +283,7 @@ export function CompensationCalculator() {
 
   const handleCalculate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (inFlight.current) return;
 
     const formState: CompensationFormState = {
       landArea,
@@ -290,13 +323,14 @@ export function CompensationCalculator() {
 
     setFieldErrors({});
     setGeneralError("");
-    setLoading(true);
+    setLoading(true); inFlight.current = true; setSavedId(null);
+    if (submission.current?.signature !== requestSignature) submission.current = { signature: requestSignature, key: createCalculationSubmissionKey() };
 
     try {
-      const response = await fetch("/api/calculators/compensation/compute", {
+      const response = await fetch("/api/calculators/compensation/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(validation.payload)
+        body: JSON.stringify({ idempotencyKey: submission.current.key, inputs: formState })
       });
 
       if (!response.ok) {
@@ -346,7 +380,10 @@ export function CompensationCalculator() {
         return;
       }
 
-      const data: CompensationResponse = await response.json();
+      const saved: SavedCalculation = await response.json();
+      if (saved.saved !== true) throw new Error("Calculation was not confirmed saved.");
+      const data: CompensationResponse = saved.response;
+      setSavedId(saved.id); submission.current = null;
       setResult(data);
       setCalculatedSignature(requestSignature);
       setHasCalculated(true);
@@ -356,13 +393,16 @@ export function CompensationCalculator() {
       setHasCalculated(false);
       setGeneralError(err instanceof Error ? err.message : "Unable to reach calculation service.");
     } finally {
-      setLoading(false);
+      setLoading(false); inFlight.current = false;
     }
   };
 
   return (
     <div className="comp-calculator-root">
+      <nav className="comp-history-tabs" aria-label="Compensation views"><button className={view === "calculator" ? "active" : ""} onClick={() => setView("calculator")}>Calculator</button><button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>My History</button></nav>
+      {view === "history" ? <CompensationHistory onUse={useAsNew} /> : <>
       <div className="comp-grid-layout">
+        {savedId && activeResult && <p className="comp-save-status" role="status">Saved to My History · <button onClick={() => setView("history")}>Open My History</button></p>}
         {/* LEFT COLUMN: Input Flow */}
         <form className="comp-input-column" onSubmit={handleCalculate} noValidate>
           {generalError && (
@@ -384,9 +424,8 @@ export function CompensationCalculator() {
                 <div className="comp-input-with-select">
                   <input
                     id={`${formId}-land-area`}
-                    type="number"
-                    min="0"
-                    step="any"
+                    type="text"
+                    inputMode="decimal"
                     value={landArea}
                     onChange={(e) => setLandArea(e.target.value)}
                     onWheel={(e) => e.currentTarget.blur()}
@@ -407,6 +446,8 @@ export function CompensationCalculator() {
                     ))}
                   </select>
                 </div>
+                {landAreaUnit === "bigha" && <small>Enter 4-16 for 4 Bigha 16 Biswa</small>}
+                {landArea && <small className={areaInterpretation.valid ? "comp-area-interpretation" : "comp-field-error"} role="status">{areaInterpretation.valid ? areaInterpretation.interpretation : areaInterpretation.error}</small>}
                 {(getFieldError("land.area") || getFieldError("landArea")) && (
                   <span className="comp-field-error" id={`${formId}-land-area-err`} role="alert">
                     {getFieldError("land.area") || getFieldError("landArea")}
@@ -1068,6 +1109,7 @@ export function CompensationCalculator() {
           )}
         </aside>
       </div>
+      </>}
     </div>
   );
 }

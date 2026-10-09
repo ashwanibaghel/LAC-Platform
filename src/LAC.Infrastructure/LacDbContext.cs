@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 namespace LAC.Infrastructure;
 public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurrentUserContext? currentUser = null) : DbContext(options) {
+ public DbSet<CompensationHistory> CompensationHistory => Set<CompensationHistory>();
  public DbSet<CourtOrderIntelligence> CourtOrderIntelligence => Set<CourtOrderIntelligence>();
  public DbSet<CourtOrderIntelligenceRevision> CourtOrderIntelligenceRevisions => Set<CourtOrderIntelligenceRevision>();
  public DbSet<CourtOrderRecordLink> CourtOrderRecordLinks => Set<CourtOrderRecordLink>();
@@ -38,6 +39,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtExternalOrderObservation> CourtExternalOrderObservations => Set<CourtExternalOrderObservation>();
  public DbSet<CourtExternalAssistedDecision> CourtExternalAssistedDecisions => Set<CourtExternalAssistedDecision>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
+  Configurations.CompensationHistoryConfiguration.Configure(b);
   Configurations.WorkAllocationConfiguration.Configure(b);
   OfficeAccountConfiguration.Configure(b);
   b.Entity<RolePermission>().HasQueryFilter(x => AssistantPermissionCeiling == null || AssistantPermissionCeiling.Contains(x.PermissionId));
@@ -135,19 +137,20 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
     throw new InvalidOperationException("Physical recovery evidence is immutable.");
   }
  }
- public override int SaveChanges(bool acceptAllChangesOnSuccess) {
+ private void CheckHistoryImmutability() { foreach (var entry in ChangeTracker.Entries<CompensationHistory>()) { if (entry.State == EntityState.Deleted || (entry.State == EntityState.Modified && entry.Properties.Any(p => p.IsModified && p.Metadata.Name != nameof(LAC.Domain.CompensationHistory.Title)))) throw new InvalidOperationException("Calculation evidence is immutable; create a new history entry."); } }
+ public override int SaveChanges(bool acceptAllChangesOnSuccess) { CheckHistoryImmutability();
   CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChanges(acceptAllChangesOnSuccess);
  }
- public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct=default) {
+ public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken ct=default) { CheckHistoryImmutability();
   CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   EnsureExternalListingDecisionsImmutable();
   return base.SaveChangesAsync(acceptAllChangesOnSuccess, ct);
  }
- public override async Task<int> SaveChangesAsync(CancellationToken ct=default) {
+ public override async Task<int> SaveChangesAsync(CancellationToken ct=default) { CheckHistoryImmutability();
   CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
   if (!Database.IsRelational())

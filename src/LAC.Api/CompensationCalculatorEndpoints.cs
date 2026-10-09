@@ -9,7 +9,7 @@ namespace LAC.Api;
 public static class CompensationCalculatorEndpoints
 {
     public const int MaxRequestBytes = 16384;
-    private static readonly JsonSerializerOptions InputOptions = CreateInputOptions();
+    internal static readonly JsonSerializerOptions InputOptions = CreateInputOptions();
     private static JsonSerializerOptions CreateInputOptions()
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
@@ -24,6 +24,7 @@ public static class CompensationCalculatorEndpoints
 
     public static void MapCompensationCalculatorEndpoints(this RouteGroupBuilder calculators)
     {
+        calculators.MapCompensationHistoryEndpoints();
         calculators.MapPost("/compensation/compute", Compute)
             .RequireAuthorization()
             // The wildcard keeps unsupported media on this authenticated route instead
