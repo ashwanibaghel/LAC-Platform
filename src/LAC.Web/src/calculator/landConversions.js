@@ -26,13 +26,43 @@ export function validateRevenue(bigha, biswa, biswansi) {
   if (!values.every(Number.isFinite) || values.some((value) => value < 0)) return { valid: false, error: "Use non-negative numbers." };
   if (!Number.isInteger(values[0]) || !Number.isInteger(values[1]) || !Number.isInteger(values[2])) return { valid: false, error: "Revenue fields must be whole numbers." };
   if (values[1] > 19 || values[2] > 19) return { valid: false, error: "Biswa and Biswansi must each be between 0 and 19." };
+  if (!Number.isSafeInteger(values[0] * 400 + values[1] * 20 + values[2])) return { valid: false, error: "Revenue area exceeds the exact integer range." };
   return { valid: true, value: { bigha: values[0], biswa: values[1], biswansi: values[2] } };
 }
 
 export function parseRevenueShorthand(text) {
-  const match = String(text || "").trim().match(/^(\d+)-(\d+)-(\d+)$/);
-  if (!match) return { valid: false, error: "Use Bigha-Biswa-Biswansi, for example 2-9-1." };
-  return validateRevenue(match[1], match[2], match[3]);
+  const area = parseAreaInput(text, "bigha");
+  if (!area.valid) return area;
+  const [whole, fraction = ""] = area.canonical.split(".");
+  const denominator = 10n ** BigInt(fraction.length);
+  const total = (BigInt(whole) * denominator + BigInt(fraction || "0")) * 400n;
+  if (total % denominator !== 0n || total / denominator > BigInt(Number.MAX_SAFE_INTEGER)) return { valid: false, error: "Revenue arithmetic requires an exact whole Biswansi total." };
+  return { valid: true, value: fromTotalBiswansi(Number(total / denominator)) };
+}
+
+// All revenue inputs share this parser. BigInt preserves notation without rounding.
+export function parseAreaInput(input, unit = "bigha") {
+  const text = String(input ?? "").trim();
+  const invalid = error => ({ valid: false, error });
+  if (!AREA_UNITS[unit]) return invalid("Unknown area unit.");
+  if (text.includes("-")) {
+    const match = text.match(/^(\d+)-(\d+)(?:-(\d+))?$/);
+    if (unit !== "bigha" || !match) return invalid("Use 4-16 or 2-9-1 with Bigha; negative areas and malformed separators are invalid.");
+    const bigha = BigInt(match[1]), biswa = BigInt(match[2]), biswansi = BigInt(match[3] ?? "0");
+    if (biswa > 19n || biswansi > 19n) return invalid("Biswa and Biswansi must each be between 0 and 19.");
+    const quarters = bigha * 10000n + biswa * 500n + biswansi * 25n;
+    if (quarters > 10000000000000000n) return invalid("Area exceeds the 10^12 limit.");
+    const fraction = (quarters % 10000n).toString().padStart(4, "0").replace(/0+$/, "");
+    const canonical = (quarters / 10000n).toString() + (fraction ? "." + fraction : "");
+    return { valid: true, canonical, number: Number(canonical), interpretation: `${bigha} Bigha ${biswa} Biswa${match[3] ? ` ${biswansi} Biswansi` : ""} = ${canonical} Bigha` };
+  }
+  if (!/^\d+(?:\.\d{1,12})?$/.test(text)) return invalid("Enter a non-negative plain decimal with at most 12 fractional digits.");
+  const [whole, frac = ""] = text.split(".");
+  const integer = BigInt(whole);
+  if (integer > 1000000000000n || (integer === 1000000000000n && /[1-9]/.test(frac))) return invalid("Area exceeds the 10^12 limit.");
+  const fraction = frac.replace(/0+$/, "");
+  const canonical = integer.toString() + (fraction ? "." + fraction : "");
+  return { valid: true, canonical, number: Number(canonical), interpretation: `${canonical} ${AREA_UNITS[unit].label}` };
 }
 
 // Revenue arithmetic is deliberately integer-only.  Area conversion may use

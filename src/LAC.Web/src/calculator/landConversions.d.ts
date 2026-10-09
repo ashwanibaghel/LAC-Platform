@@ -18,3 +18,4 @@ export function sqmToArea(value: number, unit: string): number;
 export function allAreaConversions(value: number): Record<string, number>;
 export function lengthToMetres(value: unknown, unit: string): number | null;
 export function metresToLength(value: number, unit: string): number;
+export function parseAreaInput(input: string, unit?: string): { valid: boolean; error?: string; canonical?: string; number?: number; interpretation?: string };

@@ -1,0 +1,10 @@
+[
+  { "readable": "After Solatium × 12 / 100", "normalized": "AFTER_SOLATIUM * 12 / 100", "durationMode": "None", "durationValue": "", "valid": true, "finalDisplay": "88897536.00" },
+  { "readable": "Solatium × 12 / 100", "normalized": "SOLATIUM_AMOUNT * 12 / 100", "durationMode": "None", "durationValue": "", "valid": true, "finalDisplay": "84135168.00" },
+  { "readable": "Market Value + Solatium", "normalized": "MARKET_VALUE + SOLATIUM_AMOUNT", "durationMode": "None", "durationValue": "", "valid": true, "finalDisplay": "138902400.00" },
+  { "readable": "After Solatium × 12 / 100 × (Days / 365)", "normalized": "AFTER_SOLATIUM * 12 / 100 * (DAYS / 365)", "durationMode": "Days", "durationValue": "30", "valid": true, "finalDisplay": "80155655.01" },
+  { "readable": "After Solatium + Solatium", "normalized": "AFTER_SOLATIUM + SOLATIUM_AMOUNT", "durationMode": "None", "durationValue": "", "valid": true, "finalDisplay": "198432000.00" },
+  { "readable": "After Solatium × (12 / 100", "normalized": "AFTER_SOLATIUM * (12 / 100", "durationMode": "None", "durationValue": "", "valid": false, "finalDisplay": "" },
+  { "readable": "After Solatium + Unknown", "normalized": "AFTER_SOLATIUM + Unknown", "durationMode": "None", "durationValue": "", "valid": false, "finalDisplay": "" },
+  { "readable": "After Solatium × Days", "normalized": "AFTER_SOLATIUM * DAYS", "durationMode": "None", "durationValue": "", "valid": false, "finalDisplay": "" }
+]

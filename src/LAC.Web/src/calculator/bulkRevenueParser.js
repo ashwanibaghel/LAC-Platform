@@ -1,4 +1,4 @@
-import { allAreaConversions, fromTotalBiswansi, revenueTotals, toTotalBiswansi } from "./landConversions.js";
+import { allAreaConversions, fromTotalBiswansi, revenueTotals, toTotalBiswansi, parseRevenueShorthand } from "./landConversions.js";
 
 export const BULK_FORMATS = {
   auto: "Auto detect",
@@ -56,7 +56,7 @@ export function detectBulkRevenueFormat(text) {
   const source = String(text).trim();
   if (!source) return null;
   const shorthandTokens = tokenizeUnitList(source);
-  if (shorthandTokens.length && shorthandTokens.every(token => /^\d+-\d+-\d+$/.test(token))) return "shorthand";
+  if (shorthandTokens.length && shorthandTokens.every(token => /^\d+-\d+(?:-\d+)?$/.test(token))) return "shorthand";
   const lines = linesOf(source);
   const cells = lines.map(line => line.split("\t"));
   // A 3-by-3 numeric matrix could represent records or transposed units.
@@ -68,8 +68,8 @@ export function detectBulkRevenueFormat(text) {
 export function parseRevenueShorthandBulk(text) {
   const tokens = tokenizeUnitList(text);
   return result("shorthand", tokens.map((token, index) => {
-    const match = token.match(/^(\d+)-(\d+)-(\d+)$/);
-    return match ? record(index + 1, index + 1, match.slice(1)) : problem(index + 1, index + 1, [token], `Invalid revenue shorthand "${token}". Expected Bigha-Biswa-Biswansi.`);
+    const parsed = parseRevenueShorthand(token);
+    return parsed.valid ? record(index + 1, index + 1, [String(parsed.value.bigha), String(parsed.value.biswa), String(parsed.value.biswansi)]) : problem(index + 1, index + 1, [token], parsed.error);
   }));
 }
 

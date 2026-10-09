@@ -1,4 +1,13 @@
 import { parseNumericInput } from "./compensationFormatters.ts";
+import { parseAreaInput } from "./landConversions.js";
+
+// getRandomValues also works on the office's HTTP LAN origin, unlike randomUUID.
+export function createCalculationSubmissionKey(source: Pick<Crypto, "getRandomValues"> = globalThis.crypto): string {
+  const bytes = source.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 15) | 64; bytes[8] = (bytes[8]! & 63) | 128;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
 
 export interface MoneyValue {
   precise: string;
@@ -77,7 +86,7 @@ export interface AdditionalAmountPayload {
 export interface CompensationRequest {
   conversionProfile: string;
   land: {
-    area: number;
+    area: number | string;
     unit: string;
     equivalentAreaInRateUnit?: number;
   };
@@ -172,7 +181,7 @@ export function getAvailableFormulaVariables(durationMode: "None" | "Days" | "Mo
 
 export function convertFormulaReadableToInternal(readable: string): string {
   let expr = readable;
-  for (const v of ALL_RECOGNIZED_VARIABLES) {
+  for (const v of [...ALL_RECOGNIZED_VARIABLES].sort((a, b) => b.label.length - a.label.length)) {
     expr = expr.replaceAll(v.label, v.id);
   }
   expr = expr.replaceAll("×", "*").replaceAll("÷", "/");
@@ -221,10 +230,11 @@ export function buildCompensationRequest(state: CompensationFormState): {
 } {
   const errors: Record<string, string> = {};
 
-  const parsedArea = parseNumericInput(state.landArea);
-  if (!state.landArea.trim() || parsedArea <= 0) {
-    errors["land.area"] = "Enter a valid land area greater than zero.";
-    errors.landArea = "Enter a valid land area greater than zero.";
+  const areaInput = parseAreaInput(state.landArea, state.landAreaUnit);
+  const parsedArea = areaInput.number ?? NaN;
+  if (!areaInput.valid || parsedArea <= 0) {
+    errors["land.area"] = areaInput.error ?? "Enter a valid land area greater than zero.";
+    errors.landArea = errors["land.area"];
   }
 
   const parsedRate = parseNumericInput(state.marketRate);
@@ -307,11 +317,11 @@ export function buildCompensationRequest(state: CompensationFormState): {
   }
 
   const landPayload: {
-    area: number;
+    area: number | string;
     unit: string;
     equivalentAreaInRateUnit?: number;
   } = {
-    area: parsedArea,
+    area: String(parsedArea) === areaInput.canonical ? parsedArea : areaInput.canonical!,
     unit: state.landAreaUnit
   };
 

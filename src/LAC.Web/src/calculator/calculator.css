@@ -832,3 +832,26 @@
     grid-template-columns: 1fr;
   }
 }
+.comp-history-tabs { display:flex; gap:6px; border-bottom:1px solid #dbe3ed; margin-bottom:14px; padding-bottom:8px; }
+.comp-history-tabs button { padding:9px 18px; border:0; border-radius:8px; background:#eef2f7; color:#334155; font-weight:600; }
+.comp-history-tabs button.active { background:#312e81; color:white; }
+.comp-save-status { grid-column:1 / -1; margin:0; padding:9px 14px; background:#ecfdf5; color:#065f46; border-radius:8px; }
+.comp-area-interpretation { display:block; color:#047857; padding-top:5px; font-weight:600; }
+.comp-history { color:#26364d; padding:8px; }
+.comp-history button { padding:8px 12px; border:1px solid #cbd5e1; border-radius:7px; background:white; color:#312e81; font-weight:600; }
+.comp-history button:disabled { opacity:.5; }
+.comp-history-heading,.comp-history-rename,.comp-history-pagination { display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:16px; }
+.comp-history-heading small { display:block; font-weight:400; color:#64748b; margin-top:4px; }
+.comp-history input { display:block; border:1px solid #cbd5e1; padding:9px; border-radius:7px; min-width:220px; }
+.comp-history-list article { display:flex; justify-content:space-between; align-items:center; gap:16px; border:1px solid #e2e8f0; padding:16px; border-radius:10px; margin-bottom:10px; background:#fff; }
+.comp-history-list h4 { margin:0 0 4px; }
+.comp-history-list time { font-size:12px; color:#64748b; }
+.comp-history-list strong { display:block; margin-bottom:8px; color:#312e81; font-size:19px; }
+.comp-history-list p { margin-bottom:0; font-size:13px; }
+.comp-history-facts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; padding:14px; border-radius:10px; background:#f8fafc; }
+.comp-history-facts dt { font-size:12px; color:#64748b; text-transform:capitalize; }
+.comp-history-facts dd { margin:3px 0 0; overflow-wrap:anywhere; }
+.comp-history-step { padding:12px; border-bottom:1px solid #e2e8f0; }
+.comp-history-step b { display:block; margin-top:6px; }
+.comp-history pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; }
+@media(max-width:700px) { .comp-history-heading,.comp-history-list article { flex-direction:column; align-items:stretch; } .comp-history-facts { grid-template-columns:repeat(2,minmax(0,1fr)); } }
