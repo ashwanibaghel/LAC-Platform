@@ -26,6 +26,7 @@ import type {
   OfficeAccountOptions,
 } from "./officeV3Types";
 import "./admin.css";
+import { isCanonicalAdmSelection, getCreateConfirmationAuthority, getEffectiveAccessSummary, effectiveAccessSummaryItems, effectiveAccessChanges } from "./effectiveAccessConfirmation";
 
 const ALL_MODULES: { code: OfficeModule; label: string; description: string }[] = [
   {
@@ -54,6 +55,10 @@ const ALL_MODULES: { code: OfficeModule; label: string; description: string }[] 
     description: "Handle physical record/file custody.",
   },
 ];
+
+const summarizeModules = (modules: readonly OfficeModule[]) => modules.length
+  ? modules.map((m) => ALL_MODULES.find((x) => x.code === m)?.label || m).join(", ")
+  : "None";
 
 interface ConfirmationDialogState {
   title: string;
@@ -478,14 +483,14 @@ export const UsersAdmin: React.FC = () => {
   const isSelectedDesignationAdm = useMemo(() => {
     if (isCustomDesignationMode || !newDesignationId) return false;
     const d = options?.designations.find((x) => x.id === newDesignationId);
-    return Boolean(d && (d.code === "ADM" || d.name.toLowerCase().includes("additional district magistrate")));
+    return isCanonicalAdmSelection(d, isCustomDesignationMode);
   }, [isCustomDesignationMode, newDesignationId, options?.designations]);
 
   // Derived: Is the designation in Edit Form ADM?
   const isEditDesignationAdm = useMemo(() => {
     if (isEditCustomMode || !editDesignationId) return false;
     const d = options?.designations.find((x) => x.id === editDesignationId);
-    return Boolean(d && (d.code === "ADM" || d.name.toLowerCase().includes("additional district magistrate")));
+    return isCanonicalAdmSelection(d, isEditCustomMode);
   }, [isEditCustomMode, editDesignationId, options?.designations]);
 
   const openCreateOfficerModal = () => {
@@ -535,13 +540,10 @@ export const UsersAdmin: React.FC = () => {
       : options?.designations.find((d) => d.id === newDesignationId)?.name || "Unassigned";
 
     let authority: OfficeAuthority = "STANDARD_OFFICER";
-    let authorityLabel = "Officer / Staff";
     if (newIsSupervisor) {
       authority = "OFFICE_SUPERVISOR";
-      authorityLabel = "Office Supervisor";
     } else if (isSelectedDesignationAdm && options?.authority === "SYSTEM_ADMIN") {
       authority = "OFFICE_ADMIN";
-      authorityLabel = "Office Administrator";
     }
 
     const primaryDesk = options?.desks.find((d) => d.id === newPrimaryDeskId);
@@ -568,24 +570,13 @@ export const UsersAdmin: React.FC = () => {
       },
     };
 
-    const modulesSummary = newIsSupervisor || authority === "OFFICE_ADMIN"
-      ? "Full Office Access"
-      : newModules.length > 0
-      ? newModules.map((m) => ALL_MODULES.find((x) => x.code === m)?.label || m).join(", ")
-      : "None";
+    const confirmationAuthority = getCreateConfirmationAuthority(authority, options?.authority, isSelectedDesignationAdm);
+    const effectiveAccess = getEffectiveAccessSummary(confirmationAuthority, summarizeModules(newModules), newCanRegisterInwardDak, newLandAccess);
 
     const summaryItems = [
       { label: "Civil Designation", value: designationName },
-      { label: "Authority Level", value: authorityLabel },
-      { label: "Work Access", value: modulesSummary },
-      {
-        label: "Inward Dak Registry",
-        value: newIsSupervisor || newCanRegisterInwardDak ? "Can Register Inward Dak" : "No Registry Rights",
-      },
-      {
-        label: "Land Records",
-        value: newIsSupervisor ? "View + Write" : newLandAccess === "ViewWrite" ? "View + Write" : newLandAccess === "ViewOnly" ? "View Only" : "None",
-      },
+      { label: "Authority Level", value: getAuthorityBadgeLabel(confirmationAuthority) },
+      ...effectiveAccessSummaryItems(effectiveAccess),
       { label: "Assigned Seat / Desk", value: deskSummary },
     ];
 
@@ -593,7 +584,7 @@ export const UsersAdmin: React.FC = () => {
       title: "Confirm New Officer Account",
       employeeName: `${fullName} (${username})`,
       summaryItems,
-      warning: authority === "OFFICE_ADMIN"
+      warning: confirmationAuthority === "OFFICE_ADMIN"
         ? "NOTICE: Selecting Additional District Magistrate (ADM) designates this account as an Office Administrator with full office administrative control."
         : undefined,
       confirmLabel: "Confirm & Create Account",
@@ -671,6 +662,7 @@ export const UsersAdmin: React.FC = () => {
       message: "Create a technical System Administrator with platform security authority?",
       summaryItems: [
         { label: "Authority", value: "System Administrator (Full System Access)" },
+        ...effectiveAccessSummaryItems(getEffectiveAccessSummary("SYSTEM_ADMIN", "None", false, "None")),
         { label: "Designation", value: techDesignationId ? options?.designations.find((d) => d.id === techDesignationId)?.name || "Technical" : "No civil designation" },
         { label: "Desk", value: "Not required / No desk" },
       ],
@@ -766,6 +758,8 @@ export const UsersAdmin: React.FC = () => {
     if (editingOfficer.authority === "STANDARD_OFFICER" || editingOfficer.authority === "OFFICE_SUPERVISOR") {
       authority = editIsSupervisor ? "OFFICE_SUPERVISOR" : "STANDARD_OFFICER";
     }
+    const beforeAccess = getEffectiveAccessSummary(editingOfficer.authority, summarizeModules(editingOfficer.modules), editingOfficer.canRegisterInwardDak, editingOfficer.landAccess);
+    const afterAccess = getEffectiveAccessSummary(authority, summarizeModules(editModules), editCanRegisterInwardDak, editLandAccess);
 
     const isOther = isEditCustomMode || editDesignationId === "__OTHER__";
     const allEditDeskIds = [editPrimaryDeskId, ...editAdditionalDeskIds].filter(Boolean);
@@ -818,20 +812,8 @@ export const UsersAdmin: React.FC = () => {
         diffItems.push({ label: "Access Removed", value: `- ${modName}`, isRemoval: true });
       }
 
-      // Inward Dak diff
-      if (editCanRegisterInwardDak !== editingOfficer.canRegisterInwardDak) {
-        if (editCanRegisterInwardDak) {
-          diffItems.push({ label: "Inward Dak", value: "+ Granted Inward Dak Registry", isAddition: true });
-        } else {
-          diffItems.push({ label: "Inward Dak", value: "- Revoked Inward Dak Registry", isRemoval: true });
-        }
-      }
-
-      // Land Records diff
-      if (editLandAccess !== editingOfficer.landAccess) {
-        diffItems.push({ label: "Land Records", value: `${editingOfficer.landAccess} → ${editLandAccess}` });
-      }
     }
+    diffItems.push(...effectiveAccessChanges(beforeAccess, afterAccess));
 
     // Desk diff
     const oldPrimaryDesk = options?.desks.find((d) => editingOfficer.deskIds[0] === d.id)?.name || "None";
@@ -860,7 +842,7 @@ export const UsersAdmin: React.FC = () => {
     setConfirmationDialog({
       title: "Confirm Access Changes",
       employeeName: editingOfficer.fullName,
-      summaryItems: diffItems,
+      summaryItems: [...diffItems, ...effectiveAccessSummaryItems(afterAccess)],
       warning: "Saving changes will invalidate current active sessions for this employee.",
       confirmLabel: "Confirm Changes",
       confirmTone: "primary",
