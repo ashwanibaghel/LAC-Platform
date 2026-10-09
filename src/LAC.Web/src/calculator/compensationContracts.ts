@@ -181,7 +181,7 @@ export function getAvailableFormulaVariables(durationMode: "None" | "Days" | "Mo
 
 export function convertFormulaReadableToInternal(readable: string): string {
   let expr = readable;
-  for (const v of ALL_RECOGNIZED_VARIABLES) {
+  for (const v of [...ALL_RECOGNIZED_VARIABLES].sort((a, b) => b.label.length - a.label.length)) {
     expr = expr.replaceAll(v.label, v.id);
   }
   expr = expr.replaceAll("×", "*").replaceAll("÷", "/");

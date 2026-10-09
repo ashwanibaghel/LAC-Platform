@@ -34,13 +34,15 @@ public sealed record CompensationHistoryInputs(
             area=bigha + biswa / 20m + biswansi / 400m;
             if (area > 1_000_000_000_000m) throw new CalculatorValidationException("land.area", "Area exceeds the decimal limit.");
         } else area=Number(text, "land.area");
-        if (!Enum.TryParse<InterestBasis>(CalculatedOn, false, out var basis) || !Enum.IsDefined(basis)) throw new CalculatorValidationException("calculatedOn", "Invalid interest basis.");
         AdditionalAmountInput additional;
-        if (AdditionalAmountType == "interest") additional = new(AnnualRatePercent: Number(AnnualRate, "annualRate"), Duration: Duration(DurationType, DurationValue, StartDate, EndDate), Basis: basis);
+        if (AdditionalAmountType == "interest") {
+            if (!Enum.TryParse<InterestBasis>(CalculatedOn, false, out var basis) || !Enum.IsDefined(basis)) throw new CalculatorValidationException("calculatedOn", "Invalid interest basis.");
+            additional = new(AnnualRatePercent: Number(AnnualRate, "annualRate"), Duration: Duration(DurationType, DurationValue, StartDate, EndDate), Basis: basis);
+        }
         else if (AdditionalAmountType == "other") {
             var formula=FormulaReadable ?? "";
-            foreach (var (label, variable) in new[] {("Market Value","MARKET_VALUE"),("Factor Value","FACTOR_VALUE"),("Assets","ASSET_VALUE"),("Base Compensation","BASE_COMPENSATION"),("Solatium","SOLATIUM_AMOUNT"),("After Solatium","AFTER_SOLATIUM"),("Days","DAYS"),("Months","MONTHS")}) formula=formula.Replace(label, variable);
-            additional=new(LAC.Domain.Calculators.AdditionalAmountType.Other, Duration: OtherDurationMode == "None" ? null : Duration(OtherDurationMode, OtherDurationValue, OtherStartDate, OtherEndDate), Basis: basis, Formula: formula.Replace("×","*").Replace("÷","/").Trim());
+            foreach (var (label, variable) in new[] {("Market Value","MARKET_VALUE"),("Factor Value","FACTOR_VALUE"),("Assets","ASSET_VALUE"),("Base Compensation","BASE_COMPENSATION"),("Solatium","SOLATIUM_AMOUNT"),("After Solatium","AFTER_SOLATIUM"),("Days","DAYS"),("Months","MONTHS")}.OrderByDescending(pair => pair.Item1.Length)) formula=formula.Replace(label, variable);
+            additional=new(LAC.Domain.Calculators.AdditionalAmountType.Other, Duration: OtherDurationMode == "None" ? null : Duration(OtherDurationMode, OtherDurationValue, OtherStartDate, OtherEndDate), Basis: InterestBasis.MarketValue, Formula: formula.Replace("×","*").Replace("÷","/").Trim());
         } else throw new CalculatorValidationException("additionalAmountType", "Invalid additional amount type.");
         return new(new(area, LandAreaUnit, UseOfficialEquivalent ? Number(OfficialEquivalentArea, "officialEquivalentArea") : null), new(Number(MarketRate, "marketRate"), MarketRateUnit), Number(MultiplicationFactor, "multiplicationFactor"), new(string.IsNullOrWhiteSpace(TreesAndStructures) ? 0 : Number(TreesAndStructures, "treesAndStructures")), new(Number(SolatiumPercentage, "solatiumPercentage")), additional);
     }

@@ -29,6 +29,92 @@ public sealed class CompensationHistoryTests : IClassFixture<HistoryPostgresFixt
         var reply=await client.PostAsJsonAsync("/api/calculators/compensation/history",new {idempotencyKey=key ?? Guid.NewGuid(),inputs});
         Assert.Equal(HttpStatusCode.OK,reply.StatusCode);var json=await reply.Content.ReadFromJsonAsync<JsonElement>();Assert.True(json.GetProperty("saved").GetBoolean());return json;
     }
+    private static readonly JsonSerializerOptions ContractJson = new(JsonSerializerDefaults.Web) {
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() }
+    };
+    public static IEnumerable<object[]> FormulaContracts() {
+        // The frontend regression reads this same fixture; both must satisfy its canonical expressions.
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent) {
+            var path = Path.Combine(directory.FullName, "src", "LAC.Web", "tests", "fixtures", "compensation-formula-contracts.json");
+            if (!File.Exists(path)) continue;
+            using var cases = JsonDocument.Parse(File.ReadAllText(path));
+            return cases.RootElement.EnumerateArray().Select(c => new object[] {
+                c.GetProperty("readable").GetString()!, c.GetProperty("normalized").GetString()!,
+                c.GetProperty("durationMode").GetString()!, c.GetProperty("durationValue").GetString()!,
+                c.GetProperty("valid").GetBoolean(), c.GetProperty("finalDisplay").GetString()!
+            }).ToArray();
+        }
+        throw new FileNotFoundException("Shared frontend/history formula contract fixture was not found.");
+    }
+    [Theory]
+    [InlineData("MarketValue")]
+    [InlineData("FactorAdjustedValue")]
+    [InlineData("BaseCompensation")]
+    [InlineData("AmountAfterSolatium")]
+    public async Task Switching_interest_basis_to_other_saves_original_inputs_and_exact_result(string basis) {
+        var interest = Inputs() with { CalculatedOn = basis };
+        Assert.Equal(Enum.Parse<InterestBasis>(basis), interest.Normalize().AdditionalAmount!.Basis);
+        using var client = await Client();
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/calculators/compensation/compute", interest.Normalize(), ContractJson)).StatusCode);
+        var inputs = interest with { AdditionalAmountType = "other", FormulaReadable = "After Solatium × 12 / 100" };
+        var additional = inputs.Normalize().AdditionalAmount!;
+        Assert.Equal(InterestBasis.MarketValue, additional.Basis);
+        Assert.Null(additional.AnnualRatePercent);
+        Assert.Null(additional.Duration);
+        var record = await Save(client, inputs);
+        using var fresh = await Client();
+        var reopened = await fresh.GetFromJsonAsync<JsonElement>($"/api/calculators/compensation/history/{record.GetProperty("id").GetGuid()}");
+        Assert.Equal("88897536.00", reopened.GetProperty("response").GetProperty("finalCompensation").GetProperty("display").GetString());
+        foreach (var field in new[] { "inputs", "request", "response" }) Assert.Equal(record.GetProperty(field).ToString(), reopened.GetProperty(field).ToString());
+        Assert.Equal(inputs, reopened.GetProperty("inputs").Deserialize<CompensationHistoryInputs>(ContractJson));
+        Assert.Equal("MarketValue", reopened.GetProperty("request").GetProperty("additionalAmount").GetProperty("basis").GetString());
+    }
+    [Theory]
+    [MemberData(nameof(FormulaContracts))]
+    public async Task Shared_frontend_formula_contract_matches_saved_backend_and_stateless_compute(
+        string readable, string normalized, string durationMode, string durationValue, bool valid, string finalDisplay) {
+        var inputs = Inputs() with { AdditionalAmountType = "other", CalculatedOn = "AmountAfterSolatium",
+            FormulaReadable = readable, OtherDurationMode = durationMode, OtherDurationValue = durationValue };
+        var request = inputs.Normalize();
+        Assert.Equal(normalized, request.AdditionalAmount!.Formula);
+        // Build the canonical frontend request independently from the shared expected expression.
+        var frontendRequest = Inputs().Normalize() with { AdditionalAmount = new(
+            LAC.Domain.Calculators.AdditionalAmountType.Other, Basis: InterestBasis.MarketValue, Formula: normalized,
+            Duration: durationMode == "None" ? null : new(DurationMode.Days, decimal.Parse(durationValue, System.Globalization.CultureInfo.InvariantCulture))) };
+        Assert.Equal(frontendRequest, request);
+        using var client = await Client();
+        var computed = await client.PostAsJsonAsync("/api/calculators/compensation/compute", frontendRequest, ContractJson);
+        var key = Guid.NewGuid();
+        if (!valid) {
+            Assert.Equal(HttpStatusCode.BadRequest, computed.StatusCode);
+            var rejected = await client.PostAsJsonAsync("/api/calculators/compensation/history", new { idempotencyKey = key, inputs });
+            Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+            await using var db = fixture.Db();
+            Assert.False(await db.CompensationHistory.AnyAsync(x => x.IdempotencyKey == key));
+            return;
+        }
+        Assert.Equal(HttpStatusCode.OK, computed.StatusCode);
+        var expectedResponse = await computed.Content.ReadFromJsonAsync<JsonElement>();
+        var record = await Save(client, inputs, key);
+        Assert.True(JsonElement.DeepEquals(expectedResponse, record.GetProperty("response")));
+        Assert.Equal(finalDisplay, record.GetProperty("response").GetProperty("finalCompensation").GetProperty("display").GetString());
+        var retry = await Save(client, inputs, key);
+        Assert.Equal(record.GetProperty("id").GetGuid(), retry.GetProperty("id").GetGuid());
+        using var fresh = await Client();
+        var reopened = await fresh.GetFromJsonAsync<JsonElement>($"/api/calculators/compensation/history/{record.GetProperty("id").GetGuid()}");
+        Assert.True(JsonElement.DeepEquals(expectedResponse, reopened.GetProperty("response")));
+        Assert.Equal(inputs, reopened.GetProperty("inputs").Deserialize<CompensationHistoryInputs>(ContractJson));
+        Assert.Equal(frontendRequest, reopened.GetProperty("request").Deserialize<CompensationRequest>(ContractJson));
+    }
+    [Fact] public void Other_ignores_invalid_interest_only_fields_but_interest_still_validates_basis() {
+        var inputs = Inputs() with { AdditionalAmountType = "other", FormulaReadable = "Solatium × 12 / 100",
+            CalculatedOn = "obsolete", AnnualRate = "invalid", DurationType = "date_range", StartDate = "invalid", EndDate = "invalid" };
+        var normalized = inputs.Normalize().AdditionalAmount!;
+        Assert.Equal(InterestBasis.MarketValue, normalized.Basis);
+        Assert.Null(normalized.AnnualRatePercent);
+        Assert.Null(normalized.Duration);
+        Assert.Throws<CalculatorValidationException>(() => (Inputs() with { CalculatedOn = "obsolete" }).Normalize());
+    }
     [Fact] public async Task Durable_full_snapshot_survives_new_login_and_reopen() {
         using var client=await Client();var record=await Save(client,Inputs());var id=record.GetProperty("id").GetGuid();
         Assert.Equal("79568513.75",record.GetProperty("response").GetProperty("finalCompensation").GetProperty("display").GetString());
