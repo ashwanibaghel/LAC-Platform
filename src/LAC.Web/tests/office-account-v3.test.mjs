@@ -606,3 +606,54 @@ test("12. Land Records and Court visibility and route protection (Matrix A-E)", 
     assert.equal(canMutate, false, "Matrix E: Land mutations unavailable for ViewOnly");
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. RBAC ADMIN UI POLISH, DETAILS DRAWER, & CONFIRMATION SAFETY
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("13. Old 'Assigned Authority Roles' and 'Functional Branches' walls are completely absent", () => {
+  assert.ok(!usersAdminTsx.includes("Assigned Authority Roles"), "No 'Assigned Authority Roles' in UsersAdmin");
+  assert.ok(!usersAdminTsx.includes("Functional Branches"), "No 'Functional Branches' in UsersAdmin");
+  assert.ok(!usersAdminTsx.includes("Workstream Architecture"), "No raw workstream architecture in UsersAdmin");
+  assert.ok(!usersAdminTsx.includes("Role ID"), "No raw role IDs shown in UsersAdmin");
+});
+
+test("14. Confirmation safety dialog intercepts all state-changing mutations", () => {
+  // Confirmation state and dialog shell
+  assert.ok(usersAdminTsx.includes("confirmationDialog"), "UsersAdmin manages confirmation dialog state");
+  assert.ok(usersAdminTsx.includes("rbac-confirm-shell"), "UsersAdmin renders rbac-confirm-shell");
+
+  // Create review flow opens confirmation
+  assert.ok(usersAdminTsx.includes('title: "Confirm New Officer Account"'), "Create form opens confirmation with summary");
+
+  // Edit diff calculation
+  assert.ok(usersAdminTsx.includes("diffItems"), "Edit flow computes diff items for confirmation");
+  assert.ok(usersAdminTsx.includes('title: "Confirm Access Changes"'), "Edit flow opens confirmation with diffs");
+
+  // Status toggle confirmation
+  assert.ok(usersAdminTsx.includes("Confirm Account Deactivation"), "Status toggle requires confirmation");
+
+  // Password reset confirmation
+  assert.ok(usersAdminTsx.includes('title: "Confirm Password Reset"'), "Password reset requires confirmation");
+
+  // Helper attachment confirmation
+  assert.ok(usersAdminTsx.includes('title: "Confirm Attached Assistant"'), "Helper attachment requires confirmation");
+});
+
+test("15. Officer Details Drawer renders all 6 structured sections with clean actions", () => {
+  assert.ok(usersAdminTsx.includes("rbac-drawer-shell"), "UsersAdmin uses rbac-drawer-shell");
+  assert.ok(usersAdminTsx.includes("1. Employee Identity"), "Drawer includes Section 1: Employee Identity");
+  assert.ok(usersAdminTsx.includes("2. Authority Level"), "Drawer includes Section 2: Authority Level");
+  assert.ok(usersAdminTsx.includes("3. Work Access &amp; Permissions"), "Drawer includes Section 3: Work Access & Permissions");
+  assert.ok(usersAdminTsx.includes("4. Operational Seats &amp; Desks"), "Drawer includes Section 4: Operational Seats & Desks");
+  assert.ok(usersAdminTsx.includes("5. Staff Relationship"), "Drawer includes Section 5: Staff Relationship");
+  assert.ok(usersAdminTsx.includes("Account Actions"), "Drawer includes Account Actions buttons");
+  assert.ok(usersAdminTsx.includes("View Details"), "Directory table has single 'View Details' action button");
+});
+
+test("16. Civil Designation custom toggle enforces strict mutual exclusivity", () => {
+  assert.ok(usersAdminTsx.includes("isCustomDesignationMode"), "Create form tracks custom designation mode");
+  assert.ok(usersAdminTsx.includes("isEditCustomMode"), "Edit form tracks custom designation mode");
+  assert.ok(usersAdminTsx.includes("Can't find the designation?  + Enter another designation"), "Discoverable switch button present");
+  assert.ok(usersAdminTsx.includes("← Use standard designation"), "Revert button to standard designation present");
+});
