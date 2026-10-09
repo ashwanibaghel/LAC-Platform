@@ -2,12 +2,24 @@ import React, { useState, useEffect, useCallback } from "react";
 import type { DeskItem, Workstream } from "./types";
 import "./admin.css";
 
+interface ConfirmationDialogState {
+  title: string;
+  deskName: string;
+  summaryItems?: { label: string; value: string; isAddition?: boolean; isRemoval?: boolean }[];
+  message?: string;
+  warning?: string;
+  confirmLabel: string;
+  confirmTone?: "primary" | "danger" | "warning";
+  onConfirm: () => Promise<void> | void;
+}
+
 export const OfficeDesksAdmin: React.FC = () => {
   const [desks, setDesks] = useState<DeskItem[]>([]);
   const [workstreams, setWorkstreams] = useState<Workstream[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<ConfirmationDialogState | null>(null);
 
   // New / Edit desk modal
   const [showDeskModal, setShowDeskModal] = useState(false);
@@ -134,22 +146,37 @@ export const OfficeDesksAdmin: React.FC = () => {
     }
   };
 
-  const handleToggleDeskStatus = async (d: DeskItem) => {
-    try {
-      const response = await fetch(`/api/admin/desks/${d.id}/toggle-status`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err?.message || "Failed to toggle desk status.");
-      }
-      setActionMessage(`Desk "${d.name}" ${d.isActive ? "deactivated" : "activated"}.`);
-      setTimeout(() => setActionMessage(null), 5000);
-      await loadData();
-    } catch (err: any) {
-      alert(err instanceof Error ? err.message : "Error toggling desk status.");
-    }
+  const handleToggleDeskStatus = (d: DeskItem) => {
+    const isDeactivating = d.isActive;
+    setConfirmationDialog({
+      title: isDeactivating ? "Confirm Desk Deactivation" : "Confirm Desk Activation",
+      deskName: `${d.name} (${d.code})`,
+      message: isDeactivating
+        ? `Are you sure you want to deactivate desk "${d.name}"? Active officers assigned to this seat will retain their account, but this seat will be marked inactive.`
+        : `Are you sure you want to activate desk "${d.name}"? This seat will become available for officer assignments.`,
+      warning: isDeactivating ? "Officers currently seated here may need alternative seat assignment." : undefined,
+      confirmLabel: isDeactivating ? "Confirm Deactivation" : "Confirm Activation",
+      confirmTone: isDeactivating ? "danger" : "primary",
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`/api/admin/desks/${d.id}/toggle-status`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err?.message || "Failed to toggle desk status.");
+          }
+          setConfirmationDialog(null);
+          setActionMessage(`Desk "${d.name}" ${d.isActive ? "deactivated" : "activated"}.`);
+          setTimeout(() => setActionMessage(null), 5000);
+          await loadData();
+        } catch (err: any) {
+          alert(err instanceof Error ? err.message : "Error toggling desk status.");
+          setConfirmationDialog(null);
+        }
+      },
+    });
   };
 
   return (
@@ -162,7 +189,7 @@ export const OfficeDesksAdmin: React.FC = () => {
           </p>
         </div>
         <div>
-          <button className="primary-button" onClick={openNewDeskModal}>
+          <button className="rbac-btn-primary" onClick={openNewDeskModal}>
             + Create Office Desk (Seat)
           </button>
         </div>
@@ -227,13 +254,13 @@ export const OfficeDesksAdmin: React.FC = () => {
                     <td style={{ textAlign: "right" }}>
                       <div className="rbac-action-buttons" style={{ justifyContent: "flex-end", gap: "6px" }}>
                         <button
-                          className="rbac-btn-edit"
+                          className="rbac-btn-sm rbac-btn-outline"
                           onClick={() => openEditDeskModal(d)}
                         >
                           Edit
                         </button>
                         <button
-                          className="rbac-btn-edit"
+                          className={`rbac-btn-sm ${d.isActive ? "rbac-btn-danger" : "rbac-btn-outline"}`}
                           onClick={() => void handleToggleDeskStatus(d)}
                         >
                           {d.isActive ? "Deactivate" : "Activate"}
@@ -250,72 +277,89 @@ export const OfficeDesksAdmin: React.FC = () => {
 
       {/* Desk Edit/Create Modal */}
       {showDeskModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: "520px" }}>
-            <h3>{editingDesk ? `Edit Office Desk: ${editingDesk.name}` : "Create New Office Desk"}</h3>
-            <p className="subtext" style={{ marginBottom: "16px" }}>
-              An Office Desk represents a specific post, dealing assistant seat, or operational desk within the office.
-            </p>
+        <div className="rbac-modal-backdrop">
+          <div className="rbac-modal-shell" style={{ maxWidth: "520px" }}>
+            <div className="rbac-modal-header">
+              <div>
+                <h2>{editingDesk ? `Edit Office Desk: ${editingDesk.name}` : "Create New Office Desk"}</h2>
+                <p>An Office Desk represents an operational seat, dealing post, or branch workstation.</p>
+              </div>
+              <button
+                type="button"
+                className="rbac-modal-close-btn"
+                onClick={() => setShowDeskModal(false)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+            </div>
 
             {modalError && (
-              <div className="rbac-banner-error" style={{ marginBottom: "12px", padding: "8px 12px", background: "#fef2f2", color: "#991b1b", borderRadius: "6px" }}>
+              <div style={{ padding: "10px 14px", margin: "14px 20px 0", borderRadius: "8px", background: "#fef2f2", color: "#991b1b", fontSize: "13px", border: "1px solid #fecaca" }}>
                 ⚠️ {modalError}
               </div>
             )}
 
-            <form onSubmit={handleSaveDesk} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div>
-                <label>Desk Code *</label>
-                <input
-                  type="text"
-                  required
-                  disabled={Boolean(editingDesk)}
-                  value={deskCode}
-                  onChange={(e) => setDeskCode(e.target.value)}
-                  placeholder="e.g. DESK_NORTH_DA_1"
-                />
+            <form onSubmit={handleSaveDesk} style={{ display: "flex", flexDirection: "column" }}>
+              <div className="rbac-modal-body" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div className="rbac-form-group">
+                  <label>Desk Code *</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={Boolean(editingDesk)}
+                    value={deskCode}
+                    onChange={(e) => setDeskCode(e.target.value)}
+                    placeholder="e.g. DESK_NORTH_DA_1"
+                    className="rbac-input"
+                  />
+                </div>
+
+                <div className="rbac-form-group">
+                  <label>Desk Name (Post / Seat Title) *</label>
+                  <input
+                    type="text"
+                    required
+                    value={deskName}
+                    onChange={(e) => setDeskName(e.target.value)}
+                    placeholder="e.g. Dealing Assistant Desk - North District"
+                    className="rbac-input"
+                  />
+                </div>
+
+                <div className="rbac-form-group">
+                  <label>Branch / Workstream Affiliation</label>
+                  <select
+                    value={deskWorkstreamId}
+                    onChange={(e) => setDeskWorkstreamId(e.target.value)}
+                    className="rbac-input"
+                  >
+                    <option value="">-- General / Multi-branch --</option>
+                    {workstreams.map((ws) => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name} ({ws.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rbac-form-group">
+                  <label>Description</label>
+                  <textarea
+                    value={deskDesc}
+                    onChange={(e) => setDeskDesc(e.target.value)}
+                    placeholder="Notes on seat responsibilities…"
+                    rows={2}
+                    className="rbac-input"
+                    style={{ minHeight: "60px", resize: "vertical" }}
+                  />
+                </div>
               </div>
 
-              <div>
-                <label>Desk Name (Post / Seat Title) *</label>
-                <input
-                  type="text"
-                  required
-                  value={deskName}
-                  onChange={(e) => setDeskName(e.target.value)}
-                  placeholder="e.g. Dealing Assistant Desk - North District"
-                />
-              </div>
-
-              <div>
-                <label>Branch / Workstream Affiliation</label>
-                <select
-                  value={deskWorkstreamId}
-                  onChange={(e) => setDeskWorkstreamId(e.target.value)}
-                >
-                  <option value="">-- General / Multi-branch --</option>
-                  {workstreams.map((ws) => (
-                    <option key={ws.id} value={ws.id}>
-                      {ws.name} ({ws.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label>Description</label>
-                <textarea
-                  value={deskDesc}
-                  onChange={(e) => setDeskDesc(e.target.value)}
-                  placeholder="Notes on seat responsibilities…"
-                  rows={2}
-                />
-              </div>
-
-              <div className="modal-actions" style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
+              <div className="rbac-modal-footer">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="rbac-btn-outline"
                   disabled={modalLoading}
                   onClick={() => setShowDeskModal(false)}
                 >
@@ -323,13 +367,70 @@ export const OfficeDesksAdmin: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="primary-button"
+                  className="rbac-btn-primary"
                   disabled={modalLoading}
                 >
                   {modalLoading ? "Saving…" : "Save Office Desk"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog Modal */}
+      {confirmationDialog && (
+        <div className="rbac-modal-backdrop" style={{ zIndex: 1200 }}>
+          <div className="rbac-confirm-shell" onClick={(e) => e.stopPropagation()}>
+            <div className="rbac-confirm-header">
+              <h3>{confirmationDialog.title}</h3>
+              <button
+                type="button"
+                className="rbac-modal-close-btn"
+                onClick={() => setConfirmationDialog(null)}
+                aria-label="Cancel"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="rbac-confirm-body">
+              <div>
+                <span style={{ color: "#64748b", fontSize: "12px", textTransform: "uppercase", fontWeight: 700 }}>Desk / Seat</span>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                  {confirmationDialog.deskName}
+                </div>
+              </div>
+
+              {confirmationDialog.message && (
+                <div style={{ lineHeight: 1.45 }}>
+                  {confirmationDialog.message}
+                </div>
+              )}
+
+              {confirmationDialog.warning && (
+                <div style={{ padding: "10px 14px", borderRadius: "8px", background: "#fffbeb", border: "1px solid #fef3c7", color: "#92400e", fontSize: "12.5px" }}>
+                  ⚠️ {confirmationDialog.warning}
+                </div>
+              )}
+            </div>
+
+            <div className="rbac-confirm-footer">
+              <button
+                type="button"
+                className="rbac-btn-outline"
+                onClick={() => setConfirmationDialog(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`rbac-btn-primary ${confirmationDialog.confirmTone === "danger" ? "rbac-btn-danger" : ""}`}
+                onClick={() => void confirmationDialog.onConfirm()}
+              >
+                {confirmationDialog.confirmLabel}
+              </button>
+            </div>
           </div>
         </div>
       )}

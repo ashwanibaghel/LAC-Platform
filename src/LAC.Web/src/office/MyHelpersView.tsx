@@ -8,6 +8,17 @@ import type {
 } from "../admin/officeV3Types";
 import "../admin/admin.css";
 
+interface ConfirmationDialogState {
+  title: string;
+  employeeName: string;
+  summaryItems?: { label: string; value: string; isAddition?: boolean; isRemoval?: boolean }[];
+  message?: string;
+  warning?: string;
+  confirmLabel: string;
+  confirmTone?: "primary" | "danger" | "warning";
+  onConfirm: () => Promise<void> | void;
+}
+
 export const MyHelpersView: React.FC = () => {
   const [helpers, setHelpers] = useState<OfficeAccountDetail[]>([]);
   const [options, setOptions] = useState<HelperOptionsResponse | null>(null);
@@ -15,6 +26,7 @@ export const MyHelpersView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [confirmationDialog, setConfirmationDialog] = useState<ConfirmationDialogState | null>(null);
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -125,35 +137,54 @@ export const MyHelpersView: React.FC = () => {
       },
     };
 
-    setActionLoading(true);
-    try {
-      const res = await fetch("/api/office/me/helpers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        credentials: "include",
-      });
+    const desigLabel = designationChoice === "DEO" ? "Data Entry Operator (DEO)" : `${customDesignation.trim()} (Custom)`;
+    const deskLabel = options?.desks.find((d) => d.id === selectedDeskId)?.name || "No Specific Seat";
+    const accessLabel = selectedAccess === "ReadWrite" ? "Read + Write" : selectedAccess === "ReadOnly" ? "Read Only" : "None";
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `Failed to create helper (HTTP ${res.status})`);
-      }
+    setConfirmationDialog({
+      title: "Confirm Attached Assistant",
+      employeeName: `${fullName} (${username})`,
+      summaryItems: [
+        { label: "Designation", value: desigLabel },
+        { label: "Access Level", value: accessLabel },
+        { label: "Assigned Seat", value: deskLabel },
+      ],
+      confirmLabel: "Confirm & Create Assistant",
+      confirmTone: "primary",
+      onConfirm: async () => {
+        setActionLoading(true);
+        try {
+          const res = await fetch("/api/office/me/helpers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            credentials: "include",
+          });
 
-      const created = await res.json();
-      setShowAddModal(false);
-      setCredentialData({
-        username: created.account?.username || username,
-        temporaryCredential: created.temporaryCredential,
-        expiresAt: created.credentialExpiresAt,
-      });
-      setCredentialAcknowledged(false);
-      setShowCredentialModal(true);
-      void loadData();
-    } catch (err: any) {
-      setFormError(err.message || "Failed to create helper.");
-    } finally {
-      setActionLoading(false);
-    }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `Failed to create helper (HTTP ${res.status})`);
+          }
+
+          const created = await res.json();
+          setShowAddModal(false);
+          setConfirmationDialog(null);
+          setCredentialData({
+            username: created.account?.username || username,
+            temporaryCredential: created.temporaryCredential,
+            expiresAt: created.credentialExpiresAt,
+          });
+          setCredentialAcknowledged(false);
+          setShowCredentialModal(true);
+          void loadData();
+        } catch (err: any) {
+          setFormError(err.message || "Failed to create helper.");
+          setConfirmationDialog(null);
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
   const openEditHelperModal = (helper: OfficeAccountDetail) => {
@@ -201,112 +232,167 @@ export const MyHelpersView: React.FC = () => {
       expectedRevision: editingHelper.assistantRevision,
     };
 
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/office/me/helpers/${editingHelper.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        credentials: "include",
-      });
+    const oldCodes = editingHelper.helperPermissionCodes || [];
+    const oldIsWrite = oldCodes.some((c) => !c.endsWith(".View"));
+    const oldAccessLabel = oldCodes.length === 0 ? "None" : oldIsWrite ? "Read + Write" : "Read Only";
+    const newAccessLabel = editAccess === "ReadWrite" ? "Read + Write" : editAccess === "ReadOnly" ? "Read Only" : "None";
 
-      if (res.status === 409) {
-        setEditError("This helper account changed elsewhere. Latest details have been reloaded.");
-        await loadData();
-        return;
-      }
+    const oldDesk = options?.desks.find((d) => d.id === editingHelper.deskIds[0])?.name || "None";
+    const newDesk = options?.desks.find((d) => d.id === editDeskId)?.name || "None";
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `Failed to update helper (HTTP ${res.status})`);
-      }
-
-      setEditingHelper(null);
-      setActionMessage("Helper access updated. Active login sessions for this assistant were rotated.");
-      setTimeout(() => setActionMessage(null), 6000);
-      void loadData();
-    } catch (err: any) {
-      setEditError(err.message || "Failed to update helper.");
-    } finally {
-      setActionLoading(false);
+    const diffItems: { label: string; value: string; isAddition?: boolean; isRemoval?: boolean }[] = [];
+    if (fullName !== editingHelper.fullName) {
+      diffItems.push({ label: "Name", value: `${editingHelper.fullName} → ${fullName}` });
     }
+    if (oldAccessLabel !== newAccessLabel) {
+      diffItems.push({ label: "Access Level", value: `${oldAccessLabel} → ${newAccessLabel}` });
+    }
+    if (oldDesk !== newDesk) {
+      diffItems.push({ label: "Seat / Desk", value: `${oldDesk} → ${newDesk}` });
+    }
+    if (diffItems.length === 0) {
+      diffItems.push({ label: "Notice", value: "No operational access changes detected." });
+    }
+
+    setConfirmationDialog({
+      title: "Confirm Helper Permission Changes",
+      employeeName: `${fullName} (${editingHelper.username})`,
+      summaryItems: diffItems,
+      warning: "Saving changes will invalidate current active sessions for this assistant.",
+      confirmLabel: "Confirm Changes",
+      confirmTone: "primary",
+      onConfirm: async () => {
+        setActionLoading(true);
+        try {
+          const res = await fetch(`/api/office/me/helpers/${editingHelper.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            credentials: "include",
+          });
+
+          if (res.status === 409) {
+            setEditError("This helper account changed elsewhere. Latest details have been reloaded.");
+            setConfirmationDialog(null);
+            await loadData();
+            return;
+          }
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `Failed to update helper (HTTP ${res.status})`);
+          }
+
+          setEditingHelper(null);
+          setConfirmationDialog(null);
+          setActionMessage("Helper access updated. Active login sessions for this assistant were rotated.");
+          setTimeout(() => setActionMessage(null), 6000);
+          void loadData();
+        } catch (err: any) {
+          setEditError(err.message || "Failed to update helper.");
+          setConfirmationDialog(null);
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
-  const handleResetCredential = async (helper: OfficeAccountDetail) => {
-    if (!window.confirm(`Issue a new 24-hour temporary credential for helper ${helper.username}?`)) {
-      return;
-    }
+  const handleResetCredential = (helper: OfficeAccountDetail) => {
+    setConfirmationDialog({
+      title: "Confirm Password Reset",
+      employeeName: `${helper.fullName} (${helper.username})`,
+      message: `Reset password for assistant ${helper.fullName}? This will invalidate existing sessions and issue a new 24-hour temporary credential.`,
+      warning: "The assistant will be required to set a permanent password upon first login with the new credential.",
+      confirmLabel: "Confirm Password Reset",
+      confirmTone: "warning",
+      onConfirm: async () => {
+        setActionLoading(true);
+        try {
+          const res = await fetch(`/api/office/me/helpers/${helper.id}/reset-credential`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expectedRevision: helper.revision }),
+            credentials: "include",
+          });
 
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/office/me/helpers/${helper.id}/reset-credential`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedRevision: helper.revision }),
-        credentials: "include",
-      });
+          if (res.status === 409) {
+            alert("This account was updated concurrently. Reloading latest records.");
+            setConfirmationDialog(null);
+            await loadData();
+            return;
+          }
 
-      if (res.status === 409) {
-        alert("This account was updated concurrently. Reloading latest records.");
-        await loadData();
-        return;
-      }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `Reset failed (HTTP ${res.status})`);
+          }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `Reset failed (HTTP ${res.status})`);
-      }
-
-      const data = await res.json();
-      setCredentialData({
-        username: helper.username,
-        temporaryCredential: data.temporaryCredential,
-        expiresAt: data.credentialExpiresAt,
-      });
-      setCredentialAcknowledged(false);
-      setShowCredentialModal(true);
-      void loadData();
-    } catch (err: any) {
-      alert(err.message || "Credential reset failed.");
-    } finally {
-      setActionLoading(false);
-    }
+          const data = await res.json();
+          setConfirmationDialog(null);
+          setCredentialData({
+            username: helper.username,
+            temporaryCredential: data.temporaryCredential,
+            expiresAt: data.credentialExpiresAt,
+          });
+          setCredentialAcknowledged(false);
+          setShowCredentialModal(true);
+          void loadData();
+        } catch (err: any) {
+          alert(err.message || "Credential reset failed.");
+          setConfirmationDialog(null);
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
-  const handleToggleStatus = async (helper: OfficeAccountDetail) => {
-    const action = helper.isActive ? "deactivate" : "activate";
-    if (!window.confirm(`Are you sure you want to ${action} ${helper.username}?`)) {
-      return;
-    }
+  const handleToggleStatus = (helper: OfficeAccountDetail) => {
+    const isDeactivating = helper.isActive;
+    setConfirmationDialog({
+      title: isDeactivating ? "Confirm Account Deactivation" : "Confirm Account Activation",
+      employeeName: `${helper.fullName} (${helper.username})`,
+      message: isDeactivating
+        ? `Disable assistant ${helper.fullName}? They will immediately lose access to the LAC Platform.`
+        : `Enable assistant ${helper.fullName}? They will regain access to the LAC Platform.`,
+      warning: isDeactivating ? "All active sessions will be terminated immediately." : undefined,
+      confirmLabel: isDeactivating ? "Confirm Deactivation" : "Confirm Activation",
+      confirmTone: isDeactivating ? "danger" : "primary",
+      onConfirm: async () => {
+        setActionLoading(true);
+        try {
+          const res = await fetch(`/api/office/me/helpers/${helper.id}/toggle-status`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ expectedRevision: helper.revision }),
+            credentials: "include",
+          });
 
-    setActionLoading(true);
-    try {
-      const res = await fetch(`/api/office/me/helpers/${helper.id}/toggle-status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedRevision: helper.revision }),
-        credentials: "include",
-      });
+          if (res.status === 409) {
+            alert("This account was updated concurrently. Reloading latest records.");
+            setConfirmationDialog(null);
+            await loadData();
+            return;
+          }
 
-      if (res.status === 409) {
-        alert("This account was updated concurrently. Reloading latest records.");
-        await loadData();
-        return;
-      }
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || `Status update failed (HTTP ${res.status})`);
+          }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || `Status update failed (HTTP ${res.status})`);
-      }
-
-      setActionMessage(`Assistant ${helper.username} is now ${helper.isActive ? "inactive" : "active"}.`);
-      setTimeout(() => setActionMessage(null), 4000);
-      void loadData();
-    } catch (err: any) {
-      alert(err.message || "Failed to update assistant status.");
-    } finally {
-      setActionLoading(false);
-    }
+          setConfirmationDialog(null);
+          setActionMessage(`Assistant ${helper.username} is now ${helper.isActive ? "inactive" : "active"}.`);
+          setTimeout(() => setActionMessage(null), 4000);
+          void loadData();
+        } catch (err: any) {
+          alert(err.message || "Failed to update assistant status.");
+          setConfirmationDialog(null);
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
   const copyCredentialToClipboard = () => {
@@ -797,6 +883,81 @@ export const MyHelpersView: React.FC = () => {
                 onClick={closeCredentialModal}
               >
                 Close &amp; Finish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog Modal */}
+      {confirmationDialog && (
+        <div className="rbac-modal-backdrop" style={{ zIndex: 1200 }}>
+          <div className="rbac-confirm-shell" onClick={(e) => e.stopPropagation()}>
+            <div className="rbac-confirm-header">
+              <h3>{confirmationDialog.title}</h3>
+              <button
+                type="button"
+                className="rbac-modal-close-btn"
+                onClick={() => setConfirmationDialog(null)}
+                aria-label="Cancel"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="rbac-confirm-body">
+              <div>
+                <span style={{ color: "#64748b", fontSize: "12px", textTransform: "uppercase", fontWeight: 700 }}>Employee</span>
+                <div style={{ fontSize: "15px", fontWeight: 700, color: "#0f172a" }}>
+                  {confirmationDialog.employeeName}
+                </div>
+              </div>
+
+              {confirmationDialog.message && (
+                <div style={{ lineHeight: 1.45 }}>
+                  {confirmationDialog.message}
+                </div>
+              )}
+
+              {confirmationDialog.summaryItems && confirmationDialog.summaryItems.length > 0 && (
+                <div className="rbac-confirm-diff-list">
+                  {confirmationDialog.summaryItems.map((item, idx) => (
+                    <div key={idx} className="rbac-diff-row">
+                      <span style={{ width: "140px", color: "#64748b", fontWeight: 600, flexShrink: 0 }}>
+                        {item.label}:
+                      </span>
+                      <span className={item.isAddition ? "rbac-diff-add" : item.isRemoval ? "rbac-diff-remove" : ""} style={{ flex: 1 }}>
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {confirmationDialog.warning && (
+                <div style={{ padding: "10px 14px", borderRadius: "8px", background: "#fffbeb", border: "1px solid #fef3c7", color: "#92400e", fontSize: "12.5px" }}>
+                  ⚠️ {confirmationDialog.warning}
+                </div>
+              )}
+            </div>
+
+            <div className="rbac-confirm-footer">
+              <button
+                type="button"
+                className="rbac-btn-outline"
+                onClick={() => setConfirmationDialog(null)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`rbac-btn-primary ${confirmationDialog.confirmTone === "danger" ? "rbac-btn-danger" : ""}`}
+                style={confirmationDialog.confirmTone === "warning" ? { background: "#d97706", borderColor: "#b45309" } : {}}
+                onClick={() => void confirmationDialog.onConfirm()}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Processing…" : confirmationDialog.confirmLabel}
               </button>
             </div>
           </div>
