@@ -151,7 +151,20 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const canAccessAttention = () => hasPermission("Schedule.View") || hasPermission("WorkItem.View") || hasPermission("Dak.View");
   const canAccessCorrespondence = () => hasPermission("Dak.View") || hasPermission("Dak.Register") || hasPermission("Outward.View") || hasPermission("Outward.Create");
   const canAccessMatters = () => hasPermission("Matter.View") || hasPermission("Matter.Create");
-  const canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View");
+  const canAccessCourt = () =>
+    isSystemAdmin ||
+    isOfficeAdmin ||
+    isOfficeSupervisor ||
+    hasPermission("Court.View") ||
+    hasPermission("Court.Create");
+  const canAccessLand = () =>
+    isSystemAdmin ||
+    isOfficeAdmin ||
+    isOfficeSupervisor ||
+    hasPermission("Village.View") ||
+    hasPermission("Khasra.View") ||
+    hasPermission("LR.View") ||
+    hasPermission("Award.View");
   const canAccessOversight = () => hasPermission("WorkItem.View") || hasPermission("Audit.View");
   const canAccessAdmin = () => {
     if (!user || isHelper || user?.authority === "STANDARD_OFFICER") return false;
@@ -166,10 +179,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       title: "Land Records",
       description: "Villages, khasras, awards, and khatauni registers",
       icon: <IconLand size={20} />,
+      checkPermission: canAccessLand,
       links: [
-        { label: "Overview", to: "/land-records" },
-        { label: "Villages", to: "/villages" },
-        { label: "Awards", to: "/awards" }
+        { label: "Overview", to: "/land-records", checkPermission: canAccessLand },
+        { label: "Villages", to: "/villages", checkPermission: canAccessLand },
+        { label: "Awards", to: "/awards", checkPermission: canAccessLand }
       ]
     },
     {
@@ -268,14 +282,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   let contextualNav: { categoryTitle: string; links: { label: string; to: string; checkPermission?: () => boolean }[] } | null = null;
 
   if (path.startsWith("/land-records") || path.startsWith("/subdivisions") || path.startsWith("/districts") || path.startsWith("/villages") || path.startsWith("/khasras") || path.startsWith("/khatauni") || path.startsWith("/awards") || path.startsWith("/imports/lr")) {
-    contextualNav = {
-      categoryTitle: "Land Records",
-      links: [
-        { label: "Overview", to: "/land-records" },
-        { label: "Villages", to: "/villages" },
-        { label: "Awards", to: "/awards" }
-      ]
-    };
+    if (canAccessLand()) {
+      contextualNav = {
+        categoryTitle: "Land Records",
+        links: [
+          { label: "Overview", to: "/land-records" },
+          { label: "Villages", to: "/villages" },
+          { label: "Awards", to: "/awards" }
+        ]
+      };
+    }
   } else if (path.startsWith("/dak") || path.startsWith("/my-desk") || path.startsWith("/outward")) {
     contextualNav = {
       categoryTitle: "Correspondence",

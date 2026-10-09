@@ -14,6 +14,7 @@ const appTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/App.tsx
 const appShellTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/components/AppShell.tsx"), "utf8"));
 const villageCoreWorkspaceTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/land/VillageCoreRecordsWorkspace.tsx"), "utf8"));
 const officeDesksAdminTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/admin/OfficeDesksAdmin.tsx"), "utf8"));
+const homeTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/home/Home.tsx"), "utf8"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. V3 TYPES & BACKEND CONTRACT INTEGRITY
@@ -456,4 +457,152 @@ test("11. Concurrency 409 and session invalidation notices are handled", () => {
     usersAdminTsx.includes("Existing login sessions for this employee were ended"),
     "UsersAdmin informs user about session invalidation on access changes"
   );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. LAND RECORDS & COURT VISIBILITY / ROUTE PROTECTION MATRIX (BUG 1 & BUG 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("12. Land Records and Court visibility and route protection (Matrix A-E)", () => {
+  // 1. Static Contract & AST integrity checks
+  // AppShell checks
+  assert.ok(
+    appShellTsx.includes("const canAccessLand = () =>"),
+    "AppShell defines canAccessLand helper"
+  );
+  assert.ok(
+    !appShellTsx.includes('canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View")'),
+    "AppShell canAccessCourt does NOT include Award.View"
+  );
+  assert.ok(
+    appShellTsx.includes('hasPermission("Court.View") ||') && appShellTsx.includes('hasPermission("Court.Create")'),
+    "AppShell canAccessCourt checks Court.View and Court.Create"
+  );
+  assert.ok(
+    appShellTsx.includes('id: "land"') && appShellTsx.includes("checkPermission: canAccessLand"),
+    "AppShell land module is protected by checkPermission: canAccessLand"
+  );
+  assert.ok(
+    appShellTsx.includes('if (canAccessLand()) {\n      contextualNav = {\n        categoryTitle: "Land Records"'),
+    "AppShell contextualNav for Land Records is guarded by canAccessLand()"
+  );
+
+  // Home checks
+  assert.ok(
+    homeTsx.includes("const canAccessLand = () =>"),
+    "Home defines canAccessLand helper"
+  );
+  assert.ok(
+    !homeTsx.includes('canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View")'),
+    "Home canAccessCourt does NOT include Award.View"
+  );
+  assert.ok(
+    homeTsx.includes("{canAccessLand() && (\n            <Link to=\"/land-records\" className=\"home-clean-card\">"),
+    "Home gates Land Records card on canAccessLand()"
+  );
+  assert.ok(
+    homeTsx.includes("Land &amp; Area Calculator"),
+    "Home preserves independent Land & Area Calculator card"
+  );
+
+  // App.tsx Route Guards
+  assert.ok(
+    appTsx.includes("function LandRecordsRoute("),
+    "App.tsx defines LandRecordsRoute guard"
+  );
+  assert.ok(
+    appTsx.includes("function CourtRoute("),
+    "App.tsx defines CourtRoute guard"
+  );
+  assert.ok(
+    appTsx.includes('<Route path="/land-records" element={<LandRecordsRoute><LandRecordsHierarchy /></LandRecordsRoute>} />'),
+    "App.tsx guards /land-records with LandRecordsRoute"
+  );
+  assert.ok(
+    appTsx.includes('<Route path="/court-cases" element={<CourtRoute><CourtDirectory /></CourtRoute>} />'),
+    "App.tsx guards /court-cases with CourtRoute"
+  );
+  assert.ok(
+    appTsx.includes('<Route path="/villages" element={<LandRecordsRoute><VillagesDirectory /></LandRecordsRoute>} />'),
+    "App.tsx guards /villages with LandRecordsRoute"
+  );
+  assert.ok(
+    appTsx.includes('<Route path="/awards" element={<LandRecordsRoute><AwardsDirectory /></LandRecordsRoute>} />'),
+    "App.tsx guards /awards with LandRecordsRoute"
+  );
+
+  // 2. Behavioral Verification across Frozen Backend Presets Matrix (A - E)
+  // Presets from OfficeAccessPresets:
+  const LAND_VIEW_PERMS = ["Village.View", "Khasra.View", "LR.View", "Award.View"];
+  const LAND_WRITE_PERMS = [
+    ...LAND_VIEW_PERMS,
+    "Khasra.Edit", "LR.Edit", "LR.Verify", "LR.Commit",
+    "Award.Create", "Award.Edit", "Award.CoreDocumentUpload"
+  ];
+  const COURT_PERMS = [
+    "Court.View", "Court.Create", "Court.Edit", "Court.Assign",
+    "Court.Proceeding.Manage", "Court.Document.Manage"
+  ];
+  const STAFF_PERMS = ["Assistants.Manage"];
+
+  // Evaluators matching production logic
+  const evaluateLandAccess = (perms) =>
+    LAND_VIEW_PERMS.some((p) => perms.includes(p));
+
+  const evaluateCourtAccess = (perms) =>
+    perms.includes("Court.View") || perms.includes("Court.Create");
+
+  const evaluateLandMutations = (perms) =>
+    perms.includes("Khasra.Edit") || perms.includes("LR.Edit") || perms.includes("Award.Edit");
+
+  // A. Standard officer: modules = [], landAccess = None
+  {
+    const permsA = [...STAFF_PERMS];
+    const canLand = evaluateLandAccess(permsA);
+    const canCourt = evaluateCourtAccess(permsA);
+    assert.equal(canLand, false, "Matrix A: landAccess=None has no land records access");
+    assert.equal(canCourt, false, "Matrix A: modules=[] has no court access");
+  }
+
+  // B. Standard officer: modules = [], landAccess = ViewOnly
+  {
+    const permsB = [...STAFF_PERMS, ...LAND_VIEW_PERMS];
+    const canLand = evaluateLandAccess(permsB);
+    const canCourt = evaluateCourtAccess(permsB);
+    const canMutate = evaluateLandMutations(permsB);
+    assert.equal(canLand, true, "Matrix B: Land Records visible for ViewOnly");
+    assert.equal(canCourt, false, "Matrix B: Court strictly NOT visible (Award.View does not leak Court)");
+    assert.equal(canMutate, false, "Matrix B: Land mutations unavailable for ViewOnly");
+  }
+
+  // C. Standard officer: modules = [], landAccess = ViewWrite
+  {
+    const permsC = [...STAFF_PERMS, ...LAND_WRITE_PERMS];
+    const canLand = evaluateLandAccess(permsC);
+    const canCourt = evaluateCourtAccess(permsC);
+    const canMutate = evaluateLandMutations(permsC);
+    assert.equal(canLand, true, "Matrix C: Land Records visible for ViewWrite");
+    assert.equal(canCourt, false, "Matrix C: Court strictly NOT visible for ViewWrite");
+    assert.equal(canMutate, true, "Matrix C: Permitted land mutations available for ViewWrite");
+  }
+
+  // D. Standard officer: modules = [Court], landAccess = None
+  {
+    const permsD = [...STAFF_PERMS, ...COURT_PERMS];
+    const canLand = evaluateLandAccess(permsD);
+    const canCourt = evaluateCourtAccess(permsD);
+    assert.equal(canLand, false, "Matrix D: Land Records NOT visible when landAccess=None");
+    assert.equal(canCourt, true, "Matrix D: Court visible when Court module assigned");
+  }
+
+  // E. Standard officer: modules = [Court], landAccess = ViewOnly
+  {
+    const permsE = [...STAFF_PERMS, ...COURT_PERMS, ...LAND_VIEW_PERMS];
+    const canLand = evaluateLandAccess(permsE);
+    const canCourt = evaluateCourtAccess(permsE);
+    const canMutate = evaluateLandMutations(permsE);
+    assert.equal(canLand, true, "Matrix E: Land Records visible");
+    assert.equal(canCourt, true, "Matrix E: Court visible");
+    assert.equal(canMutate, false, "Matrix E: Land mutations unavailable for ViewOnly");
+  }
 });

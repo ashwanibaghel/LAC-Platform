@@ -481,9 +481,11 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const links: [string, string, string][] = [
     ["Home", "/", "⌂"],
-    ["Awards", "/awards", "⌑"],
     ["Search", "/search", "⌕"],
   ];
+  if (hasPermission("Village.View") || hasPermission("Khasra.View") || hasPermission("LR.View") || hasPermission("Award.View")) {
+    links.push(["Awards", "/awards", "⌑"]);
+  }
   if (hasPermission("Dak.View")) {
     links.push(["My Desk", "/my-desk", "🗂"]);
   }
@@ -512,7 +514,7 @@ export function Shell({ children }: { children: ReactNode }) {
   if (hasPermission("Matter.View") || hasPermission("Matter.Create")) {
     links.push(["Matters", "/matters", "⚖"]);
   }
-  if (hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View")) {
+  if (hasPermission("Court.View") || hasPermission("Court.Create")) {
     links.push(["Court Cases", "/court-cases", "🏛"]);
   }
   if (hasPermission("Users.Manage")) {
@@ -4024,6 +4026,40 @@ function MyHelpersRoute({ children }: { children: React.ReactElement }) {
   return children;
 }
 
+function LandRecordsRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.authority === "OFFICE_SUPERVISOR" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    hasPermission("Village.View") ||
+    hasPermission("Khasra.View") ||
+    hasPermission("LR.View") ||
+    hasPermission("Award.View")
+  );
+  if (!allowed) {
+    return <AccessDenied message="Land records workspace is restricted to authorized officers." />;
+  }
+  return children;
+}
+
+function CourtRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    user?.authority === "SYSTEM_ADMIN" ||
+    user?.authority === "OFFICE_ADMIN" ||
+    user?.authority === "OFFICE_SUPERVISOR" ||
+    user?.roles?.includes("SYSTEM_ADMIN") ||
+    hasPermission("Court.View") ||
+    hasPermission("Court.Create")
+  );
+  if (!allowed) {
+    return <AccessDenied message="Court and litigation workspace is restricted to authorized officers." />;
+  }
+  return children;
+}
+
 function AuthenticatedApp() {
   const { user, loading, logout } = useAuth();
   if (loading) {
@@ -4043,43 +4079,43 @@ function AuthenticatedApp() {
     <CalculatorProvider><AppShell>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/land-records" element={<LandRecordsHierarchy />} />
-        <Route path="/districts/:id" element={<District />} />
-        <Route path="/subdivisions/:id" element={<Subdivision />} />
-        <Route path="/villages" element={<VillagesDirectory />} />
-        <Route path="/villages/:id" element={<Village />} />
+        <Route path="/land-records" element={<LandRecordsRoute><LandRecordsHierarchy /></LandRecordsRoute>} />
+        <Route path="/districts/:id" element={<LandRecordsRoute><District /></LandRecordsRoute>} />
+        <Route path="/subdivisions/:id" element={<LandRecordsRoute><Subdivision /></LandRecordsRoute>} />
+        <Route path="/villages" element={<LandRecordsRoute><VillagesDirectory /></LandRecordsRoute>} />
+        <Route path="/villages/:id" element={<LandRecordsRoute><Village /></LandRecordsRoute>} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
         <Route path="/matter-drafts/:id" element={<OnlyOfficeDraftEditorPage />} />
-        <Route path="/court-cases" element={<CourtDirectory />} />
-        <Route path="/court-cases/imports" element={<CourtImportPreview />} />
-        <Route path="/court-cases/imports/:batchId" element={<CourtImportPreview />} />
-        <Route path="/court-cases/dhc-assisted" element={<DhcAssistedPage />} />
-        <Route path="/court-cases/:id" element={<CourtCaseWorkspace />} />
+        <Route path="/court-cases" element={<CourtRoute><CourtDirectory /></CourtRoute>} />
+        <Route path="/court-cases/imports" element={<CourtRoute><CourtImportPreview /></CourtRoute>} />
+        <Route path="/court-cases/imports/:batchId" element={<CourtRoute><CourtImportPreview /></CourtRoute>} />
+        <Route path="/court-cases/dhc-assisted" element={<CourtRoute><DhcAssistedPage /></CourtRoute>} />
+        <Route path="/court-cases/:id" element={<CourtRoute><CourtCaseWorkspace /></CourtRoute>} />
         <Route path="/court" element={<Navigate to="/court-cases" replace />} />
         <Route
           path="/villages/:villageId/lr/:lrId"
-          element={<LrRegister />}
+          element={<LandRecordsRoute><LrRegister /></LandRecordsRoute>}
         />
-        <Route path="/khasras/:id" element={<Khasra />} />
-        <Route path="/khatauni/:id" element={<Khatauni />} />
-        <Route path="/khatas/:id" element={<Khata />} />
-        <Route path="/parties/:id" element={<Party />} />
-        <Route path="/awards" element={<AwardsDirectory />} />
-        <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
-        <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
-        <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
-        <Route path="/nm/:nmId/legacy-review" element={<NmReviewWorkspace />} />
-        <Route path="/award-ingestion-sessions/:sessionId/review" element={<AwardReviewWorkbench />} />
-        <Route path="/awards/:id/ingestion" element={<AwardIngestion />} />
-        <Route path="/awards/:id/ingestion/:sessionId" element={<AwardReviewWorkbench />} />
-        <Route path="/awards/:id" element={<Award />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/notifications/:id" element={<Notification />} />
+        <Route path="/khasras/:id" element={<LandRecordsRoute><Khasra /></LandRecordsRoute>} />
+        <Route path="/khatauni/:id" element={<LandRecordsRoute><Khatauni /></LandRecordsRoute>} />
+        <Route path="/khatas/:id" element={<LandRecordsRoute><Khata /></LandRecordsRoute>} />
+        <Route path="/parties/:id" element={<LandRecordsRoute><Party /></LandRecordsRoute>} />
+        <Route path="/awards" element={<LandRecordsRoute><AwardsDirectory /></LandRecordsRoute>} />
+        <Route path="/awards/import-pdf" element={<LandRecordsRoute><AwardPdfImportPanel /></LandRecordsRoute>} />
+        <Route path="/awards/:id/nm/:nmId/review" element={<LandRecordsRoute><NmLegacyReviewRedirect /></LandRecordsRoute>} />
+        <Route path="/awards/:id/nm/:nmId/semantic-review" element={<LandRecordsRoute><NmOwnerReviewWorkspace /></LandRecordsRoute>} />
+        <Route path="/nm/:nmId/legacy-review" element={<LandRecordsRoute><NmReviewWorkspace /></LandRecordsRoute>} />
+        <Route path="/award-ingestion-sessions/:sessionId/review" element={<LandRecordsRoute><AwardReviewWorkbench /></LandRecordsRoute>} />
+        <Route path="/awards/:id/ingestion" element={<LandRecordsRoute><AwardIngestion /></LandRecordsRoute>} />
+        <Route path="/awards/:id/ingestion/:sessionId" element={<LandRecordsRoute><AwardReviewWorkbench /></LandRecordsRoute>} />
+        <Route path="/awards/:id" element={<LandRecordsRoute><Award /></LandRecordsRoute>} />
+        <Route path="/notifications" element={<LandRecordsRoute><Notifications /></LandRecordsRoute>} />
+        <Route path="/notifications/:id" element={<LandRecordsRoute><Notification /></LandRecordsRoute>} />
         <Route path="/documents" element={<Documents />} />
         <Route path="/search" element={<SearchPage />} />
-        <Route path="/imports/lr" element={<LrWorkspace />} />
-        <Route path="/imports/lr/review" element={<LrReview />} />
+        <Route path="/imports/lr" element={<LandRecordsRoute><LrWorkspace /></LandRecordsRoute>} />
+        <Route path="/imports/lr/review" element={<LandRecordsRoute><LrReview /></LandRecordsRoute>} />
         <Route path="/my-desk" element={<MyDesk />} />
         <Route path="/my-work" element={<MyWork />} />
         <Route path="/branch-pulse" element={<BranchPulse />} />

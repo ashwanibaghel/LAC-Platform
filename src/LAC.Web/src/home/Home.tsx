@@ -58,7 +58,12 @@ export const Home: React.FC = () => {
   const canAccessAttention = () => hasPermission("Schedule.View") || hasPermission("WorkItem.View") || hasPermission("Dak.View");
   const canAccessCorrespondence = () => hasPermission("Dak.View") || hasPermission("Dak.Register") || hasPermission("Outward.View") || hasPermission("Outward.Create");
   const canAccessMatters = () => hasPermission("Matter.View") || hasPermission("Matter.Create");
-  const canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create") || hasPermission("Award.View");
+  const canAccessCourt = () => hasPermission("Court.View") || hasPermission("Court.Create");
+  const canAccessLand = () =>
+    hasPermission("Village.View") ||
+    hasPermission("Khasra.View") ||
+    hasPermission("LR.View") ||
+    hasPermission("Award.View");
   const canAccessOversight = () => hasPermission("WorkItem.View") || hasPermission("Audit.View");
   const canAccessAdmin = () => hasPermission("Users.Manage") || hasPermission("Access.Manage") || hasPermission("Audit.View");
 
@@ -368,21 +373,23 @@ export const Home: React.FC = () => {
             <div className="home-clean-action"><span>Open</span><IconArrowRight size={14} /></div>
           </button>
           {/* Module 1: Land Records */}
-          <Link to="/land-records" className="home-clean-card">
-            <div className="home-clean-card-head">
-              <div className="home-clean-icon">
-                <IconLand size={18} />
+          {canAccessLand() && (
+            <Link to="/land-records" className="home-clean-card">
+              <div className="home-clean-card-head">
+                <div className="home-clean-icon">
+                  <IconLand size={18} />
+                </div>
+                <div className="home-clean-info">
+                  <h3>Land Records</h3>
+                  <p>Villages, khasras, awards, and khatauni registers.</p>
+                </div>
               </div>
-              <div className="home-clean-info">
-                <h3>Land Records</h3>
-                <p>Villages, khasras, awards, and khatauni registers.</p>
+              <div className="home-clean-action">
+                <span>Open Land Records</span>
+                <IconArrowRight size={14} />
               </div>
-            </div>
-            <div className="home-clean-action">
-              <span>Open Land Records</span>
-              <IconArrowRight size={14} />
-            </div>
-          </Link>
+            </Link>
+          )}
 
           {/* Module 2: Matters & Files */}
           {canAccessMatters() && (
