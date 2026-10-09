@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import type { DeskItem, Workstream } from "./types";
 import "./admin.css";
 
@@ -20,6 +20,8 @@ export const OfficeDesksAdmin: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [confirmationDialog, setConfirmationDialog] = useState<ConfirmationDialogState | null>(null);
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const confirmSubmittingRef = useRef(false);
 
   // New / Edit desk modal
   const [showDeskModal, setShowDeskModal] = useState(false);
@@ -164,18 +166,22 @@ export const OfficeDesksAdmin: React.FC = () => {
       if (name !== editingDesk.name) {
         diffItems.push({ label: "Desk Name", value: `${editingDesk.name} → ${name}` });
       }
-      const oldWs = workstreams.find((w) => w.id === editingDesk.workstreamId)?.name || "General / Multi-branch";
-      const newWs = workstreams.find((w) => w.id === deskWorkstreamId)?.name || "General / Multi-branch";
-      if (oldWs !== newWs) {
+      const oldWsId = editingDesk.workstreamId || "";
+      const newWsId = deskWorkstreamId || "";
+      if (oldWsId !== newWsId) {
+        const oldWs = workstreams.find((w) => w.id === editingDesk.workstreamId)?.name || "General / Multi-branch";
+        const newWs = workstreams.find((w) => w.id === deskWorkstreamId)?.name || "General / Multi-branch";
         diffItems.push({ label: "Branch / Workstream", value: `${oldWs} → ${newWs}` });
       }
-      const oldDesc = editingDesk.description || "(None)";
-      const newDesc = deskDesc.trim() || "(None)";
+      const oldDesc = (editingDesk.description || "").trim();
+      const newDesc = deskDesc.trim();
       if (oldDesc !== newDesc) {
-        diffItems.push({ label: "Description", value: `${oldDesc} → ${newDesc}` });
+        diffItems.push({ label: "Description", value: `${oldDesc || "(None)"} → ${newDesc || "(None)"}` });
       }
+
       if (diffItems.length === 0) {
-        diffItems.push({ label: "Notice", value: "No field modifications detected." });
+        setModalError("No changes detected.");
+        return;
       }
 
       setConfirmationDialog({
@@ -186,6 +192,10 @@ export const OfficeDesksAdmin: React.FC = () => {
         confirmLabel: "Confirm Changes",
         confirmTone: "primary",
         onConfirm: async () => {
+          if (diffItems.length === 0) {
+            setConfirmationDialog(null);
+            return;
+          }
           setModalLoading(true);
           try {
             const response = await fetch(`/api/admin/desks/${editingDesk.id}`, {
@@ -249,6 +259,20 @@ export const OfficeDesksAdmin: React.FC = () => {
         }
       },
     });
+  };
+
+  const handleExecuteConfirm = async () => {
+    if (confirmSubmittingRef.current || confirmSubmitting || !confirmationDialog) {
+      return;
+    }
+    confirmSubmittingRef.current = true;
+    setConfirmSubmitting(true);
+    try {
+      await confirmationDialog.onConfirm();
+    } finally {
+      confirmSubmittingRef.current = false;
+      setConfirmSubmitting(false);
+    }
   };
 
   return (
@@ -459,7 +483,12 @@ export const OfficeDesksAdmin: React.FC = () => {
               <button
                 type="button"
                 className="rbac-modal-close-btn"
-                onClick={() => setConfirmationDialog(null)}
+                disabled={confirmSubmitting}
+                onClick={() => {
+                  if (!confirmSubmitting) {
+                    setConfirmationDialog(null);
+                  }
+                }}
                 aria-label="Cancel"
               >
                 &times;
@@ -506,16 +535,22 @@ export const OfficeDesksAdmin: React.FC = () => {
               <button
                 type="button"
                 className="rbac-btn-outline"
-                onClick={() => setConfirmationDialog(null)}
+                disabled={confirmSubmitting}
+                onClick={() => {
+                  if (!confirmSubmitting) {
+                    setConfirmationDialog(null);
+                  }
+                }}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 className={`rbac-btn-primary ${confirmationDialog.confirmTone === "danger" ? "rbac-btn-danger" : ""}`}
-                onClick={() => void confirmationDialog.onConfirm()}
+                disabled={confirmSubmitting}
+                onClick={() => void handleExecuteConfirm()}
               >
-                {confirmationDialog.confirmLabel}
+                {confirmSubmitting ? "Processing..." : confirmationDialog.confirmLabel}
               </button>
             </div>
           </div>

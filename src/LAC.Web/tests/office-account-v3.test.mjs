@@ -387,6 +387,157 @@ test("9b. OfficeDesksAdmin operates on frozen desk endpoints", () => {
   );
 });
 
+test("9c. OfficeDesksAdmin enforces confirmation in-flight guard and disabled Confirm button", async () => {
+  assert.ok(
+    officeDesksAdminTsx.includes("confirmSubmitting, setConfirmSubmitting"),
+    "OfficeDesksAdmin maintains confirmSubmitting state"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes("confirmSubmittingRef = useRef(false)"),
+    "OfficeDesksAdmin maintains confirmSubmittingRef for synchronous in-flight guard"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes("handleExecuteConfirm"),
+    "OfficeDesksAdmin defines handleExecuteConfirm handler"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes("if (confirmSubmittingRef.current || confirmSubmitting || !confirmationDialog)"),
+    "handleExecuteConfirm aborts re-entrant calls when in-flight"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes("disabled={confirmSubmitting}"),
+    "Confirm and modal actions are disabled while confirmation is in-flight"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('{confirmSubmitting ? "Processing..." : confirmationDialog.confirmLabel}'),
+    "Confirm button indicates processing state when in flight"
+  );
+
+  // Behavioral simulation of the in-flight guard logic
+  let inFlightRef = false;
+  let inFlightState = false;
+  let callCount = 0;
+
+  const simulateConfirmAction = async (asyncFn) => {
+    if (inFlightRef || inFlightState) return false;
+    inFlightRef = true;
+    inFlightState = true;
+    try {
+      await asyncFn();
+      return true;
+    } finally {
+      inFlightRef = false;
+      inFlightState = false;
+    }
+  };
+
+  const slowMutation = () => new Promise((resolve) => setTimeout(() => { callCount++; resolve(); }, 30));
+
+  // Trigger rapid concurrent submissions
+  const p1 = simulateConfirmAction(slowMutation);
+  const p2 = simulateConfirmAction(slowMutation);
+  const p3 = simulateConfirmAction(slowMutation);
+
+  const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+  assert.equal(r1, true, "First submission proceeded");
+  assert.equal(r2, false, "Second concurrent submission was blocked by in-flight guard");
+  assert.equal(r3, false, "Third concurrent submission was blocked by in-flight guard");
+  assert.equal(callCount, 1, "Underlying mutation executed exactly once");
+});
+
+test("9d. OfficeDesksAdmin prevents update dispatch when no fields changed", () => {
+  // Check static contract in OfficeDesksAdmin.tsx
+  assert.ok(
+    officeDesksAdminTsx.includes('if (diffItems.length === 0) {\n        setModalError("No changes detected.");\n        return;\n      }'),
+    "handleSaveDesk halts and displays error when no fields changed"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('if (diffItems.length === 0) {\n            setConfirmationDialog(null);\n            return;\n          }'),
+    "onConfirm has secondary guard against empty diff update dispatch"
+  );
+
+  // Behavioral simulation of diff calculation for desk edits
+  const computeDeskDiff = ({ current, edited, workstreams }) => {
+    const name = edited.name.trim();
+    const diffItems = [];
+    if (name !== current.name) {
+      diffItems.push({ label: "Desk Name", value: `${current.name} → ${name}` });
+    }
+    const oldWsId = current.workstreamId || "";
+    const newWsId = edited.workstreamId || "";
+    if (oldWsId !== newWsId) {
+      const oldWs = workstreams.find((w) => w.id === current.workstreamId)?.name || "General / Multi-branch";
+      const newWs = workstreams.find((w) => w.id === edited.workstreamId)?.name || "General / Multi-branch";
+      diffItems.push({ label: "Branch / Workstream", value: `${oldWs} → ${newWs}` });
+    }
+    const oldDesc = (current.description || "").trim();
+    const newDesc = (edited.description || "").trim();
+    if (oldDesc !== newDesc) {
+      diffItems.push({ label: "Description", value: `${oldDesc || "(None)"} → ${newDesc || "(None)"}` });
+    }
+    return diffItems;
+  };
+
+  const workstreams = [
+    { id: "ws-1", name: "Court Branch", code: "CRT" },
+    { id: "ws-2", name: "Land Branch", code: "LND" },
+  ];
+
+  const existingDesk = {
+    id: "desk-101",
+    code: "SEAT_A",
+    name: "Dealing Assistant A",
+    workstreamId: "ws-1",
+    description: "Handles pending matters",
+  };
+
+  // Case 1: Identical fields -> diffItems.length === 0
+  const noChangeDiff = computeDeskDiff({
+    current: existingDesk,
+    edited: { name: "Dealing Assistant A", workstreamId: "ws-1", description: "Handles pending matters" },
+    workstreams,
+  });
+  assert.equal(noChangeDiff.length, 0, "No diff detected when all fields match");
+
+  // Case 2: Whitespace trimming matches -> diffItems.length === 0
+  const whitespaceDiff = computeDeskDiff({
+    current: existingDesk,
+    edited: { name: "Dealing Assistant A ", workstreamId: "ws-1", description: " Handles pending matters " },
+    workstreams,
+  });
+  assert.equal(whitespaceDiff.length, 0, "No diff detected when trimmed values match");
+
+  // Case 3: Name modified -> diffItems has 1 item
+  const nameChangeDiff = computeDeskDiff({
+    current: existingDesk,
+    edited: { name: "Senior Dealing Assistant A", workstreamId: "ws-1", description: "Handles pending matters" },
+    workstreams,
+  });
+  assert.equal(nameChangeDiff.length, 1);
+  assert.equal(nameChangeDiff[0].label, "Desk Name");
+  assert.equal(nameChangeDiff[0].value, "Dealing Assistant A → Senior Dealing Assistant A");
+
+  // Case 4: Branch modified -> diffItems has 1 item
+  const branchChangeDiff = computeDeskDiff({
+    current: existingDesk,
+    edited: { name: "Dealing Assistant A", workstreamId: "ws-2", description: "Handles pending matters" },
+    workstreams,
+  });
+  assert.equal(branchChangeDiff.length, 1);
+  assert.equal(branchChangeDiff[0].label, "Branch / Workstream");
+  assert.equal(branchChangeDiff[0].value, "Court Branch → Land Branch");
+
+  // Case 5: Description modified -> diffItems has 1 item
+  const descChangeDiff = computeDeskDiff({
+    current: existingDesk,
+    edited: { name: "Dealing Assistant A", workstreamId: "ws-1", description: "Updated responsibilities" },
+    workstreams,
+  });
+  assert.equal(descChangeDiff.length, 1);
+  assert.equal(descChangeDiff[0].label, "Description");
+  assert.equal(descChangeDiff[0].value, "Handles pending matters → Updated responsibilities");
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 8. LAND RECORDS MUTATION GATING FOR VIEW ONLY
 // ─────────────────────────────────────────────────────────────────────────────
