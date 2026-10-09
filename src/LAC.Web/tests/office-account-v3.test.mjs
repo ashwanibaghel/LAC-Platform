@@ -13,6 +13,7 @@ const myHelpersTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/o
 const appTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/App.tsx"), "utf8"));
 const appShellTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/components/AppShell.tsx"), "utf8"));
 const villageCoreWorkspaceTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/land/VillageCoreRecordsWorkspace.tsx"), "utf8"));
+const officeDesksAdminTsx = normalizeEol(fs.readFileSync(path.join(__dirname, "../src/admin/OfficeDesksAdmin.tsx"), "utf8"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. V3 TYPES & BACKEND CONTRACT INTEGRITY
@@ -233,15 +234,17 @@ test("7. Module selection is clear, inward Dak is standalone, Land has 3-state r
 // 6. HELPER WORKFLOW & BOUNDED ACCESS
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("8. Helper workflow supports DEO, personal desk, and ReadOnly / ReadWrite", () => {
-  assert.ok(
-    myHelpersTsx.includes('"ReadOnly"'),
-    "Helper access level ReadOnly supported"
-  );
-  assert.ok(
-    myHelpersTsx.includes('"ReadWrite"'),
-    "Helper access level ReadWrite supported"
-  );
+test("8. Helper workflow supports DEO, personal desk, and None / ReadOnly / ReadWrite", () => {
+  // MyHelpersView supports None, ReadOnly, ReadWrite
+  assert.ok(myHelpersTsx.includes('"None"'), "Helper access level None supported in MyHelpersView");
+  assert.ok(myHelpersTsx.includes('"ReadOnly"'), "Helper access level ReadOnly supported in MyHelpersView");
+  assert.ok(myHelpersTsx.includes('"ReadWrite"'), "Helper access level ReadWrite supported in MyHelpersView");
+
+  // UsersAdmin senior helper subform supports None, ReadOnly, ReadWrite
+  assert.ok(usersAdminTsx.includes('value="None" checked={helperAccess === "None"}'), "Helper access level None in UsersAdmin subform");
+  assert.ok(usersAdminTsx.includes('value="ReadOnly" checked={helperAccess === "ReadOnly"}'), "Helper access level ReadOnly in UsersAdmin subform");
+  assert.ok(usersAdminTsx.includes('value="ReadWrite" checked={helperAccess === "ReadWrite"}'), "Helper access level ReadWrite in UsersAdmin subform");
+
   assert.ok(
     myHelpersTsx.includes("options?.desks"),
     "Helper desk choices strictly come from parent's active desks"
@@ -249,6 +252,46 @@ test("8. Helper workflow supports DEO, personal desk, and ReadOnly / ReadWrite",
   assert.ok(
     myHelpersTsx.includes("expectedRevision: editingHelper.assistantRevision"),
     "Helper edit sends expectedRevision using assistantRevision"
+  );
+});
+
+test("8b. Multiple desks supported in account create and edit workflows", () => {
+  // Account create supports multiple desks
+  assert.ok(
+    usersAdminTsx.includes("newAdditionalDeskIds"),
+    "UsersAdmin maintains additional desk IDs for account creation"
+  );
+  assert.ok(
+    usersAdminTsx.includes("const allDeskIds = [newPrimaryDeskId, ...newAdditionalDeskIds].filter(Boolean);"),
+    "Create payload includes deduplicated primary and additional desk IDs"
+  );
+  assert.ok(
+    usersAdminTsx.includes("deskIds: Array.from(new Set(allDeskIds))"),
+    "Create payload sends deskIds array"
+  );
+  assert.ok(
+    usersAdminTsx.includes("+ Add another desk…"),
+    "Create and edit UI provide '+ Add another desk…' option"
+  );
+
+  // Account edit supports multiple desks
+  assert.ok(
+    usersAdminTsx.includes("editAdditionalDeskIds"),
+    "UsersAdmin maintains additional desk IDs for account editing"
+  );
+  assert.ok(
+    usersAdminTsx.includes("const allEditDeskIds = [editPrimaryDeskId, ...editAdditionalDeskIds].filter(Boolean);"),
+    "Edit payload merges primary and additional desk IDs"
+  );
+  assert.ok(
+    usersAdminTsx.includes("deskIds: Array.from(new Set(allEditDeskIds))"),
+    "Edit payload sends deskIds array"
+  );
+
+  // Table display indicates multiple seats
+  assert.ok(
+    usersAdminTsx.includes("+${assignedDesks.length - 1} more"),
+    "Directory table shows primary desk and indicates additional active desks"
   );
 });
 
@@ -263,20 +306,84 @@ test("9. Navigation and Route Guards enforce strict authority tiers", () => {
     "Administration module completely hidden for STANDARD_OFFICER and HELPER"
   );
 
-  // AppShell dropdown has My Helpers for officers
+  // HELPER MUST NOT see My Helpers in AppShell
   assert.ok(
-    appShellTsx.includes('to="/my-helpers"'),
-    "AppShell dropdown provides link to My Helpers"
+    appShellTsx.includes('!isHelper && ('),
+    "AppShell dropdown hides My Helpers link when user is a helper"
+  );
+
+  // HELPER route guard in App.tsx
+  assert.ok(
+    appTsx.includes("function MyHelpersRoute"),
+    "MyHelpersRoute guard exists"
+  );
+  assert.ok(
+    appTsx.includes('<AccessDenied message="Helper accounts cannot manage assistant accounts." />'),
+    "MyHelpersRoute strictly denies helper accounts with AccessDenied"
+  );
+
+  // SYSTEM_ADMIN and OFFICE_ADMIN access to Office / Desk Configuration
+  assert.ok(
+    appShellTsx.includes('to: "/admin/desks"'),
+    "AppShell provides /admin/desks navigation link"
+  );
+  assert.ok(
+    appTsx.includes("function OfficeConfigurationRoute"),
+    "OfficeConfigurationRoute guard exists in App.tsx"
+  );
+  assert.ok(
+    appTsx.includes('user?.authority !== "OFFICE_SUPERVISOR"'),
+    "OfficeConfigurationRoute strictly denies OFFICE_SUPERVISOR"
+  );
+
+  // Work Catalog hidden and denied for OFFICE_SUPERVISOR
+  assert.ok(
+    appTsx.includes("function WorkCatalogRoute"),
+    "WorkCatalogRoute guard exists"
+  );
+  assert.ok(
+    appShellTsx.includes('!isOfficeSupervisor'),
+    "AppShell hides Work Catalog from OFFICE_SUPERVISOR"
+  );
+
+  // Advanced Security ONLY for SYSTEM_ADMIN
+  assert.ok(
+    appShellTsx.includes('isSystemAdmin && hasPermission("Access.Manage")'),
+    "AppShell hides Advanced Security from OFFICE_ADMIN and OFFICE_SUPERVISOR"
   );
 
   // Route Guards in App.tsx
   assert.ok(appTsx.includes("SystemAdminRoute"), "SystemAdminRoute guard exists");
   assert.ok(appTsx.includes("WorkCatalogRoute"), "WorkCatalogRoute guard exists");
+  assert.ok(appTsx.includes("OfficeConfigurationRoute"), "OfficeConfigurationRoute guard exists");
   assert.ok(appTsx.includes("AssistantsAdminRoute"), "AssistantsAdminRoute guard exists");
   assert.ok(appTsx.includes("UsersAdminRoute"), "UsersAdminRoute guard exists");
   assert.ok(appTsx.includes("AuditLogsRoute"), "AuditLogsRoute guard exists");
   assert.ok(appTsx.includes("MyHelpersRoute"), "MyHelpersRoute guard exists");
   assert.ok(appTsx.includes("AccessDenied"), "AccessDenied component exists");
+});
+
+test("9b. OfficeDesksAdmin operates on frozen desk endpoints", () => {
+  assert.ok(
+    officeDesksAdminTsx.includes('fetch("/api/admin/desks"'),
+    "OfficeDesksAdmin queries /api/admin/desks"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('fetch("/api/admin/account-options"'),
+    "OfficeDesksAdmin falls back to /api/admin/account-options for office admins"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('fetch("/api/admin/desks", {'),
+    "OfficeDesksAdmin calls POST /api/admin/desks"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('fetch(`/api/admin/desks/${editingDesk.id}`, {'),
+    "OfficeDesksAdmin calls PUT /api/admin/desks/{id}"
+  );
+  assert.ok(
+    officeDesksAdminTsx.includes('fetch(`/api/admin/desks/${d.id}/toggle-status`'),
+    "OfficeDesksAdmin calls POST /api/admin/desks/{id}/toggle-status"
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

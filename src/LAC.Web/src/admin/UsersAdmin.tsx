@@ -64,6 +64,7 @@ export const UsersAdmin: React.FC = () => {
   const [newCanRegisterInwardDak, setNewCanRegisterInwardDak] = useState(false);
   const [newLandAccess, setNewLandAccess] = useState<LandAccessLevel>("None");
   const [newPrimaryDeskId, setNewPrimaryDeskId] = useState("");
+  const [newAdditionalDeskIds, setNewAdditionalDeskIds] = useState<string[]>([]);
   const [createFormError, setCreateFormError] = useState<string | null>(null);
 
   // Form states - Create Technical System Admin Modal
@@ -81,6 +82,7 @@ export const UsersAdmin: React.FC = () => {
   const [editCanRegisterInwardDak, setEditCanRegisterInwardDak] = useState(false);
   const [editLandAccess, setEditLandAccess] = useState<LandAccessLevel>("None");
   const [editPrimaryDeskId, setEditPrimaryDeskId] = useState("");
+  const [editAdditionalDeskIds, setEditAdditionalDeskIds] = useState<string[]>([]);
   const [editDrawerError, setEditDrawerError] = useState<string | null>(null);
   const [editDrawerLoading, setEditDrawerLoading] = useState(false);
 
@@ -165,6 +167,7 @@ export const UsersAdmin: React.FC = () => {
     setNewCanRegisterInwardDak(false);
     setNewLandAccess("None");
     setNewPrimaryDeskId(options?.desks[0]?.id || "");
+    setNewAdditionalDeskIds([]);
     setCreateFormError(null);
     setShowCreateModal(true);
   };
@@ -196,6 +199,7 @@ export const UsersAdmin: React.FC = () => {
       authority = "OFFICE_SUPERVISOR";
     }
 
+    const allDeskIds = [newPrimaryDeskId, ...newAdditionalDeskIds].filter(Boolean);
     const payload = {
       username,
       account: {
@@ -206,7 +210,7 @@ export const UsersAdmin: React.FC = () => {
         modules: newIsSupervisor ? [] : newModules,
         canRegisterInwardDak: newIsSupervisor ? true : newCanRegisterInwardDak,
         landAccess: newIsSupervisor ? ("ViewWrite" as LandAccessLevel) : newLandAccess,
-        deskIds: newPrimaryDeskId ? [newPrimaryDeskId] : [],
+        deskIds: Array.from(new Set(allDeskIds)),
       },
     };
 
@@ -324,6 +328,7 @@ export const UsersAdmin: React.FC = () => {
       setEditCanRegisterInwardDak(fresh.canRegisterInwardDak);
       setEditLandAccess(fresh.landAccess || "None");
       setEditPrimaryDeskId(fresh.deskIds[0] || "");
+      setEditAdditionalDeskIds(fresh.deskIds.slice(1) || []);
     } catch (err: any) {
       alert(err.message || "Failed to load officer details.");
     } finally {
@@ -353,6 +358,7 @@ export const UsersAdmin: React.FC = () => {
       authority = editIsSupervisor ? "OFFICE_SUPERVISOR" : "STANDARD_OFFICER";
     }
 
+    const allEditDeskIds = [editPrimaryDeskId, ...editAdditionalDeskIds].filter(Boolean);
     const payload = {
       account: {
         fullName,
@@ -362,7 +368,7 @@ export const UsersAdmin: React.FC = () => {
         modules: editIsSupervisor || authority === "OFFICE_ADMIN" || authority === "SYSTEM_ADMIN" ? [] : editModules,
         canRegisterInwardDak: editIsSupervisor ? true : editCanRegisterInwardDak,
         landAccess: editIsSupervisor ? ("ViewWrite" as LandAccessLevel) : editLandAccess,
-        deskIds: editPrimaryDeskId ? [editPrimaryDeskId] : [],
+        deskIds: Array.from(new Set(allEditDeskIds)),
       },
       expectedRevision: editingOfficer.revision,
     };
@@ -717,7 +723,12 @@ export const UsersAdmin: React.FC = () => {
             </thead>
             <tbody>
               {filteredAccounts.map((u) => {
-                const deskName = options?.desks.find((d) => u.deskIds.includes(d.id))?.name || (u.deskIds.length > 0 ? "Assigned Desk" : "Unassigned");
+                const assignedDesks = options?.desks.filter((d) => u.deskIds.includes(d.id)) || [];
+                const deskName = assignedDesks.length > 0
+                  ? assignedDesks.length > 1
+                    ? `${assignedDesks[0].name} (+${assignedDesks.length - 1} more)`
+                    : assignedDesks[0].name
+                  : (u.deskIds.length > 0 ? "Assigned Desk" : "Unassigned");
                 const attachedHelpers = attachedHelpersMap.get(u.id) || [];
                 const isTechAdmin = u.authority === "SYSTEM_ADMIN" && !u.designationId && !u.customDesignation;
 
@@ -885,6 +896,13 @@ export const UsersAdmin: React.FC = () => {
                     ? inspectingOfficer.modules.join(", ")
                     : inspectingOfficer.authority === "OFFICE_SUPERVISOR" || inspectingOfficer.authority === "OFFICE_ADMIN" || inspectingOfficer.authority === "SYSTEM_ADMIN"
                     ? "Full Office Access"
+                    : "None"}
+                </span>
+
+                <span style={{ color: "#64748b" }}>Assigned Desks:</span>
+                <span>
+                  {inspectingOfficer.deskIds.length > 0
+                    ? options?.desks.filter(d => inspectingOfficer.deskIds.includes(d.id)).map(d => `${d.name} (${d.code})`).join(", ") || "Assigned Desks"
                     : "None"}
                 </span>
               </div>
@@ -1147,7 +1165,13 @@ export const UsersAdmin: React.FC = () => {
                     <label>Primary Desk / Seat</label>
                     <select
                       value={newPrimaryDeskId}
-                      onChange={(e) => setNewPrimaryDeskId(e.target.value)}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setNewPrimaryDeskId(val);
+                        if (val && newAdditionalDeskIds.includes(val)) {
+                          setNewAdditionalDeskIds(newAdditionalDeskIds.filter((id) => id !== val));
+                        }
+                      }}
                     >
                       <option value="">-- No Specific Seat Assigned --</option>
                       {options?.desks.map((d) => (
@@ -1156,8 +1180,54 @@ export const UsersAdmin: React.FC = () => {
                         </option>
                       ))}
                     </select>
-                    <small style={{ color: "#64748b", fontSize: "12px" }}>
-                      Desk decides the operational seat where assigned work reaches this officer.
+                  </div>
+
+                  <div className="rbac-form-group" style={{ marginTop: "10px" }}>
+                    <label>Additional Active Desks</label>
+                    {newAdditionalDeskIds.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                        {newAdditionalDeskIds.map((deskId) => {
+                          const desk = options?.desks.find((d) => d.id === deskId);
+                          return (
+                            <span
+                              key={deskId}
+                              className="rbac-badge rbac-badge-outline"
+                              style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", padding: "4px 8px" }}
+                            >
+                              <span>{desk?.name || deskId}</span>
+                              <button
+                                type="button"
+                                onClick={() => setNewAdditionalDeskIds(newAdditionalDeskIds.filter((id) => id !== deskId))}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontWeight: "bold", padding: 0 }}
+                                title="Remove desk"
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val && !newAdditionalDeskIds.includes(val) && val !== newPrimaryDeskId) {
+                          setNewAdditionalDeskIds([...newAdditionalDeskIds, val]);
+                        }
+                      }}
+                    >
+                      <option value="">+ Add another desk…</option>
+                      {options?.desks
+                        ?.filter((d) => d.id !== newPrimaryDeskId && !newAdditionalDeskIds.includes(d.id))
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} ({d.code})
+                          </option>
+                        ))}
+                    </select>
+                    <small style={{ color: "#64748b", fontSize: "12px", display: "block", marginTop: "4px" }}>
+                      Allows this officer to operate across multiple posts or dealing seats when required.
                     </small>
                   </div>
                 </div>
@@ -1413,6 +1483,57 @@ export const UsersAdmin: React.FC = () => {
                       </option>
                     ))}
                   </select>
+
+                  <div style={{ marginTop: "10px" }}>
+                    <label style={{ fontSize: "12px", color: "#475569", fontWeight: 600, display: "block", marginBottom: "4px" }}>
+                      Additional Active Desks / Seats
+                    </label>
+                    {editAdditionalDeskIds.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                        {editAdditionalDeskIds.map((deskId) => {
+                          const desk = options?.desks.find((d) => d.id === deskId);
+                          return (
+                            <span
+                              key={deskId}
+                              className="rbac-badge rbac-badge-outline"
+                              style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", padding: "4px 8px" }}
+                            >
+                              <span>{desk?.name || deskId}</span>
+                              <button
+                                type="button"
+                                onClick={() => setEditAdditionalDeskIds(editAdditionalDeskIds.filter((id) => id !== deskId))}
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b", fontWeight: "bold", padding: 0 }}
+                                title="Remove desk"
+                              >
+                                &times;
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val && !editAdditionalDeskIds.includes(val) && val !== editPrimaryDeskId) {
+                          setEditAdditionalDeskIds([...editAdditionalDeskIds, val]);
+                        }
+                      }}
+                    >
+                      <option value="">+ Add another desk…</option>
+                      {options?.desks
+                        ?.filter((d) => d.id !== editPrimaryDeskId && !editAdditionalDeskIds.includes(d.id))
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name} ({d.code})
+                          </option>
+                        ))}
+                    </select>
+                    <small style={{ color: "#64748b", fontSize: "12px", display: "block", marginTop: "4px" }}>
+                      Allows this officer to operate across multiple posts or dealing seats when required.
+                    </small>
+                  </div>
                 </div>
 
                 {/* Attached Helpers Section */}
@@ -1533,6 +1654,10 @@ export const UsersAdmin: React.FC = () => {
                       </div>
 
                       <div style={{ display: "flex", gap: "12px", marginBottom: "8px", fontSize: "12px" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <input type="radio" name="seniorHelperAccess" value="None" checked={helperAccess === "None"} onChange={() => setHelperAccess("None")} />
+                          None
+                        </label>
                         <label style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                           <input type="radio" name="seniorHelperAccess" value="ReadOnly" checked={helperAccess === "ReadOnly"} onChange={() => setHelperAccess("ReadOnly")} />
                           Read Only

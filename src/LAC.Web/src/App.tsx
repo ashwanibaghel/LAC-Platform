@@ -24,6 +24,7 @@ import { AccessAdmin } from "./admin/AccessAdmin";
 import { WorkCatalogAdmin } from "./admin/WorkCatalogAdmin";
 import { OfficerAssistantAdmin } from "./admin/OfficerAssistantAdmin";
 import { AuditLogsAdmin } from "./admin/AuditLogsAdmin";
+import { OfficeDesksAdmin } from "./admin/OfficeDesksAdmin";
 import { MyHelpersView } from "./office/MyHelpersView";
 import { DakDirectory } from "./dak/DakDirectory";
 import { DakRegistration } from "./dak/DakRegistration";
@@ -3938,13 +3939,29 @@ function SystemAdminRoute({ children }: { children: React.ReactElement }) {
 function WorkCatalogRoute({ children }: { children: React.ReactElement }) {
   const { user, hasPermission } = useAuth();
   const allowed = Boolean(
-    user?.authority === "SYSTEM_ADMIN" ||
-    user?.authority === "OFFICE_ADMIN" ||
-    user?.roles?.includes("SYSTEM_ADMIN") ||
-    hasPermission("WorkCatalog.Manage")
+    (user?.authority === "SYSTEM_ADMIN" ||
+      user?.authority === "OFFICE_ADMIN" ||
+      user?.roles?.includes("SYSTEM_ADMIN") ||
+      hasPermission("WorkCatalog.Manage")) &&
+      user?.authority !== "OFFICE_SUPERVISOR"
   );
   if (!allowed) {
     return <AccessDenied message="Work Catalog administration is restricted to Office Administrators and System Administrators." />;
+  }
+  return children;
+}
+
+function OfficeConfigurationRoute({ children }: { children: React.ReactElement }) {
+  const { user, hasPermission } = useAuth();
+  const allowed = Boolean(
+    (user?.authority === "SYSTEM_ADMIN" ||
+      user?.authority === "OFFICE_ADMIN" ||
+      user?.roles?.includes("SYSTEM_ADMIN") ||
+      hasPermission("OfficeConfiguration.Manage")) &&
+      user?.authority !== "OFFICE_SUPERVISOR"
+  );
+  if (!allowed) {
+    return <AccessDenied message="Office and Desk configuration is restricted to Office Administrators and System Administrators." />;
   }
   return children;
 }
@@ -3995,7 +4012,12 @@ function AuditLogsRoute({ children }: { children: React.ReactElement }) {
 
 function MyHelpersRoute({ children }: { children: React.ReactElement }) {
   const { user } = useAuth();
-  const isHelper = Boolean(user?.authority === "HELPER" || user?.roles?.includes("HELPER"));
+  const isHelper = Boolean(
+    user?.authority === "HELPER" ||
+    user?.roles?.includes("HELPER") ||
+    user?.roles?.includes("DEO") ||
+    user?.roles?.includes("Assistant")
+  );
   if (isHelper) {
     return <AccessDenied message="Helper accounts cannot manage assistant accounts." />;
   }
@@ -4075,6 +4097,7 @@ function AuthenticatedApp() {
         <Route path="/outward/:id" element={<OutwardDetailWorkspace />} />
         <Route path="/my-helpers" element={<MyHelpersRoute><MyHelpersView /></MyHelpersRoute>} />
         <Route path="/admin/users" element={<UsersAdminRoute><UsersAdmin /></UsersAdminRoute>} />
+        <Route path="/admin/desks" element={<OfficeConfigurationRoute><OfficeDesksAdmin /></OfficeConfigurationRoute>} />
         <Route path="/admin/access" element={<SystemAdminRoute><AccessAdmin /></SystemAdminRoute>} />
         <Route path="/admin/work-catalog" element={<WorkCatalogRoute><WorkCatalogAdmin /></WorkCatalogRoute>} />
         <Route path="/admin/assistants" element={<AssistantsAdminRoute><OfficerAssistantAdmin /></AssistantsAdminRoute>} />

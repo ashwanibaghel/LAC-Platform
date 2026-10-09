@@ -230,16 +230,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Users.Manage"),
         },
         {
-          label: "Access & Roles",
-          to: "/admin/access",
+          label: "Office / Desk Configuration",
+          to: "/admin/desks",
           checkPermission: () =>
-            isSystemAdmin && hasPermission("Access.Manage"),
+            (isSystemAdmin || isOfficeAdmin || hasPermission("OfficeConfiguration.Manage")) && !isOfficeSupervisor,
         },
         {
           label: "Work Catalog",
           to: "/admin/work-catalog",
           checkPermission: () =>
-            isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage"),
+            (isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage")) && !isOfficeSupervisor,
         },
         {
           label: "Attached DEOs",
@@ -252,6 +252,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           to: "/admin/audit-logs",
           checkPermission: () =>
             isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Audit.View"),
+        },
+        {
+          label: "Advanced Security",
+          to: "/admin/access",
+          checkPermission: () =>
+            isSystemAdmin && hasPermission("Access.Manage"),
         },
       ]
     }
@@ -314,16 +320,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Users.Manage"),
         },
         {
-          label: "Access & Roles",
-          to: "/admin/access",
+          label: "Office / Desk Configuration",
+          to: "/admin/desks",
           checkPermission: () =>
-            isSystemAdmin && hasPermission("Access.Manage"),
+            (isSystemAdmin || isOfficeAdmin || hasPermission("OfficeConfiguration.Manage")) && !isOfficeSupervisor,
         },
         {
           label: "Work Catalog",
           to: "/admin/work-catalog",
           checkPermission: () =>
-            isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage"),
+            (isSystemAdmin || isOfficeAdmin || hasPermission("WorkCatalog.Manage")) && !isOfficeSupervisor,
         },
         {
           label: "Attached DEOs",
@@ -337,9 +343,15 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           checkPermission: () =>
             isSystemAdmin || isOfficeAdmin || isOfficeSupervisor || hasPermission("Audit.View"),
         },
+        {
+          label: "Advanced Security",
+          to: "/admin/access",
+          checkPermission: () =>
+            isSystemAdmin && hasPermission("Access.Manage"),
+        },
       ]
     };
-  } else if (path.startsWith("/my-helpers")) {
+  } else if (path.startsWith("/my-helpers") && !isHelper) {
     contextualNav = {
       categoryTitle: "My Desk & Staff",
       links: [
