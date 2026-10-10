@@ -45,6 +45,7 @@ public sealed class DakCategory : OfficialRecord
 
 public sealed class Dak : OfficialRecord
 {
+    public DakVillageClassification VillageClassification { get; set; } = DakVillageClassification.Unclassified;
     public string DiaryNumber { get; set; } = "";
     public string DiaryNumberKey { get; set; } = "";
     public Guid? RegistrationRequestId { get; set; }
