@@ -309,9 +309,9 @@ public static class RbacEndpoints
 
         var admin = api.MapGroup("/admin");
 
-        admin.MapGet("/users", async (LacDbContext db, CancellationToken ct) =>
+        admin.MapGet("/users", async (LacDbContext db, ICurrentUserContext current, CancellationToken ct) =>
         {
-            var users = await db.AppUsers
+            var users = await (await OfficeDirectoryPolicy.ScopeAsync(db, current.UserId!.Value, ct))
                 .AsNoTracking()
                 .Where(u => u.RecordStatus == RecordStatus.Active)
                 .Include(u => u.Designation)

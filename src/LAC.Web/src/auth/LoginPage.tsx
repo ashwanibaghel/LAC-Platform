@@ -8,6 +8,9 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [expiredNotice] = useState(() => {
+    try { return sessionStorage.getItem("lac:session-expired") === "1"; } catch { return false; }
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +39,7 @@ export const LoginPage: React.FC = () => {
           <p className="login-subheading">Land Acquisition Collector & Revenue Records Portal</p>
         </div>
 
+        {expiredNotice && <div className="login-error-alert" role="status">Your access changed or session expired. Please sign in again.</div>}
         {error && (
           <div className="login-error-alert" role="alert">
             <span>⚠️</span> {error}

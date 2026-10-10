@@ -238,7 +238,7 @@ public sealed class RbacBaselineProofTests : IClassFixture<RbacFactory>
     public async Task Password_is_hashed_and_user_responses_do_not_expose_credentials()
     {
         using var admin = await Admin();
-        var user = await User(admin);
+        var user = await User(admin, roles: [SeedData.SystemAdminRoleId]);
         using var client = user.Client;
         using var scope = factory.Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();

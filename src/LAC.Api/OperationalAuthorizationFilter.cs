@@ -58,6 +58,9 @@ public static class OperationalAuthorizationFilter
         }
         // Read-only role authority intentionally remains broader than action allocations.
         if (!action && !user.SupervisingOfficerId.HasValue) return await next(ctx);
+        // Creation context contains only individually authorized workstreams, not Matter records.
+        // The endpoint applies live permission and allocation ceilings for each returned option.
+        if (read && path == "/api/matters/context") return await next(ctx);
         if (path == "/api/court-cases/imports" && action)
         {
             var court = http.RequestServices.GetRequiredService<ICourtAuthorizationService>();

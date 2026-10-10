@@ -1,0 +1,275 @@
+[
+  {
+    "name": "01-system-technical-directory",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit System Administrator\nTechnical System Administrator\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nAdvanced Security\nTechnical Administrators\n\nTechnical accounts only. Office provisioning and exact-username recovery are separate.\n\nProvision ADM\n+ Create System Admin\nTechnical Recovery\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit System Administrator\naudit.system\n\t\nTechnical Account\nNo civil designation\n\tSystem Administrator\tFull System Access\t\nActive\tView Details",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "01-system-technical-directory.jpg"
+  },
+  {
+    "name": "02-system-effective-details",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit System Administrator\nTechnical System Administrator\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nAdvanced Security\nTechnical Administrators\n\nTechnical accounts only. Office provisioning and exact-username recovery are separate.\n\nProvision ADM\n+ Create System Admin\nTechnical Recovery\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit System Administrator\naudit.system\n\t\nTechnical Account\nNo civil designation\n\tSystem Administrator\tFull System Access\t\nActive\tView Details\nAA\nAudit System Administrator\n\naudit.system\n\n×\n1. EMPLOYEE IDENTITY\nFull Name:\nAudit System Administrator\nUsername:\naudit.system\nDesignation:\nTechnical Account (No civil designation)\nStatus:\nActive Account\n2. AUTHORITY LEVEL\nSystem Administrator\nFull administrative control over security, technical accounts, and system configuration.\n3. WORK ACCESS & PERMISSIONS\nWork Modules:\nFull System Access\nInward Dak:\nCan Register Inward Dak Receipts\nLand Records:\nView + Write\n4. OPERATIONAL SEATS & DESKS\nNo dealing seat or desk assigned.\n5. STAFF RELATIONSHIP\nIndependent official post. No attached assistants.\nClose",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "02-system-effective-details.jpg"
+  },
+  {
+    "name": "03-separate-adm-provisioning-review",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit System Administrator\nTechnical System Administrator\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nAdvanced Security\nTechnical Administrators\n\nTechnical accounts only. Office provisioning and exact-username recovery are separate.\n\nProvision ADM\n+ Create System Admin\nTechnical Recovery\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit System Administrator\naudit.system\n\t\nTechnical Account\nNo civil designation\n\tSystem Administrator\tFull System Access\t\nActive\tView Details\nCreate Officer / Staff\n\nCreate an official account and choose the work access required for this employee.\n\n×\nSECTION 1 — EMPLOYEE IDENTITY\nOfficial Username *\nFull Name *\nCivil Designation\nAdditional District Magistrate\nOffice Administrator — Full Office Access\n\nAssigning ADM configures this account as the Office Administrator with full operational office authority.\n\nSECTION 5 — OPERATIONAL SEAT & DESKS\nPrimary Dealing Seat\n-- No Specific Seat Assigned --\nAdditional Active Desks\n+ Add another desk…\nCancel\nReview & Create\nConfirm New Officer Account\n×\nEMPLOYEE\nADM Provisioning Review (review.adm)\nCivil Designation:\nAdditional District Magistrate\nAuthority Level:\nOffice Administrator\nWork Access:\nFull Office Access\nInward Dak Registry:\nCan Register Inward Dak\nLand Records:\nView + Write\nAssigned Seat / Desk:\nNo Specific Seat\n⚠️ NOTICE: Selecting Additional District Magistrate (ADM) designates this account as an Office Administrator with full office administrative control.\nCancel\nConfirm & Create Account",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "03-separate-adm-provisioning-review.jpg"
+  },
+  {
+    "name": "04-bounded-technical-recovery",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit System Administrator\nTechnical System Administrator\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nAdvanced Security\nTechnical recovery by exact username\n\nOffice accounts are excluded from this directory. Use the exact official username for a deliberate credential recovery.\n\nExact official username\nLook Up Account\n\nReset credential for Audit ADM (audit.adm)? Existing sessions will end.\n\nConfirm Credential Recovery\nCancel",
+    "url": "http://127.0.0.1:5194/admin/technical-recovery",
+    "width": 1366,
+    "screenshot": "04-bounded-technical-recovery.jpg"
+  },
+  {
+    "name": "06-adm-protected-self",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAA\nAudit ADM\nAdditional District Magistrate\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit ADM\naudit.adm\n\tAdditional District Magistrate\tOffice Administrator\tFull Office Access\t\nActive\tView Details\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nPS\nProtected Peer Supervisor\naudit.peer.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n3 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details\nAA\nAudit ADM\n\naudit.adm\n\n×\n1. EMPLOYEE IDENTITY\nFull Name:\nAudit ADM\nUsername:\naudit.adm\nDesignation:\nAdditional District Magistrate\nStatus:\nActive Account\n2. AUTHORITY LEVEL\nOffice Administrator\nExecutive authority with full operational office management and supervisor delegation.\n3. WORK ACCESS & PERMISSIONS\nWork Modules:\nFull Office Access (All Modules)\nInward Dak:\nCan Register Inward Dak Receipts\nLand Records:\nView + Write\n4. OPERATIONAL SEATS & DESKS\nNo dealing seat or desk assigned.\n5. STAFF RELATIONSHIP\nIndependent official post. No attached assistants.\nClose",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "06-adm-protected-self.jpg"
+  },
+  {
+    "name": "07-supervisor-canonical-designation-ceiling",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit Supervisor\nSupervisor\nADMINISTRATION:\nOfficers & Staff\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n3 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details\nCreate Officer / Staff\n\nCreate an official account and choose the work access required for this employee.\n\n×\nSECTION 1 — EMPLOYEE IDENTITY\nOfficial Username *\nFull Name *\nCivil Designation *\n-- Select Civil Designation --\nCan't find the designation? + Enter another designation\nSECTION 3 — WORK ACCESS MODULES\nDak & Matters\nWork on Dak/files, noting, drafts and outward action.\nCourt\nManage Court cases, orders, hearings and documents.\nRTI\nHandle RTI applications and official responses.\nAccounts\nHandle Accounts and compensation-support work.\nRecord Room\nHandle physical record/file custody.\nSECTION 4 — ADDITIONAL WORK CAPABILITIES\nCan Register Inward Dak\nRegister new incoming Dak receipts and assign first marking.\nLand Records Access\nNone\nView Only\nView + Write\nSECTION 5 — OPERATIONAL SEAT & DESKS\nPrimary Dealing Seat\n-- No Specific Seat Assigned --\nAdditional Active Desks\n+ Add another desk…\nCancel\nReview & Create\n+ Enter Other Designation\nSection Officer\nNaib Tehsildar\nAssistant Accounts Officer\nPatwari\nData Entry Operator\nRecord Room In-charge\nTehsildar\nAssistant Section Officer\nSenior Assistant\nJunior Assistant\nPersonal Assistant to ADM",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "07-supervisor-canonical-designation-ceiling.jpg"
+  },
+  {
+    "name": "08-supervisor-protected-self",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAS\nAudit Supervisor\nSupervisor\nADMINISTRATION:\nOfficers & Staff\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n3 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details\nAS\nAudit Supervisor\n\naudit.supervisor\n\n×\n1. EMPLOYEE IDENTITY\nFull Name:\nAudit Supervisor\nUsername:\naudit.supervisor\nDesignation:\nSupervisor\nStatus:\nActive Account\n2. AUTHORITY LEVEL\nOffice Supervisor\nSupervisor with operational access to all office modules and oversight over officers and helpers.\n3. WORK ACCESS & PERMISSIONS\nWork Modules:\nFull Office Access (All Modules)\nInward Dak:\nCan Register Inward Dak Receipts\nLand Records:\nView + Write\n4. OPERATIONAL SEATS & DESKS\nNo dealing seat or desk assigned.\n5. STAFF RELATIONSHIP\nIndependent official post. No attached assistants.\nClose",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "08-supervisor-protected-self.jpg"
+  },
+  {
+    "name": "09-standard-my-helpers-discoverability",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nGood morning, Audit Court Officer\n\nSaturday, 10 October 2026 · Court Officer\n\nMY DAY\nMy Helpers\nManage your attached assistants\nOFFICE MODULES\nLand & Area Calculator\n\nRevenue conversions & calculator.\n\nOpen\nLand Records\n\nVillages, khasras, awards, and khatauni registers.\n\nOpen Land Records\nCourt & Litigation\n\nCourt cases, hearing dates, and Section 18 references.\n\nOpen Court Cases",
+    "url": "http://127.0.0.1:5194/",
+    "width": 1366,
+    "screenshot": "09-standard-my-helpers-discoverability.jpg"
+  },
+  {
+    "name": "10-helper-add-opaque-dialog",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nMY DESK & STAFF:\nMy Helpers\nMy Desk\nHome\n/\nMy Helpers\nMy Attached Helpers\n\nDelegate operational duties and record processing to Data Entry Operators (DEO) or personal assistants working under your authority.\n\n+ Add Helper\nASSISTANT NAME & USERNAME\tDESIGNATION\tSEAT / DESK\tOPERATIONAL ACCESS\tSTATUS\tACTIONS\n\nAudit Attached Helper\naudit.helper.none\n\tAssistant\tNo Seat\tNone\nNo operational grants\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.ro\n\tAssistant\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.rw\n\tAssistant\tNo Seat\tRead + Write\nCan update delegated records\n\tActive\t\nEditReset PasswordDeactivate\nAdd Attached Helper\n\nHelper will be bound to your active desk and operational ceiling.\n\n×\nOfficial Username *\nMust be unique across the office platform.\nFull Name *\nDesignation *\nData Entry Operator\nOther / Custom Title\nAssigned Seat / Desk\n-- No Specific Seat --\nOnly desks assigned to you are available for helpers.\nOperational Access Level *\nRead Only\nHelper may read delegated work but cannot change records.\nRead + Write\nHelper may work on delegated records within your own authority.\nNone\nAccount only; no operational permissions granted.\nCancel\nCreate Helper Account",
+    "url": "http://127.0.0.1:5194/my-helpers",
+    "width": 1366,
+    "screenshot": "10-helper-add-opaque-dialog.jpg"
+  },
+  {
+    "name": "11-helper-create-review",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nMY DESK & STAFF:\nMy Helpers\nMy Desk\nHome\n/\nMy Helpers\nMy Attached Helpers\n\nDelegate operational duties and record processing to Data Entry Operators (DEO) or personal assistants working under your authority.\n\n+ Add Helper\nASSISTANT NAME & USERNAME\tDESIGNATION\tSEAT / DESK\tOPERATIONAL ACCESS\tSTATUS\tACTIONS\n\nAudit Attached Helper\naudit.helper.none\n\tAssistant\tNo Seat\tNone\nNo operational grants\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.ro\n\tAssistant\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.rw\n\tAssistant\tNo Seat\tRead + Write\nCan update delegated records\n\tActive\t\nEditReset PasswordDeactivate\nAdd Attached Helper\n\nHelper will be bound to your active desk and operational ceiling.\n\n×\nOfficial Username *\nMust be unique across the office platform.\nFull Name *\nDesignation *\nData Entry Operator\nOther / Custom Title\nAssigned Seat / Desk\n-- No Specific Seat --\nOnly desks assigned to you are available for helpers.\nOperational Access Level *\nRead Only\nHelper may read delegated work but cannot change records.\nRead + Write\nHelper may work on delegated records within your own authority.\nNone\nAccount only; no operational permissions granted.\nCancel\nCreate Helper Account\nConfirm Attached Assistant\n×\nEMPLOYEE\nAudit Modal Helper (audit.modal.helper)\nDesignation:\nData Entry Operator (DEO)\nAccess Level:\nRead Only\nAssigned Seat:\nNo Specific Seat\nCancel\nConfirm & Create Assistant",
+    "url": "http://127.0.0.1:5194/my-helpers",
+    "width": 1366,
+    "screenshot": "11-helper-create-review.jpg"
+  },
+  {
+    "name": "12-helper-masked-temporary-credential",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-BMQRPI_j.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nMY DESK & STAFF:\nMy Helpers\nMy Desk\nHome\n/\nMy Helpers\nMy Attached Helpers\n\nDelegate operational duties and record processing to Data Entry Operators (DEO) or personal assistants working under your authority.\n\n+ Add Helper\nASSISTANT NAME & USERNAME\tDESIGNATION\tSEAT / DESK\tOPERATIONAL ACCESS\tSTATUS\tACTIONS\n\nAudit Attached Helper\naudit.helper.none\n\tAssistant\tNo Seat\tNone\nNo operational grants\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.ro\n\tAssistant\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.rw\n\tAssistant\tNo Seat\tRead + Write\nCan update delegated records\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Modal Helper\naudit.modal.helper\n\tData Entry Operator\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\nOne-Time Temporary Credential\n\nShare securely with the employee. This password will not be shown again.\n\nOFFICIAL USERNAME\naudit.modal.helper\nTEMPORARY PASSWORD\nCopy\n⏱ Valid for 24 hours. The officer must replace it with a personal password on first login.\nI have copied or securely communicated this temporary credential to the employee. I acknowledge that it cannot be retrieved again.\nClose & Finish",
+    "url": "http://127.0.0.1:5194/my-helpers",
+    "width": 1366,
+    "screenshot": "12-helper-masked-temporary-credential.jpg"
+  },
+  {
+    "name": "13-helper-edit-opaque-dialog",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nMY DESK & STAFF:\nMy Helpers\nMy Desk\nHome\n/\nMy Helpers\nMy Attached Helpers\n\nDelegate operational duties and record processing to Data Entry Operators (DEO) or personal assistants working under your authority.\n\n+ Add Helper\nASSISTANT NAME & USERNAME\tDESIGNATION\tSEAT / DESK\tOPERATIONAL ACCESS\tSTATUS\tACTIONS\n\nAudit Attached Helper\naudit.helper.none\n\tAssistant\tNo Seat\tNone\nNo operational grants\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.ro\n\tAssistant\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.rw\n\tAssistant\tNo Seat\tRead + Write\nCan update delegated records\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Modal Helper\naudit.modal.helper\n\tData Entry Operator\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\nEdit Helper — audit.helper.ro\n\nUpdate assigned desk, title, or operational authority ceiling.\n\n×\nFull Name *\nDesignation *\nData Entry Operator\nOther / Custom Title\nAssigned Seat / Desk\n-- No Specific Seat --\nOperational Access Level *\nRead Only\nHelper may read delegated work but cannot change records.\nRead + Write\nHelper may work on delegated records within your own authority.\nNone\nNo operational permissions granted.\nCancel\nSave Changes",
+    "url": "http://127.0.0.1:5194/my-helpers",
+    "width": 1366,
+    "screenshot": "13-helper-edit-opaque-dialog.jpg"
+  },
+  {
+    "name": "14-helper-edit-review",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nMY DESK & STAFF:\nMy Helpers\nMy Desk\nHome\n/\nMy Helpers\nMy Attached Helpers\n\nDelegate operational duties and record processing to Data Entry Operators (DEO) or personal assistants working under your authority.\n\n+ Add Helper\nASSISTANT NAME & USERNAME\tDESIGNATION\tSEAT / DESK\tOPERATIONAL ACCESS\tSTATUS\tACTIONS\n\nAudit Attached Helper\naudit.helper.none\n\tAssistant\tNo Seat\tNone\nNo operational grants\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.ro\n\tAssistant\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Attached Helper\naudit.helper.rw\n\tAssistant\tNo Seat\tRead + Write\nCan update delegated records\n\tActive\t\nEditReset PasswordDeactivate\n\n\nAudit Modal Helper\naudit.modal.helper\n\tData Entry Operator\tNo Seat\tRead Only\nView delegated records only\n\tActive\t\nEditReset PasswordDeactivate\nEdit Helper — audit.helper.ro\n\nUpdate assigned desk, title, or operational authority ceiling.\n\n×\nFull Name *\nDesignation *\nData Entry Operator\nOther / Custom Title\nAssigned Seat / Desk\n-- No Specific Seat --\nOperational Access Level *\nRead Only\nHelper may read delegated work but cannot change records.\nRead + Write\nHelper may work on delegated records within your own authority.\nNone\nNo operational permissions granted.\nCancel\nSave Changes\nConfirm Helper Permission Changes\n×\nEMPLOYEE\nAudit Attached Helper (audit.helper.ro)\nNotice:\nNo operational access changes detected.\n⚠️ Saving changes will invalidate current active sessions for this assistant.\nCancel\nConfirm Changes",
+    "url": "http://127.0.0.1:5194/my-helpers",
+    "width": 1366,
+    "screenshot": "14-helper-edit-review.jpg"
+  },
+  {
+    "name": "15-court-only-matter-creation-hidden",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nLAND RECORDS:\nOverview\nVillages\nAwards\nHome\n/\nSouth West Delhi\n/\nMatiala\n/\nAMBAR HAI\n\nSOUTH WEST DELHI · MATIALA\n\nAMBAR HAI\n\nVillage acquisition workspace\n\n0\nKHASRAS\nOverview\nKhasras\nAwards / Core\nMatters\nMatters\nActive acquisition matters, court cases, and compensation files for this village.\nYou can view authorized matters. Creation requires an assigned workstream and permission.\nNo matters created for this village yet\nAn authorized officer can register matters for this village.",
+    "url": "http://127.0.0.1:5194/villages/12a2a297-1896-4648-845c-276ae71203eb?section=matters",
+    "width": 1366,
+    "screenshot": "15-court-only-matter-creation-hidden.jpg"
+  },
+  {
+    "name": "16-readonly-court-empty-state",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAA\nAudit Attached Helper\nAssistant\nCOURT & LITIGATION:\nCourt Case Directory\nLAC LITIGATION & JUDICIAL REGISTRY\nCourt Matters\n\nOperational queue · NDOH · official court updates\n\nNo court register has been added yet\n\nNo court cases are available to view. An authorized officer can add the office register.",
+    "url": "http://127.0.0.1:5194/court-cases",
+    "width": 1366,
+    "screenshot": "16-readonly-court-empty-state.jpg"
+  },
+  {
+    "name": "17-revoked-session-single-login-redirect",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\n\nLand Acquisition Collector & Revenue Records Portal\n\nYour access changed or session expired. Please sign in again.\nUsername / Official ID\nPassword\nSign In to Office\nGovernment of NCT of Delhi · Revenue Department\nAuthorized Personnel Only. All access and activity is logged and audited under statutory records rules.",
+    "url": "http://127.0.0.1:5194/login",
+    "width": 1366,
+    "screenshot": "17-revoked-session-single-login-redirect.jpg"
+  },
+  {
+    "name": "18-none-helper-no-delegation",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAA\nAudit Attached Helper\nAssistant\nGood morning, Audit Attached Helper\n\nSaturday, 10 October 2026 · Assistant\n\nMY DAY\nOFFICE MODULES\nLand & Area Calculator\n\nRevenue conversions & calculator.\n\nOpen",
+    "url": "http://127.0.0.1:5194/",
+    "width": 1366,
+    "screenshot": "18-none-helper-no-delegation.jpg"
+  },
+  {
+    "name": "20-existing-account-effective-review",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAA\nAudit ADM\nAdditional District Magistrate\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit ADM\naudit.adm\n\tAdditional District Magistrate\tOffice Administrator\tFull Office Access\t\nActive\tView Details\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nPS\nProtected Peer Supervisor\naudit.peer.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n4 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAH\nAudit Modal Helper\naudit.modal.helper\nAttached to Audit Court Officer\n\tData Entry Operator\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details\nEdit Account — audit.peer.supervisor\n\nUpdate designation, operational access, seat, or attached assistants.\n\n×\nSECTION 1 — EMPLOYEE IDENTITY\nFull Name *\nCivil Designation *\n← Use standard designation\nOffice Supervisor\nSupervisor receives full operational access and can oversee case matters, staff and helpers.\n✓ Full operational office access will be assigned automatically. Module, Land, and Inward Dak permissions are pre-configured.\nSECTION 5 — OPERATIONAL SEAT & DESKS\nPrimary Dealing Seat\n-- No Specific Seat Assigned --\nAdditional Active Desks\n+ Add another desk…\nSECTION 6 — ATTACHED ASSISTANTS\nAdd Assistant\nNo assistants currently attached to this officer.\nCancel\nReview Changes\nConfirm Access Changes\n×\nEMPLOYEE\nProtected Peer Supervisor\nDesignation:\nSupervisor → Supervisor (Custom)\nWork Access:\nFull Office Access\nInward Dak Registry:\nCan Register Inward Dak\nLand Records:\nView + Write\n⚠️ Saving changes will invalidate current active sessions for this employee.\nCancel\nConfirm Changes",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "20-existing-account-effective-review.jpg"
+  },
+  {
+    "name": "21-final-binary-adm-hierarchy",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAA\nAudit ADM\nAdditional District Magistrate\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit ADM\naudit.adm\n\tAdditional District Magistrate\tOffice Administrator\tFull Office Access\t\nActive\tView Details\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nPS\nProtected Peer Supervisor\naudit.peer.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n4 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAH\nAudit Modal Helper\naudit.modal.helper\nAttached to Audit Court Officer\n\tData Entry Operator\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "21-final-binary-adm-hierarchy.jpg"
+  },
+  {
+    "name": "22-adm-parent-bound-helper-editor",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-COPajfdd.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAttention\nAA\nAudit ADM\nAdditional District Magistrate\nADMINISTRATION:\nOfficers & Staff\nOffice / Desk Configuration\nWork Catalog\nAttached DEOs\nAudit Trail\nOfficers & Staff Directory\n\nAuthorized office authority tiers, operational seats and attached Helpers beneath their supervising officers.\n\n+ Create Officer / Staff\nAll Authorities\nOffice Administrator\nOffice Supervisor\nOrdinary Officers\nHelpers & Assistants\nTechnical Administrators\nAll Statuses\nActive\nInactive\nEMPLOYEE\tDESIGNATION\tAUTHORITY\tWORK ACCESS\tSTATUS\tDETAILS\n\nAA\nAudit ADM\naudit.adm\n\tAdditional District Magistrate\tOffice Administrator\tFull Office Access\t\nActive\tView Details\n\nAS\nAudit Supervisor\naudit.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nPS\nProtected Peer Supervisor\naudit.peer.supervisor\n\tSupervisor\tOffice Supervisor\tFull Office Access\t\nActive\tView Details\n\nAO\nAudit Court Officer\naudit.officer\n4 attached helpers\n\tCourt Officer\tOfficer / Staff\tCourt · Land View\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.none\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.ro\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · None\t\nActive\tView Details\n\nAH\nAudit Attached Helper\naudit.helper.rw\nAttached to Audit Court Officer\n\tAssistant\tHelper\tAssistant · Read + Write\t\nActive\tView Details\n\nAH\nAudit Modal Helper\naudit.modal.helper\nAttached to Audit Court Officer\n\tData Entry Operator\tHelper\tAssistant · Read Only\t\nActive\tView Details\n\nAO\nAudit Empty Officer\naudit.empty\n\tOfficer\tOfficer / Staff\tNo Assigned Work\t\nActive\tView Details\n\nAO\nAudit Matter Officer\naudit.selected\n\tDealing Officer\tOfficer / Staff\tDak & Matters · Land View\t\nActive\tView Details\nEdit Account — audit.officer\n\nUpdate designation, operational access, seat, or attached assistants.\n\n×\nSECTION 1 — EMPLOYEE IDENTITY\nFull Name *\nCivil Designation *\n← Use standard designation\nOffice Supervisor\nSupervisor receives full operational access and can oversee case matters, staff and helpers.\nSECTION 3 — WORK ACCESS MODULES\nDak & Matters\nWork on Dak/files, noting, drafts and outward action.\nCourt\nManage Court cases, orders, hearings and documents.\nRTI\nHandle RTI applications and official responses.\nAccounts\nHandle Accounts and compensation-support work.\nRecord Room\nHandle physical record/file custody.\nSECTION 4 — ADDITIONAL CAPABILITIES\nCan Register Inward Dak\nRegister new incoming Dak receipts and assign first marking.\nLand Records Access\nNone\nView Only\nView + Write\nSECTION 5 — OPERATIONAL SEAT & DESKS\nPrimary Dealing Seat\n-- No Specific Seat Assigned --\nAdditional Active Desks\n+ Add another desk…\nSECTION 6 — ATTACHED ASSISTANTS\nAdd Assistant\nAudit Attached Helper (audit.helper.none)\nAssistant · Active · None\nEdit Access\nReset\nDeactivate\nAudit Attached Helper (audit.helper.ro)\nAssistant · Active · None\nEdit Access\nReset\nDeactivate\nAudit Attached Helper (audit.helper.rw)\nAssistant · Active · Read + Write\nEdit Access\nReset\nDeactivate\nAudit Modal Helper (audit.modal.helper)\nData Entry Operator · Active · Read Only\nEdit Access\nReset\nDeactivate\nEdit Assistant Access: Audit Attached Helper (audit.helper.none)\nAccess Level\nNone\nRead Only\nRead + Write\nDesk / Seat\n-- No Specific Seat --\nCancel\nSave Assistant Access\nCancel\nReview Changes",
+    "url": "http://127.0.0.1:5194/admin/users",
+    "width": 1366,
+    "screenshot": "22-adm-parent-bound-helper-editor.jpg"
+  },
+  {
+    "name": "23-final-matter-production-asset",
+    "passed": true,
+    "height": 768,
+    "scale": 1,
+    "scripts": [
+      "http://127.0.0.1:5194/assets/index-CNFStSWR.js"
+    ],
+    "text": "LAC\nLAC Platform\nHome\nApps\nCtrl + K\nCalculator\nAC\nAudit Court Officer\nCourt Officer\nLAND RECORDS:\nOverview\nVillages\nAwards\nHome\n/\nSouth West Delhi\n/\nMatiala\n/\nAMBAR HAI\n\nSOUTH WEST DELHI · MATIALA\n\nAMBAR HAI\n\nVillage acquisition workspace\n\n0\nKHASRAS\nOverview\nKhasras\nAwards / Core\nMatters\nMatters\nActive acquisition matters, court cases, and compensation files for this village.\nYou can view authorized matters. Creation requires an assigned workstream and permission.\nNo matters created for this village yet\nAn authorized officer can register matters for this village.",
+    "width": 1366,
+    "url": "http://127.0.0.1:5194/villages/4492bd74-3981-4d18-9300-ec7c797da2f1?section=matters",
+    "screenshot": "23-final-matter-production-asset.jpg"
+  }
+]

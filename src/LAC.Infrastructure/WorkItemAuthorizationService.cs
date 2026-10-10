@@ -575,7 +575,7 @@ public sealed class WorkItemAuthorizationService(LacDbContext db) : IWorkItemAut
             .Select(c => c.UserId)
             .ToListAsync(ct);
 
-        var usersQuery = db.AppUsers.AsNoTracking()
+        var usersQuery = (await OfficeDirectoryPolicy.ScopeAsync(db, callerUserId, ct))
             .Include(u => u.Designation)
             .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active && !activeContributorUserIds.Contains(u.Id));
 

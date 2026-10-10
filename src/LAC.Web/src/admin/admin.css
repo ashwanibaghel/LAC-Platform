@@ -933,6 +933,20 @@
   animation: rbacPopIn 0.15s ease-out;
 }
 
+.rbac-helper-modal > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.rbac-helper-modal .rbac-modal-body { min-height: 0; background: #fff; }
+.rbac-helper-row td:first-child { padding-left: 44px; border-left: 3px solid #cbd5e1; }
+.rbac-recovery { background: #fff; border: 1px solid #cbd5e1; padding: 16px; border-radius: 10px; }
+.rbac-recovery summary { cursor: pointer; font-weight: 600; }
+.rbac-recovery form, .rbac-recovery > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.rbac-recovery label { display: flex; flex-direction: column; gap: 6px; }
+.rbac-recovery input { min-height: 40px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+
 @keyframes rbacPopIn {
   from { transform: scale(0.97); opacity: 0; }
   to { transform: scale(1); opacity: 1; }

@@ -211,7 +211,7 @@ public sealed class RbacTests : IClassFixture<RbacFactory>
         // Attempt remove role from last active admin
         var demoteReq = new UpdateUserRequest("Admin", null, [], null, null);
         var res4 = await client.PutAsJsonAsync($"/api/admin/users/{bootstrapAdminId}", demoteReq);
-        Assert.Equal(HttpStatusCode.BadRequest, res4.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, res4.StatusCode);
     }
 
     [Fact]

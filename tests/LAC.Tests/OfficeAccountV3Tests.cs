@@ -49,8 +49,9 @@ public sealed class OfficeAccountV3Tests
         }
         public async Task<int> Revision(HttpClient admin, Guid id)
         {
-            var detail = await admin.GetFromJsonAsync<JsonElement>($"/api/office/accounts/{id}");
-            return detail.GetProperty("revision").GetInt32();
+            // Test-only revision lookup: System Admin no longer browses office accounts.
+            using var scope = Factory.Services.CreateScope();
+            return (await scope.ServiceProvider.GetRequiredService<LacDbContext>().AppUsers.AsNoTracking().SingleAsync(u => u.Id == id)).OfficeRevision;
         }
         public void Dispose() => Factory.Dispose();
     }
@@ -156,8 +157,9 @@ public sealed class OfficeAccountV3Tests
         var me = (await client.GetFromJsonAsync<CurrentUserResponse>("/api/auth/me"))!;
         Assert.Equal("Office Support Officer", me.Designation!.Name); Assert.Equal("CUSTOM", me.Designation.Code);
         Assert.Equal("STANDARD_OFFICER", (await client.GetFromJsonAsync<JsonElement>("/api/office/me")).GetProperty("authority").GetString());
-        Assert.Equal("Office Support Officer", (await admin.GetFromJsonAsync<UserDetailResponse>($"/api/admin/users/{custom.Id}"))!.Designation!.Name);
-        Assert.Contains((await admin.GetFromJsonAsync<List<UserListItem>>("/api/admin/users"))!, u => u.Id == custom.Id && u.Designation?.Name == "Office Support Officer");
+        Assert.Equal(HttpStatusCode.Forbidden, (await admin.GetAsync($"/api/admin/users/{custom.Id}")).StatusCode);
+        Assert.DoesNotContain((await admin.GetFromJsonAsync<List<UserListItem>>("/api/admin/users"))!, u => u.Id == custom.Id);
+        Assert.Equal("Office Support Officer", (await client.GetFromJsonAsync<JsonElement>("/api/office/me")).GetProperty("effectiveDesignation").GetString());
         foreach (var text in new[] { "\nForged", new string('x', 201) })
             Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/office/accounts", new CreateOfficeAccountRequest($"invalid_{Guid.NewGuid():N}", Input() with { CustomDesignation = text }))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync("/api/office/accounts", new CreateOfficeAccountRequest($"invalid_{Guid.NewGuid():N}", Input(designation: await h.Designation("ADM")) with { CustomDesignation = "Other" }))).StatusCode);

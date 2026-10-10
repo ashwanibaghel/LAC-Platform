@@ -49,7 +49,12 @@ public static class CourtEndpoints
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
             if (!await courtAuth.CanCreateCourtCaseAsync(currentUser.UserId.Value, ct) || !await courtAuth.CanViewCourtReferencesAsync(currentUser.UserId.Value, ct)) return Results.Forbid();
-            var form = await request.ReadFormAsync(ct); var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+            if (!request.HasFormContentType) return Results.BadRequest(new { error = "A multipart .xlsx workbook request is required." });
+            IFormCollection form;
+            try { form = await request.ReadFormAsync(ct); }
+            catch (Exception ex) when (ex is InvalidDataException or BadHttpRequestException)
+            { return Results.BadRequest(new { error = "The multipart workbook request is malformed." }); }
+            var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
             if (file is null || file.Length == 0) return Results.BadRequest(new { error = "An .xlsx workbook is required." });
             try { await using var stream=file.OpenReadStream(); var batch=await imports.StageAsync(stream,file.FileName,file.ContentType,currentUser.UserId.Value,ct); return Results.Created($"/api/court-cases/imports/{batch.Id}",batch); }
             catch (CourtWorkflowException ex) { return ToProblem(ex); }

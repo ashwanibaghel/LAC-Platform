@@ -136,7 +136,7 @@ public sealed class BootstrapAdminIdentityTests
         await AssertTechnicalAdmin(bootstrap);
         Assert.Equal(HttpStatusCode.OK, (await bootstrap.GetAsync("/api/admin/users")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await bootstrap.PostAsync($"/api/admin/users/{SeedData.BootstrapAdminId}/toggle-status", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await bootstrap.PutAsJsonAsync($"/api/admin/users/{SeedData.BootstrapAdminId}", new UpdateUserRequest("Test Administrator", null, [], null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await bootstrap.PutAsJsonAsync($"/api/admin/users/{SeedData.BootstrapAdminId}", new UpdateUserRequest("Test Administrator", null, [], null, null))).StatusCode);
 
         var technicalName = $"technical_{Guid.NewGuid():N}";
         var technicalPassword = TestCredentials.NewPassword();
@@ -175,11 +175,12 @@ public sealed class BootstrapAdminIdentityTests
         Assert.Equal(HttpStatusCode.OK, (await second.PostAsync($"/api/admin/users/{SeedData.BootstrapAdminId}/toggle-status", null)).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await bootstrap.GetAsync("/api/admin/users")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await second.PostAsync($"/api/admin/users/{secondId}/toggle-status", null)).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await second.PutAsJsonAsync($"/api/admin/users/{secondId}", new UpdateUserRequest("Technical administrator", null, [], null, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await second.PutAsJsonAsync($"/api/admin/users/{secondId}", new UpdateUserRequest("Technical administrator", null, [], null, null))).StatusCode);
         using var finalScope = factory.Services.CreateScope();
         var finalDb = finalScope.ServiceProvider.GetRequiredService<LacDbContext>();
         Assert.False((await finalDb.AppUsers.SingleAsync(u => u.Id == SeedData.BootstrapAdminId)).IsActive);
         Assert.True((await finalDb.AppUsers.SingleAsync(u => u.Id == secondId)).IsActive);
+        Assert.True(await finalDb.UserRoles.AnyAsync(r => r.UserId == secondId && r.Role.Code == "SYSTEM_ADMIN"));
         Assert.True(await finalDb.AuditLogs.AnyAsync(a => a.ActorUserId == secondId && a.EntityId == officerId));
     }
 }

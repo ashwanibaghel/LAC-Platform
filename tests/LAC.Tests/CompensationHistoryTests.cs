@@ -179,12 +179,16 @@ public sealed class CompensationHistoryTests : IClassFixture<HistoryPostgresFixt
 }
 public sealed class HistoryPostgresFixture : IAsyncLifetime
 {
-    private const string Server="Host=127.0.0.1;Port=55440;Database=postgres;Username=postgres;Pooling=false";
+    private static string Server => Environment.GetEnvironmentVariable("LAC_HISTORY_TEST_SERVER")
+        ?? "Host=127.0.0.1;Port=55440;Database=postgres;Username=postgres;Pooling=false";
     private readonly string name=$"lac_comp_history_test_{Guid.NewGuid():N}";
     public string Connection {get;private set;}="";
     public HistoryFactory Factory {get;private set;}=null!;
     public LacDbContext Db()=>new(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(Connection).Options);
     public async Task InitializeAsync(){
+        var destination=new NpgsqlConnectionStringBuilder(Server);
+        if(destination.Host!="127.0.0.1" || destination.Database!="postgres" || destination.Port is not (55440 or 55442))
+            throw new InvalidOperationException("History tests require a disposable loopback admin server on 55440 or 55442.");
         await using var admin=new NpgsqlConnection(Server);await admin.OpenAsync();await using(var create=new NpgsqlCommand($"CREATE DATABASE \"{name}\"",admin))await create.ExecuteNonQueryAsync();
         var builder=new NpgsqlConnectionStringBuilder(Server){Database=name};Connection=builder.ConnectionString;
         await using var db=Db();await db.Database.MigrateAsync();

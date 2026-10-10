@@ -178,7 +178,7 @@ public sealed class ActivityProjectionService(
                 .Select(d => new FilterOptionDto(d.Id, d.Name))
                 .ToListAsync(ct);
 
-            actors = await db.AppUsers.AsNoTracking()
+            actors = await (await OfficeDirectoryPolicy.ScopeAsync(db, userId, ct))
                 .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active)
                 .OrderBy(u => u.DisplayName)
                 .Select(u => new FilterOptionDto(u.Id, u.DisplayName))
@@ -222,7 +222,7 @@ public sealed class ActivityProjectionService(
                 .Select(d => new FilterOptionDto(d.Id, d.Name))
                 .ToListAsync(ct);
 
-            var actorQuery = db.AppUsers.AsNoTracking()
+            var actorQuery = (await OfficeDirectoryPolicy.ScopeAsync(db, userId, ct))
                 .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active
                          && (db.UserWorkstreamMemberships.Any(wm => wm.UserId == u.Id && wm.IsActive && callerWsIds.Contains(wm.WorkstreamId))
                              || db.UserDeskMemberships.Any(dm => dm.UserId == u.Id && dm.IsActive && dm.RemovedAt == null && dm.RecordStatus == RecordStatus.Active && callerDeskIds.Contains(dm.OfficeDeskId))));

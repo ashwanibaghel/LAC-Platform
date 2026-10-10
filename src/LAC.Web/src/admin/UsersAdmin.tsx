@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   FileText,
   Scale,
@@ -26,6 +27,7 @@ import type {
   OfficeAccountOptions,
 } from "./officeV3Types";
 import "./admin.css";
+import { directoryHierarchy, helperAccessLabel } from "./directoryHierarchy";
 import { isCanonicalAdmSelection, getCreateConfirmationAuthority, getEffectiveAccessSummary, effectiveAccessSummaryItems, effectiveAccessChanges } from "./effectiveAccessConfirmation";
 
 const ALL_MODULES: { code: OfficeModule; label: string; description: string }[] = [
@@ -365,6 +367,7 @@ const getInitials = (name: string): string => {
 };
 
 export const UsersAdmin: React.FC = () => {
+  const navigate = useNavigate();
   const [accounts, setAccounts] = useState<OfficeAccountDetail[]>([]);
   const [options, setOptions] = useState<OfficeAccountOptions | null>(null);
   const [loading, setLoading] = useState(true);
@@ -496,7 +499,7 @@ export const UsersAdmin: React.FC = () => {
   const openCreateOfficerModal = () => {
     setNewUsername("");
     setNewFullName("");
-    setNewDesignationId("");
+    setNewDesignationId(options?.authority === "SYSTEM_ADMIN" ? options.designations.find(designation => designation.code === "ADM")?.id || "" : "");
     setIsCustomDesignationMode(false);
     setNewCustomDesignation("");
     setNewIsSupervisor(false);
@@ -1176,8 +1179,7 @@ export const UsersAdmin: React.FC = () => {
       return "Full Office Access";
     }
     if (account.authority === "HELPER") {
-      const hasWrite = account.helperPermissionCodes?.some((c) => !c.endsWith(".View"));
-      return hasWrite ? "Assistant · Read + Write" : "Assistant · Read Only";
+      return `Assistant · ${helperAccessLabel(account.helperPermissionCodes)}`;
     }
 
     const parts: string[] = [];
@@ -1274,13 +1276,13 @@ export const UsersAdmin: React.FC = () => {
       {/* Top Header */}
       <div className="rbac-header-row">
         <div className="rbac-header-title">
-          <h1>Officers &amp; Staff Directory</h1>
-          <p>Government office staff directory, operational seat assignments, and work modules.</p>
+          <h1>{options?.authority === "SYSTEM_ADMIN" ? "Technical Administrators" : "Officers & Staff Directory"}</h1>
+          <p>{options?.authority === "SYSTEM_ADMIN" ? "Technical accounts only. Office provisioning and exact-username recovery are separate." : "Authorized office authority tiers, operational seats and attached Helpers beneath their supervising officers."}</p>
         </div>
 
         <div className="rbac-actions-group">
           <button className="rbac-btn-primary" onClick={openCreateOfficerModal} disabled={loading}>
-            <Plus size={16} /> + Create Officer / Staff
+            <Plus size={16} /> {options?.authority === "SYSTEM_ADMIN" ? "Provision ADM" : "+ Create Officer / Staff"}
           </button>
 
           {options?.authority === "SYSTEM_ADMIN" && (
@@ -1300,6 +1302,7 @@ export const UsersAdmin: React.FC = () => {
         </div>
       </div>
 
+      {options?.authority === "SYSTEM_ADMIN" && <Link className="rbac-btn-outline" to="/admin/technical-recovery">Technical Recovery</Link>}
       {/* Error Banner */}
       {error && (
         <div style={{ background: "#fef2f2", border: "1px solid #fecaca", padding: "12px 18px", borderRadius: "10px", color: "#991b1b", fontSize: "13.5px" }}>
@@ -1378,13 +1381,13 @@ export const UsersAdmin: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredAccounts.map((u) => {
+              {directoryHierarchy(accounts, filteredAccounts).map((u) => {
                 const attachedHelpers = attachedHelpersMap.get(u.id) || [];
                 const isTechAdmin = u.authority === "SYSTEM_ADMIN" && !u.designationId && !u.customDesignation;
                 const workSummary = getWorkAccessSummary(u);
 
                 return (
-                  <tr key={u.id}>
+                  <tr key={u.id} className={u.supervisingOfficerId ? "rbac-helper-row" : undefined}>
                     {/* 1. Employee */}
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -1408,7 +1411,7 @@ export const UsersAdmin: React.FC = () => {
                           )}
                           {u.supervisingOfficerId && (
                             <div style={{ fontSize: "11px", color: "#854d0e", background: "#fef9c3", padding: "1px 6px", borderRadius: "4px", display: "inline-block", marginTop: "3px", fontWeight: 500 }}>
-                              Attached Helper
+                              Attached to {accounts.find(a => a.id === u.supervisingOfficerId)?.fullName || "Supervising Officer"}
                             </div>
                           )}
                         </div>
@@ -1625,30 +1628,35 @@ export const UsersAdmin: React.FC = () => {
               </div>
 
               {/* Section 6: Action Buttons */}
-              <div style={{ marginTop: "4px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              {(selectedDrawerOfficer.capabilities?.canEdit || selectedDrawerOfficer.capabilities?.canToggleStatus) && <div style={{ marginTop: "4px", display: "flex", flexDirection: "column", gap: "10px" }}>
                 <div style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", color: "#475569", letterSpacing: "0.04em" }}>
                   Account Actions
                 </div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                  <button
+                  {selectedDrawerOfficer.capabilities?.canEdit && <button
                     type="button"
                     className="rbac-btn-sm rbac-btn-primary"
-                    onClick={() => {
+                    onClick={async () => {
                       const target = selectedDrawerOfficer;
                       setSelectedDrawerOfficer(null);
-                      void openEditDrawer(target);
+                      if (target.supervisingOfficerId) {
+                        const parent = accounts.find(account => account.id === target.supervisingOfficerId);
+                        if (!parent?.capabilities?.canEdit) { navigate("/my-helpers"); return; }
+                        await openEditDrawer(parent);
+                        openEditHelperAccess(target);
+                      } else await openEditDrawer(target);
                     }}
                   >
-                    <Pencil size={14} /> Edit Account
-                  </button>
+                    <Pencil size={14} /> {selectedDrawerOfficer.supervisingOfficerId ? "Edit Helper Access" : "Edit Account"}
+                  </button>}
 
-                  <button
+                  {selectedDrawerOfficer.capabilities?.canResetCredential && <button
                     type="button"
                     className="rbac-btn-sm rbac-btn-outline"
                     onClick={() => handleResetCredentialClick(selectedDrawerOfficer)}
                   >
                     <KeyRound size={14} /> Reset Password
-                  </button>
+                  </button>}
 
                   <button
                     type="button"
@@ -1672,7 +1680,7 @@ export const UsersAdmin: React.FC = () => {
                     </button>
                   )}
                 </div>
-              </div>
+              </div>}
             </div>
 
             <div className="rbac-drawer-footer">
@@ -1750,7 +1758,7 @@ export const UsersAdmin: React.FC = () => {
 
                     {/* Right: Civil Designation with Custom Mode */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <DesignationCombobox
+                      {options?.authority === "SYSTEM_ADMIN" ? <div className="rbac-form-group"><label>Civil Designation</label><strong>Additional District Magistrate</strong></div> : <DesignationCombobox
                         value={newDesignationId}
                         onChange={(val) => {
                           setNewDesignationId(val);
@@ -1764,7 +1772,7 @@ export const UsersAdmin: React.FC = () => {
                         customValue={newCustomDesignation}
                         onCustomChange={(val) => setNewCustomDesignation(val)}
                         placeholder="-- Select Civil Designation --"
-                      />
+                      />}
 
                       {isSelectedDesignationAdm && options?.authority === "SYSTEM_ADMIN" && (
                         <div className="rbac-adm-notice">
@@ -2520,7 +2528,7 @@ export const UsersAdmin: React.FC = () => {
                           <div>
                             <strong>{h.fullName}</strong> <span style={{ color: "#64748b", fontFamily: "monospace", fontSize: "12px" }}>({h.username})</span>
                             <div style={{ fontSize: "11.5px", color: "#64748b", marginTop: "2px" }}>
-                              {h.effectiveDesignation || "DEO"} · {h.isActive ? "Active" : "Inactive"} · {h.helperPermissionCodes?.some((c) => !c.endsWith(".View")) ? "Read + Write" : "Read Only"}
+                              {h.effectiveDesignation || "DEO"} · {h.isActive ? "Active" : "Inactive"} · {helperAccessLabel(h.helperPermissionCodes)}
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: "6px" }}>
@@ -2958,9 +2966,8 @@ export const UsersAdmin: React.FC = () => {
                   Temporary Password
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
-                  <code style={{ fontSize: "18px", fontWeight: 700, color: "#1e3a8a", background: "#ffffff", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: 1, letterSpacing: "0.05em" }}>
-                    {credentialData.temporaryCredential}
-                  </code>
+                  <input aria-label="Temporary credential" type="password" readOnly autoComplete="off" value={credentialData.temporaryCredential}
+                    style={{ fontSize: "18px", color: "#1e3a8a", background: "#fff", padding: "8px 12px", borderRadius: "8px", border: "1px solid #cbd5e1", flex: 1, minWidth: 0 }} />
                   <button type="button" className="rbac-btn-outline" onClick={copyCredentialToClipboard} style={{ padding: "8px 14px" }}>
                     {copiedNotice ? "Copied! ✓" : "Copy"}
                   </button>

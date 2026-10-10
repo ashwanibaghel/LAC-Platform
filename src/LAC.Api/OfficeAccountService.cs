@@ -78,10 +78,14 @@ public sealed class OfficeAccountService(LacDbContext db, IPasswordHasher<AppUse
             if (level == OfficeAuthority.SYSTEM_ADMIN) throw new AllocationException(400, "Technical SYSTEM_ADMIN and official ADM are separate identities.");
             level = OfficeAuthority.OFFICE_ADMIN;
         }
+        if (caller != OfficeAuthority.SYSTEM_ADMIN && input.DesignationId.HasValue
+            && await db.Designations.AnyAsync(d => d.Id == input.DesignationId && d.Code == "ADM", ct))
+            throw new AllocationException(403, "The canonical ADM designation can only be assigned by a System Administrator. Custom titles never change authority.");
         if (!creating && await OfficeAuthorityService.GetAsync(db, user.Id, ct, true) == OfficeAuthority.SYSTEM_ADMIN
             && level != OfficeAuthority.SYSTEM_ADMIN && !await db.UserRoles.AnyAsync(r => r.UserId != user.Id && r.Role.Code == "SYSTEM_ADMIN"
                 && r.Role.IsActive && r.Role.RecordStatus == RecordStatus.Active && r.User.IsActive && r.User.RecordStatus == RecordStatus.Active, ct))
             throw new AllocationException(400, "Cannot demote the last active System Administrator.");
+        if (!creating && actor == user.Id) throw new AllocationException(403, "Use your own profile and password-change flow; administrative self edits are protected.");
         user.DisplayName = Clean(input.FullName, 200, "full name");
         await ValidateDesignation(user, input.DesignationId, input.CustomDesignation, false, ct);
         var desks = input.DeskIds.Distinct().ToList();
@@ -188,10 +192,18 @@ public sealed class OfficeAccountService(LacDbContext db, IPasswordHasher<AppUse
     public async Task<object> Detail(Guid id, CancellationToken ct)
     {
         var user = await db.AppUsers.AsNoTracking().Include(u => u.Designation).SingleAsync(u => u.Id == id, ct);
+        var authority = await OfficeAuthorityService.GetAsync(db, id, ct);
+        var full = authority >= OfficeAuthority.OFFICE_SUPERVISOR;
+        var actor = db.CurrentUser?.UserId;
+        var canManage = actor.HasValue && await OfficeDirectoryPolicy.CanActAsync(db, actor.Value, id, ct);
         return new { user.Id, user.Username, fullName = user.DisplayName, user.DesignationId, user.CustomDesignation,
-            effectiveDesignation = user.CustomDesignation ?? user.Designation?.Name, authority = await OfficeAuthorityService.GetAsync(db, id, ct),
-            user.OfficeAccessManaged, user.IsActive, user.LandAccess, user.CanRegisterInwardDak, user.SupervisingOfficerId,
-            user.AssistantRevision, revision = user.OfficeRevision, modules = await db.OfficeModuleMemberships.Where(m => m.UserId == id && m.RecordStatus == RecordStatus.Active).Select(m => m.Module).ToListAsync(ct),
+            effectiveDesignation = user.CustomDesignation ?? user.Designation?.Name, authority,
+            user.OfficeAccessManaged, user.IsActive, landAccess = full ? LandAccessLevel.ViewWrite : user.LandAccess,
+            canRegisterInwardDak = full || user.CanRegisterInwardDak, user.SupervisingOfficerId,
+            capabilities = new { canEdit = canManage && (!user.SupervisingOfficerId.HasValue || user.IsActive), canResetCredential = canManage && user.IsActive, canToggleStatus = canManage,
+                canAddHelper = user.IsActive && !user.SupervisingOfficerId.HasValue && canManage },
+            user.AssistantRevision, revision = user.OfficeRevision, modules = full ? Enum.GetValues<OfficeModule>().ToList()
+                : await db.OfficeModuleMemberships.Where(m => m.UserId == id && m.RecordStatus == RecordStatus.Active).Select(m => m.Module).ToListAsync(ct),
             helperPermissionCodes = user.SupervisingOfficerId.HasValue ? await db.AssistantPermissionLimits.Where(l => l.UserId == id).Select(l => l.Permission.Code).ToListAsync(ct) : null,
             deskIds = await db.UserDeskMemberships.Where(m => m.UserId == id && m.IsActive && m.RemovedAt == null && m.RecordStatus == RecordStatus.Active).Select(m => m.OfficeDeskId).ToListAsync(ct) };
     }

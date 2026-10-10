@@ -44,8 +44,8 @@ public sealed class OfficeAccountV3PostgresTests(OfficeV3PostgresSchema schema) 
     private async Task WithDatabase(Func<string, Task> proof, bool emptySchema = false)
     {
         var configured = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("LAC_RBAC_TEST_SERVER"));
-        if (configured.Host != "127.0.0.1" || configured.Port != 55438 || configured.Database != "postgres")
-            throw new InvalidOperationException("V3 tests require the dedicated disposable loopback PostgreSQL server on port 55438.");
+        if (configured.Host != "127.0.0.1" || configured.Port != 55442 || configured.Database != "postgres")
+            throw new InvalidOperationException("V3 tests require the dedicated disposable loopback PostgreSQL server on port 55442.");
         var name = $"lac_rbac_v3_test_{Guid.NewGuid():N}";
         await using var server = new NpgsqlConnection(configured.ConnectionString); await server.OpenAsync();
         var template = emptySchema ? "" : $" TEMPLATE \"{schema.TemplateName}\"";
@@ -72,6 +72,14 @@ public sealed class OfficeAccountV3PostgresTests(OfficeV3PostgresSchema schema) 
     [RbacPostgresFact] public Task Idempotent_preset_seeding() => Run(t => t.Seeding_is_idempotent_and_legacy_land_to_court_migration_never_expands_office_presets());
     [RbacPostgresFact] public Task System_handover_and_last_active_admin() => Run(t => t.System_admin_handover_promotion_and_last_active_protection_remain_role_based());
     [RbacPostgresFact] public Task Helper_response_scope_ceiling() => Run(t => t.Helper_current_user_contract_reports_parent_scope_instead_of_all_scope());
+    private Task Consolidated(Func<OfficeConsolidatedTests,Task> test) => WithDatabase(connection => test(new OfficeConsolidatedTests { NewFactory=()=>new Factory(connection) }));
+    [RbacPostgresFact] public Task Consolidated_directory_isolation() => Consolidated(t=>t.Directory_and_guessed_profiles_are_scoped_for_every_authority());
+    [RbacPostgresFact] public Task Consolidated_provisioning_recovery() => Consolidated(t=>t.Technical_directory_retains_one_time_ADM_provisioning_and_exact_credential_recovery());
+    [RbacPostgresFact] public Task Consolidated_canonical_custom_designation() => Consolidated(t=>t.Canonical_ADM_is_reserved_but_custom_ADM_never_escalates());
+    [RbacPostgresFact] public Task Consolidated_parent_ceilings() => Consolidated(t=>t.Helpers_obey_live_parent_permission_workstream_allocation_and_land_ceilings());
+    [RbacPostgresFact] public Task Consolidated_malformed_import() => Consolidated(t=>t.Court_import_malformed_requests_never_crash_and_readonly_authorization_runs_first());
+    [RbacPostgresFact] public Task Consolidated_effective_system_details() => Consolidated(t=>t.Legacy_System_Admin_details_show_effective_operations_and_protected_self_actions());
+    [RbacPostgresFact] public Task Consolidated_parent_stream_allocation_revocation() => Consolidated(t=>t.Parent_workstream_and_allocation_revocation_invalidate_child_without_child_edit());
 
     [RbacPostgresFact]
     public Task Concurrent_admin_deactivations_keep_one_active_system_administrator() => WithDatabase(async connection =>
@@ -141,8 +149,8 @@ public sealed class OfficeV3PostgresSchema : IAsyncLifetime
         var configured = Environment.GetEnvironmentVariable("LAC_RBAC_TEST_SERVER");
         if (string.IsNullOrWhiteSpace(configured)) return;
         var cs = new NpgsqlConnectionStringBuilder(configured);
-        if (cs.Host != "127.0.0.1" || cs.Port != 55438 || cs.Database != "postgres")
-            throw new InvalidOperationException("V3 schema template requires dedicated loopback test server 55438.");
+        if (cs.Host != "127.0.0.1" || cs.Port != 55442 || cs.Database != "postgres")
+            throw new InvalidOperationException("V3 schema template requires dedicated loopback test server 55442.");
         cs.Pooling = false; server = cs.ConnectionString;
         TemplateName = $"lac_rbac_v3_template_{Guid.NewGuid():N}";
         await using var admin = new NpgsqlConnection(server); await admin.OpenAsync();

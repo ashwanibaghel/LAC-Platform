@@ -223,7 +223,7 @@ public static partial class DakEndpoints
                 .Select(d => new { id = d.Id, code = d.Code, name = d.Name, isActive = d.IsActive })
                 .ToListAsync(ct);
 
-            var handlers = await db.AppUsers.AsNoTracking()
+            var handlers = await (await OfficeDirectoryPolicy.ScopeAsync(db, currentUser.UserId.Value, ct))
                 .Where(u => u.IsActive && u.RecordStatus == RecordStatus.Active
                     && db.UserDeskMemberships.Any(m => m.UserId == u.Id && m.IsActive && m.RemovedAt == null
                         && m.RecordStatus == RecordStatus.Active && m.OfficeDesk.IsActive && m.OfficeDesk.RecordStatus == RecordStatus.Active)

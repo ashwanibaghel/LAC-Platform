@@ -895,7 +895,7 @@ public static class MatterEndpoints
         // ====================================================================
         // 9. MATTER LOOKUPS / CONTEXT
         // ====================================================================
-        matters.MapGet("/context", async (LacDbContext db, IMatterAuthorizationService matterAuth,
+        matters.MapGet("/context", async (Guid? villageId, LacDbContext db, IMatterAuthorizationService matterAuth, WorkAllocationService allocations,
             ICurrentUserContext currentUser, CancellationToken ct) =>
         {
             if (!currentUser.UserId.HasValue) return Results.Unauthorized();
@@ -903,7 +903,9 @@ public static class MatterEndpoints
                 return Results.Forbid();
             var workstreams = new List<object>();
             foreach (var ws in await db.Workstreams.AsNoTracking().Where(x => x.IsActive && x.RecordStatus == RecordStatus.Active).OrderBy(x => x.Name).ToListAsync(ct))
-                if (await matterAuth.CanCreateMatterInWorkstreamAsync(ws.Id, currentUser.UserId.Value, ct))
+                if (await matterAuth.CanCreateMatterInWorkstreamAsync(ws.Id, currentUser.UserId.Value, ct)
+                    && (!await db.AppUsers.AnyAsync(u => u.Id == currentUser.UserId && (u.OfficeAccessManaged || u.SupervisingOfficerId != null), ct)
+                        || await allocations.CanWorkAsync(currentUser.UserId.Value, null, ws.Id, villageId.HasValue ? [villageId.Value] : [], ct)))
                     workstreams.Add(new { id = ws.Id, name = ws.Name, code = ws.Code });
             return Results.Ok(new { workstreams, matterTypes = new[] { "Court Case", "Compensation", "Land Acquisition", "General", "Other" } });
         });

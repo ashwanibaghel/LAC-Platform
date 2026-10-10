@@ -12,6 +12,18 @@ public static class OfficeAccountEndpoints
         var office = api.MapGroup("/office");
         office.MapGet("/me", async (OfficeAccountService service, ICurrentUserContext current, CancellationToken ct) =>
             Results.Ok(await service.Detail(current.UserId!.Value, ct)));
+        office.MapGet("/me/capabilities", async (ICourtAuthorizationService court, WorkAllocationService allocations,
+            AccessControlService access, LacDbContext db, ICurrentUserContext actor, CancellationToken ct) =>
+        {
+            var id = actor.UserId!.Value;
+            var account = await db.AppUsers.AsNoTracking().SingleAsync(u => u.Id == id, ct);
+            var allocated = !account.OfficeAccessManaged && !account.SupervisingOfficerId.HasValue
+                || await allocations.CanWorkAsync(id, OperationalWorkKind.Court, null, [], ct);
+            var livePermission = await access.CanForUserAsync(id, PermissionCodes.CourtCreate,
+                new AccessResourceContext(WorkstreamCode: WorkstreamCodes.CourtReferences), ct);
+            return Results.Ok(new { canCreateCourt = allocated && livePermission && await court.CanCreateCourtCaseAsync(id, ct),
+                canImportCourt = allocated && livePermission && await court.CanCreateCourtCaseAsync(id, ct) && await court.CanViewCourtReferencesAsync(id, ct) });
+        });
         var accounts = office.MapGroup("/accounts").AddEndpointFilter(async (ctx, next) =>
         {
             var db = ctx.HttpContext.RequestServices.GetRequiredService<LacDbContext>();
@@ -26,18 +38,41 @@ public static class OfficeAccountEndpoints
                 canAssignOfficeAdmin = authority == OfficeAuthority.SYSTEM_ADMIN, canAssignSystemAdmin = authority == OfficeAuthority.SYSTEM_ADMIN,
                 authorities = Enum.GetValues<OfficeAuthority>().Where(a => a != OfficeAuthority.HELPER && OfficeAuthorityService.CanGrant(authority, a)),
                 modules = Enum.GetValues<OfficeModule>(), landAccess = Enum.GetValues<LandAccessLevel>(),
-                designations = await db.Designations.Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active).OrderBy(d => d.DisplayOrder).Select(d => new { d.Id, d.Code, d.Name }).ToListAsync(ct),
+                designations = await db.Designations.Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active
+                    && (authority == OfficeAuthority.SYSTEM_ADMIN || d.Code != "ADM")).OrderBy(d => d.DisplayOrder).Select(d => new { d.Id, d.Code, d.Name }).ToListAsync(ct),
                 desks = await db.OfficeDesks.Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active).Select(d => new { d.Id, d.Code, d.Name, d.WorkstreamId }).ToListAsync(ct) });
         });
-        accounts.MapGet("", async (LacDbContext db, OfficeAccountService service, CancellationToken ct) =>
+        accounts.MapGet("", async (LacDbContext db, OfficeAccountService service, ICurrentUserContext actor, CancellationToken ct) =>
         {
-            var ids = await db.AppUsers.Where(u => u.RecordStatus == RecordStatus.Active).OrderBy(u => u.Username).Select(u => u.Id).ToListAsync(ct);
+            var ids = await (await OfficeDirectoryPolicy.ScopeAsync(db, actor.UserId!.Value, ct)).OrderBy(u => u.Username).Select(u => u.Id).ToListAsync(ct);
             var result = new List<object>();
             foreach (var id in ids) result.Add(await service.Detail(id, ct));
             return Results.Ok(result);
         });
-        accounts.MapGet("/{id:guid}", async (Guid id, LacDbContext db, OfficeAccountService service, CancellationToken ct) =>
-            await db.AppUsers.AnyAsync(u => u.Id == id && u.RecordStatus == RecordStatus.Active, ct) ? Results.Ok(await service.Detail(id, ct)) : Results.NotFound());
+        accounts.MapGet("/{id:guid}", async (Guid id, LacDbContext db, OfficeAccountService service, ICurrentUserContext actor, CancellationToken ct) =>
+            await OfficeDirectoryPolicy.CanViewAsync(db, actor.UserId!.Value, id, ct) ? Results.Ok(await service.Detail(id, ct)) : Results.NotFound());
+        // Explicit identifier only: no office browsing, wildcard lookup, directory cache or role changes.
+        accounts.MapPost("/recovery/lookup", async (RecoveryLookup request, LacDbContext db, ICurrentUserContext actor, CancellationToken ct) =>
+        {
+            if (await OfficeAuthorityService.GetAsync(db, actor.UserId!.Value, ct) != OfficeAuthority.SYSTEM_ADMIN) return Results.Forbid();
+            var name = request.Username?.Trim().ToUpperInvariant();
+            var target = await db.AppUsers.AsNoTracking().SingleOrDefaultAsync(u => u.NormalizedUsername == name && u.RecordStatus == RecordStatus.Active, ct);
+            if (target?.Id == actor.UserId) return Results.Forbid();
+            return target is null ? Results.NotFound() : Results.Ok(new { target.Id, target.Username, fullName = target.DisplayName, target.IsActive, revision = target.OfficeRevision });
+        });
+        accounts.MapPost("/recovery/{id:guid}/reset-credential", async (Guid id, RevisionRequest request, LacDbContext db, ICurrentUserContext actor,
+            IPasswordHasher<AppUser> hasher, OfficeAccountService service, CancellationToken ct) =>
+        {
+            if (await OfficeAuthorityService.GetAsync(db, actor.UserId!.Value, ct) != OfficeAuthority.SYSTEM_ADMIN || id == actor.UserId) return Results.Forbid();
+            return await Maintain(db, actor.UserId.Value, id, request, "reset-credential", hasher, service, false, ct, true);
+        });
+        accounts.MapPost("/recovery/{id:guid}/enable", async (Guid id, RevisionRequest request, LacDbContext db, ICurrentUserContext actor,
+            IPasswordHasher<AppUser> hasher, OfficeAccountService service, CancellationToken ct) =>
+        {
+            if (await OfficeAuthorityService.GetAsync(db, actor.UserId!.Value, ct) != OfficeAuthority.SYSTEM_ADMIN || id == actor.UserId) return Results.Forbid();
+            if (!await db.AppUsers.AnyAsync(u => u.Id == id && u.RecordStatus == RecordStatus.Active && !u.IsActive, ct)) return Results.Conflict();
+            return await Maintain(db, actor.UserId.Value, id, request, "toggle-status", hasher, service, false, ct, true);
+        });
         accounts.MapPost("", async (CreateOfficeAccountRequest request, OfficeAccountService service, LacDbContext db, ICurrentUserContext actor, CancellationToken ct) =>
         {
             var created = await service.Create(actor.UserId!.Value, request, ct);
@@ -73,7 +108,9 @@ public static class OfficeAccountEndpoints
         {
             var db = ctx.HttpContext.RequestServices.GetRequiredService<LacDbContext>();
             var actor = ctx.HttpContext.RequestServices.GetRequiredService<ICurrentUserContext>().UserId!.Value;
-            return await OfficeAuthorityService.GetAsync(db, actor, ctx.HttpContext.RequestAborted) != OfficeAuthority.HELPER ? await next(ctx) : Results.Forbid();
+            var access = ctx.HttpContext.RequestServices.GetRequiredService<IAccessControlService>();
+            return await OfficeAuthorityService.GetAsync(db, actor, ctx.HttpContext.RequestAborted) != OfficeAuthority.HELPER
+                && await access.CanAsync(PermissionCodes.AssistantsManage, cancellationToken: ctx.HttpContext.RequestAborted) ? await next(ctx) : Results.Forbid();
         });
         helpers.MapGet("", async (LacDbContext db, OfficeAccountService service, ICurrentUserContext actor, CancellationToken ct) =>
         {
@@ -116,7 +153,7 @@ public static class OfficeAccountEndpoints
         return Results.Ok(await service.Detail(id, ct));
     }
     private static async Task<IResult> Maintain(LacDbContext db, Guid actor, Guid id, RevisionRequest request, string operation,
-        IPasswordHasher<AppUser> hasher, OfficeAccountService service, bool own, CancellationToken ct)
+        IPasswordHasher<AppUser> hasher, OfficeAccountService service, bool own, CancellationToken ct, bool recovery = false)
     {
         var user = await db.AppUsers.SingleOrDefaultAsync(u => u.Id == id && u.RecordStatus == RecordStatus.Active, ct);
         if (user is null || own && user.SupervisingOfficerId != actor) return Results.NotFound();
@@ -126,6 +163,7 @@ public static class OfficeAccountEndpoints
             && !await db.UserRoles.AnyAsync(r => r.UserId != id && r.Role.Code == "SYSTEM_ADMIN" && r.Role.IsActive
                 && r.Role.RecordStatus == RecordStatus.Active && r.User.IsActive && r.User.RecordStatus == RecordStatus.Active, ct))
             return Results.BadRequest(new { message = "Cannot deactivate the last active System Administrator." });
+        if (id == actor) return Results.Forbid();
         string? credential = null;
         if (operation == "toggle-status") user.IsActive = !user.IsActive;
         else
@@ -135,6 +173,8 @@ public static class OfficeAccountEndpoints
         }
         await OfficeSessionSecurity.InvalidateAsync(db, user, ct);
         await db.SaveChangesAsync(ct);
+        if (recovery) return Results.Ok(new { user.Username, user.IsActive, temporaryCredential = credential, credentialExpiresAt = user.TemporaryCredentialExpiresAt });
         return Results.Ok(new { account = await service.Detail(id, ct), temporaryCredential = credential, credentialExpiresAt = user.TemporaryCredentialExpiresAt });
     }
 }
+public sealed record RecoveryLookup(string Username);

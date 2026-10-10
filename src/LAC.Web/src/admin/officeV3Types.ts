@@ -45,6 +45,7 @@ export interface OfficeAccountOptions {
 }
 
 export interface OfficeAccountDetail {
+  capabilities?: { canEdit: boolean; canResetCredential: boolean; canToggleStatus: boolean; canAddHelper: boolean };
   id: string;
   username: string;
   fullName: string;

@@ -2428,8 +2428,22 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         ));
         Assert.Equal(HttpStatusCode.BadRequest, resAddOwn.StatusCode);
 
-        // 3. Query contributor options -> includes eligible user, excludes view-only, update-only, and own-scope
-        var resOptions = await adminClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
+        // Technical search excludes office identities; a permitted office supervisor can discover staff.
+        var technicalOptions = await adminClient.GetFromJsonAsync<JsonElement>($"/api/work-items/{workItemId}/contributor-options");
+        Assert.DoesNotContain(eligibleUserId, technicalOptions.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()));
+        var officeName = "options-supervisor-" + Guid.NewGuid().ToString("N");
+        var officePassword = TestCredentials.NewPassword();
+        using (var officeScope = _factory.Services.CreateScope()) {
+            var db = officeScope.ServiceProvider.GetRequiredService<LacDbContext>();
+            var office = new AppUser { Username=officeName, NormalizedUsername=officeName.ToUpperInvariant(), DisplayName="Options supervisor", IsActive=true };
+            office.PasswordHash=new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>().HashPassword(office,officePassword);
+            db.AppUsers.Add(office); db.UserRoles.Add(new UserRole {UserId=office.Id,RoleId=(await db.Roles.SingleAsync(r=>r.Code=="OFFICE_SUPERVISOR")).Id});
+            await db.SaveChangesAsync();
+        }
+        using var officeClient=_factory.CreateClient(new WebApplicationFactoryClientOptions {HandleCookies=true});
+        Assert.Equal(HttpStatusCode.OK,(await officeClient.PostAsJsonAsync("/api/auth/login",new LoginRequest(officeName,officePassword))).StatusCode);
+        // 3. Scoped contributor options retain the eligibility and duplicate-contributor rules.
+        var resOptions = await officeClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
         Assert.Equal(HttpStatusCode.OK, resOptions.StatusCode);
         var optionsJson = await resOptions.Content.ReadFromJsonAsync<JsonElement>();
         var options = optionsJson.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()).ToList();
@@ -2447,7 +2461,7 @@ public sealed class WorkItemTests : IClassFixture<WorkItemTestFactory>
         Assert.Equal(HttpStatusCode.OK, resAddEligible.StatusCode);
 
         // 5. Re-query contributor options -> eligible user now excluded (already active)
-        var resOptions2 = await adminClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
+        var resOptions2 = await officeClient.GetAsync($"/api/work-items/{workItemId}/contributor-options");
         var optionsJson2 = await resOptions2.Content.ReadFromJsonAsync<JsonElement>();
         var options2 = optionsJson2.GetProperty("options").EnumerateArray().Select(o => o.GetProperty("userId").GetGuid()).ToList();
         Assert.DoesNotContain(eligibleUserId, options2);

@@ -16,10 +16,12 @@ import { ConfirmedCourtOrders } from "./court/ConfirmedCourtOrders";
 import { ExportMenu } from "./components/ExportMenu";
 import { OnlyOfficeDraftEditorPage } from "./editor/OnlyOfficeDraftEditor";
 import { AuthProvider, useAuth } from "./auth/AuthProvider";
+import { sessionExpiredEvent } from "./auth/sessionFetch";
 import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LoginPage } from "./auth/LoginPage";
 import { ChangePasswordView } from "./auth/ChangePasswordView";
 import { UsersAdmin } from "./admin/UsersAdmin";
+import { OfficeRecovery } from "./admin/OfficeRecovery";
 import { AccessAdmin } from "./admin/AccessAdmin";
 import { WorkCatalogAdmin } from "./admin/WorkCatalogAdmin";
 import { OfficerAssistantAdmin } from "./admin/OfficerAssistantAdmin";
@@ -141,6 +143,10 @@ function clearApiCache() {
   } catch {
     /* Cache invalidation is best-effort only. */
   }
+}
+if (typeof window !== "undefined") {
+  window.addEventListener(sessionExpiredEvent, clearApiCache);
+  window.addEventListener("lac:session-changed", clearApiCache);
 }
 
 function useApi<T>(path?: string): State<T> {
@@ -838,6 +844,7 @@ export function VillageCoreRecords({id}:{id:string}){
   return <section className="section"><div className="section-heading"><div><h2>Core Records</h2><span>Award-level files are reusable by every Matter that selects the Award.</span></div></div><div className="field-grid"><label>Award number<input value={award.awardNumber} onChange={e=>setAward({...award,awardNumber:e.target.value})}/></label><label>Award date<input type="date" value={award.awardDate} onChange={e=>setAward({...award,awardDate:e.target.value})}/></label><label>Award type<input value={award.awardType} onChange={e=>setAward({...award,awardType:e.target.value})}/></label><button disabled={!award.awardNumber.trim()} onClick={()=>void create()}>Add Award</button></div>{records.loading?<LoadingState/>:records.data?.map(a=><article className="section" key={a.id}><h3><EntityLink to={route.award(a.id)}>{a.awardNumber}</EntityLink></h3><p>{date(a.awardDate)} · {a.awardType||"Type not recorded"}</p>{a.roles.map((r:any)=><p key={r.role}><strong>{r.role}</strong> · {r.count?`${r.count} file${r.count>1?"s":""}`:"Missing"}</p>)}<div className="field-grid"><select value={upload.awardId===a.id?upload.role:"Award"} onChange={e=>setUpload({...upload,awardId:a.id,role:e.target.value})}><option>Award</option><option>NM</option><option>StatementA</option><option>PossessionProceeding</option></select><input type="file" accept="application/pdf,.pdf" onChange={e=>setUpload({...upload,awardId:a.id,file:e.target.files?.[0]})}/><button disabled={upload.awardId!==a.id||!upload.file} onClick={()=>void send()}>Upload core document</button></div></article>)}{message&&<p role="alert">{message}</p>}</section>;
 }
 function VillageMatters({ id }: { id: string }) {
+  const { hasPermission } = useAuth();
   const [refresh, setRefresh] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [workstreams, setWorkstreams] = useState<any[]>([]);
@@ -861,21 +868,25 @@ function VillageMatters({ id }: { id: string }) {
   const [selectedCourtCaseIds, setSelectedCourtCaseIds] = useState<string[]>([]);
   const [selectedCourtCasesList, setSelectedCourtCasesList] = useState<any[]>([]);
 
-  const matters = useApi<any[]>(`/villages/${id}/matters?r=${refresh}`);
-  const awards = useApi<any[]>(`/villages/${id}/core-records`);
-  const khasras = useApi<any[]>(`/villages/${id}/khasras?pageSize=250`);
+  const matters = useApi<any[]>(hasPermission("Matter.View") || hasPermission("Matter.Create") ? `/villages/${id}/matters?r=${refresh}` : undefined);
+  const awards = useApi<any[]>(showModal && hasPermission("Matter.Create") ? `/villages/${id}/core-records` : undefined);
+  const khasras = useApi<any[]>(showModal && hasPermission("Matter.Create") ? `/villages/${id}/khasras?pageSize=250` : undefined);
 
   // Load backend workstreams context
   useEffect(() => {
-    fetch("/api/matters/context", { credentials: "include" })
+    let current = true;
+    setWorkstreams([]);
+    if (!hasPermission("Matter.Create")) return;
+    fetch(`/api/matters/context?villageId=${encodeURIComponent(id)}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (d?.workstreams) {
+        if (current && d?.workstreams) {
           setWorkstreams(d.workstreams);
         }
       })
       .catch(() => {});
-  }, []);
+    return () => { current = false; };
+  }, [id, hasPermission]);
 
   // Search Court Cases
   const handleSearchCourtCases = async (q: string) => {
@@ -967,9 +978,9 @@ function VillageMatters({ id }: { id: string }) {
           <h2>Matters</h2>
           <span>Active acquisition matters, court cases, and compensation files for this village.</span>
         </div>
-        <button className="primary-button" style={{ background: "#2563eb", borderColor: "#2563eb", color: "#fff" }} onClick={() => { setErrorMessage(""); setShowModal(true); }}>
+        {hasPermission("Matter.Create") && workstreams.length > 0 ? <button className="primary-button" style={{ background: "#2563eb", borderColor: "#2563eb", color: "#fff" }} onClick={() => { setErrorMessage(""); setShowModal(true); }}>
           + Create Matter
-        </button>
+        </button> : <span>You can view authorized matters. Creation requires an assigned workstream and permission.</span>}
       </div>
 
       {matters.loading ? (
@@ -977,7 +988,7 @@ function VillageMatters({ id }: { id: string }) {
       ) : allMatters.length === 0 ? (
         <EmptyState
           title="No matters created for this village yet"
-          detail="Click '+ Create Matter' to register the first matter for this village."
+          detail={hasPermission("Matter.Create") && workstreams.length > 0 ? "Click '+ Create Matter' to register the first matter for this village." : "An authorized officer can register matters for this village."}
         />
       ) : (
         <div className="matter-groups-container">
@@ -4062,6 +4073,7 @@ function CourtRoute({ children }: { children: React.ReactElement }) {
 
 function AuthenticatedApp() {
   const { user, loading, logout } = useAuth();
+  const location = useLocation();
   if (loading) {
     return (
       <div className="login-loading-screen">
@@ -4070,7 +4082,7 @@ function AuthenticatedApp() {
     );
   }
   if (!user) {
-    return <LoginPage />;
+    return location.pathname === "/login" ? <LoginPage /> : <Navigate to="/login" replace />;
   }
   if (user.mustChangePassword) {
     return <ChangePasswordView user={user} onSuccess={logout} onLogout={logout} />;
@@ -4132,7 +4144,9 @@ function AuthenticatedApp() {
         <Route path="/outward/new" element={<OutwardRegistration />} />
         <Route path="/outward/:id" element={<OutwardDetailWorkspace />} />
         <Route path="/my-helpers" element={<MyHelpersRoute><MyHelpersView /></MyHelpersRoute>} />
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route path="/admin/users" element={<UsersAdminRoute><UsersAdmin /></UsersAdminRoute>} />
+        <Route path="/admin/technical-recovery" element={<UsersAdminRoute><OfficeRecovery /></UsersAdminRoute>} />
         <Route path="/admin/desks" element={<OfficeConfigurationRoute><OfficeDesksAdmin /></OfficeConfigurationRoute>} />
         <Route path="/admin/access" element={<SystemAdminRoute><AccessAdmin /></SystemAdminRoute>} />
         <Route path="/admin/work-catalog" element={<WorkCatalogRoute><WorkCatalogAdmin /></WorkCatalogRoute>} />

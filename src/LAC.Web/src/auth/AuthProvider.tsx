@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import type { CurrentUser, AuthContextType } from "./types";
+import { sessionAuthenticated, sessionExpiredEvent, sessionLoggedOut } from "./sessionFetch";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -12,6 +13,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await fetch("/api/auth/me", { credentials: "include" });
       if (response.ok) {
         const data = (await response.json()) as CurrentUser;
+        sessionAuthenticated();
         setUser(data);
       } else {
         setUser(null);
@@ -24,7 +26,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    const expired = () => {
+      try { sessionStorage.setItem("lac:session-expired", "1"); } catch { /* Optional notice. */ }
+      setUser(null); setLoading(false);
+    };
+    window.addEventListener(sessionExpiredEvent, expired);
     void refreshUser();
+    return () => window.removeEventListener(sessionExpiredEvent, expired);
   }, [refreshUser]);
 
   const login = async (username: string, password: string) => {
@@ -42,6 +50,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!response.ok) throw new Error("LAC server is not available right now. Please try again.");
 
     const data = (await response.json()) as CurrentUser;
+    sessionAuthenticated();
+    try { sessionStorage.removeItem("lac:session-expired"); } catch { /* Optional notice. */ }
     setUser(data);
   };
 
@@ -52,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         credentials: "include",
       });
     } finally {
+      sessionLoggedOut();
       setUser(null);
     }
   };

@@ -189,8 +189,20 @@ internal sealed class DakDirectoryScenario(WebApplicationFactory<Program> factor
 
     public async Task VerifyLookupsAsync()
     {
+        using var setup = factory.Services.CreateScope();
+        var setupDb = setup.ServiceProvider.GetRequiredService<LacDbContext>();
+        var name = "lookup-manager-" + Guid.NewGuid().ToString("N");
+        var manager = new AppUser { Username = name, NormalizedUsername = name.ToUpperInvariant(), DisplayName = "Lookup administrator", IsActive = true };
+        manager.PasswordHash = new Microsoft.AspNetCore.Identity.PasswordHasher<AppUser>().HashPassword(manager, DakTestFactory.TestAdminPass);
+        setupDb.AppUsers.Add(manager);
+        setupDb.UserRoles.Add(new UserRole { UserId = manager.Id, RoleId = (await setupDb.Roles.SingleAsync(r => r.Code == "OFFICE_ADMIN")).Id });
+        await setupDb.SaveChangesAsync();
         var response = await admin.GetAsync("/api/dak/lookups/directory"); response.EnsureSuccessStatusCode();
         var data = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.DoesNotContain(holder, data.GetProperty("handlers").EnumerateArray().Select(r => r.GetProperty("id").GetGuid()));
+        using var office = await LoginAsync(factory, name);
+        response = await office.GetAsync("/api/dak/lookups/directory"); response.EnsureSuccessStatusCode();
+        data = await response.Content.ReadFromJsonAsync<JsonElement>();
         foreach (var (key, active, inactive) in new[] { ("categories", category, inactiveCategory), ("workstreams", workstream, inactiveWorkstream), ("desks", desk, inactiveDesk), ("handlers", holder, inactiveHolder) })
         {
             var ids = data.GetProperty(key).EnumerateArray().Select(r => r.GetProperty("id").GetGuid()).ToList();
@@ -199,12 +211,12 @@ internal sealed class DakDirectoryScenario(WebApplicationFactory<Program> factor
         using var scope = factory.Services.CreateScope(); var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
         var membership = await db.UserDeskMemberships.SingleAsync(m => m.UserId == holder && m.OfficeDeskId == desk);
         membership.RemovedAt = DateTimeOffset.UtcNow; await db.SaveChangesAsync();
-        var removed = await (await admin.GetAsync("/api/dak/lookups/directory")).Content.ReadFromJsonAsync<JsonElement>();
+        var removed = await (await office.GetAsync("/api/dak/lookups/directory")).Content.ReadFromJsonAsync<JsonElement>();
         Assert.DoesNotContain(holder, removed.GetProperty("handlers").EnumerateArray().Select(r => r.GetProperty("id").GetGuid()));
         membership.RemovedAt = null;
         var role = await db.UserRoles.Where(r => r.UserId == holder).Select(r => r.Role).SingleAsync();
         role.IsActive = false; await db.SaveChangesAsync();
-        var revoked = await (await admin.GetAsync("/api/dak/lookups/directory")).Content.ReadFromJsonAsync<JsonElement>();
+        var revoked = await (await office.GetAsync("/api/dak/lookups/directory")).Content.ReadFromJsonAsync<JsonElement>();
         Assert.DoesNotContain(holder, revoked.GetProperty("handlers").EnumerateArray().Select(r => r.GetProperty("id").GetGuid()));
     }
 

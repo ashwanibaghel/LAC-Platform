@@ -544,7 +544,7 @@ export const MyHelpersView: React.FC = () => {
       {/* Add Helper Modal */}
       {showAddModal && (
         <div className="rbac-modal-backdrop" onClick={() => setShowAddModal(false)}>
-          <div className="rbac-modal-dialog" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="rbac-modal-shell rbac-helper-modal" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
             <div className="rbac-modal-header">
               <div>
                 <h2>Add Attached Helper</h2>
@@ -698,7 +698,7 @@ export const MyHelpersView: React.FC = () => {
       {/* Edit Helper Modal */}
       {editingHelper && (
         <div className="rbac-modal-backdrop" onClick={() => setEditingHelper(null)}>
-          <div className="rbac-modal-dialog" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="rbac-modal-shell rbac-helper-modal" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
             <div className="rbac-modal-header">
               <div>
                 <h2>Edit Helper — {editingHelper.username}</h2>
@@ -837,7 +837,7 @@ export const MyHelpersView: React.FC = () => {
       {/* One-Time Credential Modal */}
       {showCredentialModal && credentialData && (
         <div className="rbac-modal-backdrop">
-          <div className="rbac-modal-dialog" style={{ maxWidth: "480px" }}>
+          <div className="rbac-modal-shell rbac-helper-modal" style={{ maxWidth: "480px" }}>
             <div className="rbac-modal-header">
               <div>
                 <h2>One-Time Temporary Credential</h2>
@@ -858,9 +858,8 @@ export const MyHelpersView: React.FC = () => {
                   Temporary Password
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "6px" }}>
-                  <code style={{ fontSize: "18px", fontWeight: 700, color: "#1e3a8a", background: "#ffffff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", flex: 1, letterSpacing: "0.05em" }}>
-                    {credentialData.temporaryCredential}
-                  </code>
+                  <input aria-label="Temporary credential" type="password" readOnly autoComplete="off" value={credentialData.temporaryCredential}
+                    style={{ fontSize: "18px", color: "#1e3a8a", background: "#fff", padding: "8px 12px", borderRadius: "6px", border: "1px solid #cbd5e1", flex: 1, minWidth: 0 }} />
                   <button type="button" className="rbac-btn-outline" onClick={copyCredentialToClipboard} style={{ padding: "8px 12px" }}>
                     {copiedNotice ? "Copied! ✓" : "Copy"}
                   </button>

@@ -33,7 +33,14 @@ const CourtMultiSelect: React.FC<{ label: string; options: string[]; values: str
 export const CourtDirectory: React.FC = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
-  const canCreate = hasPermission("Court.Create");
+  const [operationalCapabilities, setOperationalCapabilities] = useState({ canCreateCourt: false, canImportCourt: false });
+  const canCreate = hasPermission("Court.Create") && operationalCapabilities.canCreateCourt;
+  const canImport = hasPermission("Court.Create") && operationalCapabilities.canImportCourt;
+  useEffect(() => {
+    void fetch("/api/office/me/capabilities", { credentials: "include" })
+      .then(response => response.ok ? response.json() : null)
+      .then(value => { if (value) setOperationalCapabilities(value); }).catch(() => {});
+  }, []);
   const [urlParams, setUrlParams] = useSearchParams();
   const [advancedOpen, setAdvancedOpen] = useState(() => advancedFilterKeys.some(key => !!urlParams.get(key)));
   const page = Math.max(1, Number(urlParams.get("page") || "1") || 1);
@@ -189,13 +196,13 @@ export const CourtDirectory: React.FC = () => {
         <div className="court-directory-actions">
           {registerCount === 0 ? <section className="court-first-run">
             <h2>No court register has been added yet</h2>
-            <p>Import your existing LAC court Excel file to begin.</p>
-            <div><Link className="primary-button" to="/court-cases/imports">Import Court Excel</Link>
+            <p>{canImport ? "Import your existing LAC court Excel file to begin." : "No court cases are available to view. An authorized officer can add the office register."}</p>
+            <div>{canImport && <Link className="primary-button" to="/court-cases/imports">Import Court Excel</Link>}
               {canCreate && <button className="secondary-button" onClick={() => setShowNewModal(true)}>Add one case manually</button>}</div>
-            <small>Delhi High Court automatic updates will start after DHC matters are imported.</small>
+            {canImport && <small>Delhi High Court automatic updates will start after DHC matters are imported.</small>}
           </section> : <DhcSyncPanel />}
           {canCreate && registerCount !== 0 && <>
-            <Link className="secondary-button court-pill-btn" to="/court-cases/imports"><span className="court-btn-icon" aria-hidden="true">📥</span> Import Excel</Link>
+            {canImport && <Link className="secondary-button court-pill-btn" to="/court-cases/imports"><span className="court-btn-icon" aria-hidden="true">📥</span> Import Excel</Link>}
             <button className="primary-button court-pill-btn court-glow-btn" onClick={() => { setCreateError(null); setShowNewModal(true); }}>
               <span className="court-btn-icon" aria-hidden="true">+</span> New Court Case</button>
           </>}

@@ -195,6 +195,12 @@ export const Home: React.FC = () => {
         </div>
 
         <div className="home-myday-strip">
+          {user?.authority === "STANDARD_OFFICER" && hasPermission("Assistants.Manage") && (
+            <Link to="/my-helpers" className="home-myday-card">
+              <div className="home-myday-info"><span className="home-myday-title">My Helpers</span>
+                <span className="home-myday-sub">Manage your attached assistants</span></div>
+            </Link>
+          )}
           {hasPermission("Dak.View") && (
             <Link to="/my-desk" className="home-myday-card tone-amber">
               <div className="home-myday-left">

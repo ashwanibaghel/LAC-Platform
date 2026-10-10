@@ -1,0 +1,284 @@
+{
+  "groups": [
+    {
+      "Name": "LAC.Tests.AccountOptionsContractTests",
+      "Count": 6
+    },
+    {
+      "Name": "LAC.Tests.ApiNavigationTests",
+      "Count": 14
+    },
+    {
+      "Name": "LAC.Tests.ApiStartupPolicyTests",
+      "Count": 7
+    },
+    {
+      "Name": "LAC.Tests.AssistantFoundationTests",
+      "Count": 15
+    },
+    {
+      "Name": "LAC.Tests.AwardExtractionRuleEngineTests",
+      "Count": 31
+    },
+    {
+      "Name": "LAC.Tests.AwardIngestionTests",
+      "Count": 11
+    },
+    {
+      "Name": "LAC.Tests.AwardPdfExtractionTests",
+      "Count": 11
+    },
+    {
+      "Name": "LAC.Tests.AwardVerificationTests",
+      "Count": 50
+    },
+    {
+      "Name": "LAC.Tests.AwardWorkflowTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.BootstrapAdminIdentityTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.CompensationCalculatorApiTests",
+      "Count": 29
+    },
+    {
+      "Name": "LAC.Tests.CompensationCalculatorTests",
+      "Count": 149
+    },
+    {
+      "Name": "LAC.Tests.CompensationHistoryTests",
+      "Count": 28
+    },
+    {
+      "Name": "LAC.Tests.CoreDocumentClassifierTests",
+      "Count": 22
+    },
+    {
+      "Name": "LAC.Tests.CoreDocumentIntakeApiTests",
+      "Count": 3
+    },
+    {
+      "Name": "LAC.Tests.CoreDocumentIntakeTests",
+      "Count": 20
+    },
+    {
+      "Name": "LAC.Tests.CourtImportPriorityTests",
+      "Count": 13
+    },
+    {
+      "Name": "LAC.Tests.CourtImportReviewTests",
+      "Count": 9
+    },
+    {
+      "Name": "LAC.Tests.CourtImportTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.CourtIntelligenceArtifactTests",
+      "Count": 2
+    },
+    {
+      "Name": "LAC.Tests.CourtIntelligenceIntegrationTests",
+      "Count": 19
+    },
+    {
+      "Name": "LAC.Tests.CourtIntelligenceQuestionMetadataTests",
+      "Count": 12
+    },
+    {
+      "Name": "LAC.Tests.CourtOperationalDirectoryTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.CourtProgressSummaryTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.CourtQuestionConversationTests",
+      "Count": 5
+    },
+    {
+      "Name": "LAC.Tests.CourtScopePersistenceTests",
+      "Count": 5
+    },
+    {
+      "Name": "LAC.Tests.CourtSourceDiagnosticTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.CourtStructuredReviewTests",
+      "Count": 22
+    },
+    {
+      "Name": "LAC.Tests.DakCustodyApiTests",
+      "Count": 1
+    },
+    {
+      "Name": "LAC.Tests.DakCustodyPostgresTests",
+      "Count": 9
+    },
+    {
+      "Name": "LAC.Tests.DakCustodyTests",
+      "Count": 9
+    },
+    {
+      "Name": "LAC.Tests.DakDirectoryPostgresTests",
+      "Count": 1
+    },
+    {
+      "Name": "LAC.Tests.DakDirectoryTests",
+      "Count": 26
+    },
+    {
+      "Name": "LAC.Tests.DakIntakeTests",
+      "Count": 15
+    },
+    {
+      "Name": "LAC.Tests.DakPostgresTests",
+      "Count": 10
+    },
+    {
+      "Name": "LAC.Tests.DakTests",
+      "Count": 31
+    },
+    {
+      "Name": "LAC.Tests.DelhiHighCourtAssistedTests",
+      "Count": 64
+    },
+    {
+      "Name": "LAC.Tests.DelhiHighCourtSyncTests",
+      "Count": 45
+    },
+    {
+      "Name": "LAC.Tests.DocumentGenreContractTests",
+      "Count": 9
+    },
+    {
+      "Name": "LAC.Tests.DocumentIntelligencePreflightTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.DocumentSectionContractTests",
+      "Count": 3
+    },
+    {
+      "Name": "LAC.Tests.DocumentTableContractTests",
+      "Count": 7
+    },
+    {
+      "Name": "LAC.Tests.DynamicAllocationApiTests",
+      "Count": 10
+    },
+    {
+      "Name": "LAC.Tests.KhasraTests",
+      "Count": 8
+    },
+    {
+      "Name": "LAC.Tests.KhasraWorkspaceTests",
+      "Count": 7
+    },
+    {
+      "Name": "LAC.Tests.LocalDocumentIntelligenceContractTests",
+      "Count": 10
+    },
+    {
+      "Name": "LAC.Tests.LocalDocumentIntelligenceSmokeTests",
+      "Count": 2
+    },
+    {
+      "Name": "LAC.Tests.LrWorkflowTests",
+      "Count": 10
+    },
+    {
+      "Name": "LAC.Tests.MatterAuthorizationAndWorkspaceTests",
+      "Count": 48
+    },
+    {
+      "Name": "LAC.Tests.MatterContextFoundationTests",
+      "Count": 18
+    },
+    {
+      "Name": "LAC.Tests.MatterDraftTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.MyDeskTests",
+      "Count": 6
+    },
+    {
+      "Name": "LAC.Tests.NmWorkflowTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.OfficeAccountV3PostgresTests",
+      "Count": 24
+    },
+    {
+      "Name": "LAC.Tests.OfficeAccountV3Tests",
+      "Count": 15
+    },
+    {
+      "Name": "LAC.Tests.OfficeAuthMaintenanceTests",
+      "Count": 2
+    },
+    {
+      "Name": "LAC.Tests.OfficeConsolidatedTests",
+      "Count": 7
+    },
+    {
+      "Name": "LAC.Tests.OnlyOfficeTests",
+      "Count": 34
+    },
+    {
+      "Name": "LAC.Tests.OutwardTests",
+      "Count": 99
+    },
+    {
+      "Name": "LAC.Tests.OwnershipServiceTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.Phase2GTests",
+      "Count": 33
+    },
+    {
+      "Name": "LAC.Tests.Phase2HTests",
+      "Count": 33
+    },
+    {
+      "Name": "LAC.Tests.Phase2ITests",
+      "Count": 27
+    },
+    {
+      "Name": "LAC.Tests.RbacBaselineProofTests",
+      "Count": 11
+    },
+    {
+      "Name": "LAC.Tests.RbacPostgreSqlTests",
+      "Count": 3
+    },
+    {
+      "Name": "LAC.Tests.RbacTests",
+      "Count": 16
+    },
+    {
+      "Name": "LAC.Tests.VillageAcquisitionHistoryApiTests",
+      "Count": 4
+    },
+    {
+      "Name": "LAC.Tests.VillageAcquisitionHistoryTests",
+      "Count": 9
+    },
+    {
+      "Name": "LAC.Tests.WorkItemTests",
+      "Count": 85
+    }
+  ],
+  "failed": 0,
+  "passed": 1335,
+  "skipped": 0,
+  "total": 1335
+}

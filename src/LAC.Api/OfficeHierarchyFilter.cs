@@ -20,9 +20,14 @@ public static class OfficeHierarchyFilter
         if (path.StartsWith("/api/admin/users"))
         {
             if (authority < OfficeAuthority.OFFICE_SUPERVISOR) return false;
+            var readTarget = request.RouteValues["userId"] ?? request.RouteValues["id"];
+            if (!write && Guid.TryParse(readTarget?.ToString(), out var profile)
+                && !await OfficeDirectoryPolicy.CanViewAsync(db, caller, profile, ct)) return false;
             if (write)
             {
                 var rawTarget = request.RouteValues["userId"] ?? request.RouteValues["id"];
+                if (Guid.TryParse(rawTarget?.ToString(), out var self) && self == caller
+                    && (path.Split('/', StringSplitOptions.RemoveEmptyEntries).Length == 4 || path.EndsWith("/reset-password"))) return false;
                 if (Guid.TryParse(rawTarget?.ToString(), out var target) && !await OfficeAuthorityService.CanManageAsync(db, caller, target, ct)) return false;
                 if (Guid.TryParse(rawTarget?.ToString(), out target) && await db.AppUsers.AnyAsync(u => u.Id == target && u.SupervisingOfficerId != null, ct)
                     && !path.EndsWith("/reset-password") && !path.EndsWith("/toggle-status")) return false;
