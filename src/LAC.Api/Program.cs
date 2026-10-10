@@ -110,6 +110,7 @@ builder.Services.AddScoped<IOutwardAuthorizationService, OutwardAuthorizationSer
 builder.Services.AddScoped<OutwardWorkflowService>();
 builder.Services.AddScoped<IMatterAuthorizationService, MatterAuthorizationService>();
 builder.Services.AddScoped<MatterWorkflowService>();
+builder.Services.AddScoped<MatterNotingWorkflow>();
 builder.Services.AddScoped<MatterContextQuery>();
 builder.Services.AddScoped<IWorkItemAuthorizationService, WorkItemAuthorizationService>();
 builder.Services.AddScoped<WorkItemWorkflowService>();
@@ -243,6 +244,7 @@ api.MapDakEndpoints();
 api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
+api.MapMatterNotingEndpoints();
 api.MapOnlyOfficeEndpoints();
 api.MapWorkItemEndpoints();
 api.MapActivityEndpoints();

@@ -273,6 +273,7 @@ public sealed partial class DakWorkflowService
     {
         if (requestId == Guid.Empty || expectedRevision < 0) throw new DakWorkflowException("A non-empty Idempotency-Key and valid expectedRevision are required.");
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { id, action, payload }))));
+        var preserveChanges = db.Database.CurrentTransaction is not null;
         var eventId = Guid.NewGuid();
         DakCommandResult? result = null;
         async Task<DakCommandResult?> Replay(CancellationToken c)
@@ -286,7 +287,7 @@ public sealed partial class DakWorkflowService
         {
             return await ExecuteWorkflowTransactionAsync(async c =>
             {
-                db.ChangeTracker.Clear();
+                if (!preserveChanges) db.ChangeTracker.Clear();
                 var query = db.Database.IsRelational()
                     ? db.Daks.FromSqlInterpolated($"SELECT * FROM \"Daks\" WHERE \"Id\" = {id} FOR UPDATE") : db.Daks.Where(d => d.Id == id);
                 var dak = await query.Include(d => d.CurrentAssignment).ThenInclude(a => a!.OfficeDesk)

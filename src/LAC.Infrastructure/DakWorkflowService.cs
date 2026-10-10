@@ -61,6 +61,7 @@ public sealed partial class DakWorkflowService(
         Func<CancellationToken, Task<bool>> verifySucceeded,
         CancellationToken ct)
     {
+        if (db.Database.CurrentTransaction is not null) return await operation(ct);
         var strategy = strategyFactory?.Invoke() ?? db.Database.CreateExecutionStrategy();
         if (db.Database.IsRelational() || strategyFactory != null)
         {
