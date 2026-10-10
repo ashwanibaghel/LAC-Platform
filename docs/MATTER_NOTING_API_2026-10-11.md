@@ -31,6 +31,7 @@ Other mutations carry `expectedRevision` in JSON. GET draft returns the quoted r
 authorized child, 409 stale revision/state/key reuse, 428 missing revision/key header.
 New errors have `{message}`. Flush autosave, await its ETag, then submit/send. Retry the same
 key and payload after uncertain network outcome; never silently overwrite a conflict.
+Binding errors retain ASP.NET's 400 response; existing routes retain their existing error shapes.
 
 Rich text v1 is a constrained JSON document:
 `{type:"doc",content:[{type:"paragraph",content:[{type:"text",text:"...",marks:[{type:"bold"}]}]}]}`.
@@ -49,6 +50,7 @@ are mandatory for anchors. Frontend renders only this allowlist and uses canonic
   least two, General/Unclassified none. Existing Matter links are retained; incompatible
   reclassification is blocked. Historical links are never rewritten. Old Village-link APIs
   must not silently establish validated classification.
+  GET `/dak/{dakId}` also returns `villageClassification` so reload retains explicit classification.
 - GET `/dak/{dakId}/matter-options?villageId=UUID&search=text` returns
   `{subject,villageId,dakRevision,matters:[{id,title,revision}]}`. Requires confirmed holder,
   Dak.View and selected classified Village; filters each Matter by exact Village and live access.
@@ -56,7 +58,9 @@ are mandatory for anchors. Frontend renders only this allowlist and uses canonic
   `{villageId,workstreamId,existingMatterId?:UUID,title?:string,matterType?:string,expectedRevision:int}`
   returns `{matterId,dakId,dakRevision,matterRevision}`. Confirmed received holder only;
   Dak.View plus Matter.Create in target stream for create, or Matter.Edit for existing link.
+  Creation also requires existing scoped Village.View authorization on the selected Village.
   Title defaults to Dak subject. Atomic create/link and receipt; no automatic document copies.
+  `workstreamId` applies to creation; existing Matter authorization uses its stored workstream.
 - POST `/villages/{villageId}/matter-workspace` body `{workstreamId,title,matterType?}` returns
   `{matterId,dakId:null,dakRevision:null,matterRevision}`. Same create/Village scope checks;
   creator is the initial native working owner. No synthetic Dak.
@@ -83,7 +87,7 @@ Village compatibility. Existing legacy links remain readable but cannot bypass c
   pullback/return/complete/reopen remain authoritative. Direct Dak receives are reflected live
   in Matter capabilities; no duplicate responsibility/custody mirror.
 
-Draft: `{id,matterId,authorUserId,revision,contentJson,canonicalText,sourceDakId,updatedAt}`.
+Draft: `{id,matterId,authorUserId,revision,contentJson,canonicalText,sourceDakId,citationsJson,updatedAt}`.
 Note: `{id,matterId,number,version:1,contentJson,canonicalText,textHash,authorUserId,
 authorName,designation,deskId,deskName,submittedAt,sourceDakId,citations:[],documentManifestJson}`.
 Draft editing needs Matter.View, scoped Draft.Create and Draft.Edit plus active editor ownership.
@@ -91,6 +95,9 @@ Submission uses the same powers; sending additionally requires Dak.Move and conf
 Linked drafting always specifies the controlling active Dak; native drafting uses initial owner.
 No submitted note update/delete route. Database and EF guards prohibit modifications/deletion.
 Personal drafts are invisible to other officers; official chain is available to Matter.View.
+Submission clears the consumed draft and increments its revision. Refetch draft/workspace before
+starting another note. Content edits clear citations if canonical text changes; UI must revalidate
+anchors before restoring citations. The server never silently shifts an official anchor.
 
 Native Dak-less send/receive, novel approval authority and automatic completion are gated pending
 product policy. `nativeRoutingPolicyPending=true`, `canSend=false`; backend rejects unsupported
@@ -127,6 +134,17 @@ archive/unlink/revocation blocks annotations and binary access. Word uses existi
 draft capability where supported, otherwise secure download fallback; no invented Word editor.
 Existing validation governs upload size, extension and magic bytes. Virus scanning and content
 dedupe availability must be reported explicitly; do not claim either if absent.
+PDF page/region anchors are validated against the locally stored PDF's actual page count.
+Word citations currently omit page/region. Opening a submitted citation uses
+`/matters/{m}/documents/{d}/content?expectedVersion={documentVersion}&expectedHash={documentHash}`;
+omit hash only when historical hash is null. A replaced version/hash returns 409. Rail URLs open
+the currently authorized version. Same-content uploads deduplicate within the exact Matter;
+there is no cross-Matter discovery or reuse. Virus scanning remains an explicit acceptance gap.
+The eligible-document API also offers the main file and active attachments of explicitly linked
+Daks when the caller currently has access to that Dak/file. Officers explicitly link the original
+DocumentId into the shared rail; no binary copy or automatic sharing occurs. After sharing, the
+MatterDocument is governed by current Matter document access, independently of completed Dak
+custody. Source-family restrictions, archive/unlink and version/hash checks still apply.
 
 ## Audit, migration and deferred work
 
@@ -140,6 +158,17 @@ Secure on-prem full-text indexing requires exact source ACLs, revocation/tombsto
 filtering and no unauthorized snippets; deferred until separately accepted. Existing metadata
 search remains. Existing explicit document ZIP export is manual and audited; production eOffice
 packaging/manifest approval is separately staged. No external eOffice connection or automatic send.
+
+Reserved later manual export contract (not implemented; Anti must keep its action disabled):
+POST `/matters/{m}/export-packages` would accept
+`{throughNoteNumber,letterDraftId?,letterDraftRevision?,enclosures:[{documentId,version,hash}],expectedMatterRevision}`
+with Idempotency-Key, and return
+`{packageId,manifestHash,createdBy,createdAt,downloadUrl,expiresAt}`. It must snapshot the selected
+official chain, exact letter revision and explicit enclosures, reauthorize each source on create
+and download, reject stale revisions/replaced documents, and audit creation/download. A manifest
+would contain Matter/Village, note IDs/numbers/hashes, letter ID/revision, enclosure IDs/versions/
+hashes and actor/time. No implicit inclusion of citations, no approval inference, no external send.
+The existing document ZIP export remains the implemented manual export capability.
 
 ## Anti examples (use isolated server only)
 
