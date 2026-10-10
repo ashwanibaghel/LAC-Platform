@@ -125,6 +125,7 @@ internal sealed class DakDirectoryScenario(WebApplicationFactory<Program> factor
         db.DakAssignments.Add(new DakAssignment { DakId = second.Id, OfficeDeskId = otherDesk.Id, AssignedByUserId = actor.Id });
         await db.SaveChangesAsync();
         var workflow = new DakWorkflowService(db, new TestInMemoryDocumentStorage());
+        await TestWorkAllocations.GrantGlobalAsync(db, holder.Id);
         var sent = await workflow.SendAsync(first.Id, new SendDakCommand(DakMovementAction.Marked, desk.Id, holder.Id,
             DakDestinationKind.Officer, false, "Directory fixture", null, 0, Guid.NewGuid()), actor.Id);
         await workflow.ReceiveAsync(first.Id, sent.TransferId!.Value, new ReceiveDakCommand(sent.Revision, Guid.NewGuid()), holder.Id);

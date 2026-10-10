@@ -23,13 +23,6 @@ internal static class DakTestCustodyFixtures
         {
             db.UserDeskMemberships.Add(new UserDeskMembership { UserId = receiver, OfficeDeskId = body.ToDeskId }); await db.SaveChangesAsync();
         }
-        if (refreshRevision) body = body with { ExpectedRevision = await db.Daks.Where(d => d.Id == id).Select(d => d.Revision).SingleAsync() };
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/dak/{id}/move") { Content = JsonContent.Create(body with { ToUserId = receiver }) };
-        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
-        var response = await client.SendAsync(request);
-        if (!receive || !response.IsSuccessStatusCode) return response;
-        db.ChangeTracker.Clear();
-        var transfer = await db.DakTransfers.SingleAsync(t => t.DakId == id && t.State == DakTransferState.Pending);
         var permissionId = await db.Permissions.Where(p => p.Code == PermissionCodes.DakReceive).Select(p => p.Id).SingleAsync();
         if (!await db.UserRoles.AnyAsync(u => u.UserId == receiver && u.Role.RolePermissions.Any(p => p.PermissionId == permissionId)))
         {
@@ -37,6 +30,14 @@ internal static class DakTestCustodyFixtures
             db.Roles.Add(role); db.UserRoles.Add(new UserRole { UserId = receiver, Role = role });
             db.RolePermissions.Add(new RolePermission { Role = role, PermissionId = permissionId, ScopeMode = ScopeMode.Assigned }); await db.SaveChangesAsync();
         }
+        if (refreshRevision) body = body with { ExpectedRevision = await db.Daks.Where(d => d.Id == id).Select(d => d.Revision).SingleAsync() };
+        await TestWorkAllocations.GrantGlobalAsync(db, receiver);
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/dak/{id}/move") { Content = JsonContent.Create(body with { ToUserId = receiver }) };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var response = await client.SendAsync(request);
+        if (!receive || !response.IsSuccessStatusCode) return response;
+        db.ChangeTracker.Clear();
+        var transfer = await db.DakTransfers.SingleAsync(t => t.DakId == id && t.State == DakTransferState.Pending);
         var revision = await db.Daks.Where(d => d.Id == id).Select(d => d.Revision).SingleAsync();
         var result = await new DakWorkflowService(db, new TestInMemoryDocumentStorage()).ReceiveAsync(id, transfer.Id, new(revision, Guid.NewGuid()), receiver);
         response.Dispose(); return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(result) };

@@ -844,6 +844,9 @@ public static partial class DakEndpoints
             if (!await dakAuth.CanAccessDakAsync(id, initial ? PermissionCodes.DakMark : PermissionCodes.DakMove, userId, ct))
                 return Results.Forbid();
 
+            var targetDak = await db.Daks.AsNoTracking().Include(d => d.CurrentAssignment).SingleAsync(d => d.Id == id, ct);
+            var eligibleMembershipIds = DakRecipientEligibility.Memberships(db).Select(m => m.Id);
+
             var desks = await db.OfficeDesks.AsNoTracking()
                 .Where(d => d.IsActive && d.RecordStatus == RecordStatus.Active)
                 .OrderBy(d => d.Name)
@@ -855,11 +858,7 @@ public static partial class DakEndpoints
                     name = d.Name,
                     isActive = d.IsActive,
                     members = d.UserMemberships
-                        .Where(m => m.IsActive
-                                 && m.RemovedAt == null
-                                 && m.RecordStatus == RecordStatus.Active
-                                 && m.User.IsActive
-                                 && m.User.RecordStatus == RecordStatus.Active)
+                        .Where(m => eligibleMembershipIds.Contains(m.Id))
                         .OrderByDescending(m => m.IsPrimary)
                         .ThenBy(m => m.User.DisplayName)
                         .Select(m => new
@@ -873,6 +872,13 @@ public static partial class DakEndpoints
                 })
                 .ToListAsync(ct);
 
+            foreach (var desk in desks)
+            {
+                var outsideBounds = new HashSet<Guid>();
+                foreach (var member in desk.members)
+                    if (!await DakRecipientEligibility.WithinReceiptBoundsAsync(db, targetDak, member.userId, ct)) outsideBounds.Add(member.userId);
+                desk.members.RemoveAll(m => outsideBounds.Contains(m.userId));
+            }
             return Results.Ok(new { desks });
         });
 

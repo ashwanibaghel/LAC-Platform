@@ -697,7 +697,7 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       });
     });
 
-    await page.route("**/api/outward?dakId=dak-A", (route) => {
+    await page.route("**/api/outward?dakId=dak-A&page=0&pageSize=25", (route) => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -732,7 +732,7 @@ test.describe("Dak V2 Quick Intake & Workspace Browser Component Tests", () => {
       route.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ detail: "Forbidden" }) });
     });
 
-    await page.route("**/api/outward?dakId=dak-B", (route) => {
+    await page.route("**/api/outward?dakId=dak-B&page=0&pageSize=25", (route) => {
       route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Outward service error" }) });
     });
 

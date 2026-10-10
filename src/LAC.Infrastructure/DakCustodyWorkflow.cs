@@ -59,6 +59,8 @@ public sealed partial class DakWorkflowService
                 if ((desk.Purpose == OfficeDeskPurpose.RecordRoom) != (command.DestinationKind == DakDestinationKind.RecordRoom))
                     throw new DakWorkflowException("Destination kind does not match the configured desk purpose.");
                 await RequireDeskMemberAsync(command.ToUserId, command.ToDeskId, c, 400);
+                if (!await DakRecipientEligibility.CanReceiveAsync(db, dak, command.ToUserId, command.ToDeskId, c))
+                    throw new DakWorkflowException("The nominated desk member is not authorized to receive this Dak. Choose an eligible recipient.", 400);
                 if (command.IncludesPhysicalOriginal && (dak.HasPhysicalOriginal != true || dak.PhysicalOriginalUserId != actor ||
                     dak.PhysicalOriginalDeskId is null || dak.PhysicalState is DakPhysicalState.InTransit or DakPhysicalState.ReturnPending))
                     throw new DakWorkflowException("Confirm original existence and sender's physical custody before dispatch.", 409);
@@ -251,6 +253,15 @@ public sealed partial class DakWorkflowService
         await db.UserRoles.FromSqlInterpolated($"SELECT * FROM \"UserRoles\" WHERE \"UserId\" = {actor} FOR SHARE").LoadAsync(ct);
         await db.Roles.FromSqlInterpolated($"SELECT r.* FROM \"Roles\" r JOIN \"UserRoles\" u ON r.\"Id\" = u.\"RoleId\" WHERE u.\"UserId\" = {actor} FOR SHARE OF r").LoadAsync(ct);
         await db.RolePermissions.FromSqlInterpolated($"SELECT p.* FROM \"RolePermissions\" p JOIN \"UserRoles\" u ON p.\"RoleId\" = u.\"RoleId\" WHERE u.\"UserId\" = {actor} FOR SHARE OF p").LoadAsync(ct);
+        if (receiver.HasValue && receiver.Value != actor)
+        {
+            await db.UserRoles.FromSqlInterpolated($"SELECT * FROM \"UserRoles\" WHERE \"UserId\" = {eligibleReceiver} FOR SHARE").LoadAsync(ct);
+            await db.Roles.FromSqlInterpolated($"SELECT r.* FROM \"Roles\" r JOIN \"UserRoles\" u ON r.\"Id\" = u.\"RoleId\" WHERE u.\"UserId\" = {eligibleReceiver} FOR SHARE OF r").LoadAsync(ct);
+            await db.RolePermissions.FromSqlInterpolated($"SELECT p.* FROM \"RolePermissions\" p JOIN \"UserRoles\" u ON p.\"RoleId\" = u.\"RoleId\" WHERE u.\"UserId\" = {eligibleReceiver} FOR SHARE OF p").LoadAsync(ct);
+            await db.WorkAllocations.FromSqlInterpolated($"SELECT * FROM \"WorkAllocations\" WHERE \"UserId\" = {eligibleReceiver} FOR SHARE").LoadAsync(ct);
+            await db.WorkAllocationScopes.FromSqlInterpolated($"SELECT s.* FROM \"WorkAllocationScopes\" s JOIN \"WorkAllocations\" a ON a.\"Id\" = s.\"WorkAllocationId\" WHERE a.\"UserId\" = {eligibleReceiver} FOR SHARE OF s").LoadAsync(ct);
+            await db.WorkDefinitions.FromSqlInterpolated($"SELECT w.* FROM \"WorkDefinitions\" w JOIN \"WorkAllocations\" a ON a.\"WorkDefinitionId\" = w.\"Id\" WHERE a.\"UserId\" = {eligibleReceiver} FOR SHARE OF w").LoadAsync(ct);
+        }
         await db.UserDeskMemberships.FromSqlInterpolated($"SELECT * FROM \"UserDeskMemberships\" WHERE \"UserId\" = {actor} OR \"UserId\" = {eligibleReceiver} FOR SHARE").LoadAsync(ct);
         await db.OfficeDesks.FromSqlInterpolated($"SELECT d.* FROM \"OfficeDesks\" d JOIN \"UserDeskMemberships\" m ON d.\"Id\" = m.\"OfficeDeskId\" WHERE m.\"UserId\" = {actor} OR m.\"UserId\" = {eligibleReceiver} FOR SHARE OF d").LoadAsync(ct);
         await db.UserWorkstreamMemberships.FromSqlInterpolated($"SELECT * FROM \"UserWorkstreamMemberships\" WHERE \"UserId\" = {actor} FOR SHARE").LoadAsync(ct);

@@ -1768,7 +1768,11 @@ public sealed class DakTests : IClassFixture<DakTestFactory>
                 seedDb.Permissions.Add(permission); seedDb.RolePermissions.Add(new RolePermission { Role = role, Permission = permission, ScopeMode = ScopeMode.All });
             }
             seedDb.UserRoles.AddRange(new UserRole { User = admin, Role = role }, new UserRole { User = user, Role = role });
+            var receiptStream = new Workstream { Code = WorkstreamCodes.DakCorrespondence, Name = "Synthetic retry correspondence" };
+            seedDb.Workstreams.Add(receiptStream);
+            seedDb.WorkDefinitions.Add(new WorkDefinition { Code = "G22_RECEIPT", Name = "Synthetic retry receipt responsibility", Kind = OperationalWorkKind.Correspondence, Workstream = receiptStream });
             await seedDb.SaveChangesAsync();
+            await TestWorkAllocations.GrantGlobalAsync(seedDb, user.Id);
         }
 
         // 2. Return test DbContext with interceptors attached

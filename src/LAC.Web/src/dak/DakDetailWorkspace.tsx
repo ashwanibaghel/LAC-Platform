@@ -218,7 +218,7 @@ export const DakDetailWorkspace: React.FC = () => {
         });
 
       // Load outward replies
-      fetch(`/api/outward?dakId=${targetId}`, { signal, credentials: "include" })
+      fetch(`/api/outward?dakId=${targetId}&page=0&pageSize=25`, { signal, credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<{ items: { id: string; outwardNumber: string; outwardDate: string; subject: string; status: string; recipientName: string }[] }>) : null))
         .then((d) => {
           if (!isStale()) setOutwardReplies(d?.items || []);
@@ -1625,6 +1625,9 @@ export const DakDetailWorkspace: React.FC = () => {
           transferId={movementModalMode === "confirm-return" ? (pulledBackPhysicalTransfer?.id || undefined) : (activeTransfer?.id || undefined)}
           isInitialMark={isFreshIntake || isDeskOnlyLegacy}
           activeTransferIncludesPhysical={activeTransfer?.includesPhysicalOriginal === true}
+          physicalSendAvailable={physicalOriginal?.hasPhysicalOriginal === true && physicalOriginal.userId === user?.id
+            && !!physicalOriginal.deskId && !!user?.desks.some((d) => d.id === physicalOriginal.deskId)
+            && dak.physicalState !== "InTransit" && dak.physicalState !== "ReturnPending"}
           onClose={() => setMovementModalMode(null)}
           onSuccess={() => {
             if (!dak) return;

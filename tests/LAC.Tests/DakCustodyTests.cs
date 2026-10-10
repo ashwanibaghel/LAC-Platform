@@ -35,6 +35,14 @@ internal sealed record CustodyActors(Guid Sender, Guid Receiver, Guid Caretaker,
         db.OfficeDesks.AddRange(ad, bd, rd);
         db.UserDeskMemberships.AddRange(new UserDeskMembership { User = a, OfficeDesk = ad }, new UserDeskMembership { User = b, OfficeDesk = bd }, new UserDeskMembership { User = r, OfficeDesk = rd });
         await db.SaveChangesAsync();
+        if (!await db.WorkDefinitions.AnyAsync(w => w.Kind == OperationalWorkKind.Correspondence))
+        {
+            var stream = await db.Workstreams.SingleOrDefaultAsync(w => w.Code == WorkstreamCodes.DakCorrespondence);
+            if (stream is null) { stream = new Workstream { Code = WorkstreamCodes.DakCorrespondence, Name = "Synthetic correspondence" }; db.Workstreams.Add(stream); }
+            db.WorkDefinitions.Add(new WorkDefinition { Code = $"TEST_DAK_{Guid.NewGuid():N}", Name = "Synthetic receipt responsibility", Kind = OperationalWorkKind.Correspondence, Workstream = stream });
+            await db.SaveChangesAsync();
+        }
+        foreach (var officer in new[] { a, b, r, s }) await TestWorkAllocations.GrantGlobalAsync(db, officer.Id);
         return new(a.Id, b.Id, r.Id, s.Id, ad.Id, bd.Id, rd.Id);
     }
 

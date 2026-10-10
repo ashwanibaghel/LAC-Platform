@@ -1,0 +1,44 @@
+.dak-movement-backdrop { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; padding: 20px; background: #0f172aa6; backdrop-filter: blur(3px); }
+.dak-movement-dialog.modal-card { width: min(880px, 100%); max-width: 880px; max-height: calc(100dvh - 40px); padding: 0; border: 1px solid #cbd5e1; border-radius: 16px; background: white; box-shadow: 0 24px 70px #0f172a40; display: flex; flex-direction: column; overflow: hidden; color: #1e293b; }
+.dak-movement-header { position: relative; flex: none; padding: 18px 24px 14px; background: linear-gradient(115deg, #f1f5fb, #fff); border-bottom: 1px solid #e2e8f0; }
+.dak-movement-heading { display: flex; gap: 12px; align-items: center; padding-right: 36px; }
+.dak-movement-emblem { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 11px; color: white; background: #1e4a83; font-size: 24px; flex: none; }
+.dak-movement-eyebrow { color: #64748b; font-size: 10px; font-weight: 750; letter-spacing: .1em; }
+.dak-movement-header h2 { margin: 3px 0 0; font-size: 19px; line-height: 1.3; color: #0f172a; }
+.dak-movement-close { position: absolute; right: 18px; top: 16px; width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: #64748b; font-size: 26px; }
+.dak-movement-close:hover { background: #e2e8f0; color: #0f172a; }
+.dak-movement-context { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 5px 12px; margin-top: 12px; align-items: center; }
+.dak-movement-diary { max-width: 240px; overflow-wrap: anywhere; border: 1px solid #cbdcf3; color: #1e4a83; background: #edf4ff; padding: 4px 8px; border-radius: 5px; font-size: 12px; }
+.dak-movement-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.dak-movement-sender { grid-column: 1 / -1; font-size: 12px; color: #64748b; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dak-movement-form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.dak-movement-body { min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.dak-movement-section { min-width: 0; padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
+.dak-movement-section-heading { display: flex; gap: 9px; align-items: center; margin-bottom: 1px; flex-wrap: wrap; }
+.dak-movement-section-heading > span { display: grid; place-items: center; width: 24px; height: 24px; font-size: 10px; font-weight: 700; color: #1e4a83; background: #edf4ff; border-radius: 6px; }
+.dak-movement-section-heading h3 { margin: 0; font-size: 13px; color: #334155; }
+.dak-movement-section-heading small { margin-left: auto; color: #64748b; font-size: 10px; }
+.dak-movement-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.dak-movement-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 7px; }
+.dak-movement-field input, .dak-movement-field select, .dak-movement-field textarea { width: 100%; min-width: 0; max-width: 100%; padding: 9px 10px; min-height: 38px; border: 1px solid #cbd5e1; border-radius: 7px; background: white; color: #1e293b; font-size: 12px; font-weight: 400; box-sizing: border-box; }
+.dak-movement-field textarea { resize: vertical; }
+.dak-movement-field :disabled { background: #f8fafc; color: #64748b; cursor: not-allowed; }
+.dak-movement-choice { display: flex; gap: 11px; align-items: flex-start; padding: 12px; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 8px; font-size: 12px; line-height: 1.5; cursor: pointer; }
+.dak-movement-choice.selected { background: #eff6ff; border-color: #93b5e7; }
+.dak-movement-choice input { flex: none; width: 17px; height: 17px; margin: 2px 0; accent-color: #1e4a83; }
+.dak-movement-choice small { display: block; margin-top: 3px; color: #64748b; font-size: 11px; }
+.dak-movement-hint { margin: 3px 0 0; color: #64748b; font-size: 11px; line-height: 1.5; }
+.dak-movement-message { border: 1px solid #cbdcf3; background: #f0f6ff; padding: 11px 12px; border-radius: 8px; color: #1e4a83; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.dak-movement-message strong { display: block; }
+.dak-movement-message p { margin: 4px 0; }
+.dak-movement-message.error { background: #fff1f2; border-color: #fecdd3; color: #9f1239; }
+.dak-movement-message.warning, .dak-movement-choice.warning { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.dak-movement-room { font-size: 11px; color: #1e4a83; background: #edf4ff; border-radius: 5px; padding: 5px 8px; align-self: flex-start; }
+.dak-movement-footer.modal-actions { flex: none; display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 14px 24px; margin: 0; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+.dak-movement-confirmation { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.dak-movement-confirmation strong { display: block; color: #1e293b; }
+.dak-movement-confirmation span { display: block; color: #64748b; font-size: 11px; }
+.dak-movement-buttons { display: flex; gap: 10px; flex: none; }
+.dak-movement-buttons button { white-space: nowrap; min-height: 38px; font-size: 12px; }
+.dak-movement-dialog :focus-visible { outline: 3px solid #93b5e7; outline-offset: 2px; }
+@media (max-width: 620px) { .dak-movement-backdrop { padding: 10px; } .dak-movement-dialog.modal-card { max-height: calc(100dvh - 20px); } .dak-movement-header, .dak-movement-body, .dak-movement-footer.modal-actions { padding: 14px; } .dak-movement-grid { grid-template-columns: minmax(0, 1fr); } .dak-movement-footer.modal-actions { flex-direction: column; align-items: stretch; } .dak-movement-buttons { justify-content: flex-end; } }
