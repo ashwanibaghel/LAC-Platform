@@ -34,8 +34,11 @@ public sealed class CompensationHistoryTests : IClassFixture<HistoryPostgresFixt
     };
     public static IEnumerable<object[]> FormulaContracts() {
         // The frontend regression reads this same fixture; both must satisfy its canonical expressions.
+        var paths=new List<string> { Path.Combine(AppContext.BaseDirectory,"compensation-formula-contracts.json") };
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent) {
-            var path = Path.Combine(directory.FullName, "src", "LAC.Web", "tests", "fixtures", "compensation-formula-contracts.json");
+            paths.Add(Path.Combine(directory.FullName, "src", "LAC.Web", "tests", "fixtures", "compensation-formula-contracts.json"));
+        }
+        foreach(var path in paths) {
             if (!File.Exists(path)) continue;
             using var cases = JsonDocument.Parse(File.ReadAllText(path));
             return cases.RootElement.EnumerateArray().Select(c => new object[] {
@@ -187,14 +190,18 @@ public sealed class HistoryPostgresFixture : IAsyncLifetime
     public LacDbContext Db()=>new(new DbContextOptionsBuilder<LacDbContext>().UseNpgsql(Connection).Options);
     public async Task InitializeAsync(){
         var destination=new NpgsqlConnectionStringBuilder(Server);
-        if(destination.Host!="127.0.0.1" || destination.Database!="postgres" || destination.Port is not (55440 or 55442))
-            throw new InvalidOperationException("History tests require a disposable loopback admin server on 55440 or 55442.");
+        var selectedPort=Environment.GetEnvironmentVariable("LAC_HISTORY_TEST_PORT");
+        var validPort=destination.Port is 55440 or 55442;
+        if(!string.IsNullOrWhiteSpace(selectedPort))
+            validPort=int.TryParse(selectedPort,out var port) && port is >=1024 and <=65535 && destination.Port==port;
+        if(destination.Host!="127.0.0.1" || destination.Database!="postgres" || !validPort)
+            throw new InvalidOperationException("History tests require the explicitly selected disposable loopback admin server.");
         await using var admin=new NpgsqlConnection(Server);await admin.OpenAsync();await using(var create=new NpgsqlCommand($"CREATE DATABASE \"{name}\"",admin))await create.ExecuteNonQueryAsync();
         var builder=new NpgsqlConnectionStringBuilder(Server){Database=name};Connection=builder.ConnectionString;
         await using var db=Db();await db.Database.MigrateAsync();
         foreach(var username in new[]{"history-a","history-b"}){var user=new AppUser{Username=username,NormalizedUsername=username.ToUpperInvariant(),DisplayName=username,IsActive=true};user.PasswordHash=new PasswordHasher<AppUser>().HashPassword(user,TestCredentials.SharedPassword);db.AppUsers.Add(user);}await db.SaveChangesAsync();Factory=new HistoryFactory(Connection);
     }
-    public async Task DisposeAsync(){await Factory.DisposeAsync();await using var admin=new NpgsqlConnection(Server);await admin.OpenAsync();await using var drop=new NpgsqlCommand($"DROP DATABASE \"{name}\" WITH (FORCE)",admin);await drop.ExecuteNonQueryAsync();}
+    public async Task DisposeAsync(){if(Factory is not null)await Factory.DisposeAsync();if(string.IsNullOrEmpty(Connection))return;await using var admin=new NpgsqlConnection(Server);await admin.OpenAsync();await using var drop=new NpgsqlCommand($"DROP DATABASE \"{name}\" WITH (FORCE)",admin);await drop.ExecuteNonQueryAsync();}
 }
 public sealed class HistoryFactory(string connection) : WebApplicationFactory<Program>
 {
