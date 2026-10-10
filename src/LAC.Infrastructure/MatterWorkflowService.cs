@@ -159,9 +159,9 @@ public sealed partial class MatterWorkflowService(
         return matter ?? throw new MatterWorkflowException("Matter record not found.", 404);
     }
 
-    private async Task VerifyDocumentLinkingProvenanceAsync(Matter matter, Guid documentId, CancellationToken ct)
+    private async Task VerifyDocumentLinkingProvenanceAsync(Matter matter, Guid documentId, Guid userId, CancellationToken ct)
     {
-        var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
+        var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct, userId);
         if (!eligibleMap.ContainsKey(documentId))
         {
             throw new MatterWorkflowException("Document provenance not verified or permission denied for linking.", 400);
@@ -213,6 +213,7 @@ public sealed partial class MatterWorkflowService(
                 {
                     Id = matterId,
                     VillageId = cmd.VillageId,
+                    NativeOwnerUserId = currentUserId,
                     WorkstreamId = cmd.WorkstreamId,
                     Revision = 0,
                     Title = cmd.Title.Trim(),
@@ -324,6 +325,7 @@ public sealed partial class MatterWorkflowService(
                 {
                     if (courtAuth is null || !await courtAuth.CanAccessVillageAsync(cmd.VillageId.Value, currentUserId, opCt))
                         throw new MatterWorkflowException("Village is unavailable or unauthorized.", 403);
+                    if (await db.DakMatterLinks.AnyAsync(x => x.MatterId == matterId, opCt) || await db.MatterOfficialNotes.AnyAsync(x => x.MatterId == matterId, opCt)) throw new MatterWorkflowException("Village cannot change after Dak links or official noting history.", 409);
                     matter.VillageId = cmd.VillageId.Value;
                     // Validate retained canonical land links against the new primary Village.
                     var awards = cmd.AwardIds ?? await db.MatterAwards.Where(x => x.MatterId == matterId).Select(x => x.AwardId).ToListAsync(opCt);
@@ -479,10 +481,11 @@ public sealed partial class MatterWorkflowService(
         var documentId = Guid.NewGuid();
         var matterDocId = Guid.NewGuid();
         var eventId = Guid.NewGuid();
+        Guid? reusedLinkId = null;
 
         try
         {
-            return await ExecuteWorkflowTransactionAsync(
+            var result = await ExecuteWorkflowTransactionAsync(
                 async opCt =>
                 {
                     db.ChangeTracker.Clear();
@@ -494,6 +497,15 @@ public sealed partial class MatterWorkflowService(
                     if (matter.Revision != cmd.ExpectedRevision)
                         throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
 
+                    if (!await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, opCt)) throw new MatterWorkflowException("Document management access was revoked.", 403);
+                    var duplicate = await db.MatterDocuments.Include(x => x.Document).FirstOrDefaultAsync(x => x.MatterId == matterId && x.RecordStatus == RecordStatus.Active && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active" && x.Document.Sha256Hash == fileResult.Sha256Hash && x.Document.MimeType == inspectedMime, opCt);
+                    if (duplicate is not null)
+                    {
+                        if (!await matterAuth.CanAccessMatterDocumentAsync(matterId, duplicate.DocumentId, currentUserId, opCt))
+                            throw new MatterWorkflowException("An existing document cannot be reused after read access is revoked.", 403);
+                        reusedLinkId = duplicate.Id;
+                        return duplicate;
+                    }
                     var maxSeq = await db.MatterEvents
                         .Where(e => e.MatterId == matterId)
                         .MaxAsync(e => (int?)e.SequenceNumber, opCt) ?? 0;
@@ -555,11 +567,14 @@ public sealed partial class MatterWorkflowService(
                 async verifyCt =>
                 {
                     db.ChangeTracker.Clear();
+                    if (reusedLinkId.HasValue) return await db.MatterDocuments.AnyAsync(x => x.Id == reusedLinkId && x.RecordStatus == RecordStatus.Active, verifyCt);
                     var evExists = await db.MatterEvents.AsNoTracking()
                         .AnyAsync(e => e.Id == eventId && e.MatterId == matterId && e.Action == MatterEventAction.DocumentUploaded && e.DocumentId == documentId && e.MatterDocumentId == matterDocId, verifyCt);
                     return evExists;
                 },
                 ct);
+            if (reusedLinkId.HasValue) { try { await storage.DeleteAsync(savedStoragePath, CancellationToken.None); } catch { /* Orphan cleanup must not undo a successful reuse. */ } }
+            return result;
         }
         catch
         {
@@ -613,7 +628,9 @@ public sealed partial class MatterWorkflowService(
                 if (matter.Revision != cmd.ExpectedRevision)
                     throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {matter.Revision}.", 409);
 
-                await VerifyDocumentLinkingProvenanceAsync(matter, cmd.DocumentId, opCt);
+                if (!await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, opCt))
+                    throw new MatterWorkflowException("Matter document permission was revoked.", 403);
+                await VerifyDocumentLinkingProvenanceAsync(matter, cmd.DocumentId, currentUserId, opCt);
 
                 var maxSeq = await db.MatterEvents
                     .Where(e => e.MatterId == matterId)
@@ -788,11 +805,14 @@ public sealed partial class MatterWorkflowService(
 
         // Authorization: Check if source document is in eligible candidate map OR is ALREADY linked to this matter
         var isAlreadyLinked = await db.MatterDocuments.AsNoTracking()
-            .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.SourceDocumentId, ct);
+            .AnyAsync(md => md.MatterId == matterId && md.DocumentId == cmd.SourceDocumentId && md.RecordStatus == RecordStatus.Active, ct);
+
+        if (isAlreadyLinked && !await matterAuth.CanAccessMatterDocumentAsync(matterId, cmd.SourceDocumentId, currentUserId, ct))
+            throw new MatterWorkflowException("Source document permission denied for page extraction.", 403);
 
         if (!isAlreadyLinked)
         {
-            var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
+            var eligibleMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct, currentUserId);
             if (!eligibleMap.ContainsKey(cmd.SourceDocumentId))
             {
                 throw new MatterWorkflowException("Source document provenance not verified or permission denied for page extraction.", 403);
@@ -883,6 +903,16 @@ public sealed partial class MatterWorkflowService(
 
                     if (lockedMatter.Revision != cmd.ExpectedRevision)
                         throw new MatterWorkflowException($"Concurrency conflict: expected revision {cmd.ExpectedRevision} but found {lockedMatter.Revision}.", 409);
+
+                    if (!await matterAuth.CanAccessMatterAsync(matterId, PermissionCodes.MatterDocumentManage, currentUserId, opCt))
+                        throw new MatterWorkflowException("Matter document permission was revoked.", 403);
+                    if (isAlreadyLinked)
+                    {
+                        if (!await matterAuth.CanAccessMatterDocumentAsync(matterId, cmd.SourceDocumentId, currentUserId, opCt))
+                            throw new MatterWorkflowException("Source document permission was revoked.", 403);
+                    }
+                    else
+                        await VerifyDocumentLinkingProvenanceAsync(lockedMatter, cmd.SourceDocumentId, currentUserId, opCt);
 
                     var maxSeq = await db.MatterEvents
                         .Where(e => e.MatterId == matterId)

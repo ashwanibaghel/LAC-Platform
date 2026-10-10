@@ -24,7 +24,8 @@ public static class OperationalAuthorizationFilter
         if (!user.SupervisingOfficerId.HasValue) db.RequestOfficerUserId = user.Id;
         http.Items["rbac_actor_name"] = user.DisplayName;
         var path = http.Request.Path.Value!.ToLowerInvariant();
-        if (path.StartsWith("/api/auth/") || path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/") || path.StartsWith("/api/office/"))
+        if (path.StartsWith("/api/auth/") || path.StartsWith("/api/admin/") || path.StartsWith("/api/officers/") || path.StartsWith("/api/office/")
+            || path.StartsWith("/api/matters/") || path.StartsWith("/api/matter-drafts/"))
             http.Response.Headers.CacheControl = "no-store";
         if (user.SupervisingOfficerId.HasValue)
         {

@@ -328,11 +328,32 @@ public sealed class MatterAuthorizationService(LacDbContext db) : IMatterAuthori
         if (!canViewMatter) return false;
 
         var joinExists = await db.MatterDocuments.AsNoTracking()
-            .AnyAsync(md => md.MatterId == matterId && md.DocumentId == documentId, ct);
+            .AnyAsync(md => md.MatterId == matterId && md.DocumentId == documentId && md.RecordStatus == RecordStatus.Active, ct);
 
         if (!joinExists) return false;
 
-        return await db.Documents.AsNoTracking()
-            .AnyAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && d.Status == "Active", ct);
+        if (!await db.Documents.AsNoTracking()
+            .AnyAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && d.Status == "Active", ct)) return false;
+        var matter = await db.Matters.AsNoTracking().SingleAsync(x => x.Id == matterId, ct);
+        var source = await db.MatterDocumentExtracts.Where(x => x.MatterDocument.MatterId == matterId && x.MatterDocument.DocumentId == documentId)
+            .Select(x => (Guid?)x.SourceDocumentId).SingleOrDefaultAsync(ct) ?? documentId;
+        // Source-family privileges remain live after linking or page extraction.
+        var inherited = await db.DocumentAwards.AnyAsync(x => x.DocumentId == source, ct)
+            || await db.DocumentNotifications.AnyAsync(x => x.DocumentId == source, ct)
+            || await db.DocumentVillageLRs.AnyAsync(x => x.DocumentId == source, ct)
+            || await db.DocumentKhatauniRecords.AnyAsync(x => x.DocumentId == source, ct)
+            || await db.NmDocuments.AnyAsync(x => x.DocumentId == source, ct);
+        if (inherited && !(await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, new UserDocumentAccess(db, userId), ct)).ContainsKey(source)) return false;
+        var user = await db.AppUsers.AsNoTracking().SingleAsync(x => x.Id == userId, ct);
+        return !(user.OfficeAccessManaged || user.SupervisingOfficerId.HasValue) ||
+            await new WorkAllocationService(db, db.AuthorizationClock).CanWorkAsync(userId, matter.WorkstreamId.HasValue ? null : OperationalWorkKind.General, matter.WorkstreamId, [matter.VillageId], ct);
+    }
+
+    private sealed class UserDocumentAccess(LacDbContext db, Guid userId) : IAccessControlService
+    {
+        public Task<bool> CanAsync(string code, AccessResourceContext? context = null, CancellationToken cancellationToken = default) =>
+            new AccessControlService(db, db.CurrentUser!).CanForUserAsync(userId, code, context, cancellationToken);
+        public Task<IReadOnlyDictionary<string, ScopeMode>> GetEffectivePermissionsAsync(Guid id, CancellationToken cancellationToken = default) =>
+            new AccessControlService(db, db.CurrentUser!).GetEffectivePermissionsAsync(id, cancellationToken);
     }
 }

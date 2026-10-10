@@ -494,7 +494,9 @@ public static class MatterEndpoints
                 })
                 .ToListAsync(ct);
 
-            return Results.Ok(docs);
+            var permittedDocs = new List<object>();
+            foreach (var doc in docs) if (await matterAuth.CanAccessMatterDocumentAsync(id, doc.DocumentId, userId, ct)) permittedDocs.Add(doc);
+            return Results.Ok(permittedDocs);
         });
 
         matters.MapPost("/{id:guid}/documents", async (
@@ -572,7 +574,17 @@ public static class MatterEndpoints
                 .Select(md => md.DocumentId)
                 .ToListAsync(ct);
 
-            var docSourceMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct);
+            var readableLinkedIds = new List<Guid>();
+            var unreadableLinkedIds = new List<Guid>();
+            foreach (var documentId in alreadyLinkedIds)
+                if (await matterAuth.CanAccessMatterDocumentAsync(id, documentId, userId, ct))
+                    readableLinkedIds.Add(documentId);
+                else
+                    unreadableLinkedIds.Add(documentId);
+            alreadyLinkedIds = readableLinkedIds;
+
+            var docSourceMap = await MatterDocumentProvenanceHelper.GetEligibleDocumentCandidateMapAsync(db, matter, accessControl, ct, userId);
+            foreach (var documentId in unreadableLinkedIds) docSourceMap.Remove(documentId);
 
             // Union candidate IDs with alreadyLinkedIds so officers can extract pages from an already-linked full document
             var allCandidateIds = docSourceMap.Keys.Union(alreadyLinkedIds).ToList();
@@ -795,6 +807,7 @@ public static class MatterEndpoints
                 .ToListAsync(ct);
 
             var requested = request.DocumentIds.Distinct().ToList();
+            foreach (var documentId in requested) if (!await matterAuth.CanAccessMatterDocumentAsync(id, documentId, userId, ct)) return Results.Forbid();
             if (requested.Count == 0 || requested.Any(x => !allowedIds.Contains(x)))
                 return Results.BadRequest(new { message = "Select only documents explicitly linked to this Matter." });
 
@@ -848,6 +861,8 @@ public static class MatterEndpoints
             Guid matterId,
             Guid documentId,
             bool? download,
+            int? expectedVersion,
+            string? expectedHash,
             LacDbContext db,
             IDocumentStorage storage,
             IMatterAuthorizationService matterAuth,
@@ -865,6 +880,9 @@ public static class MatterEndpoints
             var doc = await db.Documents.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.Id == documentId && d.RecordStatus == RecordStatus.Active && (d.Status == "Active" || string.IsNullOrEmpty(d.Status)), ct);
             if (doc is null) return Results.NotFound(new { message = "Document record not found." });
+
+            if (expectedVersion.HasValue && doc.Version != expectedVersion.Value || expectedHash is not null && !string.Equals(doc.Sha256Hash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                return Results.Conflict(new { message = "Referenced document version is unavailable. Review the historical citation before opening current evidence." });
 
             var stream = await storage.OpenReadAsync(doc.StoragePath, ct);
             if (stream is null) return Results.NotFound(new { message = "Document file not found on storage volume." });

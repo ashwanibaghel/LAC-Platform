@@ -41,6 +41,7 @@ public sealed partial class MatterWorkflowService
         if (!await CanViewContextTargetAsync(kind, id, userId, ct))
             throw new MatterWorkflowException($"Context target is unavailable or unauthorized ({(kind == MatterContextKind.CourtCase ? PermissionCodes.CourtView : kind + ".View")} required).", 403);
         if (!linking) return;
+        if (kind == MatterContextKind.Dak) await DakMatterGuard.ValidateLinkAsync(db, id, matter, userId, ct);
         if (kind == MatterContextKind.Award && !await db.AwardVillages.AnyAsync(x => x.AwardId == id && x.VillageId == matter.VillageId, ct))
             throw new MatterWorkflowException("Award does not belong to the selected village.");
         if (kind == MatterContextKind.Khasra && !await db.Khasras.AnyAsync(x => x.Id == id && x.VillageId == matter.VillageId, ct))
@@ -189,6 +190,7 @@ public sealed partial class MatterWorkflowService
             return await ExecuteWorkflowTransactionAsync(async opCt =>
             {
                 db.ChangeTracker.Clear();
+                if (kind == MatterContextKind.Dak && linking && db.Database.IsRelational()) await db.Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM \"Daks\" WHERE \"Id\" = {targetId} FOR UPDATE", opCt);
                 var matter = await LockMatterAsync(matterId, opCt);
                 if (matter.RecordStatus != RecordStatus.Active || matter.Revision != cmd.ExpectedRevision)
                     throw new MatterWorkflowException("Matter changed; reload before updating context.", 409);

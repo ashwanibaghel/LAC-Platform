@@ -703,7 +703,7 @@ public static partial class DakEndpoints
                 dakRecord.UpdatedBy,
                 dakRecord.RecordStatus.ToString(), dakRecord.RoutingState.ToString(), dakRecord.PhysicalState.ToString(), dakRecord.ProcessingCycle, pendingDelivery?.Id, pendingDelivery?.ToUserId,
                 needsAttention || pendingNeedsAttention || dakRecord.RoutingState == DakRoutingState.LegacyUnconfirmed || dakRecord.PhysicalState == DakPhysicalState.ReturnPending,
-                dakRecord.ResolvedAt, dakRecord.ResolvedByUserId, dakRecord.ResolutionRemarks
+                dakRecord.ResolvedAt, dakRecord.ResolvedByUserId, dakRecord.ResolutionRemarks, dakRecord.VillageClassification.ToString()
             );
 
             return Results.Ok(detailDto);
@@ -1477,7 +1477,8 @@ public sealed record DakDetailDto(
     bool NeedsAttention = false,
     DateTimeOffset? ResolvedAt = null,
     Guid? ResolvedByUserId = null,
-    string? ResolutionRemarks = null
+    string? ResolutionRemarks = null,
+    string VillageClassification = "Unclassified"
 );
 
 public sealed record DakAssignmentDto(

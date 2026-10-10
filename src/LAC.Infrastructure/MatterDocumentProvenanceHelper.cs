@@ -9,9 +9,29 @@ public static class MatterDocumentProvenanceHelper
         LacDbContext db,
         Matter matter,
         IAccessControlService accessControl,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Guid? userId = null)
     {
         var candidateDocIds = new Dictionary<Guid, string>();
+
+        // Sharing a receipt is explicit and uses the original binary. Discover only
+        // documents on Daks already linked to this Matter and readable by this actor.
+        if (userId.HasValue)
+        {
+            var dakIds = await db.DakMatterLinks.AsNoTracking()
+                .Where(x => x.MatterId == matter.Id && x.RecordStatus == RecordStatus.Active)
+                .Select(x => x.DakId).ToListAsync(ct);
+            var receipts = await db.Daks.AsNoTracking()
+                .Where(x => dakIds.Contains(x.Id) && x.MainDocumentId.HasValue)
+                .Select(x => new { DakId = x.Id, DocumentId = x.MainDocumentId!.Value }).ToListAsync(ct);
+            var attachments = await db.DakAttachments.AsNoTracking()
+                .Where(x => dakIds.Contains(x.DakId) && x.RecordStatus == RecordStatus.Active)
+                .Select(x => new { x.DakId, x.DocumentId }).ToListAsync(ct);
+            var dakAuth = new DakAuthorizationService(db);
+            foreach (var file in receipts.Concat(attachments))
+                if (await dakAuth.CanAccessDocumentAsync(file.DakId, file.DocumentId, userId.Value, ct))
+                    candidateDocIds.TryAdd(file.DocumentId, receipts.Contains(file) ? "Linked Dak receipt" : "Linked Dak attachment");
+        }
 
         var canAward = await accessControl.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Award), ct);
         var canLr = await accessControl.CanAsync(PermissionCodes.LrView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.LandRecords), ct);

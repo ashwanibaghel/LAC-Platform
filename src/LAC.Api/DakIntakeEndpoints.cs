@@ -44,7 +44,15 @@ public static partial class DakEndpoints
         }
         var linkId = Guid.NewGuid();
         var changedId = await workflow.MutateIntakeAsync(id, ReadRevision(http), userId,
-            remove ? "ContextUnlinked" : "ContextLinked", async (_, c) => type switch
+            remove ? "ContextUnlinked" : "ContextLinked", async (lockedDak, c) =>
+            {
+                if (type == "Village" && lockedDak.VillageClassification != DakVillageClassification.Unclassified) throw new DakWorkflowException("Use the revision-guarded Village classification endpoint.", 409);
+                if (type == "Matter" && !remove)
+                {
+                    var matter = await db.Matters.SingleOrDefaultAsync(x => x.Id == targetId && x.RecordStatus == RecordStatus.Active, c) ?? throw new DakWorkflowException("Matter is unavailable.", 403);
+                    try { await DakMatterGuard.ValidateLinkAsync(db, id, matter, userId, c); } catch (MatterWorkflowException ex) { throw new DakWorkflowException(ex.Message, ex.StatusCode); }
+                }
+                return type switch
             {
                 "Village" => await ChangeLinkAsync(db, db.DakVillageLinks.Where(l => l.DakId == id && (l.VillageId == targetId || remove && l.Id == targetId)),
                     () => new DakVillageLink { Id = linkId, DakId = id, VillageId = targetId },
@@ -59,6 +67,7 @@ public static partial class DakEndpoints
                     () => new DakKhasraLink { Id = linkId, DakId = id, KhasraId = targetId },
                     () => db.Khasras.AnyAsync(v => v.Id == targetId && v.RecordStatus == RecordStatus.Active, c), remove, c),
                 _ => throw new DakWorkflowException("Unknown context type.")
+            };
             }, ct);
         if (remove) return Results.NoContent();
         return Results.Created($"/api/dak/{id}/links/{type.ToLowerInvariant()}s/{changedId}", new Dictionary<string, object>
