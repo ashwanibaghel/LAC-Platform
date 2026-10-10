@@ -28,3 +28,4 @@ supabase/.temp/
 /out/
 /tmp/rbac-postgresql/
 /tmp/rbac-proof/
+/TestResults/

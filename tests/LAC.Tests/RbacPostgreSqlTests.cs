@@ -55,8 +55,7 @@ public sealed class RbacPostgreSqlTests : IAsyncLifetime
         if (string.IsNullOrWhiteSpace(configured)) return;
         var cs = new NpgsqlConnectionStringBuilder(configured);
         // Do not accept the office runtime connection or an arbitrary database destination.
-        if (cs.Host != "127.0.0.1" || cs.Port != 55442 || cs.Database != "postgres")
-            throw new InvalidOperationException("RBAC integration tests require the separate loopback PostgreSQL cluster on port 55442.");
+        RbacPostgresServer.RequireDedicatedServer(cs);
         server = cs.ConnectionString; database = $"lac_rbac_test_{Guid.NewGuid():N}";
         await using var admin = new NpgsqlConnection(server); await admin.OpenAsync();
         await using var create = new NpgsqlCommand($"CREATE DATABASE \"{database}\"", admin); await create.ExecuteNonQueryAsync();

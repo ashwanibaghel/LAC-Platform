@@ -44,8 +44,7 @@ public sealed class OfficeAccountV3PostgresTests(OfficeV3PostgresSchema schema) 
     private async Task WithDatabase(Func<string, Task> proof, bool emptySchema = false)
     {
         var configured = new NpgsqlConnectionStringBuilder(Environment.GetEnvironmentVariable("LAC_RBAC_TEST_SERVER"));
-        if (configured.Host != "127.0.0.1" || configured.Port != 55442 || configured.Database != "postgres")
-            throw new InvalidOperationException("V3 tests require the dedicated disposable loopback PostgreSQL server on port 55442.");
+        RbacPostgresServer.RequireDedicatedServer(configured);
         var name = $"lac_rbac_v3_test_{Guid.NewGuid():N}";
         await using var server = new NpgsqlConnection(configured.ConnectionString); await server.OpenAsync();
         var template = emptySchema ? "" : $" TEMPLATE \"{schema.TemplateName}\"";
@@ -149,8 +148,7 @@ public sealed class OfficeV3PostgresSchema : IAsyncLifetime
         var configured = Environment.GetEnvironmentVariable("LAC_RBAC_TEST_SERVER");
         if (string.IsNullOrWhiteSpace(configured)) return;
         var cs = new NpgsqlConnectionStringBuilder(configured);
-        if (cs.Host != "127.0.0.1" || cs.Port != 55442 || cs.Database != "postgres")
-            throw new InvalidOperationException("V3 schema template requires dedicated loopback test server 55442.");
+        RbacPostgresServer.RequireDedicatedServer(cs);
         cs.Pooling = false; server = cs.ConnectionString;
         TemplateName = $"lac_rbac_v3_template_{Guid.NewGuid():N}";
         await using var admin = new NpgsqlConnection(server); await admin.OpenAsync();

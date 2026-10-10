@@ -120,6 +120,7 @@ public sealed class MatterContextFoundationTests
     public async Task LinkAndUnlink_RequiresMatterAndTargetPermissions_DuplicatesSafe_RevisionsAndImmutableHistory(MatterContextKind kind)
     {
         await using var f = await Fixture.Create();
+        if (kind == MatterContextKind.Dak) await f.ArrangeReceivedClassifiedDak();
         var matter = await f.NewMatter(); var id = f.Target(kind);
         var first = await f.Workflow.ChangeContextLinkAsync(matter.Id, kind, id, true, new(0), f.User.Id);
         Assert.True(first.Changed); Assert.Equal(1, first.Revision);
@@ -158,6 +159,7 @@ public sealed class MatterContextFoundationTests
     public async Task Context_AllHiddenTargetsAndCountsAreOmitted_AndMatterViewFailsClosed()
     {
         await using var f = await Fixture.Create();
+        await f.ArrangeReceivedClassifiedDak();
         var matter = await f.Workflow.CreateMatterAsync(new(f.Village.Id, "Context", "General", f.Workstream.Id,
             AwardIds: [f.Award.Id], KhasraIds: [f.Khasra.Id], CourtCaseIds: [f.Court.Id]), f.User.Id);
         await f.Workflow.ChangeContextLinkAsync(matter.Id, MatterContextKind.Dak, f.Dak.Id, true, new(0), f.User.Id);
@@ -414,6 +416,19 @@ public sealed class MatterContextFoundationTests
             var permission = await Db.Permissions.FirstOrDefaultAsync(x => x.Code == code);
             if (permission is null) { permission = new() { Code = code, Name = code }; Db.Add(permission); }
             Db.Add(new RolePermission { RoleId = Role.Id, PermissionId = permission.Id, ScopeMode = scope }); await Db.SaveChangesAsync();
+        }
+        public async Task ArrangeReceivedClassifiedDak()
+        {
+            // Keep the original scope, revision and journal assertions; arrange the new
+            // confirmed-holder/Village preconditions in this synthetic linking fixture.
+            var dak = await Db.Daks.SingleAsync(x => x.Id == Dak.Id);
+            dak.Status = DakStatus.InProcess; dak.RoutingState = DakRoutingState.WithHolder;
+            dak.VillageClassification = DakVillageClassification.VillageSpecific;
+            Db.Add(new DakVillageLink { DakId = dak.Id, VillageId = Village.Id });
+            Db.Add(new UserDeskMembership { UserId = User.Id, OfficeDeskId = Desk.Id, IsActive = true });
+            Db.Add(new DakAssignment { DakId = dak.Id, OfficeDeskId = Desk.Id, AssignedUserId = User.Id,
+                AssignedByUserId = User.Id, ReceivedAt = DateTimeOffset.UtcNow, IsActive = true });
+            await Db.SaveChangesAsync();
         }
         public async Task Revoke(string code)
         {
