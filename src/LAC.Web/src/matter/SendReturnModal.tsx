@@ -54,7 +54,7 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
 }) => {
   const [action, setAction] = useState<"Forwarded" | "Returned">("Forwarded");
   const [selectedDakId, setSelectedDakId] = useState<string>(
-    defaultControllingDakId || linkedDaks[0]?.dakId || ""
+    linkedDaks.length === 1 ? linkedDaks[0].dakId : (defaultControllingDakId || "")
   );
 
   const [desks, setDesks] = useState<TargetDeskOption[]>([]);
@@ -64,6 +64,7 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
   const [remarks, setRemarks] = useState<string>("");
   const [includesPhysical, setIncludesPhysical] = useState<boolean>(false);
   const [dakHasPhysical, setDakHasPhysical] = useState<boolean>(false);
+  const [liveDakRevision, setLiveDakRevision] = useState<number | null>(null);
 
   const [loadingTargets, setLoadingTargets] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -71,12 +72,22 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
 
   const selectedDak = linkedDaks.find((d) => d.dakId === selectedDakId);
 
-  // Fetch physical original status for the selected Dak
+  // Fetch physical original status & live revision for the selected Dak
   useEffect(() => {
     if (!selectedDakId) {
       setDakHasPhysical(false);
+      setLiveDakRevision(null);
       return;
     }
+    fetch(`/api/dak/${selectedDakId}`, { credentials: "include" })
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data.revision === "number") {
+          setLiveDakRevision(data.revision);
+        }
+      })
+      .catch(() => {});
+
     fetch(`/api/dak/${selectedDakId}/physical-original`, { credentials: "include" })
       .then(async (res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -157,9 +168,23 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
     setError(null);
 
     try {
+      let expectedDakRevision = liveDakRevision ?? (selectedDak?.revision ?? 0);
+      try {
+        const freshDakRes = await fetch(`/api/dak/${selectedDakId}`, { credentials: "include" });
+        if (freshDakRes.ok) {
+          const freshDakData = await freshDakRes.json();
+          if (typeof freshDakData.revision === "number") {
+            expectedDakRevision = freshDakData.revision;
+            setLiveDakRevision(freshDakData.revision);
+          }
+        }
+      } catch {
+        // use fallback expectedDakRevision
+      }
+
       const payload = {
         sourceDakId: selectedDakId,
-        expectedDakRevision: selectedDak.revision,
+        expectedDakRevision,
         toDeskId: selectedDeskId,
         toUserId: selectedUserId,
         action,
@@ -355,7 +380,7 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
             <button className="noting-btn noting-btn-secondary" type="button" onClick={onClose} disabled={submitting}>
               Cancel
             </button>
-            <button className="noting-btn noting-btn-send" type="submit" disabled={submitting || loadingTargets || !selectedUserId}>
+            <button className="noting-btn noting-btn-send" type="submit" disabled={submitting || loadingTargets || !selectedUserId || !selectedDakId}>
               {submitting ? "Sending..." : "Submit Note & Send File"}
             </button>
           </div>

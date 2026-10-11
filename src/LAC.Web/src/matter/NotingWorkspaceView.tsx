@@ -10,6 +10,7 @@ import { AddRemarkModal, ViewRemarksModal } from "./RemarkModal";
 import { CiteDocumentModal } from "./CiteDocumentModal";
 import { SendReturnModal } from "./SendReturnModal";
 import { DocumentRailViewer } from "./DocumentRailViewer";
+import { NotingRichEditor } from "./NotingRichEditor";
 import "./noting.css";
 
 interface NotingWorkspaceViewProps {
@@ -44,9 +45,11 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   const [focusMode, setFocusMode] = useState<boolean>(false);
   const [focusDrawerOpen, setFocusDrawerOpen] = useState<boolean>(false);
 
-  // Controlling Dak selection
+  // Controlling Dak selection:
+  // When exactly 1 Dak is linked, default to it.
+  // When multiple Daks are linked, REQUIRE explicit selection (use initialSourceDakId if provided, else null).
   const [sourceDakId, setSourceDakId] = useState<string | null>(
-    initialSourceDakId || (linkedDaks.length > 0 ? linkedDaks[0].dakId : null)
+    linkedDaks.length === 1 ? linkedDaks[0].dakId : (initialSourceDakId || null)
   );
 
   // Main Workspace Data
@@ -55,24 +58,31 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Active Draft State
-  const [draftContent, setDraftContent] = useState<string>("");
+  const [draftContentJson, setDraftContentJson] = useState<string>("");
+  const [draftCanonicalText, setDraftCanonicalText] = useState<string>("");
   const [draftRevision, setDraftRevision] = useState<number>(0);
   const [draftLoaded, setDraftLoaded] = useState<boolean>(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"saved" | "saving" | "offline" | "error">("saved");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
-  // Autosave timer & pending flush ref
+  // References for autosave, debouncing and flushing
   const autosaveTimerRef = useRef<number | null>(null);
-  const latestContentRef = useRef<string>("");
+  const latestJsonRef = useRef<string>("");
+  const latestTextRef = useRef<string>("");
+  const savedJsonRef = useRef<string>("");
   const draftRevisionRef = useRef<number>(0);
-  latestContentRef.current = draftContent;
+  const inFlightSavePromiseRef = useRef<Promise<boolean> | null>(null);
+  const isSavingRef = useRef<boolean>(false);
+
+  latestJsonRef.current = draftContentJson;
+  latestTextRef.current = draftCanonicalText;
   draftRevisionRef.current = draftRevision;
 
   // Selected document in rail/viewer
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [activePage, setActivePage] = useState<number | null>(null);
 
-  // Remarks & Modals
+  // Remarks State
   const [remarksMap, setRemarksMap] = useState<Record<string, MatterNoteRemarkDto[]>>({});
   const [addRemarkState, setAddRemarkState] = useState<{
     note: MatterOfficialNoteDto;
@@ -83,7 +93,11 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
     remarks: MatterNoteRemarkDto[];
   } | null>(null);
 
-  // Floating text selection state
+  // Popover state for inline clicked/hovered remark
+  const [activePopoverRemark, setActivePopoverRemark] = useState<MatterNoteRemarkDto | null>(null);
+  const [popoverCoords, setPopoverCoords] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Floating text selection state for remark creation
   const [selectedRange, setSelectedRange] = useState<{
     note: MatterOfficialNoteDto;
     anchor: any;
@@ -96,9 +110,12 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
 
   // Send / Return movement modal
   const [showSendModal, setShowSendModal] = useState<boolean>(false);
+  const [confirmedSendRevision, setConfirmedSendRevision] = useState<number>(0);
+  const [submittingAction, setSubmittingAction] = useState<boolean>(false);
 
   // 409 Draft revision conflict preservation state
   const [draftConflict, setDraftConflict] = useState<{
+    localJson: string;
     localContent: string;
     serverContent: string;
     serverRevision: number;
@@ -160,12 +177,18 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
         try {
           const parsed = JSON.parse(draft.contentJson);
           const canonical = canonicalizeRichTextDoc(parsed);
-          setDraftContent(canonical.trim());
+          setDraftContentJson(draft.contentJson);
+          setDraftCanonicalText(canonical.trim());
+          savedJsonRef.current = draft.contentJson;
         } catch {
-          setDraftContent(draft.canonicalText || "");
+          setDraftContentJson("");
+          setDraftCanonicalText(draft.canonicalText || "");
+          savedJsonRef.current = "";
         }
       } else {
-        setDraftContent("");
+        setDraftContentJson("");
+        setDraftCanonicalText("");
+        savedJsonRef.current = "";
       }
       setDraftLoaded(true);
       setAutosaveStatus("saved");
@@ -179,138 +202,182 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
     loadDraft();
   }, [loadDraft]);
 
-  // 3. Durable Autosave Engine
+  // 3. Durable Save Execution
   const performSave = useCallback(
-    async (textToSave: string, force = false): Promise<boolean> => {
+    async (jsonToSave: string, textToSave: string, force = false): Promise<boolean> => {
       if (!draftLoaded && !force) return false;
+      if (isSavingRef.current) {
+        return inFlightSavePromiseRef.current || Promise.resolve(false);
+      }
+
+      isSavingRef.current = true;
       setAutosaveStatus("saving");
 
-      // Construct ProseMirror / TipTap doc
-      const paragraphs = textToSave
-        .split("\n")
-        .filter((line) => line.trim().length > 0)
-        .map((p) => ({
-          type: "paragraph",
-          content: [{ type: "text", text: p }]
-        }));
-
-      const docObj = {
-        type: "doc",
-        content: paragraphs.length > 0 ? paragraphs : [{ type: "paragraph", content: [{ type: "text", text: textToSave }] }]
-      };
-
-      const cleanDoc = sanitizeTipTapDoc(docObj);
-      const jsonStr = JSON.stringify(cleanDoc);
-
-      try {
-        const res = await fetch(`/api/matters/${matterId}/noting/draft`, {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            "If-Match": `"${draftRevisionRef.current}"`,
-            "Idempotency-Key": getUuid()
-          },
-          body: JSON.stringify({
-            contentJson: jsonStr,
-            sourceDakId: sourceDakId || null
-          })
-        });
-
-        if (res.status === 409) {
-          setAutosaveStatus("error");
+      const savePromise = (async () => {
+        try {
+          let cleanJson = jsonToSave;
           try {
-            const conflictBody = await res.json().catch(() => ({}));
-            const serverRes = await fetch(`/api/matters/${matterId}/noting/draft`, { credentials: "include" });
-            let serverRev = draftRevisionRef.current + 1;
-            let serverText = "";
-            if (serverRes.ok) {
-              const etag = serverRes.headers.get("ETag");
-              const sDraft: MatterWorkingDraftDto = await serverRes.json();
-              serverRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : (sDraft.revision || serverRev);
-              if (sDraft.contentJson) {
-                try {
-                  serverText = canonicalizeRichTextDoc(JSON.parse(sDraft.contentJson)).trim();
-                } catch {
-                  serverText = sDraft.canonicalText || "";
-                }
-              } else {
-                serverText = sDraft.canonicalText || "";
-              }
-            }
-            setDraftConflict({
-              localContent: textToSave,
-              serverContent: serverText,
-              serverRevision: serverRev,
-              message: conflictBody.message || "Draft changed on server; recover saved text before retrying."
-            });
+            const parsed = JSON.parse(jsonToSave);
+            cleanJson = JSON.stringify(sanitizeTipTapDoc(parsed) || { type: "doc", content: [{ type: "paragraph" }] });
           } catch {
-            setDraftConflict({
-              localContent: textToSave,
-              serverContent: "",
-              serverRevision: draftRevisionRef.current + 1,
-              message: "Draft changed on server; recover saved text before retrying."
+            const paragraphs = textToSave.split("\n").filter((l) => l.trim().length > 0);
+            cleanJson = JSON.stringify({
+              type: "doc",
+              content: paragraphs.length > 0
+                ? paragraphs.map((t) => ({ type: "paragraph", content: [{ type: "text", text: t }] }))
+                : [{ type: "paragraph", content: [{ type: "text", text: textToSave }] }]
             });
           }
+
+          const res = await fetch(`/api/matters/${matterId}/noting/draft`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "If-Match": `"${draftRevisionRef.current}"`,
+              "Idempotency-Key": getUuid()
+            },
+            body: JSON.stringify({
+              contentJson: cleanJson,
+              sourceDakId: sourceDakId || null
+            })
+          });
+
+          if (res.status === 409) {
+            setAutosaveStatus("error");
+            try {
+              const conflictBody = await res.json().catch(() => ({}));
+              const serverRes = await fetch(`/api/matters/${matterId}/noting/draft`, { credentials: "include" });
+              let serverRev = draftRevisionRef.current + 1;
+              let serverText = "";
+              if (serverRes.ok) {
+                const etag = serverRes.headers.get("ETag");
+                const sDraft: MatterWorkingDraftDto = await serverRes.json();
+                serverRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : (sDraft.revision || serverRev);
+                if (sDraft.contentJson) {
+                  try {
+                    serverText = canonicalizeRichTextDoc(JSON.parse(sDraft.contentJson)).trim();
+                  } catch {
+                    serverText = sDraft.canonicalText || "";
+                  }
+                } else {
+                  serverText = sDraft.canonicalText || "";
+                }
+              }
+              setDraftConflict({
+                localJson: cleanJson,
+                localContent: textToSave,
+                serverContent: serverText,
+                serverRevision: serverRev,
+                message: conflictBody.message || "Draft changed on server; recover saved text before retrying."
+              });
+            } catch {
+              setDraftConflict({
+                localJson: cleanJson,
+                localContent: textToSave,
+                serverContent: "",
+                serverRevision: draftRevisionRef.current + 1,
+                message: "Draft changed on server; recover saved text before retrying."
+              });
+            }
+            return false;
+          }
+
+          if (!res.ok) {
+            setAutosaveStatus("error");
+            return false;
+          }
+
+          const etag = res.headers.get("ETag");
+          const updatedDraft: MatterWorkingDraftDto = await res.json();
+          const nextRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : updatedDraft.revision;
+
+          setDraftRevision(nextRev);
+          draftRevisionRef.current = nextRev;
+          savedJsonRef.current = cleanJson;
+          setAutosaveStatus("saved");
+          setLastSavedAt(new Date());
+          return true;
+        } catch {
+          setAutosaveStatus("offline");
           return false;
+        } finally {
+          isSavingRef.current = false;
+          inFlightSavePromiseRef.current = null;
         }
+      })();
 
-        if (!res.ok) {
-          setAutosaveStatus("error");
-          return false;
-        }
-
-        const etag = res.headers.get("ETag");
-        const updatedDraft: MatterWorkingDraftDto = await res.json();
-        const nextRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : updatedDraft.revision;
-
-        setDraftRevision(nextRev);
-        draftRevisionRef.current = nextRev;
-        setAutosaveStatus("saved");
-        setLastSavedAt(new Date());
-        return true;
-      } catch {
-        setAutosaveStatus("offline");
-        return false;
-      }
+      inFlightSavePromiseRef.current = savePromise;
+      return savePromise;
     },
-    [draftLoaded, matterId, sourceDakId, loadDraft]
+    [draftLoaded, matterId, sourceDakId]
   );
 
-  // Debounced input change
-  const handleDraftChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setDraftContent(val);
-    latestContentRef.current = val;
-    setAutosaveStatus("saving");
+  // Debounced input change from Rich Editor
+  const handleEditorChange = useCallback(
+    (contentJson: string, canonicalText: string) => {
+      setDraftContentJson(contentJson);
+      setDraftCanonicalText(canonicalText);
+      latestJsonRef.current = contentJson;
+      latestTextRef.current = canonicalText;
+      setAutosaveStatus("saving");
 
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+      autosaveTimerRef.current = window.setTimeout(() => {
+        performSave(contentJson, canonicalText);
+      }, 1500);
+    },
+    [performSave]
+  );
+
+  // 4. Flush and Verify Draft: Guarantees in-flight and pending autosaves complete before Submit or Send
+  const flushAndVerifyDraft = useCallback(async (): Promise<{ success: boolean; revision: number }> => {
+    // 1. Cancel pending debounce timer
     if (autosaveTimerRef.current) {
       window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
     }
-    autosaveTimerRef.current = window.setTimeout(() => {
-      performSave(val);
-    }, 1500);
-  };
 
-  // 4. Submit Working Note (Lock into immutable official chain)
+    // 2. Await active in-flight save if any
+    if (inFlightSavePromiseRef.current) {
+      const inFlightOk = await inFlightSavePromiseRef.current;
+      if (!inFlightOk) {
+        return { success: false, revision: draftRevisionRef.current };
+      }
+    }
+
+    // 3. If local content differs from last confirmed saved content, perform save now
+    if (latestJsonRef.current !== savedJsonRef.current || latestTextRef.current.trim() && savedJsonRef.current === "") {
+      const saveOk = await performSave(latestJsonRef.current, latestTextRef.current, true);
+      if (!saveOk) {
+        return { success: false, revision: draftRevisionRef.current };
+      }
+    }
+
+    return { success: true, revision: draftRevisionRef.current };
+  }, [performSave]);
+
+  // 5. Submit Working Note (Standalone Local Submission into immutable official chain)
   const handleSubmitNote = async () => {
-    if (!draftContent.trim()) {
+    if (!draftCanonicalText.trim()) {
       alert("Please enter note text before submitting.");
       return;
     }
 
-    // Flush pending autosave first
-    const saved = await performSave(latestContentRef.current, true);
-    if (!saved) {
-      const proceed = window.confirm("Draft could not be verified by server. Attempt submit anyway?");
-      if (!proceed) return;
-    }
-
+    setSubmittingAction(true);
     try {
+      const verified = await flushAndVerifyDraft();
+      if (!verified.success) {
+        alert("Draft could not be verified by the server. Your edits have been preserved in the editor. Please resolve any revision conflicts before submitting.");
+        return;
+      }
+
       const res = await fetch(`/api/matters/${matterId}/noting/submit`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "If-Match": `"${draftRevisionRef.current}"`,
+          "If-Match": `"${verified.revision}"`,
           "Idempotency-Key": getUuid()
         },
         body: JSON.stringify({
@@ -323,16 +390,46 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
         throw new Error(body.message || `Submit note failed (${res.status})`);
       }
 
-      setDraftContent("");
-      latestContentRef.current = "";
+      setDraftContentJson("");
+      setDraftCanonicalText("");
+      latestJsonRef.current = "";
+      latestTextRef.current = "";
+      savedJsonRef.current = "";
+      setDraftConflict(null);
       await loadDraft();
       await loadWorkspace();
     } catch (err: any) {
       alert(err.message || "Failed to submit note");
+    } finally {
+      setSubmittingAction(false);
     }
   };
 
-  // 5. Text Selection on Submitted Notes -> Add Remark
+  // 6. Initiate Send / Return: Flushes and verifies draft first, then opens Send modal
+  const handleInitiateSend = async () => {
+    if (!workspaceData?.capabilities.canSend) return;
+
+    if (!draftCanonicalText.trim()) {
+      alert("Please write your note before sending the file. Sending atomically finalizes and records your note with the file movement.");
+      return;
+    }
+
+    setSubmittingAction(true);
+    try {
+      const verified = await flushAndVerifyDraft();
+      if (!verified.success) {
+        alert("Draft could not be verified by the server. Your edits have been preserved in the editor. Please resolve any revision conflicts before sending.");
+        return;
+      }
+
+      setConfirmedSendRevision(verified.revision);
+      setShowSendModal(true);
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  // 7. Text Selection on Submitted Notes -> Add Remark (Accurate offset mapping even with repeated text)
   const handleMouseUpOnNote = (_e: React.MouseEvent, note: MatterOfficialNoteDto) => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
@@ -346,25 +443,55 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       return;
     }
 
-    // Find position in canonicalText
-    const startIdx = note.canonicalText.indexOf(selectedText);
-    if (startIdx === -1) {
-      setSelectedRange(null);
-      return;
+    // Find the enclosing paragraph element with data-start-offset to compute exact index
+    const range = sel.getRangeAt(0);
+    let pNode: HTMLElement | null = range.startContainer as HTMLElement;
+    while (pNode && pNode.getAttribute && !pNode.getAttribute("data-start-offset")) {
+      pNode = pNode.parentElement;
     }
-    const endIdx = startIdx + selectedText.length;
 
-    createNoteAnchor(note.canonicalText, startIdx, endIdx).then((anchor) => {
-      const rect = sel.getRangeAt(0).getBoundingClientRect();
-      setSelectedRange({
-        note,
-        anchor,
-        coords: { x: rect.left + rect.width / 2, y: rect.top - 36 }
+    let startIdx = -1;
+    if (pNode && pNode.getAttribute("data-start-offset")) {
+      const pStart = parseInt(pNode.getAttribute("data-start-offset")!, 10);
+      let charOffset = 0;
+      const walk = (node: Node): boolean => {
+        if (node === range.startContainer) {
+          charOffset += range.startOffset;
+          return true;
+        }
+        if (node.nodeType === Node.TEXT_NODE) {
+          charOffset += (node.textContent || "").length;
+        }
+        for (let i = 0; i < node.childNodes.length; i++) {
+          if (walk(node.childNodes[i])) return true;
+        }
+        return false;
+      };
+      walk(pNode);
+      const computedStart = pStart + charOffset;
+      if (note.canonicalText.substring(computedStart, computedStart + selectedText.length) === selectedText) {
+        startIdx = computedStart;
+      }
+    }
+
+    if (startIdx === -1) {
+      startIdx = note.canonicalText.indexOf(selectedText);
+    }
+
+    if (startIdx >= 0) {
+      const endIdx = startIdx + selectedText.length;
+      createNoteAnchor(note.canonicalText, startIdx, endIdx).then((anchor) => {
+        const rect = range.getBoundingClientRect();
+        setSelectedRange({
+          note,
+          anchor,
+          coords: { x: rect.left + rect.width / 2, y: rect.top - 36 }
+        });
       });
-    });
+    }
   };
 
-  // 6. Citation click in notes -> Navigate right rail/drawer
+  // 8. Citation click in notes -> Navigate right rail/drawer
   const handleCitationClick = (docId: string, page?: number | null) => {
     setActiveDocId(docId);
     if (page) setActivePage(page);
@@ -373,7 +500,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
     }
   };
 
-  // 7. Insert citation on active draft text selection
+  // 9. Insert citation on active draft text selection
   const handleCiteDraftSelection = () => {
     const textarea = document.getElementById("active-draft-textarea") as HTMLTextAreaElement | null;
     if (!textarea) return;
@@ -391,6 +518,41 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       setCitationAnchor(anchor);
       setShowCitationModal(true);
     });
+  };
+
+  // 10. Toggle Remark status (PUT /api/matters/{m}/notes/{n}/remarks/{r})
+  const handleToggleRemarkState = async (remark: MatterNoteRemarkDto) => {
+    const nextState = remark.state === "Open" ? "Addressed" : "Open";
+    try {
+      const res = await fetch(`/api/matters/${matterId}/notes/${remark.noteId}/remarks/${remark.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Idempotency-Key": getUuid()
+        },
+        body: JSON.stringify({
+          state: nextState,
+          expectedRevision: remark.revision
+        })
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Failed to update remark status (${res.status})`);
+      }
+
+      const updated: MatterNoteRemarkDto = await res.json();
+      setRemarksMap((prev) => {
+        const list = prev[remark.noteId] || [];
+        return {
+          ...prev,
+          [remark.noteId]: list.map((r) => (r.id === updated.id ? updated : r))
+        };
+      });
+      setActivePopoverRemark(updated);
+    } catch (err: any) {
+      alert(err.message || "Remark update error");
+    }
   };
 
   if (loading) {
@@ -427,6 +589,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                 onChange={(e) => setSourceDakId(e.target.value || null)}
                 title="Select Controlling Active Dak"
               >
+                <option value="">-- Explicitly Select Dak --</option>
                 {linkedDaks.map((d) => (
                   <option key={d.dakId} value={d.dakId}>
                     {d.diaryNumber} — {d.subject.slice(0, 30)}...
@@ -459,7 +622,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
             {autosaveStatus === "saving" && <span>⏳ Saving draft…</span>}
             {autosaveStatus === "offline" && <span>⚠ Offline — retrying</span>}
             {autosaveStatus === "error" && (
-              <span onClick={() => performSave(latestContentRef.current, true)}>
+              <span onClick={() => performSave(latestJsonRef.current, latestTextRef.current, true)}>
                 {draftConflict ? "⚠ Conflict (409) — Unsaved edits preserved" : "✕ Save failed — Click to retry"}
               </span>
             )}
@@ -484,39 +647,83 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           <button
             type="button"
             className="noting-btn noting-btn-secondary"
-            onClick={() => performSave(latestContentRef.current, true)}
-            disabled={!capabilities.canEditDraft}
+            onClick={() => performSave(latestJsonRef.current, latestTextRef.current, true)}
+            disabled={!capabilities.canEditDraft || submittingAction}
           >
             Save Draft
           </button>
 
-          {/* Submit Note (Internal) */}
+          {/* Submit Note (Internal Standalone Submission) */}
           <button
             type="button"
             className="noting-btn noting-btn-primary"
             onClick={handleSubmitNote}
-            disabled={!capabilities.canSubmit || !draftContent.trim()}
+            disabled={!capabilities.canSubmit || !draftCanonicalText.trim() || submittingAction}
             title="Submit Note as next official numbered record"
           >
-            Submit Note {notes.length + 1}
+            {submittingAction ? "Submitting..." : `Submit Note ${notes.length + 1}`}
           </button>
 
           {/* Send / Return File Movement */}
           <button
             type="button"
             className="noting-btn noting-btn-send"
-            onClick={() => setShowSendModal(true)}
+            onClick={handleInitiateSend}
             disabled={!capabilities.canSend}
             title={
               capabilities.nativeRoutingPolicyPending
                 ? "Inter-officer file movement requires an active controlling Dak"
-                : "Submit Note and move controlling Dak to next officer"
+                : "Atomically submit Note and move controlling Dak to next officer"
             }
           >
             Send / Return File ➔
           </button>
         </div>
       </div>
+
+      {/* Multiple Linked Daks Explicit Selection Banner */}
+      {linkedDaks.length > 1 && !sourceDakId && (
+        <div
+          className="noting-controlling-dak-prompt"
+          style={{
+            background: "#fff7ed",
+            border: "1px solid #fed7aa",
+            padding: "8px 14px",
+            margin: "0 16px 8px 16px",
+            borderRadius: "6px",
+            color: "#9a3412",
+            fontSize: "12.5px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between"
+          }}
+        >
+          <div>
+            <strong>⚠ Multiple Linked Daks:</strong> Please select which controlling Dak you are acting under for this noting session.
+          </div>
+          <select
+            id="noting-select-controlling-dak"
+            value=""
+            onChange={(e) => setSourceDakId(e.target.value || null)}
+            style={{
+              padding: "4px 8px",
+              borderRadius: "4px",
+              border: "1px solid #fdba74",
+              fontWeight: 600,
+              background: "#ffffff",
+              color: "#9a3412",
+              cursor: "pointer"
+            }}
+          >
+            <option value="">-- Select Controlling Dak --</option>
+            {linkedDaks.map((d) => (
+              <option key={d.dakId} value={d.dakId}>
+                {d.diaryNumber} — {d.subject}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Native Policy Pending Notice */}
       {capabilities.nativeRoutingPolicyPending && (
@@ -542,6 +749,10 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               notes.map((note) => {
                 const noteRemarks = remarksMap[note.id] || [];
                 const openRemarksCount = noteRemarks.filter((r) => r.state === "Open").length;
+
+                // Track paragraph boundaries in canonicalText
+                let currentOffset = 0;
+                const paragraphs = note.canonicalText.split("\n");
 
                 return (
                   <div
@@ -605,25 +816,129 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Note Body Text with Citations */}
+                    {/* Note Body Text with precise inline highlighted remarks and anchored citations */}
                     <div className="official-note-body">
-                      {note.canonicalText.split("\n").map((para, idx) => {
+                      {paragraphs.map((para, pIdx) => {
+                        const pStart = currentOffset;
+                        const pEnd = pStart + para.length;
+                        currentOffset = pEnd + 1; // account for newline delimiter
+
                         if (!para.trim()) return null;
+
+                        // Find remarks intersecting this paragraph
+                        const matchingRemarks = noteRemarks
+                          .map((r) => {
+                            try {
+                              const anchor = typeof r.anchorJson === "string" ? JSON.parse(r.anchorJson) : (r as any).anchor;
+                              return { ...r, parsedAnchor: anchor };
+                            } catch {
+                              return null;
+                            }
+                          })
+                          .filter((r) => r && r.parsedAnchor && r.parsedAnchor.start < pEnd && r.parsedAnchor.end > pStart) as Array<
+                          MatterNoteRemarkDto & { parsedAnchor: any }
+                        >;
+
+                        // Find citations ending within this specific paragraph
+                        const matchingCitations = (note.citations || []).filter((c) => {
+                          const cAnchor = c.anchor;
+                          return cAnchor && cAnchor.end >= pStart && cAnchor.end <= pEnd;
+                        });
+
+                        // If no remarks and no citations in this paragraph, render direct paragraph
+                        if (matchingRemarks.length === 0 && matchingCitations.length === 0) {
+                          return (
+                            <p key={pIdx} data-start-offset={pStart}>
+                              {para}
+                            </p>
+                          );
+                        }
+
+                        // Sliced rendering for precise inline highlights
                         return (
-                          <p key={idx}>
-                            {para}
-                            {/* Render citations matching this note */}
-                            {note.citations.map((c, cIdx) => (
-                              <span
-                                key={cIdx}
-                                className="note-citation-pill"
-                                onClick={() => handleCitationClick(c.documentId, c.page)}
-                                title={`Click to view page ${c.page || 1}`}
-                              >
-                                📎 [Doc: {documents.find((d) => d.id === c.documentId)?.filename || "File"}
-                                {c.page ? ` (p.${c.page})` : ""}]
-                              </span>
-                            ))}
+                          <p key={pIdx} data-start-offset={pStart}>
+                            {(() => {
+                              // If there are remarks, highlight them precisely
+                              if (matchingRemarks.length > 0) {
+                                const elements: React.ReactNode[] = [];
+                                let lastPos = 0;
+
+                                // Sort remarks by start offset
+                                const sortedRemarks = [...matchingRemarks].sort(
+                                  (a, b) => a.parsedAnchor.start - b.parsedAnchor.start
+                                );
+
+                                for (const rem of sortedRemarks) {
+                                  const relStart = Math.max(0, rem.parsedAnchor.start - pStart);
+                                  const relEnd = Math.min(para.length, rem.parsedAnchor.end - pStart);
+
+                                  if (relStart > lastPos) {
+                                    elements.push(para.substring(lastPos, relStart));
+                                  }
+
+                                  if (relEnd > relStart) {
+                                    elements.push(
+                                      <mark
+                                        key={rem.id}
+                                        className={`noting-remark-highlight ${rem.state === "Open" ? "remark-open" : "remark-addressed"}`}
+                                        data-remark-id={rem.id}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActivePopoverRemark(rem);
+                                          setPopoverCoords({ x: e.clientX, y: e.clientY });
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          setActivePopoverRemark(rem);
+                                          setPopoverCoords({ x: e.clientX, y: e.clientY });
+                                        }}
+                                      >
+                                        {para.substring(relStart, relEnd)}
+                                      </mark>
+                                    );
+                                    lastPos = relEnd;
+                                  }
+                                }
+
+                                if (lastPos < para.length) {
+                                  elements.push(para.substring(lastPos));
+                                }
+
+                                // Append matching citations for this paragraph right at the text location
+                                matchingCitations.forEach((c, cIdx) => {
+                                  elements.push(
+                                    <span
+                                      key={`cite-${cIdx}`}
+                                      className="note-citation-pill"
+                                      onClick={() => handleCitationClick(c.documentId, c.page)}
+                                      title={`Click to view page ${c.page || 1}`}
+                                    >
+                                      📎 [Doc: {documents.find((d) => d.id === c.documentId)?.filename || "File"}
+                                      {c.page ? ` (p.${c.page})` : ""}]
+                                    </span>
+                                  );
+                                });
+
+                                return elements;
+                              }
+
+                              // Only citations in this paragraph
+                              return (
+                                <>
+                                  {para}
+                                  {matchingCitations.map((c, cIdx) => (
+                                    <span
+                                      key={cIdx}
+                                      className="note-citation-pill"
+                                      onClick={() => handleCitationClick(c.documentId, c.page)}
+                                      title={`Click to view page ${c.page || 1}`}
+                                    >
+                                      📎 [Doc: {documents.find((d) => d.id === c.documentId)?.filename || "File"}
+                                      {c.page ? ` (p.${c.page})` : ""}]
+                                    </span>
+                                  ))}
+                                </>
+                              );
+                            })()}
                           </p>
                         );
                       })}
@@ -655,6 +970,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                   </button>
                 </div>
 
+                {/* 409 Conflict Resolution Banner */}
                 {draftConflict && (
                   <div
                     className="noting-conflict-card"
@@ -702,8 +1018,9 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                           draftRevisionRef.current = draftConflict.serverRevision;
                           setDraftRevision(draftConflict.serverRevision);
                           const local = draftConflict.localContent;
+                          const localJ = draftConflict.localJson;
                           setDraftConflict(null);
-                          await performSave(local, true);
+                          await performSave(localJ, local, true);
                         }}
                       >
                         Keep My Edits & Overwrite Server
@@ -716,10 +1033,10 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                           const merged = draftConflict.serverContent ? `${draftConflict.serverContent}\n\n${draftConflict.localContent}` : draftConflict.localContent;
                           draftRevisionRef.current = draftConflict.serverRevision;
                           setDraftRevision(draftConflict.serverRevision);
-                          setDraftContent(merged);
-                          latestContentRef.current = merged;
+                          setDraftCanonicalText(merged);
+                          latestTextRef.current = merged;
                           setDraftConflict(null);
-                          void performSave(merged, true);
+                          void performSave(draftConflict.localJson, merged, true);
                         }}
                       >
                         Merge Both Versions
@@ -731,8 +1048,8 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                         onClick={() => {
                           draftRevisionRef.current = draftConflict.serverRevision;
                           setDraftRevision(draftConflict.serverRevision);
-                          setDraftContent(draftConflict.serverContent);
-                          latestContentRef.current = draftConflict.serverContent;
+                          setDraftCanonicalText(draftConflict.serverContent);
+                          latestTextRef.current = draftConflict.serverContent;
                           setDraftConflict(null);
                           setAutosaveStatus("saved");
                         }}
@@ -743,24 +1060,10 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                   </div>
                 )}
 
-                <div className="active-draft-toolbar">
-                  <span style={{ fontSize: "11px", color: "#64748b", marginRight: "6px" }}>Toolbar:</span>
-                  <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("bold")}>B</button>
-                  <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("italic")}>I</button>
-                  <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("underline")}>U</button>
-                  <span style={{ color: "#cbd5e1" }}>|</span>
-                  <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("insertUnorderedList")}>• List</button>
-                  <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("insertOrderedList")}>1. List</button>
-                </div>
-
-                <textarea
-                  id="active-draft-textarea"
-                  className="active-draft-editor-box"
-                  style={{ width: "100%", resize: "vertical" }}
-                  rows={6}
-                  placeholder="Enter official observations, legal references, and recommendations for this note..."
-                  value={draftContent}
-                  onChange={handleDraftChange}
+                {/* Working Rich Text Editor with Formatting Toolbar */}
+                <NotingRichEditor
+                  initialContent={draftContentJson || draftCanonicalText}
+                  onChange={handleEditorChange}
                 />
               </div>
             ) : (
@@ -781,33 +1084,101 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               activeDocumentId={activeDocId}
               activePage={activePage}
               canAnnotate={capabilities.canAnnotate}
-              onSelectDocument={(id, page) => {
-                setActiveDocId(id);
+              onSelectDocument={(docId, page) => {
+                setActiveDocId(docId);
                 if (page) setActivePage(page);
               }}
-              onDocumentUploaded={loadWorkspace}
+              onDocumentUploaded={() => loadWorkspace()}
             />
           </div>
         )}
       </div>
 
-      {/* Focus Mode Floating Document Drawer Toggle */}
-      {focusMode && !focusDrawerOpen && (
+      {/* Floating Remark Popover */}
+      {activePopoverRemark && (
+        <div
+          className="noting-remark-popover"
+          style={{
+            position: "fixed",
+            top: `${Math.min(window.innerHeight - 180, Math.max(70, popoverCoords.y - 40))}px`,
+            left: `${Math.min(window.innerWidth - 300, Math.max(20, popoverCoords.x + 15))}px`,
+            zIndex: 1000
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="noting-remark-popover-header">
+            <div>
+              <div className="noting-remark-popover-author">{activePopoverRemark.authorName}</div>
+              <div style={{ fontSize: "10.5px", color: "#64748b" }}>{activePopoverRemark.designation}</div>
+            </div>
+            <span className={`noting-remark-popover-badge ${activePopoverRemark.state.toLowerCase()}`}>
+              {activePopoverRemark.state}
+            </span>
+          </div>
+
+          <div className="noting-remark-popover-text">"{activePopoverRemark.text}"</div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
+            {capabilities.canRemark && (
+              <button
+                type="button"
+                className="noting-btn noting-btn-secondary toggle-remark-state-btn"
+                style={{ padding: "2px 8px", fontSize: "11px" }}
+                onClick={() => handleToggleRemarkState(activePopoverRemark)}
+              >
+                {activePopoverRemark.state === "Open" ? "Mark Addressed" : "Reopen Remark"}
+              </button>
+            )}
+            <button
+              type="button"
+              className="noting-btn noting-btn-secondary"
+              style={{ padding: "2px 8px", fontSize: "11px" }}
+              onClick={() => setActivePopoverRemark(null)}
+            >
+              ✕ Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Pill on text selection */}
+      {selectedRange && capabilities.canRemark && (
+        <div
+          className="text-selection-pill"
+          style={{
+            position: "fixed",
+            left: `${selectedRange.coords.x}px`,
+            top: `${selectedRange.coords.y}px`
+          }}
+          onClick={() => {
+            setAddRemarkState({
+              note: selectedRange.note,
+              anchor: selectedRange.anchor
+            });
+            setSelectedRange(null);
+          }}
+        >
+          <span>💬 Add Remark on Quote</span>
+        </div>
+      )}
+
+      {/* Focus Mode Floating Toggle */}
+      {focusMode && (
         <button
           type="button"
           className="focus-mode-drawer-toggle"
-          onClick={() => setFocusDrawerOpen(true)}
+          onClick={() => setFocusDrawerOpen(!focusDrawerOpen)}
         >
-          📂 Documents ({documents.length})
+          <span>📁 {focusDrawerOpen ? "Hide Documents" : "Show Documents"} ({documents.length})</span>
         </button>
       )}
 
-      {/* Focus Mode Slide-In Overlay Drawer */}
+      {/* Focus Mode Overlay Drawer */}
       {focusMode && focusDrawerOpen && (
         <div className="focus-mode-overlay-drawer">
-          <div style={{ padding: "8px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#0f172a" }}>Matter Documents Drawer</span>
-            <button className="noting-btn noting-btn-secondary" style={{ padding: "2px 6px" }} onClick={() => setFocusDrawerOpen(false)}>✕</button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderBottom: "1px solid #e2e8f0" }}>
+            <strong style={{ fontSize: "13px" }}>Matter Documents</strong>
+            <button className="noting-btn noting-btn-secondary" onClick={() => setFocusDrawerOpen(false)}>✕</button>
           </div>
           <div style={{ flex: 1, overflow: "hidden" }}>
             <DocumentRailViewer
@@ -817,27 +1188,13 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               activeDocumentId={activeDocId}
               activePage={activePage}
               canAnnotate={capabilities.canAnnotate}
-              onSelectDocument={(id, page) => {
-                setActiveDocId(id);
+              onSelectDocument={(docId, page) => {
+                setActiveDocId(docId);
                 if (page) setActivePage(page);
               }}
-              onDocumentUploaded={loadWorkspace}
+              onDocumentUploaded={() => loadWorkspace()}
             />
           </div>
-        </div>
-      )}
-
-      {/* Floating Add Remark Action Pill on Text Selection */}
-      {selectedRange && capabilities.canRemark && (
-        <div
-          className="text-selection-pill"
-          style={{ top: `${selectedRange.coords.y}px`, left: `${selectedRange.coords.x}px` }}
-          onClick={() => {
-            setAddRemarkState({ note: selectedRange.note, anchor: selectedRange.anchor });
-            setSelectedRange(null);
-          }}
-        >
-          💬 Add Remark
         </div>
       )}
 
@@ -849,16 +1206,17 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           noteNumber={addRemarkState.note.number}
           anchor={addRemarkState.anchor}
           onClose={() => setAddRemarkState(null)}
-          onCreated={(rem) => {
+          onCreated={(newRemark: MatterNoteRemarkDto) => {
             setRemarksMap((prev) => ({
               ...prev,
-              [rem.noteId]: [...(prev[rem.noteId] || []), rem]
+              [addRemarkState.note.id]: [...(prev[addRemarkState.note.id] || []), newRemark]
             }));
+            setAddRemarkState(null);
           }}
         />
       )}
 
-      {/* View Remarks Modal */}
+      {/* View Remarks List Modal */}
       {viewRemarksState && (
         <ViewRemarksModal
           matterId={matterId}
@@ -867,21 +1225,13 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           remarks={viewRemarksState.remarks}
           canManage={capabilities.canRemark}
           onClose={() => setViewRemarksState(null)}
-          onUpdated={(updated) => {
+          onUpdated={(updatedRemark: MatterNoteRemarkDto) => {
             setRemarksMap((prev) => ({
               ...prev,
-              [updated.noteId]: (prev[updated.noteId] || []).map((r) =>
-                r.id === updated.id ? updated : r
+              [viewRemarksState.note.id]: (prev[viewRemarksState.note.id] || []).map((r) =>
+                r.id === updatedRemark.id ? updatedRemark : r
               )
             }));
-            setViewRemarksState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    remarks: prev.remarks.map((r) => (r.id === updated.id ? updated : r))
-                  }
-                : null
-            );
           }}
         />
       )}
@@ -893,16 +1243,11 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           anchor={citationAnchor}
           draftRevision={draftRevision}
           documents={documents}
-          onClose={() => {
-            setShowCitationModal(false);
-            setCitationAnchor(null);
-          }}
+          onClose={() => setShowCitationModal(false)}
           onCited={(updatedDraft) => {
             setDraftRevision(updatedDraft.revision);
             draftRevisionRef.current = updatedDraft.revision;
             setShowCitationModal(false);
-            setCitationAnchor(null);
-            loadWorkspace();
           }}
         />
       )}
@@ -911,14 +1256,17 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       {showSendModal && (
         <SendReturnModal
           matterId={matterId}
-          activeDraftRevision={draftRevision}
+          activeDraftRevision={confirmedSendRevision}
           linkedDaks={linkedDaks}
           defaultControllingDakId={sourceDakId}
           onClose={() => setShowSendModal(false)}
           onSent={() => {
             setShowSendModal(false);
-            setDraftContent("");
-            latestContentRef.current = "";
+            setDraftContentJson("");
+            setDraftCanonicalText("");
+            latestJsonRef.current = "";
+            latestTextRef.current = "";
+            savedJsonRef.current = "";
             loadDraft();
             loadWorkspace();
           }}

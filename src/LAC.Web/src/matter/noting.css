@@ -742,3 +742,183 @@
     transform: translateY(0);
   }
 }
+
+/* TipTap Rich Text Editor Container */
+.active-draft-tiptap .tiptap {
+  outline: none;
+  min-height: 110px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #0f172a;
+}
+
+.active-draft-tiptap .tiptap p {
+  margin: 0 0 6px 0;
+}
+
+.active-draft-tiptap .tiptap p:last-child {
+  margin-bottom: 0;
+}
+
+.active-draft-tiptap .tiptap strong {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.active-draft-tiptap .tiptap em {
+  font-style: italic;
+}
+
+.active-draft-tiptap .tiptap u {
+  text-decoration: underline;
+}
+
+.active-draft-tiptap .tiptap s {
+  text-decoration: line-through;
+}
+
+.active-draft-tiptap .tiptap ul,
+.active-draft-tiptap .tiptap ol {
+  padding-left: 22px;
+  margin: 4px 0 8px 0;
+}
+
+.active-draft-tiptap .tiptap blockquote {
+  border-left: 3px solid #16a34a;
+  padding-left: 10px;
+  margin: 6px 0;
+  color: #334155;
+  font-style: italic;
+}
+
+.active-draft-tiptap .tiptap h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: #14532d;
+  margin: 8px 0 4px 0;
+}
+
+.active-draft-tiptap .tiptap h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #166534;
+  margin: 6px 0 3px 0;
+}
+
+/* Precise Inline Remarks Highlights */
+.noting-remark-highlight {
+  cursor: pointer;
+  padding: 1px 2px;
+  border-radius: 2px;
+  transition: all 120ms ease;
+  position: relative;
+}
+
+.noting-remark-highlight.remark-open {
+  background-color: #fef08a;
+  border-bottom: 2px solid #ca8a04;
+  color: #854d0e;
+}
+
+.noting-remark-highlight.remark-open:hover {
+  background-color: #fde047;
+}
+
+.noting-remark-highlight.remark-addressed {
+  background-color: #f1f5f9;
+  border-bottom: 2px solid #94a3b8;
+  color: #475569;
+}
+
+.noting-remark-highlight.remark-addressed:hover {
+  background-color: #e2e8f0;
+}
+
+/* Floating Remark Popover */
+.noting-remark-popover {
+  position: absolute;
+  z-index: 300;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  width: 280px;
+  font-size: 12px;
+  color: #0f172a;
+  animation: fadeIn 120ms ease;
+}
+
+.noting-remark-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 6px;
+}
+
+.noting-remark-popover-author {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 11.5px;
+}
+
+.noting-remark-popover-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.noting-remark-popover-badge.open {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.noting-remark-popover-badge.addressed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.noting-remark-popover-text {
+  font-size: 12.5px;
+  color: #334155;
+  margin-bottom: 8px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+/* PDF Page Highlight Overlay Layer */
+.pdf-page-overlay-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.pdf-highlight-overlay {
+  transition: all 120ms ease;
+}
+
+.pdf-highlight-overlay:hover {
+  background-color: rgba(250, 204, 21, 0.6) !important;
+  border-color: #a16207 !important;
+  box-shadow: 0 0 8px rgba(202, 138, 4, 0.4);
+}
+
+.pdf-highlight-tag {
+  display: inline-block;
+  background: #ca8a04;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 2px;
+  position: absolute;
+  top: -18px;
+  left: 0;
+  white-space: nowrap;
+  pointer-events: none;
+}
+

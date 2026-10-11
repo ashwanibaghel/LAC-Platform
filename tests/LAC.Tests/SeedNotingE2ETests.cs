@@ -294,6 +294,7 @@ public sealed class SeedNotingE2ETests
             apiUrl = "http://127.0.0.1:5399",
             officer1 = new
             {
+                userId = kanungo.Id,
                 username = "kanungo",
                 password = defaultPass,
                 displayName = "Kanungo (Officer 1)",
@@ -302,6 +303,7 @@ public sealed class SeedNotingE2ETests
             },
             officer2 = new
             {
+                userId = tehsildar.Id,
                 username = "tehsildar",
                 password = defaultPass,
                 displayName = "Tehsildar (Officer 2)",

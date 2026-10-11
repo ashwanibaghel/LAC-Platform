@@ -52,6 +52,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
   const [annoQuote, setAnnoQuote] = useState("");
   const [annoText, setAnnoText] = useState("");
   const [annoSubmitting, setAnnoSubmitting] = useState(false);
+  const [selectedAnnotation, setSelectedAnnotation] = useState<MatterPdfAnnotationDto | null>(null);
 
   const activeDoc = documents.find((d) => d.id === activeDocumentId) || documents[0] || null;
 
@@ -295,9 +296,30 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
                   {activeDoc.filename}
                 </strong>
                 {isPdf && (
-                  <span style={{ fontSize: "11px", color: "#64748b" }}>
-                    Page {currentPage}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                    <button
+                      type="button"
+                      className="noting-btn noting-btn-secondary"
+                      style={{ padding: "1px 5px", fontSize: "10.5px" }}
+                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                      disabled={currentPage <= 1}
+                      title="Previous Page"
+                    >
+                      ◀
+                    </button>
+                    <span style={{ fontSize: "11px", color: "#64748b" }}>
+                      Page {currentPage}
+                    </span>
+                    <button
+                      type="button"
+                      className="noting-btn noting-btn-secondary"
+                      style={{ padding: "1px 5px", fontSize: "10.5px" }}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      title="Next Page"
+                    >
+                      ▶
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -305,7 +327,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
                 {isPdf && canAnnotate && (
                   <button
                     type="button"
-                    className="noting-btn noting-btn-secondary"
+                    className="noting-btn noting-btn-secondary add-highlight-btn"
                     style={{ padding: "2px 6px", fontSize: "11px" }}
                     onClick={() => setShowAnnotateModal(true)}
                   >
@@ -324,16 +346,107 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
               </div>
             </div>
 
-            {/* Viewer Content Frame */}
+            {/* Viewer Content Frame with PDF Highlight Overlays */}
             {isPdf ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
+              <div className="pdf-page-overlay-wrapper" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
                 <iframe
                   src={`/api/matters/${matterId}/documents/${activeDoc.id}/content#page=${currentPage}`}
                   title={activeDoc.filename}
                   className="document-viewer-frame"
                 />
 
-                {/* Shared annotations indicator */}
+                {/* Visible PDF-Page Highlight Overlays aligned to backend annotation regions */}
+                <div
+                  className="pdf-page-overlay-layer"
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    pointerEvents: "none",
+                    zIndex: 10
+                  }}
+                >
+                  {annotations
+                    .filter((a) => a.page === currentPage)
+                    .map((a) => {
+                      let region = { x: 0.1, y: 0.1, width: 0.8, height: 0.15 };
+                      try {
+                        if (a.regionJson) {
+                          const parsed = JSON.parse(a.regionJson);
+                          if (parsed && typeof parsed.x === "number") region = parsed;
+                        }
+                      } catch {}
+
+                      return (
+                        <div
+                          key={a.id}
+                          className="pdf-highlight-overlay"
+                          style={{
+                            position: "absolute",
+                            left: `${region.x * 100}%`,
+                            top: `${region.y * 100}%`,
+                            width: `${region.width * 100}%`,
+                            height: `${region.height * 100}%`,
+                            backgroundColor: "rgba(250, 204, 21, 0.35)",
+                            border: "2px solid #ca8a04",
+                            borderRadius: "3px",
+                            pointerEvents: "auto",
+                            cursor: "pointer"
+                          }}
+                          title={`Page ${a.page} Highlight: ${a.quote || a.text || ""} (by ${a.authorName})`}
+                          onClick={() => setSelectedAnnotation(a)}
+                        >
+                          <span className="pdf-highlight-tag">
+                            {a.authorName}: {a.quote || "Highlight"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Selected Annotation Detail Card */}
+                {selectedAnnotation && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "10px",
+                      right: "10px",
+                      width: "260px",
+                      background: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: "6px",
+                      padding: "10px 12px",
+                      boxShadow: "0 8px 20px rgba(0,0,0,0.15)",
+                      zIndex: 30,
+                      fontSize: "12px"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <strong style={{ color: "#854d0e" }}>Highlight (Page {selectedAnnotation.page})</strong>
+                      <button
+                        type="button"
+                        style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#64748b" }}
+                        onClick={() => setSelectedAnnotation(null)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    {selectedAnnotation.quote && (
+                      <div style={{ fontStyle: "italic", color: "#334155", marginBottom: "6px", background: "#fef9c3", padding: "4px 6px", borderRadius: "3px" }}>
+                        "{selectedAnnotation.quote}"
+                      </div>
+                    )}
+                    {selectedAnnotation.text && (
+                      <div style={{ color: "#0f172a", marginBottom: "6px" }}>
+                        {selectedAnnotation.text}
+                      </div>
+                    )}
+                    <div style={{ fontSize: "11px", color: "#64748b" }}>
+                      By {selectedAnnotation.authorName} • {new Date(selectedAnnotation.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Shared annotations indicator / details box */}
                 {annotations.length > 0 && (
                   <div
                     style={{
@@ -348,12 +461,13 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
                       fontSize: "11.5px",
                       color: "#92400e",
                       maxHeight: "60px",
-                      overflowY: "auto"
+                      overflowY: "auto",
+                      zIndex: 15
                     }}
                   >
                     <strong>Shared Highlights ({annotations.length}){loadingAnnotations ? " (updating...)" : ""}:</strong>
                     {annotations.map((a) => (
-                      <div key={a.id}>
+                      <div key={a.id} style={{ cursor: "pointer" }} onClick={() => { setCurrentPage(a.page); setSelectedAnnotation(a); }}>
                         p.{a.page}: {a.quote ? `"${a.quote}"` : a.text} — by {a.authorName}
                       </div>
                     ))}

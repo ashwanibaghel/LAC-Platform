@@ -1028,7 +1028,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                 dakId: d.dakId,
                 diaryNumber: d.diaryNumber,
                 subject: d.subject,
-                revision: 1
+                revision: (d as any).revision || 0
               }))}
             />
           )}
