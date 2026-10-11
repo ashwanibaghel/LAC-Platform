@@ -74,7 +74,7 @@ public sealed class MatterNotingApiTests
         Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync($"/api/villages/{f.Village}/matter-workspace", new NativeMatterCommand(f.Stream, "No allocation", null))).StatusCode);
     }
 
-    private sealed class Factory(string connection) : WebApplicationFactory<Program>
+    internal sealed class Factory(string connection) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {

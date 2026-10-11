@@ -145,6 +145,25 @@ public sealed class OnlyOfficeTests : IDisposable
         Assert.Contains("A second change at the same force-save URL", reopenedPackage.MainDocumentPart!.Document!.Body!.InnerText);
     }
 
+    [Fact]
+    public async Task Office_callback_keeps_DOCX_draft_separate_from_official_notes_and_stale_legacy_JSON()
+    {
+        var id = await DraftAsync(MatterDraftType.Noting);
+        var before = await Read(id);
+        factory.Download.Bytes = MakeDocx("New ONLYOFFICE document text");
+        Assert.Equal(0, await Callback(id, OnlyOfficeDraftService.Key(before), 6));
+        var after = await Read(id);
+        Assert.Equal(before.ContentJson, after.ContentJson);
+        Assert.Equal(before.Revision + 1, after.Revision);
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<LacDbContext>();
+        Assert.Empty(await db.MatterOfficialNotes.Where(x => x.MatterId == after.MatterId).ToListAsync());
+        Assert.Empty(await db.MatterWorkingNotes.Where(x => x.MatterId == after.MatterId).ToListAsync());
+        using var bytes = new MemoryStream(await StoredBytes(after));
+        using var package = WordprocessingDocument.Open(bytes, false);
+        Assert.Contains("New ONLYOFFICE document text", package.MainDocumentPart!.Document!.Body!.InnerText);
+    }
+
     [Theory]
     [InlineData(1)] [InlineData(3)] [InlineData(4)] [InlineData(7)]
     public async Task Non_save_statuses_leave_last_good_document(int status)
