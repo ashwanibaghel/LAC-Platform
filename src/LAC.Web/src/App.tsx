@@ -37,6 +37,7 @@ import { OutwardRegistration } from "./outward/OutwardRegistration";
 import { OutwardDetailWorkspace } from "./outward/OutwardDetailWorkspace";
 import { MatterDirectory } from "./matter/MatterDirectory";
 import { MatterWorkspace } from "./matter/MatterWorkspace";
+import { groupMattersByType } from "./matter/matterTypeGroups";
 import { MyWork } from "./work/MyWork";
 import { WorkItemCreate } from "./work/WorkItemCreate";
 import { WorkItemWorkspace } from "./work/WorkItemWorkspace";
@@ -960,14 +961,7 @@ function VillageMatters({ id }: { id: string }) {
 
   // Group matters by MatterType
   const allMatters = matters.data || [];
-  const groupsOrder = ["Court Case", "Compensation", "Land Acquisition", "Demarcation", "Possession", "Other"];
-  const grouped: Record<string, any[]> = {};
-
-  allMatters.forEach((m) => {
-    const typeKey = m.matterType || "Other";
-    if (!grouped[typeKey]) grouped[typeKey] = [];
-    grouped[typeKey].push(m);
-  });
+  const matterGroups = groupMattersByType(allMatters);
 
   const villageKhasraList = (khasras.data as any)?.items || (Array.isArray(khasras.data) ? khasras.data : []);
 
@@ -985,6 +979,8 @@ function VillageMatters({ id }: { id: string }) {
 
       {matters.loading ? (
         <LoadingState label="Loading matters…" />
+      ) : matters.error ? (
+        <ErrorState message={matters.error} />
       ) : allMatters.length === 0 ? (
         <EmptyState
           title="No matters created for this village yet"
@@ -992,10 +988,7 @@ function VillageMatters({ id }: { id: string }) {
         />
       ) : (
         <div className="matter-groups-container">
-          {groupsOrder.map((groupKey) => {
-            const groupItems = grouped[groupKey];
-            if (!groupItems || groupItems.length === 0) return null;
-
+          {matterGroups.map(([groupKey, groupItems]) => {
             return (
               <div key={groupKey} className="matter-group-section">
                 <div className="matter-group-header">
