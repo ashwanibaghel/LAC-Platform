@@ -168,58 +168,53 @@ async function run() {
     console.log("[E2E] Confirmed formatting persistence across page reload.");
 
     // ==========================================
-    // AUDIT ENCRYPTED OFFLINE / POWER-LOSS RECOVERY STORAGE
+    // AUDIT CLIENT-SIDE STORAGE SECURITY & LEGACY RECORD PURGING
     // ==========================================
-    console.log("[E2E] Auditing encrypted offline draft storage in localStorage...");
+    console.log("[E2E] Auditing office storage security policy: persistent browser draft caching disabled & legacy purge...");
+
+    // Inject legacy records into localStorage to verify automatic purging
+    await page1.evaluate(() => {
+      localStorage.setItem("lac_enc_draft_legacy_officer_matter", "legacy-insecure-ciphertext");
+      localStorage.setItem("lac_draft_legacy_plaintext", "legacy-plaintext");
+    });
+
     await editor.click();
     await page1.keyboard.press("End");
     const secretOfflinePhrase = "Confidential award valuation: Rs 4,50,00,000 for khasra 102.";
     await page1.keyboard.insertText(`\n\n${secretOfflinePhrase}`);
-    await page1.waitForTimeout(300);
+    await page1.waitForTimeout(400);
 
-    // Verify localStorage has encrypted draft key and ZERO plaintext
+    // Verify localStorage has ZERO plaintext, ZERO persistent draft records, and legacy keys are purged
     const storageAudit = await page1.evaluate((secret) => {
       const keys = Object.keys(localStorage);
-      const encKey = keys.find((k) => k.startsWith("lac_enc_draft_"));
-      if (!encKey) return { hasKey: false, hasPlaintext: false, hasCipher: false };
-      const raw = localStorage.getItem(encKey) || "";
-      const hasPlaintext = raw.includes("4,50,00,000") || raw.includes("khasra 102") || raw.includes(secret);
-      const hasCipher = raw.includes("cipherHex") && raw.includes("ivHex");
-      return { hasKey: true, hasPlaintext, hasCipher };
+      const encKeys = keys.filter((k) => k.startsWith("lac_enc_draft_"));
+      const rawDraftKeys = keys.filter((k) => k.startsWith("lac_draft_"));
+      let hasPlaintext = false;
+      for (const k of keys) {
+        const val = localStorage.getItem(k) || "";
+        if (val.includes("4,50,00,000") || val.includes("khasra 102") || val.includes(secret)) {
+          hasPlaintext = true;
+        }
+      }
+      return {
+        encKeyCount: encKeys.length,
+        rawDraftKeyCount: rawDraftKeys.length,
+        hasPlaintext
+      };
     }, secretOfflinePhrase);
 
-    assert.ok(storageAudit.hasKey, "Encrypted local draft must be saved in localStorage");
     assert.strictEqual(storageAudit.hasPlaintext, false, "Sensitive note content must NEVER be stored in plaintext localStorage");
-    assert.ok(storageAudit.hasCipher, "localStorage must contain AES-GCM ciphertext hex");
-    console.log("[E2E] Confirmed office data-security policy: Zero plaintext sensitive text in localStorage, AES-GCM encrypted.");
+    assert.strictEqual(storageAudit.encKeyCount, 0, "All legacy lac_enc_draft_* records must be automatically purged");
+    assert.strictEqual(storageAudit.rawDraftKeyCount, 0, "No persistent draft records permitted in localStorage");
+    console.log("[E2E] Confirmed office security policy: Zero plaintext leakage, zero unapproved persistent drafts, legacy records purged.");
 
-    // Simulate power loss / reload before server autosave completes
-    console.log("[E2E] Simulating power loss / browser reload with un-synced offline draft...");
-    await page1.reload({ waitUntil: "networkidle" });
-    await page1.waitForSelector(".noting-workspace-root", { timeout: 10000 });
-
-    // Assert Recoverable Draft Banner appears
-    const recoverableBanner = page1.locator(".noting-recoverable-draft-banner");
-    await recoverableBanner.waitFor({ state: "visible", timeout: 8000 });
-    const bannerText = await recoverableBanner.textContent();
-    assert.ok(bannerText?.includes("Recoverable Offline Draft Detected"), "Recoverable offline draft banner must be displayed after reload");
-    console.log("[E2E] Recoverable offline draft detected banner verified.");
-
-    // Click 'Restore Recovered Draft'
-    const restoreBtn = recoverableBanner.locator("button.btn-restore-draft");
-    await restoreBtn.click();
-    await page1.waitForTimeout(600);
-    const restoredText = await editor.textContent();
-    assert.ok(restoredText?.includes("khasra 102"), "TipTap editor must contain restored draft content");
-    console.log("[E2E] Confirmed offline draft safely restored into TipTap editor.");
-
-    // Wait for restored draft to autosave to server
+    // Wait for server autosave of typed note to complete
     await autosaveSaved.waitFor({ state: "visible", timeout: 8000 });
 
     // ==========================================
-    // PROVE RECOVERY DOES NOT OVERWRITE A NEWER SERVER REVISION
+    // PROVE REVISION CONFLICT (409) DOES NOT OVERWRITE A NEWER SERVER REVISION
     // ==========================================
-    console.log("[E2E] Proving offline recovery does NOT overwrite a newer server revision...");
+    console.log("[E2E] Proving revision conflict (409) does NOT overwrite a newer server revision...");
     // Fetch current draft ETag / revision from server
     const draftStatusRes = await ctx1.request.get(`${baseUrl}/api/matters/${seed.matterId}/noting/draft`);
     const currentEtag = draftStatusRes.headers()["etag"] || '"1"';

@@ -22,6 +22,7 @@ import {
   saveSecureLocalDraft,
   loadSecureLocalDraft,
   clearSecureLocalDraft,
+  purgeLegacyLocalDrafts,
   type SecureRecoverableDraft
 } from "./secureDraftStorage";
 import "./noting.css";
@@ -194,6 +195,13 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       setLoading(false);
     }
   }, [matterId, sourceDakId, activeDocId]);
+
+  useEffect(() => {
+    purgeLegacyLocalDrafts();
+    return () => {
+      purgeLegacyLocalDrafts();
+    };
+  }, []);
 
   useEffect(() => {
     loadWorkspace();
@@ -748,7 +756,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               </>
             )}
             {autosaveStatus === "saving" && <span>⏳ Pending save…</span>}
-            {autosaveStatus === "offline" && <span>📡 Offline (Secure backup saved)</span>}
+            {autosaveStatus === "offline" && <span>📡 Offline (Changes pending server reconnection)</span>}
             {autosaveStatus === "error" && (
               <span onClick={() => performSave(latestJsonRef.current, latestTextRef.current, true)}>
                 {draftConflict ? "⚠ Conflict (409) — Unsaved edits preserved" : "✕ Save failed — Click to retry"}

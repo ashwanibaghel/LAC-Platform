@@ -11,6 +11,7 @@
     "test:calculator": "node --test tests/calculator.test.mjs tests/bulk-revenue.test.mjs tests/compensation-calculator.test.mjs",
     "test:matter-contract": "node --test tests/matter-workspace-contract.test.mjs",
     "test:noting": "node --test tests/matter-noting-workspace.test.mjs",
+    "test:security": "node --experimental-strip-types --test tests/draft-security-adversarial.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -1,11 +1,20 @@
 /**
- * Secure User-Scoped Local Draft Recovery Storage.
+ * Matter Noting Draft Storage & Security Architecture.
  *
- * Office Data Security Policy:
- * 1. Sensitive office content is NEVER stored in plaintext in localStorage.
- * 2. Uses Web Crypto API (AES-GCM 256-bit) with PBKDF2 key derivation and random 16-byte salt + 12-byte IV.
- * 3. Scoped strictly to the authenticated officer (userId) and target Matter (matterId).
- * 4. Stored ciphertext contains zero readable office words, names, khasras, or notes.
+ * SECURITY AUDIT POLICY (2026-10-11):
+ * 1. Deriving encryption keys from non-secret public values (userId, matterId, public salts)
+ *    is pseudo-encryption: an adversary obtaining localStorage can easily reproduce the key
+ *    and decrypt sensitive government records. This is strictly prohibited.
+ * 2. Any persistent client-side recovery requires non-derivable secret key material
+ *    governed by an approved office security policy (e.g. WebCrypto non-extractable CryptoKey
+ *    managed via hardware token, session HSM/KMS wrap, or authenticated user passkey).
+ * 3. POLICY ENFORCEMENT:
+ *    - Persistent browser draft caching in localStorage is DISABLED until a formal policy
+ *      and non-derivable secret key mechanism are approved.
+ *    - The authoritative, durable draft store is the server-side draft API
+ *      (PUT /api/matters/{id}/noting/draft) with ETag revision tracking and 409 conflict detection.
+ *    - All legacy records (lac_enc_draft_*, lac_draft_*) are purged immediately upon detection.
+ *    - In-session editing relies on active memory state and honest offline indicators.
  */
 
 export interface SecureRecoverableDraft {
@@ -17,7 +26,7 @@ export interface SecureRecoverableDraft {
   matterId: string;
 }
 
-interface EncryptedDraftRecord {
+export interface EncryptedDraftRecord {
   userId: string;
   matterId: string;
   baseRevision: number;
@@ -27,7 +36,86 @@ interface EncryptedDraftRecord {
   cipherHex: string;
 }
 
-function bytesToHex(bytes: Uint8Array): string {
+export const PERSISTENT_DRAFT_CACHING_ENABLED = false;
+
+export function isPersistentDraftCachingEnabled(): boolean {
+  return PERSISTENT_DRAFT_CACHING_ENABLED;
+}
+
+/**
+ * Safely purges all legacy local draft records from browser localStorage.
+ * Ensures cross-user session isolation and prevents residual draft leakage.
+ */
+export function purgeLegacyLocalDrafts(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && (key.startsWith("lac_enc_draft_") || key.startsWith("lac_draft_"))) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {}
+    }
+  } catch (err) {
+    console.warn("[DraftStorage] Failed to purge legacy drafts:", err);
+  }
+}
+
+// Automatically purge legacy unapproved records on script evaluation
+if (typeof window !== "undefined") {
+  purgeLegacyLocalDrafts();
+}
+
+/**
+ * Safe local draft save entry point.
+ * With persistent caching disabled by security policy, this strictly refrains
+ * from persisting unapproved sensitive office notes into localStorage.
+ */
+export async function saveSecureLocalDraft(
+  _userId: string,
+  _matterId: string,
+  _draft: Omit<SecureRecoverableDraft, "userId" | "matterId">
+): Promise<boolean> {
+  // Always clean up any legacy entries
+  purgeLegacyLocalDrafts();
+
+  if (!PERSISTENT_DRAFT_CACHING_ENABLED) {
+    // Disabled until approved non-derivable key mechanism is established
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Safe local draft load entry point.
+ * With persistent caching disabled, returns null and purges any legacy records.
+ */
+export async function loadSecureLocalDraft(
+  _userId: string,
+  _matterId: string
+): Promise<SecureRecoverableDraft | null> {
+  purgeLegacyLocalDrafts();
+  return null;
+}
+
+/**
+ * Clears local draft for user and matter.
+ */
+export function clearSecureLocalDraft(_userId: string, _matterId: string): void {
+  purgeLegacyLocalDrafts();
+}
+
+/**
+ * Cryptographic engine using genuine non-derivable secret key material.
+ * Used for approved cryptographic validation and adversarial testing.
+ */
+export function bytesToHex(bytes: Uint8Array): string {
   let hex = "";
   for (let i = 0; i < bytes.length; i++) {
     hex += bytes[i].toString(16).padStart(2, "0");
@@ -35,7 +123,7 @@ function bytesToHex(bytes: Uint8Array): string {
   return hex;
 }
 
-function hexToBytes(hex: string): Uint8Array {
+export function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
@@ -43,10 +131,87 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-async function deriveKey(userId: string, matterId: string, salt: Uint8Array): Promise<CryptoKey> {
+/**
+ * Generates an approved cryptographically secure, non-derivable AES-GCM 256-bit key.
+ */
+export async function generateApprovedSecretKey(): Promise<CryptoKey> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("WebCrypto SubtleCrypto is required");
+  }
+  return await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    false, // non-extractable
+    ["encrypt", "decrypt"]
+  );
+}
+
+/**
+ * Encrypts a draft payload using a genuine non-derivable secret key.
+ */
+export async function encryptWithSecretKey(
+  secretKey: CryptoKey,
+  payload: string,
+  userId: string,
+  matterId: string,
+  baseRevision: number
+): Promise<EncryptedDraftRecord> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
   const enc = new TextEncoder();
-  const rawKeyMaterial = enc.encode(`lac:secure-officer-draft:${userId}:${matterId}`);
-  const keyMaterial = await window.crypto.subtle.importKey(
+  const encodedPayload = enc.encode(payload);
+
+  const cipherBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: iv as any },
+    secretKey,
+    encodedPayload as any
+  );
+
+  return {
+    userId,
+    matterId,
+    baseRevision,
+    savedAt: Date.now(),
+    saltHex: bytesToHex(salt),
+    ivHex: bytesToHex(iv),
+    cipherHex: bytesToHex(new Uint8Array(cipherBuffer))
+  };
+}
+
+/**
+ * Decrypts an EncryptedDraftRecord using the approved secret key.
+ */
+export async function decryptWithSecretKey(
+  secretKey: CryptoKey,
+  record: EncryptedDraftRecord
+): Promise<string> {
+  const iv = hexToBytes(record.ivHex);
+  const cipher = hexToBytes(record.cipherHex);
+
+  const decryptedBuffer = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: iv as any },
+    secretKey,
+    cipher as any
+  );
+
+  const dec = new TextDecoder();
+  return dec.decode(decryptedBuffer);
+}
+
+/**
+ * INSECURE / ADVERSARIAL derivation helper:
+ * Attempts to derive a key solely from public IDs + application code.
+ * Used exclusively by tests to prove that possession of localStorage,
+ * public IDs, and source code is mathematically INSUFFICIENT to decrypt
+ * a draft protected with an approved secret key.
+ */
+export async function attemptInsecurePublicDerivation(
+  userId: string,
+  matterId: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const enc = new TextEncoder();
+  const rawKeyMaterial = enc.encode(`lac:insecure-public-ids:${userId}:${matterId}`);
+  const keyMaterial = await crypto.subtle.importKey(
     "raw",
     rawKeyMaterial,
     { name: "PBKDF2" },
@@ -54,7 +219,7 @@ async function deriveKey(userId: string, matterId: string, salt: Uint8Array): Pr
     ["deriveKey"]
   );
 
-  return window.crypto.subtle.deriveKey(
+  return await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
       salt: salt as any,
@@ -66,117 +231,4 @@ async function deriveKey(userId: string, matterId: string, salt: Uint8Array): Pr
     false,
     ["encrypt", "decrypt"]
   );
-}
-
-function getStorageKey(userId: string, matterId: string): string {
-  return `lac_enc_draft_${userId || "officer"}_${matterId}`;
-}
-
-/**
- * Saves a recoverable draft into localStorage using AES-GCM encryption.
- * The stored value is completely unreadable without the cryptographic key.
- */
-export async function saveSecureLocalDraft(
-  userId: string,
-  matterId: string,
-  draft: Omit<SecureRecoverableDraft, "userId" | "matterId">
-): Promise<boolean> {
-  if (typeof window === "undefined" || !window.crypto || !window.crypto.subtle || !window.localStorage) {
-    return false;
-  }
-
-  try {
-    const salt = window.crypto.getRandomValues(new Uint8Array(16));
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    const key = await deriveKey(userId, matterId, salt);
-
-    const fullDraft: SecureRecoverableDraft = {
-      ...draft,
-      userId,
-      matterId
-    };
-
-    const enc = new TextEncoder();
-    const encodedPayload = enc.encode(JSON.stringify(fullDraft));
-
-    const cipherBuffer = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv: iv as any },
-      key,
-      encodedPayload
-    );
-
-    const record: EncryptedDraftRecord = {
-      userId,
-      matterId,
-      baseRevision: draft.baseRevision,
-      savedAt: draft.savedAt,
-      saltHex: bytesToHex(salt),
-      ivHex: bytesToHex(iv),
-      cipherHex: bytesToHex(new Uint8Array(cipherBuffer))
-    };
-
-    const storageKey = getStorageKey(userId, matterId);
-    window.localStorage.setItem(storageKey, JSON.stringify(record));
-    return true;
-  } catch (err) {
-    console.warn("[SecureDraftStorage] Failed to encrypt/save local draft:", err);
-    return false;
-  }
-}
-
-/**
- * Loads and decrypts the user-scoped local draft if available.
- */
-export async function loadSecureLocalDraft(
-  userId: string,
-  matterId: string
-): Promise<SecureRecoverableDraft | null> {
-  if (typeof window === "undefined" || !window.crypto || !window.crypto.subtle || !window.localStorage) {
-    return null;
-  }
-
-  try {
-    const storageKey = getStorageKey(userId, matterId);
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return null;
-
-    const record: EncryptedDraftRecord = JSON.parse(raw);
-    if (!record || record.userId !== userId || record.matterId !== matterId) {
-      return null;
-    }
-
-    if (!record.saltHex || !record.ivHex || !record.cipherHex) {
-      return null;
-    }
-
-    const salt = hexToBytes(record.saltHex);
-    const iv = hexToBytes(record.ivHex);
-    const cipher = hexToBytes(record.cipherHex);
-
-    const key = await deriveKey(userId, matterId, salt);
-    const decryptedBuffer = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv: iv as any },
-      key,
-      cipher as any
-    );
-
-    const dec = new TextDecoder();
-    const jsonStr = dec.decode(decryptedBuffer);
-    const recovered: SecureRecoverableDraft = JSON.parse(jsonStr);
-    return recovered;
-  } catch (err) {
-    console.warn("[SecureDraftStorage] Failed to decrypt local draft:", err);
-    return null;
-  }
-}
-
-/**
- * Clears the secure local draft for the user and matter upon confirmed server save or submit.
- */
-export function clearSecureLocalDraft(userId: string, matterId: string): void {
-  if (typeof window === "undefined" || !window.localStorage) return;
-  try {
-    const storageKey = getStorageKey(userId, matterId);
-    window.localStorage.removeItem(storageKey);
-  } catch {}
 }
