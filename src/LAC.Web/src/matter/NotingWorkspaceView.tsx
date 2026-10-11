@@ -97,6 +97,14 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   // Send / Return movement modal
   const [showSendModal, setShowSendModal] = useState<boolean>(false);
 
+  // 409 Draft revision conflict preservation state
+  const [draftConflict, setDraftConflict] = useState<{
+    localContent: string;
+    serverContent: string;
+    serverRevision: number;
+    message?: string;
+  } | null>(null);
+
   // 1. Fetch Noting Workspace Data
   const loadWorkspace = useCallback(async () => {
     try {
@@ -210,8 +218,39 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
 
         if (res.status === 409) {
           setAutosaveStatus("error");
-          alert("Revision conflict: Draft was modified in another window. Refreshing draft.");
-          await loadDraft();
+          try {
+            const conflictBody = await res.json().catch(() => ({}));
+            const serverRes = await fetch(`/api/matters/${matterId}/noting/draft`, { credentials: "include" });
+            let serverRev = draftRevisionRef.current + 1;
+            let serverText = "";
+            if (serverRes.ok) {
+              const etag = serverRes.headers.get("ETag");
+              const sDraft: MatterWorkingDraftDto = await serverRes.json();
+              serverRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : (sDraft.revision || serverRev);
+              if (sDraft.contentJson) {
+                try {
+                  serverText = canonicalizeRichTextDoc(JSON.parse(sDraft.contentJson)).trim();
+                } catch {
+                  serverText = sDraft.canonicalText || "";
+                }
+              } else {
+                serverText = sDraft.canonicalText || "";
+              }
+            }
+            setDraftConflict({
+              localContent: textToSave,
+              serverContent: serverText,
+              serverRevision: serverRev,
+              message: conflictBody.message || "Draft changed on server; recover saved text before retrying."
+            });
+          } catch {
+            setDraftConflict({
+              localContent: textToSave,
+              serverContent: "",
+              serverRevision: draftRevisionRef.current + 1,
+              message: "Draft changed on server; recover saved text before retrying."
+            });
+          }
           return false;
         }
 
@@ -421,7 +460,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
             {autosaveStatus === "offline" && <span>⚠ Offline — retrying</span>}
             {autosaveStatus === "error" && (
               <span onClick={() => performSave(latestContentRef.current, true)}>
-                ✕ Save failed — Click to retry
+                {draftConflict ? "⚠ Conflict (409) — Unsaved edits preserved" : "✕ Save failed — Click to retry"}
               </span>
             )}
           </div>
@@ -513,8 +552,8 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                     <div className="official-note-header">
                       <div className="official-note-title">
                         <span className="official-note-number-badge">NOTE {note.number}</span>
-                        <span>{note.authorName}</span>
-                        <span style={{ fontSize: "12px", color: "#166534", fontWeight: 500 }}>
+                        <span className="official-note-author">{note.authorName}</span>
+                        <span className="official-note-designation" style={{ fontSize: "12px", color: "#166534", fontWeight: 500 }}>
                           ({note.designation})
                         </span>
                       </div>
@@ -534,7 +573,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                         {noteRemarks.length > 0 && (
                           <button
                             type="button"
-                            className="noting-btn noting-btn-secondary"
+                            className="noting-btn noting-btn-secondary view-remarks-btn"
                             style={{ padding: "1px 6px", fontSize: "11px" }}
                             onClick={() => setViewRemarksState({ note, remarks: noteRemarks })}
                           >
@@ -544,6 +583,23 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                                 ({openRemarksCount} Open)
                               </span>
                             )}
+                          </button>
+                        )}
+
+                        {capabilities.canRemark && (
+                          <button
+                            type="button"
+                            className="noting-btn noting-btn-secondary add-remark-btn"
+                            style={{ padding: "1px 6px", fontSize: "11px" }}
+                            onClick={async () => {
+                              const firstWord = note.canonicalText.trim().split(/\s+/)[0] || "Note";
+                              const startIdx = Math.max(0, note.canonicalText.indexOf(firstWord));
+                              const endIdx = startIdx + firstWord.length;
+                              const anchor = await createNoteAnchor(note.canonicalText, startIdx, endIdx);
+                              setAddRemarkState({ note, anchor });
+                            }}
+                          >
+                            + Add Remark
                           </button>
                         )}
                       </div>
@@ -599,6 +655,94 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                   </button>
                 </div>
 
+                {draftConflict && (
+                  <div
+                    className="noting-conflict-card"
+                    style={{
+                      background: "#fff1f2",
+                      border: "1px solid #fecdd3",
+                      borderRadius: "6px",
+                      padding: "10px 12px",
+                      margin: "8px 12px 10px 12px"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                      <strong style={{ color: "#9f1239", fontSize: "12.5px" }}>
+                        ⚠ Draft Revision Conflict (409) — Unsaved Edits Preserved
+                      </strong>
+                      <span style={{ fontSize: "11px", color: "#881337", fontWeight: 600 }}>
+                        Server Revision #{draftConflict.serverRevision}
+                      </span>
+                    </div>
+                    <p style={{ margin: "0 0 8px 0", fontSize: "12px", color: "#4c0519", lineHeight: "1.4" }}>
+                      {draftConflict.message || "Draft changed on server; recover saved text before retrying."} Your local draft has been kept safe in the editor.
+                    </p>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "10px" }}>
+                      <div style={{ background: "#ffffff", border: "1px solid #fca5a5", borderRadius: "4px", padding: "8px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: "#991b1b", marginBottom: "4px" }}>Your Local Edits</div>
+                        <div style={{ fontSize: "12px", color: "#334155", maxHeight: "80px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                          {draftConflict.localContent || "(empty)"}
+                        </div>
+                      </div>
+                      <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "4px", padding: "8px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: "#475569", marginBottom: "4px" }}>Server Version</div>
+                        <div style={{ fontSize: "12px", color: "#334155", maxHeight: "80px", overflowY: "auto", whiteSpace: "pre-wrap" }}>
+                          {draftConflict.serverContent || "(empty)"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        className="noting-btn noting-btn-primary"
+                        style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                        onClick={async () => {
+                          draftRevisionRef.current = draftConflict.serverRevision;
+                          setDraftRevision(draftConflict.serverRevision);
+                          const local = draftConflict.localContent;
+                          setDraftConflict(null);
+                          await performSave(local, true);
+                        }}
+                      >
+                        Keep My Edits & Overwrite Server
+                      </button>
+                      <button
+                        type="button"
+                        className="noting-btn noting-btn-secondary"
+                        style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                        onClick={() => {
+                          const merged = draftConflict.serverContent ? `${draftConflict.serverContent}\n\n${draftConflict.localContent}` : draftConflict.localContent;
+                          draftRevisionRef.current = draftConflict.serverRevision;
+                          setDraftRevision(draftConflict.serverRevision);
+                          setDraftContent(merged);
+                          latestContentRef.current = merged;
+                          setDraftConflict(null);
+                          void performSave(merged, true);
+                        }}
+                      >
+                        Merge Both Versions
+                      </button>
+                      <button
+                        type="button"
+                        className="noting-btn noting-btn-secondary"
+                        style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                        onClick={() => {
+                          draftRevisionRef.current = draftConflict.serverRevision;
+                          setDraftRevision(draftConflict.serverRevision);
+                          setDraftContent(draftConflict.serverContent);
+                          latestContentRef.current = draftConflict.serverContent;
+                          setDraftConflict(null);
+                          setAutosaveStatus("saved");
+                        }}
+                      >
+                        Discard My Edits & Accept Server Draft
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="active-draft-toolbar">
                   <span style={{ fontSize: "11px", color: "#64748b", marginRight: "6px" }}>Toolbar:</span>
                   <button type="button" className="active-draft-btn-tool" onClick={() => document.execCommand("bold")}>B</button>
@@ -632,6 +776,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           <div className="noting-right-column">
             <DocumentRailViewer
               matterId={matterId}
+              matterRevision={workspaceData?.revision}
               documents={documents}
               activeDocumentId={activeDocId}
               activePage={activePage}
@@ -667,6 +812,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           <div style={{ flex: 1, overflow: "hidden" }}>
             <DocumentRailViewer
               matterId={matterId}
+              matterRevision={workspaceData?.revision}
               documents={documents}
               activeDocumentId={activeDocId}
               activePage={activePage}

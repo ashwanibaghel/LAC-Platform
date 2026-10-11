@@ -1,0 +1,22 @@
+{
+  "apiUrl": "http://127.0.0.1:5399",
+  "officer1": {
+    "username": "kanungo",
+    "password": "Password@123!",
+    "displayName": "Kanungo (Officer 1)",
+    "deskName": "Kanungo Desk",
+    "deskId": "b9531841-b7c5-4713-9650-be453c53da73"
+  },
+  "officer2": {
+    "username": "tehsildar",
+    "password": "Password@123!",
+    "displayName": "Tehsildar (Officer 2)",
+    "deskName": "Tehsildar Desk",
+    "deskId": "ea3865af-4d98-466f-a1fc-ed68ed29cc3a"
+  },
+  "matterId": "0ba6d340-eaf2-4fbb-bd5a-eecb022f5245",
+  "dakId": "ffea62ec-1ed3-4b1b-8acd-937aa94177d6",
+  "documentId": "74458c6a-51ca-4d2d-a082-2a16021e2e5a",
+  "villageId": "aa6b9822-1961-4923-a81b-97370a3f9cdc",
+  "villageName": "GALIB PUR"
+}

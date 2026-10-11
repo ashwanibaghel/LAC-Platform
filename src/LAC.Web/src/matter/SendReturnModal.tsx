@@ -63,12 +63,33 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
   const [instructions, setInstructions] = useState<string>("");
   const [remarks, setRemarks] = useState<string>("");
   const [includesPhysical, setIncludesPhysical] = useState<boolean>(false);
+  const [dakHasPhysical, setDakHasPhysical] = useState<boolean>(false);
 
   const [loadingTargets, setLoadingTargets] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const selectedDak = linkedDaks.find((d) => d.dakId === selectedDakId);
+
+  // Fetch physical original status for the selected Dak
+  useEffect(() => {
+    if (!selectedDakId) {
+      setDakHasPhysical(false);
+      return;
+    }
+    fetch(`/api/dak/${selectedDakId}/physical-original`, { credentials: "include" })
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && data.hasPhysicalOriginal === true) {
+          setDakHasPhysical(true);
+        } else {
+          setDakHasPhysical(false);
+        }
+      })
+      .catch(() => {
+        setDakHasPhysical(Boolean(selectedDak?.hasPhysicalOriginal));
+      });
+  }, [selectedDakId, selectedDak?.hasPhysicalOriginal]);
 
   // Load destination desks/officers from active controlling Dak
   useEffect(() => {
@@ -306,8 +327,8 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
               />
             </div>
 
-            {/* Physical Original Checkbox (NEVER mandatory for digital-only movement) */}
-            {selectedDak?.hasPhysicalOriginal && (
+            {/* Physical Original Handling: Checkbox ONLY when paper original exists, otherwise clear digital-only indicator */}
+            {dakHasPhysical ? (
               <div style={{ background: "#fff7ed", border: "1px solid #ffedd5", padding: "8px 10px", borderRadius: "4px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12.5px", color: "#9a3412", cursor: "pointer" }}>
                   <input
@@ -315,8 +336,12 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
                     checked={includesPhysical}
                     onChange={(e) => setIncludesPhysical(e.target.checked)}
                   />
-                  <span>Physical paper dak / file is being handed over simultaneously</span>
+                  <span>Simultaneously hand over physical paper original file (Physical dispatch)</span>
                 </label>
+              </div>
+            ) : (
+              <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: "4px", fontSize: "12px", color: "#64748b" }}>
+                ℹ Digital-only file movement. No physical paper original is attached to this Dak.
               </div>
             )}
 

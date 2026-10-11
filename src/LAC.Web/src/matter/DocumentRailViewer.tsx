@@ -3,6 +3,7 @@ import type { MatterDocumentSummaryDto, MatterPdfAnnotationDto } from "./notingT
 
 interface DocumentRailViewerProps {
   matterId: string;
+  matterRevision?: number;
   documents: MatterDocumentSummaryDto[];
   activeDocumentId: string | null;
   activePage: number | null;
@@ -24,6 +25,7 @@ function getUuid(): string {
 
 export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
   matterId,
+  matterRevision,
   documents,
   activeDocumentId,
   activePage,
@@ -116,9 +118,13 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
 
     const formData = new FormData();
     formData.append("file", uploadFile);
+    formData.append("role", uploadRole);
     formData.append("documentRole", uploadRole);
     if (uploadDisplayName.trim()) {
       formData.append("displayName", uploadDisplayName.trim());
+    }
+    if (typeof matterRevision === "number") {
+      formData.append("expectedRevision", String(matterRevision));
     }
 
     try {

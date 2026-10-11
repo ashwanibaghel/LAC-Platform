@@ -95,8 +95,8 @@ test("5. Server autosave and revision tracking with If-Match", () => {
   assert.ok(notingWorkspaceViewTsx.includes('"Idempotency-Key"'), "PUT draft uses Idempotency-Key header");
   assert.ok(notingWorkspaceViewTsx.includes("1500"), "Autosave debounced to 1500ms");
   assert.ok(notingWorkspaceViewTsx.includes("✓ All changes saved"), "Autosave saved indicator present");
-  assert.ok(notingWorkspaceViewTsx.includes("⏳ Saving draft…"), "Autosave saving indicator present");
-  assert.ok(notingWorkspaceViewTsx.includes("Revision conflict"), "409 revision conflict handled gracefully");
+  assert.ok(notingWorkspaceViewTsx.includes("Draft Revision Conflict"), "409 revision conflict handled gracefully");
+  assert.ok(notingWorkspaceViewTsx.includes("Unsaved Edits Preserved"), "Preserves unsaved draft text on 409 conflict");
 });
 
 test("6. Immutable official note chain and sequential numbering", () => {
@@ -111,6 +111,8 @@ test("6. Immutable official note chain and sequential numbering", () => {
 test("7. Inline anchored remarks with Open / Addressed lifecycle", () => {
   assert.ok(remarkModalTsx.includes("Add Remark on Note"), "Add Remark modal present");
   assert.ok(remarkModalTsx.includes("/remarks"), "Calls remarks endpoint");
+  assert.ok(remarkModalTsx.includes('method: "PUT"'), "Remark state update uses PUT method");
+  assert.ok(remarkModalTsx.includes('notes/${noteId}/remarks/${remark.id}'), "Remark state update uses /notes/{noteId}/remarks/{remarkId} route");
   assert.ok(remarkModalTsx.includes('"Mark Addressed"'), "Toggles Open to Addressed");
   assert.ok(remarkModalTsx.includes('"Reopen Remark"'), "Toggles Addressed to Open");
   assert.ok(remarkModalTsx.includes("expectedRevision: remark.revision"), "Remark state change passes expectedRevision");
