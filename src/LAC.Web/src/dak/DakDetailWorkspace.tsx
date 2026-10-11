@@ -4,6 +4,7 @@ import { useAuth } from "../auth/AuthProvider";
 import type { DakDetail, DakCategory, PhysicalOriginalInfo, DakTransferItem } from "./types";
 import { DakTimeline } from "./DakTimeline";
 import { DakMovementModal, type MovementModalMode } from "./DakMovementModal";
+import { DakMatterLinkModal } from "./DakMatterLinkModal";
 import { formatDakStatus, isLongPendingReceipt, formatElapsedTime, DAK_PENDING_RECEIPT_ALERT_HOURS } from "./dakConfig";
 import "./dak.css";
 
@@ -57,6 +58,7 @@ export const DakDetailWorkspace: React.FC = () => {
   const [showAttachModal, setShowAttachModal] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showPhysicalModal, setShowPhysicalModal] = useState(false);
+  const [showMatterWorkspaceModal, setShowMatterWorkspaceModal] = useState(false);
 
   // Edit metadata form state
   const [editSubject, setEditSubject] = useState("");
@@ -233,8 +235,8 @@ export const DakDetailWorkspace: React.FC = () => {
         .then((d) => {
           if (!isStale()) {
             if (d) {
-              setCategories(d.categories.filter((c) => c.isActive));
-              setWorkstreams(d.workstreams);
+              setCategories(Array.isArray(d.categories) ? d.categories.filter((c) => c.isActive) : []);
+              setWorkstreams(Array.isArray(d.workstreams) ? d.workstreams : []);
             } else {
               setCategories([]);
               setWorkstreams([]);
@@ -252,7 +254,7 @@ export const DakDetailWorkspace: React.FC = () => {
       fetch(`/api/dak/${targetId}/movement-targets`, { signal, credentials: "include" })
         .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskTargetOption[] }>) : null))
         .then((d) => {
-          if (!isStale()) setMovementDesks(d?.desks || []);
+          if (!isStale()) setMovementDesks(Array.isArray(d?.desks) ? d!.desks : []);
         })
         .catch(() => {
           if (!isStale()) setMovementDesks([]);
@@ -282,7 +284,7 @@ export const DakDetailWorkspace: React.FC = () => {
     fetch("/api/dak/lookups/directory", { signal: controller.signal, credentials: "include" })
       .then((r) => (r.ok ? (r.json() as Promise<{ desks: DeskOption[] }>) : null))
       .then((data) => {
-        if (!controller.signal.aborted && data) setDirectoryDesks(data.desks);
+        if (!controller.signal.aborted && data && Array.isArray(data.desks)) setDirectoryDesks(data.desks);
       })
       .catch(() => {});
 
@@ -294,7 +296,7 @@ export const DakDetailWorkspace: React.FC = () => {
   // Combine desk choices: movementDesks if available, otherwise directoryDesks mapped to DeskTargetOption
   const combinedDesks: DeskTargetOption[] = movementDesks.length > 0
     ? movementDesks
-    : directoryDesks.map((d) => ({ id: d.id, code: d.code, name: d.name, members: [] }));
+    : (directoryDesks || []).map((d) => ({ id: d.id, code: d.code, name: d.name, members: [] }));
 
   const openPhysicalModal = () => {
     if (!dak) return;
@@ -1494,14 +1496,26 @@ export const DakDetailWorkspace: React.FC = () => {
             </div>
 
             <div className="info-section">
-              <h3>Linked Matters ({dak.matterLinks.length})</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                <h3 style={{ margin: 0 }}>Linked Matters ({dak.matterLinks.length})</h3>
+                {(canEdit || isConfirmedCurrentHolder) && (
+                  <button
+                    type="button"
+                    className="dak-btn dak-btn-secondary"
+                    style={{ fontSize: "11px", padding: "2px 8px" }}
+                    onClick={() => setShowMatterWorkspaceModal(true)}
+                  >
+                    + Open / Link Matter
+                  </button>
+                )}
+              </div>
               {dak.matterLinks.length === 0 ? (
                 <p className="subtext">No matters linked.</p>
               ) : (
                 dak.matterLinks.map((l) => (
                   <span key={l.linkId} className="dak-link-badge">
                     {l.canOpen && l.entityId ? (
-                      <Link to={`/matters/${l.entityId}`}>Matter: {l.displayName}</Link>
+                      <Link to={`/matters/${l.entityId}?sourceDakId=${dak.id}`}>Matter: {l.displayName}</Link>
                     ) : (
                       <span className="restricted-badge">🔒 Restricted record</span>
                     )}
@@ -1959,6 +1973,15 @@ export const DakDetailWorkspace: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Dak Matter Workspace Link / Create Modal */}
+      {showMatterWorkspaceModal && (
+        <DakMatterLinkModal
+          dak={dak}
+          onClose={() => setShowMatterWorkspaceModal(false)}
+          onSuccess={() => void loadDakData(id)}
+        />
       )}
     </div>
   );

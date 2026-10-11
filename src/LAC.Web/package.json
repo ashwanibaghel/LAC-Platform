@@ -10,6 +10,7 @@
     "test:onlyoffice-host-id": "node --test tests/onlyoffice-host-id.test.mjs",
     "test:calculator": "node --test tests/calculator.test.mjs tests/bulk-revenue.test.mjs tests/compensation-calculator.test.mjs",
     "test:matter-contract": "node --test tests/matter-workspace-contract.test.mjs",
+    "test:noting": "node --test tests/matter-noting-workspace.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

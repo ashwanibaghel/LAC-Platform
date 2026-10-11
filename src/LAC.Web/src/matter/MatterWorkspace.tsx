@@ -1,9 +1,10 @@
 // Matter Workspace V2 / Operational Hub Component
 
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { MatterDrafts } from "../editor/MatterDraftEditor";
+import { NotingWorkspaceView } from "./NotingWorkspaceView";
 import {
   IconMoreVertical,
   IconUpload,
@@ -170,12 +171,15 @@ interface WorkstreamOption {
   code: string;
 }
 
-type WorkspaceTab = "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
+type WorkspaceTab = "noting" | "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
 
 export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentType<{ matterId: string }> }> = ({
   MatterOutwardSection
 }) => {
   const { id = "" } = useParams();
+  const [searchParams] = useSearchParams();
+  const sourceDakParam = searchParams.get("sourceDakId");
+  const tabParam = searchParams.get("tab") as WorkspaceTab | null;
   const { hasPermission } = useAuth();
 
   const [contextData, setContextData] = useState<MatterContextData | null>(null);
@@ -189,7 +193,9 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [refresh, setRefresh] = useState(0);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>(
+    tabParam || (sourceDakParam ? "noting" : "overview")
+  );
 
   // Overflow Menu State
   const [showOverflow, setShowOverflow] = useState(false);
@@ -953,6 +959,17 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
         <nav className="matter-tabs-nav" aria-label="Matter Work Surfaces">
           <button
             type="button"
+            className={`matter-tab-btn ${activeTab === "noting" ? "active" : ""}`}
+            onClick={() => setActiveTab("noting")}
+            style={{
+              fontWeight: 700,
+              color: activeTab === "noting" ? "#15803d" : "#166534"
+            }}
+          >
+            🌿 Green Noting
+          </button>
+          <button
+            type="button"
             className={`matter-tab-btn ${activeTab === "overview" ? "active" : ""}`}
             onClick={() => setActiveTab("overview")}
           >
@@ -1002,6 +1019,20 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
         {/* Tab Body Surfaces */}
         <div className="matter-tab-body">
+          {/* TAB 0: GREEN NOTING WORKSPACE */}
+          {activeTab === "noting" && (
+            <NotingWorkspaceView
+              matterId={id}
+              initialSourceDakId={sourceDakParam}
+              linkedDaks={(contextData.daks || []).map((d) => ({
+                dakId: d.dakId,
+                diaryNumber: d.diaryNumber,
+                subject: d.subject,
+                revision: 1
+              }))}
+            />
+          )}
+
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="matter-overview-grid">
