@@ -17,6 +17,13 @@ import { CiteDocumentModal } from "./CiteDocumentModal";
 import { SendReturnModal } from "./SendReturnModal";
 import { DocumentRailViewer } from "./DocumentRailViewer";
 import { NotingRichEditor, type NotingRichEditorHandle } from "./NotingRichEditor";
+import { useAuth } from "../auth/AuthProvider";
+import {
+  saveSecureLocalDraft,
+  loadSecureLocalDraft,
+  clearSecureLocalDraft,
+  type SecureRecoverableDraft
+} from "./secureDraftStorage";
 import "./noting.css";
 
 interface NotingWorkspaceViewProps {
@@ -47,6 +54,13 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   initialSourceDakId = null,
   linkedDaks = []
 }) => {
+  let currentUserId = "officer";
+  try {
+    const auth = useAuth();
+    if (auth.user?.id) currentUserId = auth.user.id;
+    else if (auth.user?.username) currentUserId = auth.user.username;
+  } catch {}
+
   // Layout mode
   const [focusMode, setFocusMode] = useState<boolean>(false);
   const [focusDrawerOpen, setFocusDrawerOpen] = useState<boolean>(false);
@@ -70,6 +84,11 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   const [draftLoaded, setDraftLoaded] = useState<boolean>(false);
   const [autosaveStatus, setAutosaveStatus] = useState<"saved" | "saving" | "offline" | "error">("saved");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+  const [recoverableDraft, setRecoverableDraft] = useState<{
+    draft: SecureRecoverableDraft;
+    serverRevision: number;
+    isNewerOnServer: boolean;
+  } | null>(null);
 
   // Rich editor handle and selection
   const editorRef = useRef<NotingRichEditorHandle>(null);
@@ -194,16 +213,18 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       setDraftRevision(rev);
       draftRevisionRef.current = rev;
 
+      let serverCanonical = "";
       if (draft.contentJson) {
         try {
           const parsed = JSON.parse(draft.contentJson);
-          const canonical = canonicalizeRichTextDoc(parsed);
+          serverCanonical = canonicalizeRichTextDoc(parsed).trim();
           setDraftContentJson(draft.contentJson);
-          setDraftCanonicalText(canonical.trim());
+          setDraftCanonicalText(serverCanonical);
           savedJsonRef.current = draft.contentJson;
         } catch {
           setDraftContentJson("");
           setDraftCanonicalText(draft.canonicalText || "");
+          serverCanonical = (draft.canonicalText || "").trim();
           savedJsonRef.current = "";
         }
       } else {
@@ -211,13 +232,43 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
         setDraftCanonicalText("");
         savedJsonRef.current = "";
       }
+
+      // Check for user-scoped secure local draft from offline/crash session
+      const localBackup = await loadSecureLocalDraft(currentUserId, matterId);
+      if (localBackup && localBackup.canonicalText.trim()) {
+        const localCanonical = localBackup.canonicalText.trim();
+        if (localCanonical !== serverCanonical) {
+          // Un-synced offline edits detected!
+          if (rev > localBackup.baseRevision) {
+            // Newer server revision exists! Do NOT overwrite!
+            setRecoverableDraft({
+              draft: localBackup,
+              serverRevision: rev,
+              isNewerOnServer: true
+            });
+          } else {
+            // Server revision is equal or older; prompt to restore
+            setRecoverableDraft({
+              draft: localBackup,
+              serverRevision: rev,
+              isNewerOnServer: false
+            });
+          }
+        } else {
+          clearSecureLocalDraft(currentUserId, matterId);
+          setRecoverableDraft(null);
+        }
+      } else {
+        setRecoverableDraft(null);
+      }
+
       setDraftLoaded(true);
       setAutosaveStatus("saved");
       setLastSavedAt(new Date());
     } catch {
       setDraftLoaded(true);
     }
-  }, [matterId]);
+  }, [matterId, currentUserId]);
 
   useEffect(() => {
     loadDraft();
@@ -319,6 +370,8 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           setDraftRevision(nextRev);
           draftRevisionRef.current = nextRev;
           savedJsonRef.current = cleanJson;
+          clearSecureLocalDraft(currentUserId, matterId);
+          setRecoverableDraft(null);
           setAutosaveStatus("saved");
           setLastSavedAt(new Date());
           return true;
@@ -334,7 +387,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       inFlightSavePromiseRef.current = savePromise;
       return savePromise;
     },
-    [draftLoaded, matterId, sourceDakId]
+    [draftLoaded, matterId, sourceDakId, currentUserId]
   );
 
   // Debounced input change from Rich Editor
@@ -345,13 +398,26 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       latestJsonRef.current = contentJson;
       latestTextRef.current = canonicalText;
 
+      // Immediately write user-scoped AES-GCM encrypted backup for power-loss recovery
+      void saveSecureLocalDraft(currentUserId, matterId, {
+        contentJson,
+        canonicalText,
+        baseRevision: draftRevisionRef.current,
+        savedAt: Date.now()
+      });
+
       // Avoid scheduling redundant autosaves if content is already saved on server
       if (contentJson === savedJsonRef.current) {
         setAutosaveStatus("saved");
+        clearSecureLocalDraft(currentUserId, matterId);
         return;
       }
 
-      setAutosaveStatus("saving");
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        setAutosaveStatus("offline");
+      } else {
+        setAutosaveStatus("saving");
+      }
 
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);
@@ -361,10 +427,11 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
           performSave(latestJsonRef.current, latestTextRef.current);
         } else {
           setAutosaveStatus("saved");
+          clearSecureLocalDraft(currentUserId, matterId);
         }
       }, 1500);
     },
-    [performSave]
+    [performSave, currentUserId, matterId]
   );
 
   // 4. Flush and Verify Draft: Guarantees in-flight and pending autosaves complete before Submit or Send
@@ -426,6 +493,8 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
         throw new Error(body.message || `Submit note failed (${res.status})`);
       }
 
+      clearSecureLocalDraft(currentUserId, matterId);
+      setRecoverableDraft(null);
       setDraftContentJson("");
       setDraftCanonicalText("");
       latestJsonRef.current = "";
@@ -668,6 +737,9 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
             {autosaveStatus === "saved" && (
               <>
                 <span>✓ All changes saved</span>
+                <span className="noting-server-saved-tag" style={{ opacity: 0.85, fontSize: "11px", marginLeft: "4px" }}>
+                  (Server saved)
+                </span>
                 {lastSavedAt && (
                   <span style={{ opacity: 0.75, fontSize: "11px" }}>
                     ({lastSavedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})
@@ -675,14 +747,34 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                 )}
               </>
             )}
-            {autosaveStatus === "saving" && <span>⏳ Saving draft…</span>}
-            {autosaveStatus === "offline" && <span>⚠ Offline — retrying</span>}
+            {autosaveStatus === "saving" && <span>⏳ Pending save…</span>}
+            {autosaveStatus === "offline" && <span>📡 Offline (Secure backup saved)</span>}
             {autosaveStatus === "error" && (
               <span onClick={() => performSave(latestJsonRef.current, latestTextRef.current, true)}>
                 {draftConflict ? "⚠ Conflict (409) — Unsaved edits preserved" : "✕ Save failed — Click to retry"}
               </span>
             )}
           </div>
+          {recoverableDraft && (
+            <div
+              className="noting-recoverable-badge"
+              style={{
+                background: "#fef3c7",
+                color: "#92400e",
+                border: "1px solid #fde68a",
+                borderRadius: "12px",
+                padding: "2px 8px",
+                fontSize: "11px",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px"
+              }}
+              title="Secure recoverable draft available"
+            >
+              <span>↺ Recoverable Draft</span>
+            </div>
+          )}
         </div>
 
         {/* Right Top Actions */}
@@ -1110,6 +1202,110 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                     + Cite Document
                   </button>
                 </div>
+
+                {/* Recoverable Offline Draft Banner */}
+                {recoverableDraft && !draftConflict && (
+                  <div
+                    className={`noting-recoverable-draft-banner ${recoverableDraft.isNewerOnServer ? "conflict-warning" : ""}`}
+                    style={{
+                      background: recoverableDraft.isNewerOnServer ? "#fff7ed" : "#f0fdf4",
+                      border: `1px solid ${recoverableDraft.isNewerOnServer ? "#fdba74" : "#bbf7d0"}`,
+                      borderRadius: "6px",
+                      padding: "10px 12px",
+                      margin: "8px 12px 10px 12px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "8px"
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong style={{ color: recoverableDraft.isNewerOnServer ? "#9a3412" : "#166534", fontSize: "12.5px" }}>
+                        {recoverableDraft.isNewerOnServer
+                          ? `⚠ Newer Server Draft Available (Rev #${recoverableDraft.serverRevision})`
+                          : "↺ Recoverable Offline Draft Detected"}
+                      </strong>
+                      <span style={{ fontSize: "11px", color: recoverableDraft.isNewerOnServer ? "#c2410c" : "#15803d", fontWeight: 600 }}>
+                        Saved {new Date(recoverableDraft.draft.savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+
+                    <p style={{ margin: "0", fontSize: "12px", color: recoverableDraft.isNewerOnServer ? "#7c2d12" : "#14532d", lineHeight: "1.4" }}>
+                      {recoverableDraft.isNewerOnServer
+                        ? `A newer draft revision exists on the server (Rev #${recoverableDraft.serverRevision}). An un-synced local backup (based on Rev #${recoverableDraft.draft.baseRevision}) was found from your previous offline/interrupted session. To prevent overwriting official records, review your local edits.`
+                        : "Unsaved edits were securely recovered from your previous offline or interrupted session. You can restore them to your editor or discard them."}
+                    </p>
+
+                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                      {recoverableDraft.isNewerOnServer ? (
+                        <>
+                          <button
+                            type="button"
+                            className="noting-btn noting-btn-primary"
+                            style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                            onClick={async () => {
+                              const merged = mergeTipTapDocs(draftContentJson, recoverableDraft.draft.contentJson);
+                              const mergedJson = JSON.stringify(merged);
+                              const mergedText = canonicalizeRichTextDoc(merged).trim();
+                              editorRef.current?.setContent(merged);
+                              setDraftContentJson(mergedJson);
+                              setDraftCanonicalText(mergedText);
+                              latestJsonRef.current = mergedJson;
+                              latestTextRef.current = mergedText;
+                              setRecoverableDraft(null);
+                              clearSecureLocalDraft(currentUserId, matterId);
+                              await performSave(mergedJson, mergedText, true);
+                            }}
+                          >
+                            Review & Merge Both
+                          </button>
+                          <button
+                            type="button"
+                            className="noting-btn noting-btn-secondary"
+                            style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                            onClick={() => {
+                              setRecoverableDraft(null);
+                              clearSecureLocalDraft(currentUserId, matterId);
+                            }}
+                          >
+                            Discard Local Backup
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="noting-btn noting-btn-primary btn-restore-draft"
+                            style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                            onClick={async () => {
+                              const doc = parseDocFromInput(recoverableDraft.draft.contentJson);
+                              editorRef.current?.setContent(doc);
+                              setDraftContentJson(recoverableDraft.draft.contentJson);
+                              setDraftCanonicalText(recoverableDraft.draft.canonicalText);
+                              latestJsonRef.current = recoverableDraft.draft.contentJson;
+                              latestTextRef.current = recoverableDraft.draft.canonicalText;
+                              setRecoverableDraft(null);
+                              clearSecureLocalDraft(currentUserId, matterId);
+                              await performSave(recoverableDraft.draft.contentJson, recoverableDraft.draft.canonicalText, true);
+                            }}
+                          >
+                            Restore Recovered Draft
+                          </button>
+                          <button
+                            type="button"
+                            className="noting-btn noting-btn-secondary btn-discard-draft"
+                            style={{ fontSize: "11.5px", padding: "3px 8px" }}
+                            onClick={() => {
+                              setRecoverableDraft(null);
+                              clearSecureLocalDraft(currentUserId, matterId);
+                            }}
+                          >
+                            Discard
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* 409 Conflict Resolution Banner */}
                 {draftConflict && (

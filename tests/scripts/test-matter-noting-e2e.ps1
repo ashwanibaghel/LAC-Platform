@@ -48,7 +48,7 @@ Write-Host "Initializing dedicated test cluster at $dataRoot..."
 & $initPath -D $dataRoot -U postgres -A trust --encoding=UTF8 --no-locale
 if ($LASTEXITCODE -ne 0) { throw 'Dedicated test cluster initialization failed.' }
 
-Add-Content -LiteralPath (Join-Path $dataRoot 'postgresql.conf') -Value "`nlisten_addresses = '127.0.0.1'`nport = $PgPort`n"
+Add-Content -LiteralPath (Join-Path $dataRoot 'postgresql.conf') -Value "`nlisten_addresses = '127.0.0.1'`nport = $PgPort`nlog_statement = 'all'`nlog_lock_waits = on`ndeadlock_timeout = 1000`n"
 
 $docDir = Join-Path $dataRoot 'documents'
 [IO.Directory]::CreateDirectory($docDir) | Out-Null
@@ -88,11 +88,9 @@ try {
     Write-Host "Starting isolated LAC.Api on port $ApiPort..."
     $apiLog = Join-Path $dataRoot 'api.log'
     $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = 'dotnet'
-    $psi.Arguments = "run --project `"$repoRoot\src\LAC.Api`" --no-build"
+    $psi.FileName = 'cmd.exe'
+    $psi.Arguments = "/c dotnet run --project `"$repoRoot\src\LAC.Api`" --no-build > `"$apiLog`" 2>&1"
     $psi.WorkingDirectory = "$repoRoot\src\LAC.Api"
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false
     $psi.EnvironmentVariables['ASPNETCORE_URLS'] = "http://127.0.0.1:$ApiPort"
     $psi.EnvironmentVariables['ConnectionStrings__DefaultConnection'] = "Host=127.0.0.1;Port=$PgPort;Database=lac_noting_e2e;Username=postgres;Pooling=true"
@@ -102,17 +100,6 @@ try {
     $psi.EnvironmentVariables['DOTNET_ENVIRONMENT'] = 'Development'
 
     $apiProcess = [System.Diagnostics.Process]::Start($psi)
-
-    # Stream logs to file in background
-    $stdoutTask = [System.Threading.Tasks.Task]::Run([Action]{
-        $writer = [System.IO.File]::AppendText($apiLog)
-        try {
-            while (-not $apiProcess.HasExited) {
-                $line = $apiProcess.StandardOutput.ReadLine()
-                if ($line) { $writer.WriteLine($line); $writer.Flush() }
-            }
-        } finally { $writer.Dispose() }
-    })
 
     # Wait for API to respond
     Write-Host "Waiting for LAC.Api to be ready on http://127.0.0.1:$ApiPort..."

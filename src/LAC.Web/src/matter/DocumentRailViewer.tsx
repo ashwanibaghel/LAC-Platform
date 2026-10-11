@@ -82,6 +82,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const interactionLayerRef = useRef<HTMLDivElement | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
 
@@ -119,6 +120,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
   useEffect(() => {
     if (!activeDoc || !isPdf) {
       pdfDocRef.current = null;
+      setPdfDoc(null);
       return;
     }
 
@@ -135,24 +137,28 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
       .then((loadedPdf) => {
         if (!active) return;
         pdfDocRef.current = loadedPdf;
+        setPdfDoc(loadedPdf);
         setTotalPages(loadedPdf.numPages);
       })
       .catch((err) => {
         if (!active) return;
+        setPdfDoc(null);
         setRenderError(err.message || "Failed to load PDF document");
       });
 
     return () => {
       active = false;
+      setPdfDoc(null);
+      pdfDocRef.current = null;
       loadingTask.destroy();
     };
   }, [matterId, activeDoc?.id, isPdf]);
 
   // Render Page onto Canvas whenever currentPage, zoom or pdfDoc changes
   useEffect(() => {
-    const pdfDoc = pdfDocRef.current;
+    const docToRender = pdfDoc || pdfDocRef.current;
     const canvas = canvasRef.current;
-    if (!pdfDoc || !canvas || !isPdf) return;
+    if (!docToRender || !canvas || !isPdf) return;
 
     let active = true;
     setRendering(true);
@@ -163,7 +169,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
       } catch {}
     }
 
-    pdfDoc.getPage(currentPage).then((page: any) => {
+    docToRender.getPage(currentPage).then((page: any) => {
       if (!active) return;
 
       const viewport = page.getViewport({ scale: zoom });
@@ -187,8 +193,8 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
           if (!active) return;
           setRendering(false);
         })
-        .catch(() => {
-          if (!active) return;
+        .catch((err: any) => {
+          if (!active || err?.name === "RenderingCancelledException") return;
           setRendering(false);
         });
     }).catch((err: any) => {
@@ -205,7 +211,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
         } catch {}
       }
     };
-  }, [currentPage, zoom, isPdf, activeDoc?.id]);
+  }, [pdfDoc, currentPage, zoom, isPdf, activeDoc?.id]);
 
   // Interactive Drag-to-Select Region Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -333,6 +339,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
 
       const res = await fetch(`/api/matters/${matterId}/documents/${activeDoc.id}/annotations`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           "Idempotency-Key": getUuid()
