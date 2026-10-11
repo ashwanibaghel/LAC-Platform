@@ -5,12 +5,18 @@ import type {
   MatterNoteRemarkDto,
   MatterWorkingDraftDto
 } from "./notingTypes";
-import { canonicalizeRichTextDoc, createNoteAnchor, sanitizeTipTapDoc } from "./notingTextUtil";
+import {
+  canonicalizeRichTextDoc,
+  createNoteAnchor,
+  sanitizeTipTapDoc,
+  parseDocFromInput,
+  mergeTipTapDocs
+} from "./notingTextUtil";
 import { AddRemarkModal, ViewRemarksModal } from "./RemarkModal";
 import { CiteDocumentModal } from "./CiteDocumentModal";
 import { SendReturnModal } from "./SendReturnModal";
 import { DocumentRailViewer } from "./DocumentRailViewer";
-import { NotingRichEditor } from "./NotingRichEditor";
+import { NotingRichEditor, type NotingRichEditorHandle } from "./NotingRichEditor";
 import "./noting.css";
 
 interface NotingWorkspaceViewProps {
@@ -65,6 +71,20 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   const [autosaveStatus, setAutosaveStatus] = useState<"saved" | "saving" | "offline" | "error">("saved");
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
 
+  // Rich editor handle and selection
+  const editorRef = useRef<NotingRichEditorHandle>(null);
+  const [draftSelection, setDraftSelection] = useState<{
+    text: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  const draftSelectionRef = useRef<{
+    text: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  draftSelectionRef.current = draftSelection;
+
   // References for autosave, debouncing and flushing
   const autosaveTimerRef = useRef<number | null>(null);
   const latestJsonRef = useRef<string>("");
@@ -117,6 +137,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
   const [draftConflict, setDraftConflict] = useState<{
     localJson: string;
     localContent: string;
+    serverJson?: string;
     serverContent: string;
     serverRevision: number;
     message?: string;
@@ -249,10 +270,12 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               const serverRes = await fetch(`/api/matters/${matterId}/noting/draft`, { credentials: "include" });
               let serverRev = draftRevisionRef.current + 1;
               let serverText = "";
+              let serverJson = "";
               if (serverRes.ok) {
                 const etag = serverRes.headers.get("ETag");
                 const sDraft: MatterWorkingDraftDto = await serverRes.json();
                 serverRev = etag ? parseInt(etag.replace(/"/g, ""), 10) : (sDraft.revision || serverRev);
+                serverJson = sDraft.contentJson || "";
                 if (sDraft.contentJson) {
                   try {
                     serverText = canonicalizeRichTextDoc(JSON.parse(sDraft.contentJson)).trim();
@@ -266,6 +289,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               setDraftConflict({
                 localJson: cleanJson,
                 localContent: textToSave,
+                serverJson,
                 serverContent: serverText,
                 serverRevision: serverRev,
                 message: conflictBody.message || "Draft changed on server; recover saved text before retrying."
@@ -274,6 +298,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
               setDraftConflict({
                 localJson: cleanJson,
                 localContent: textToSave,
+                serverJson: "",
                 serverContent: "",
                 serverRevision: draftRevisionRef.current + 1,
                 message: "Draft changed on server; recover saved text before retrying."
@@ -319,13 +344,24 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       setDraftCanonicalText(canonicalText);
       latestJsonRef.current = contentJson;
       latestTextRef.current = canonicalText;
+
+      // Avoid scheduling redundant autosaves if content is already saved on server
+      if (contentJson === savedJsonRef.current) {
+        setAutosaveStatus("saved");
+        return;
+      }
+
       setAutosaveStatus("saving");
 
       if (autosaveTimerRef.current) {
         window.clearTimeout(autosaveTimerRef.current);
       }
       autosaveTimerRef.current = window.setTimeout(() => {
-        performSave(contentJson, canonicalText);
+        if (latestJsonRef.current !== savedJsonRef.current) {
+          performSave(latestJsonRef.current, latestTextRef.current);
+        } else {
+          setAutosaveStatus("saved");
+        }
       }, 1500);
     },
     [performSave]
@@ -474,6 +510,14 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
       }
     }
 
+    if (startIdx === -1 && pNode && pNode.getAttribute("data-start-offset")) {
+      const pStart = parseInt(pNode.getAttribute("data-start-offset")!, 10);
+      const relativeFound = note.canonicalText.indexOf(selectedText, pStart);
+      if (relativeFound >= 0) {
+        startIdx = relativeFound;
+      }
+    }
+
     if (startIdx === -1) {
       startIdx = note.canonicalText.indexOf(selectedText);
     }
@@ -500,24 +544,36 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
     }
   };
 
-  // 9. Insert citation on active draft text selection
-  const handleCiteDraftSelection = () => {
-    const textarea = document.getElementById("active-draft-textarea") as HTMLTextAreaElement | null;
-    if (!textarea) return;
+  // 9. Insert citation on active draft text selection (using TipTap ProseMirror selection)
+  const handleCiteDraftSelection = async () => {
+    const verified = await flushAndVerifyDraft();
+    if (!verified.success) {
+      alert("Draft could not be verified by the server. Please resolve any revision conflicts before citing.");
+      return;
+    }
+    setDraftRevision(verified.revision);
+    draftRevisionRef.current = verified.revision;
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selected = textarea.value.substring(start, end).trim();
+    let sel = draftSelectionRef.current || draftSelection;
+    if (!sel || !sel.text) {
+      const winSel = window.getSelection();
+      const selText = winSel ? winSel.toString().trim() : "";
+      if (selText && draftCanonicalText) {
+        const start = draftCanonicalText.indexOf(selText);
+        if (start >= 0) {
+          sel = { text: selText, start, end: start + selText.length };
+        }
+      }
+    }
 
-    if (!selected) {
+    if (!sel || !sel.text) {
       alert("Please highlight the exact text in your draft to link with a citation.");
       return;
     }
 
-    createNoteAnchor(textarea.value, start, end).then((anchor) => {
-      setCitationAnchor(anchor);
-      setShowCitationModal(true);
-    });
+    const anchor = await createNoteAnchor(draftCanonicalText, sel.start, sel.end);
+    setCitationAnchor(anchor);
+    setShowCitationModal(true);
   };
 
   // 10. Toggle Remark status (PUT /api/matters/{m}/notes/{n}/remarks/{r})
@@ -750,10 +806,6 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                 const noteRemarks = remarksMap[note.id] || [];
                 const openRemarksCount = noteRemarks.filter((r) => r.state === "Open").length;
 
-                // Track paragraph boundaries in canonicalText
-                let currentOffset = 0;
-                const paragraphs = note.canonicalText.split("\n");
-
                 return (
                   <div
                     key={note.id}
@@ -818,15 +870,13 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
 
                     {/* Note Body Text with precise inline highlighted remarks and anchored citations */}
                     <div className="official-note-body">
-                      {paragraphs.map((para, pIdx) => {
-                        const pStart = currentOffset;
-                        const pEnd = pStart + para.length;
-                        currentOffset = pEnd + 1; // account for newline delimiter
+                      {(() => {
+                        const canonical = (note.canonicalText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+                        const paragraphs = canonical.split("\n");
+                        let currentOffset = 0;
 
-                        if (!para.trim()) return null;
-
-                        // Find remarks intersecting this paragraph
-                        const matchingRemarks = noteRemarks
+                        // Parse remarks with anchors
+                        const parsedRemarks = noteRemarks
                           .map((r) => {
                             try {
                               const anchor = typeof r.anchorJson === "string" ? JSON.parse(r.anchorJson) : (r as any).anchor;
@@ -835,113 +885,204 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                               return null;
                             }
                           })
-                          .filter((r) => r && r.parsedAnchor && r.parsedAnchor.start < pEnd && r.parsedAnchor.end > pStart) as Array<
-                          MatterNoteRemarkDto & { parsedAnchor: any }
-                        >;
+                          .filter((r): r is MatterNoteRemarkDto & { parsedAnchor: any } =>
+                            Boolean(r && r.parsedAnchor && typeof r.parsedAnchor.start === "number" && typeof r.parsedAnchor.end === "number")
+                          );
 
-                        // Find citations ending within this specific paragraph
-                        const matchingCitations = (note.citations || []).filter((c) => {
-                          const cAnchor = c.anchor;
-                          return cAnchor && cAnchor.end >= pStart && cAnchor.end <= pEnd;
-                        });
+                        const getCiteKey = (c: any, idx: number) =>
+                          `${c.documentId}-${c.anchor?.start ?? 0}-${c.anchor?.end ?? 0}-${idx}`;
+                        const renderedCitationKeys = new Set<string>();
 
-                        // If no remarks and no citations in this paragraph, render direct paragraph
-                        if (matchingRemarks.length === 0 && matchingCitations.length === 0) {
+                        const renderedParagraphs = paragraphs.map((para, pIdx) => {
+                          const pStart = currentOffset;
+                          const pEnd = pStart + para.length;
+                          currentOffset = pEnd + 1; // newline delimiter
+
+                          if (!para.trim()) {
+                            return <p key={pIdx} data-start-offset={pStart}>&nbsp;</p>;
+                          }
+
+                          // Intersecting remarks
+                          const intersectingRemarks = parsedRemarks.filter(
+                            (r) => r.parsedAnchor.start < pEnd && r.parsedAnchor.end > pStart
+                          );
+
+                          // Citations ending inside this paragraph
+                          const paraCitations = (note.citations || []).filter((c) => {
+                            const cEnd = c.anchor?.end;
+                            return typeof cEnd === "number" && cEnd >= pStart && cEnd <= pEnd;
+                          });
+
+                          paraCitations.forEach((c, cIdx) => renderedCitationKeys.add(getCiteKey(c, cIdx)));
+
+                          // If no remarks and no citations, render direct paragraph
+                          if (intersectingRemarks.length === 0 && paraCitations.length === 0) {
+                            return (
+                              <p key={pIdx} data-start-offset={pStart}>
+                                {para}
+                              </p>
+                            );
+                          }
+
+                          // Collect interval boundaries
+                          const L = para.length;
+                          const boundarySet = new Set<number>();
+                          boundarySet.add(0);
+                          boundarySet.add(L);
+
+                          for (const r of intersectingRemarks) {
+                            const relStart = Math.max(0, Math.min(L, r.parsedAnchor.start - pStart));
+                            const relEnd = Math.max(0, Math.min(L, r.parsedAnchor.end - pStart));
+                            boundarySet.add(relStart);
+                            boundarySet.add(relEnd);
+                          }
+
+                          for (const c of paraCitations) {
+                            const relEnd = Math.max(0, Math.min(L, (c.anchor?.end ?? 0) - pStart));
+                            boundarySet.add(relEnd);
+                          }
+
+                          const boundaries = Array.from(boundarySet).sort((a, b) => a - b);
+                          const elements: React.ReactNode[] = [];
+
+                          // Check citations at 0
+                          const zeroCites = paraCitations.filter((c) => Math.max(0, Math.min(L, (c.anchor?.end ?? 0) - pStart)) === 0);
+                          zeroCites.forEach((c, cIdx) => {
+                            const doc = documents.find((d) => d.id === c.documentId);
+                            elements.push(
+                              <span
+                                key={`zero-cite-${getCiteKey(c, cIdx)}`}
+                                className="note-citation-pill"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCitationClick(c.documentId, c.page);
+                                }}
+                                title={`Click to view ${doc?.filename || "document"} at page ${c.page || 1}`}
+                              >
+                                📎 [Doc: {doc?.filename || "Document"}{c.page ? ` (p.${c.page})` : ""}]
+                              </span>
+                            );
+                          });
+
+                          for (let i = 0; i < boundaries.length - 1; i++) {
+                            const segStart = boundaries[i];
+                            const segEnd = boundaries[i + 1];
+                            if (segEnd <= segStart) continue;
+
+                            const segText = para.substring(segStart, segEnd);
+                            const canonSegStart = pStart + segStart;
+                            const canonSegEnd = pStart + segEnd;
+
+                            // Find remarks covering this slice
+                            const coveringRemarks = intersectingRemarks.filter(
+                              (r) => r.parsedAnchor.start <= canonSegStart && r.parsedAnchor.end >= canonSegEnd
+                            );
+
+                            if (coveringRemarks.length > 0) {
+                              const hasOpen = coveringRemarks.some((r) => r.state === "Open");
+                              const isOverlapping = coveringRemarks.length > 1;
+                              const primaryRemark = coveringRemarks[0];
+
+                              elements.push(
+                                <mark
+                                  key={`seg-${pIdx}-${segStart}-${segEnd}`}
+                                  className={`noting-remark-highlight ${hasOpen ? "remark-open" : "remark-addressed"} ${isOverlapping ? "remark-overlapping" : ""}`}
+                                  data-remark-id={primaryRemark.id}
+                                  data-remark-ids={coveringRemarks.map((r) => r.id).join(",")}
+                                  title={
+                                    isOverlapping
+                                      ? `${coveringRemarks.length} Remarks (${coveringRemarks.map((r) => `${r.authorName}: "${r.text}"`).join("; ")})`
+                                      : `${primaryRemark.authorName}: "${primaryRemark.text}"`
+                                  }
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isOverlapping) {
+                                      setViewRemarksState({ note, remarks: coveringRemarks });
+                                    } else {
+                                      setActivePopoverRemark(primaryRemark);
+                                      setPopoverCoords({ x: e.clientX, y: e.clientY });
+                                    }
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    if (!isOverlapping) {
+                                      setActivePopoverRemark(primaryRemark);
+                                      setPopoverCoords({ x: e.clientX, y: e.clientY });
+                                    }
+                                  }}
+                                >
+                                  {segText}
+                                </mark>
+                              );
+                            } else {
+                              elements.push(
+                                <React.Fragment key={`text-${pIdx}-${segStart}-${segEnd}`}>
+                                  {segText}
+                                </React.Fragment>
+                              );
+                            }
+
+                            // Citations ending right at this segment end
+                            const citesEndingHere = paraCitations.filter(
+                              (c) => Math.max(0, Math.min(L, (c.anchor?.end ?? 0) - pStart)) === segEnd
+                            );
+                            citesEndingHere.forEach((c, cIdx) => {
+                              const doc = documents.find((d) => d.id === c.documentId);
+                              elements.push(
+                                <span
+                                  key={`cite-${getCiteKey(c, cIdx)}`}
+                                  className="note-citation-pill"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleCitationClick(c.documentId, c.page);
+                                  }}
+                                  title={`Click to view ${doc?.filename || "document"} at page ${c.page || 1}`}
+                                >
+                                  📎 [Doc: {doc?.filename || "Document"}{c.page ? ` (p.${c.page})` : ""}]
+                                </span>
+                              );
+                            });
+                          }
+
                           return (
                             <p key={pIdx} data-start-offset={pStart}>
-                              {para}
+                              {elements}
                             </p>
                           );
-                        }
+                        });
 
-                        // Sliced rendering for precise inline highlights
+                        // Any unanchored citations rendered at the bottom
+                        const unanchoredCitations = (note.citations || []).filter(
+                          (c, idx) => !renderedCitationKeys.has(getCiteKey(c, idx))
+                        );
+
                         return (
-                          <p key={pIdx} data-start-offset={pStart}>
-                            {(() => {
-                              // If there are remarks, highlight them precisely
-                              if (matchingRemarks.length > 0) {
-                                const elements: React.ReactNode[] = [];
-                                let lastPos = 0;
-
-                                // Sort remarks by start offset
-                                const sortedRemarks = [...matchingRemarks].sort(
-                                  (a, b) => a.parsedAnchor.start - b.parsedAnchor.start
-                                );
-
-                                for (const rem of sortedRemarks) {
-                                  const relStart = Math.max(0, rem.parsedAnchor.start - pStart);
-                                  const relEnd = Math.min(para.length, rem.parsedAnchor.end - pStart);
-
-                                  if (relStart > lastPos) {
-                                    elements.push(para.substring(lastPos, relStart));
-                                  }
-
-                                  if (relEnd > relStart) {
-                                    elements.push(
-                                      <mark
-                                        key={rem.id}
-                                        className={`noting-remark-highlight ${rem.state === "Open" ? "remark-open" : "remark-addressed"}`}
-                                        data-remark-id={rem.id}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setActivePopoverRemark(rem);
-                                          setPopoverCoords({ x: e.clientX, y: e.clientY });
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          setActivePopoverRemark(rem);
-                                          setPopoverCoords({ x: e.clientX, y: e.clientY });
-                                        }}
-                                      >
-                                        {para.substring(relStart, relEnd)}
-                                      </mark>
-                                    );
-                                    lastPos = relEnd;
-                                  }
-                                }
-
-                                if (lastPos < para.length) {
-                                  elements.push(para.substring(lastPos));
-                                }
-
-                                // Append matching citations for this paragraph right at the text location
-                                matchingCitations.forEach((c, cIdx) => {
-                                  elements.push(
+                          <>
+                            {renderedParagraphs}
+                            {unanchoredCitations.length > 0 && (
+                              <div className="official-note-citations-bar" style={{ marginTop: "8px", paddingTop: "6px", borderTop: "1px dashed #cbd5e1" }}>
+                                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600, marginRight: "6px" }}>
+                                  Linked Documents:
+                                </span>
+                                {unanchoredCitations.map((c, cIdx) => {
+                                  const doc = documents.find((d) => d.id === c.documentId);
+                                  return (
                                     <span
-                                      key={`cite-${cIdx}`}
+                                      key={`unanchored-${getCiteKey(c, cIdx)}`}
                                       className="note-citation-pill"
-                                      onClick={() => handleCitationClick(c.documentId, c.page)}
-                                      title={`Click to view page ${c.page || 1}`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCitationClick(c.documentId, c.page);
+                                      }}
                                     >
-                                      📎 [Doc: {documents.find((d) => d.id === c.documentId)?.filename || "File"}
-                                      {c.page ? ` (p.${c.page})` : ""}]
+                                      📎 [Doc: {doc?.filename || "Document"}{c.page ? ` (p.${c.page})` : ""}]
                                     </span>
                                   );
-                                });
-
-                                return elements;
-                              }
-
-                              // Only citations in this paragraph
-                              return (
-                                <>
-                                  {para}
-                                  {matchingCitations.map((c, cIdx) => (
-                                    <span
-                                      key={cIdx}
-                                      className="note-citation-pill"
-                                      onClick={() => handleCitationClick(c.documentId, c.page)}
-                                      title={`Click to view page ${c.page || 1}`}
-                                    >
-                                      📎 [Doc: {documents.find((d) => d.id === c.documentId)?.filename || "File"}
-                                      {c.page ? ` (p.${c.page})` : ""}]
-                                    </span>
-                                  ))}
-                                </>
-                              );
-                            })()}
-                          </p>
+                                })}
+                              </div>
+                            )}
+                          </>
                         );
-                      })}
+                      })()}
                     </div>
                   </div>
                 );
@@ -1029,14 +1170,25 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                         type="button"
                         className="noting-btn noting-btn-secondary"
                         style={{ fontSize: "11.5px", padding: "3px 8px" }}
-                        onClick={() => {
-                          const merged = draftConflict.serverContent ? `${draftConflict.serverContent}\n\n${draftConflict.localContent}` : draftConflict.localContent;
+                        onClick={async () => {
+                          const mergedDoc = mergeTipTapDocs(
+                            draftConflict.serverJson || draftConflict.serverContent,
+                            draftConflict.localJson || draftConflict.localContent
+                          );
+                          const mergedJson = JSON.stringify(mergedDoc);
+                          const mergedText = canonicalizeRichTextDoc(mergedDoc).trim();
+
                           draftRevisionRef.current = draftConflict.serverRevision;
                           setDraftRevision(draftConflict.serverRevision);
-                          setDraftCanonicalText(merged);
-                          latestTextRef.current = merged;
+                          setDraftContentJson(mergedJson);
+                          setDraftCanonicalText(mergedText);
+                          latestJsonRef.current = mergedJson;
+                          latestTextRef.current = mergedText;
+
+                          editorRef.current?.setContent(mergedDoc);
+
                           setDraftConflict(null);
-                          void performSave(draftConflict.localJson, merged, true);
+                          await performSave(mergedJson, mergedText, true);
                         }}
                       >
                         Merge Both Versions
@@ -1046,12 +1198,23 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
                         className="noting-btn noting-btn-secondary"
                         style={{ fontSize: "11.5px", padding: "3px 8px" }}
                         onClick={() => {
+                          const serverDoc = parseDocFromInput(draftConflict.serverJson || draftConflict.serverContent);
+                          const serverJson = JSON.stringify(serverDoc);
+                          const serverText = canonicalizeRichTextDoc(serverDoc).trim();
+
                           draftRevisionRef.current = draftConflict.serverRevision;
                           setDraftRevision(draftConflict.serverRevision);
-                          setDraftCanonicalText(draftConflict.serverContent);
-                          latestTextRef.current = draftConflict.serverContent;
+                          setDraftContentJson(serverJson);
+                          setDraftCanonicalText(serverText);
+                          latestJsonRef.current = serverJson;
+                          latestTextRef.current = serverText;
+                          savedJsonRef.current = serverJson;
+
+                          editorRef.current?.setContent(serverDoc);
+
                           setDraftConflict(null);
                           setAutosaveStatus("saved");
+                          setLastSavedAt(new Date());
                         }}
                       >
                         Discard My Edits & Accept Server Draft
@@ -1062,8 +1225,16 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
 
                 {/* Working Rich Text Editor with Formatting Toolbar */}
                 <NotingRichEditor
+                  ref={editorRef}
                   initialContent={draftContentJson || draftCanonicalText}
                   onChange={handleEditorChange}
+                  onSelectionChange={(selectedText, startCanon, endCanon) => {
+                    if (selectedText.trim().length > 0) {
+                      setDraftSelection({ text: selectedText.trim(), start: startCanon, end: endCanon });
+                    } else {
+                      setDraftSelection(null);
+                    }
+                  }}
                 />
               </div>
             ) : (
@@ -1241,7 +1412,7 @@ export const NotingWorkspaceView: React.FC<NotingWorkspaceViewProps> = ({
         <CiteDocumentModal
           matterId={matterId}
           anchor={citationAnchor}
-          draftRevision={draftRevision}
+          draftRevision={draftRevisionRef.current || draftRevision}
           documents={documents}
           onClose={() => setShowCitationModal(false)}
           onCited={(updatedDraft) => {

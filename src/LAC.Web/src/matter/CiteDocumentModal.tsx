@@ -24,7 +24,7 @@ function getUuid(): string {
 export const CiteDocumentModal: React.FC<CiteDocumentModalProps> = ({
   matterId,
   anchor,
-  draftRevision,
+  draftRevision: initialRevision,
   documents,
   onClose,
   onCited
@@ -48,6 +48,21 @@ export const CiteDocumentModal: React.FC<CiteDocumentModalProps> = ({
 
     try {
       const pageNum = page !== "" && !isNaN(Number(page)) ? Number(page) : null;
+
+      // Ensure expectedRevision matches current server draft revision to avoid revision race
+      let draftRevision = initialRevision;
+      try {
+        const dRes = await fetch(`/api/matters/${matterId}/noting/draft`, { credentials: "include" });
+        if (dRes.ok) {
+          const etag = dRes.headers.get("ETag");
+          const dData: MatterWorkingDraftDto = await dRes.json();
+          const rev = etag ? parseInt(etag.replace(/"/g, ""), 10) : dData.revision;
+          if (typeof rev === "number" && !isNaN(rev)) {
+            draftRevision = rev;
+          }
+        }
+      } catch {}
+
       const res = await fetch(`/api/matters/${matterId}/noting/draft/citations`, {
         method: "POST",
         headers: {

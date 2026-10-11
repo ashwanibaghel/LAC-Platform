@@ -143,3 +143,134 @@ export async function createNoteAnchor(
     quoteHash
   };
 }
+
+/**
+ * Maps a ProseMirror position (within ed.state.doc) to the exact UTF-16 code unit offset
+ * in the server canonical text (NotingText.Canonicalize).
+ */
+export function proseMirrorPosToCanonicalOffset(docNode: any, targetPmPos: number): number {
+  if (!docNode || targetPmPos <= 0) return 0;
+
+  let currentPmPos = 0;
+  let currentCanonOffset = 0;
+  let foundOffset = -1;
+
+  function walk(node: any) {
+    if (foundOffset !== -1) return;
+
+    if (node.isText) {
+      const textLen = node.text ? node.text.length : 0;
+      if (targetPmPos >= currentPmPos && targetPmPos <= currentPmPos + textLen) {
+        foundOffset = currentCanonOffset + (targetPmPos - currentPmPos);
+        return;
+      }
+      currentPmPos += textLen;
+      currentCanonOffset += textLen;
+      return;
+    }
+
+    const typeName = node.type ? (typeof node.type === "string" ? node.type : node.type.name) : "";
+
+    if (typeName === "hardBreak") {
+      if (targetPmPos === currentPmPos) {
+        foundOffset = currentCanonOffset;
+        return;
+      }
+      currentPmPos += 1;
+      currentCanonOffset += 1; // '\n' in canonical text
+      return;
+    }
+
+    const isRoot = typeName === "doc";
+    if (!isRoot) {
+      if (targetPmPos === currentPmPos) {
+        foundOffset = currentCanonOffset;
+        return;
+      }
+      currentPmPos += 1; // opening tag
+    }
+
+    if (node.content) {
+      if (Array.isArray(node.content)) {
+        for (const child of node.content) {
+          walk(child);
+          if (foundOffset !== -1) return;
+        }
+      } else if (typeof node.content.forEach === "function") {
+        node.content.forEach((child: any) => {
+          walk(child);
+        });
+        if (foundOffset !== -1) return;
+      }
+    }
+
+    if (!isRoot) {
+      if (targetPmPos === currentPmPos) {
+        foundOffset = currentCanonOffset;
+        return;
+      }
+      currentPmPos += 1; // closing tag
+      if (typeName === "paragraph" || typeName === "heading") {
+        currentCanonOffset += 1; // '\n' in canonical text
+      }
+    }
+  }
+
+  walk(docNode);
+  return foundOffset !== -1 ? foundOffset : currentCanonOffset;
+}
+
+/**
+ * Parses either a JSON string, a JSON object, or plain text into a sanitized TipTap doc structure.
+ */
+export function parseDocFromInput(input?: string | any): any {
+  if (!input) {
+    return { type: "doc", content: [{ type: "paragraph" }] };
+  }
+  if (typeof input === "object") {
+    return sanitizeTipTapDoc(input) || { type: "doc", content: [{ type: "paragraph" }] };
+  }
+  const trimmed = typeof input === "string" ? input.trim() : "";
+  if (!trimmed) {
+    return { type: "doc", content: [{ type: "paragraph" }] };
+  }
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && parsed.type === "doc") {
+      const clean = sanitizeTipTapDoc(parsed);
+      if (clean) return clean;
+    }
+  } catch {
+    // Treat as plain text
+  }
+
+  const lines = trimmed.split(/\r?\n/).filter((l) => l.length > 0);
+  if (lines.length === 0) {
+    return { type: "doc", content: [{ type: "paragraph" }] };
+  }
+  return {
+    type: "doc",
+    content: lines.map((text) => ({
+      type: "paragraph",
+      content: [{ type: "text", text }]
+    }))
+  };
+}
+
+/**
+ * Merges two TipTap documents into a single valid TipTap doc with server-compatible paragraphs.
+ */
+export function mergeTipTapDocs(serverInput: any, localInput: any): any {
+  const serverDoc = parseDocFromInput(serverInput);
+  const localDoc = parseDocFromInput(localInput);
+
+  const serverContent = Array.isArray(serverDoc.content) ? serverDoc.content : [];
+  const localContent = Array.isArray(localDoc.content) ? localDoc.content : [];
+
+  const merged = {
+    type: "doc",
+    content: [...serverContent, ...localContent]
+  };
+
+  return sanitizeTipTapDoc(merged) || { type: "doc", content: [{ type: "paragraph" }] };
+}

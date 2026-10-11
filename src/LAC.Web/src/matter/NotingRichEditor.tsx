@@ -1,7 +1,18 @@
-import React, { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { sanitizeTipTapDoc, canonicalizeRichTextDoc } from "./notingTextUtil";
+import {
+  sanitizeTipTapDoc,
+  canonicalizeRichTextDoc,
+  parseDocFromInput,
+  proseMirrorPosToCanonicalOffset
+} from "./notingTextUtil";
+
+export interface NotingRichEditorHandle {
+  setContent: (content: any) => void;
+  getEditor: () => any;
+  setSelection: (from: number, to: number) => void;
+}
 
 interface NotingRichEditorProps {
   initialContent?: string; // Either JSON doc or plain text
@@ -11,42 +22,14 @@ interface NotingRichEditorProps {
   onSelectionChange?: (selectedText: string, start: number, end: number) => void;
 }
 
-function parseInitialDoc(input?: string): any {
-  if (!input || !input.trim()) {
-    return { type: "doc", content: [{ type: "paragraph" }] };
-  }
-  try {
-    const parsed = JSON.parse(input);
-    if (parsed && parsed.type === "doc") {
-      return sanitizeTipTapDoc(parsed) || { type: "doc", content: [{ type: "paragraph" }] };
-    }
-  } catch {
-    // Treat as plain text
-  }
-
-  // Convert plain text paragraphs into TipTap doc
-  const paragraphs = input.split(/\r?\n/).filter((p) => p.length > 0);
-  if (paragraphs.length === 0) {
-    return { type: "doc", content: [{ type: "paragraph" }] };
-  }
-  return {
-    type: "doc",
-    content: paragraphs.map((text) => ({
-      type: "paragraph",
-      content: [{ type: "text", text }]
-    }))
-  };
-}
-
-export const NotingRichEditor: React.FC<NotingRichEditorProps> = ({
+export const NotingRichEditor = forwardRef<NotingRichEditorHandle, NotingRichEditorProps>(({
   initialContent = "",
   readOnly = false,
   placeholder = "Enter official observations, legal references, and recommendations for this note...",
   onChange,
   onSelectionChange
-}) => {
+}, ref) => {
   const isInternalChangeRef = useRef(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -56,7 +39,7 @@ export const NotingRichEditor: React.FC<NotingRichEditorProps> = ({
         }
       })
     ],
-    content: parseInitialDoc(initialContent),
+    content: parseDocFromInput(initialContent),
     editable: !readOnly,
     onUpdate: ({ editor: ed }) => {
       isInternalChangeRef.current = true;
@@ -65,49 +48,51 @@ export const NotingRichEditor: React.FC<NotingRichEditorProps> = ({
       const contentJson = JSON.stringify(cleanDoc);
       const canonicalText = canonicalizeRichTextDoc(cleanDoc);
 
-      // Keep hidden textarea in sync for testability and form integration
-      if (textareaRef.current) {
-        textareaRef.current.value = canonicalText;
-      }
-
       onChange(contentJson, canonicalText);
       isInternalChangeRef.current = false;
     },
     onSelectionUpdate: ({ editor: ed }) => {
       if (onSelectionChange) {
-        const { from, to } = ed.state.selection;
-        const text = ed.state.doc.textBetween(from, to, " ");
-        onSelectionChange(text, from, to);
+        const { from, to, empty } = ed.state.selection;
+        if (empty) {
+          onSelectionChange("", 0, 0);
+        } else {
+          const selectedText = ed.state.doc.textBetween(from, to, "\n");
+          const startCanon = proseMirrorPosToCanonicalOffset(ed.state.doc, from);
+          const endCanon = proseMirrorPosToCanonicalOffset(ed.state.doc, to);
+          onSelectionChange(selectedText, startCanon, endCanon);
+        }
       }
     }
   });
 
+  useImperativeHandle(ref, () => ({
+    setContent: (content: any) => {
+      if (editor) {
+        const doc = parseDocFromInput(content);
+        editor.commands.setContent(doc, { emitUpdate: false });
+        const cleanDoc = sanitizeTipTapDoc(doc) || { type: "doc", content: [{ type: "paragraph" }] };
+        onChange(JSON.stringify(cleanDoc), canonicalizeRichTextDoc(cleanDoc));
+      }
+    },
+    getEditor: () => editor,
+    setSelection: (from: number, to: number) => {
+      if (editor) {
+        editor.commands.setTextSelection({ from, to });
+      }
+    }
+  }), [editor, onChange]);
+
   // Sync external initialContent updates when not caused by internal user edit
   useEffect(() => {
     if (!editor || isInternalChangeRef.current) return;
-    const doc = parseInitialDoc(initialContent);
+    const doc = parseDocFromInput(initialContent);
     const currentJson = JSON.stringify(editor.getJSON());
     const newJson = JSON.stringify(doc);
     if (currentJson !== newJson) {
       editor.commands.setContent(doc, { emitUpdate: false });
-      if (textareaRef.current) {
-        textareaRef.current.value = canonicalizeRichTextDoc(doc);
-      }
     }
   }, [initialContent, editor]);
-
-  // Handle external direct edits on textarea (e.g. Playwright textarea.fill)
-  const handleTextareaInput = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const val = e.target.value;
-      if (!editor) return;
-      const doc = parseInitialDoc(val);
-      editor.commands.setContent(doc, { emitUpdate: false });
-      const cleanDoc = sanitizeTipTapDoc(doc);
-      onChange(JSON.stringify(cleanDoc), canonicalizeRichTextDoc(cleanDoc));
-    },
-    [editor, onChange]
-  );
 
   if (!editor) {
     return (
@@ -218,34 +203,17 @@ export const NotingRichEditor: React.FC<NotingRichEditorProps> = ({
         </div>
       )}
 
-      {/* Primary Rich-Text Visual Editor */}
-      <div className="active-draft-editor-box active-draft-tiptap" style={{ minHeight: "120px" }}>
+      {/* Primary Rich-Text Visual Editor Surface (Sole Editing Buffer) */}
+      <div
+        id="active-draft-editor-container"
+        data-testid="active-draft-editor-container"
+        className="active-draft-editor-box active-draft-tiptap"
+        style={{ minHeight: "130px" }}
+      >
         <EditorContent editor={editor} placeholder={placeholder} />
       </div>
-
-      {/* Accessible, visible & test-compatible synchronized textarea */}
-      <textarea
-        id="active-draft-textarea"
-        ref={textareaRef}
-        className="active-draft-textarea-sync"
-        style={{
-          width: "100%",
-          height: "44px",
-          marginTop: "6px",
-          padding: "6px 8px",
-          fontSize: "11.5px",
-          fontFamily: "monospace",
-          color: "#475569",
-          background: "#f8fafc",
-          border: "1px solid #e2e8f0",
-          borderRadius: "4px",
-          resize: "none"
-        }}
-        aria-label="Canonical text preview buffer"
-        placeholder="Canonical text sync buffer"
-        defaultValue={canonicalizeRichTextDoc(parseInitialDoc(initialContent))}
-        onChange={handleTextareaInput}
-      />
     </div>
   );
-};
+});
+
+NotingRichEditor.displayName = "NotingRichEditor";

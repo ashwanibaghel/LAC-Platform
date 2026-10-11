@@ -834,6 +834,11 @@
   background-color: #e2e8f0;
 }
 
+.noting-remark-highlight.remark-overlapping {
+  border-bottom: 2px dashed #b45309;
+  outline: 1px dotted #ca8a04;
+}
+
 /* Floating Remark Popover */
 .noting-remark-popover {
   position: absolute;

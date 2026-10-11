@@ -1,5 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { MatterDocumentSummaryDto, MatterPdfAnnotationDto } from "./notingTypes";
+import * as pdfjsLib from "pdfjs-dist";
+// @ts-ignore
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.mjs?url";
+
+if (typeof window !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+}
 
 interface DocumentRailViewerProps {
   matterId: string;
@@ -10,6 +17,13 @@ interface DocumentRailViewerProps {
   canAnnotate: boolean;
   onSelectDocument: (docId: string, page?: number | null) => void;
   onDocumentUploaded: () => void;
+}
+
+interface SelectedRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 function getUuid(): string {
@@ -33,71 +47,224 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
   onSelectDocument,
   onDocumentUploaded
 }) => {
-  const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState<"all" | "pdf" | "word">("all");
-  const [currentPage, setCurrentPage] = useState<number>(activePage || 1);
-  const [annotations, setAnnotations] = useState<MatterPdfAnnotationDto[]>([]);
-  const [loadingAnnotations, setLoadingAnnotations] = useState(false);
-
-  // Upload modal state
+  const [search, setSearch] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
+
+  // Upload Form State
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadRole, setUploadRole] = useState("Evidence");
   const [uploadDisplayName, setUploadDisplayName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // New annotation state
+  // PDF Page & Annotation State
+  const [currentPage, setCurrentPage] = useState<number>(activePage || 1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [rendering, setRendering] = useState<boolean>(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [pageDims, setPageDims] = useState<{ width: number; height: number }>({ width: 600, height: 800 });
+
+  const [annotations, setAnnotations] = useState<MatterPdfAnnotationDto[]>([]);
   const [showAnnotateModal, setShowAnnotateModal] = useState(false);
   const [annoQuote, setAnnoQuote] = useState("");
   const [annoText, setAnnoText] = useState("");
   const [annoSubmitting, setAnnoSubmitting] = useState(false);
   const [selectedAnnotation, setSelectedAnnotation] = useState<MatterPdfAnnotationDto | null>(null);
 
-  const activeDoc = documents.find((d) => d.id === activeDocumentId) || documents[0] || null;
+  // Interactive Region Selection State
+  const [isSelectingRegion, setIsSelectingRegion] = useState<boolean>(false);
+  const [dragBox, setDragBox] = useState<SelectedRegion | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragBoxRef = useRef<SelectedRegion | null>(null);
+  const [selectedRegion, setSelectedRegion] = useState<SelectedRegion>({ x: 0.1, y: 0.1, width: 0.8, height: 0.15 });
 
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const interactionLayerRef = useRef<HTMLDivElement | null>(null);
+  const pdfDocRef = useRef<any>(null);
+  const renderTaskRef = useRef<any>(null);
+
+  const activeDoc = documents.find((d) => d.id === activeDocumentId) || documents[0] || null;
+  const isPdf = activeDoc && (activeDoc.filename.toLowerCase().endsWith(".pdf") || activeDoc.mime === "application/pdf");
+  const isWord = activeDoc && (activeDoc.filename.toLowerCase().endsWith(".doc") || activeDoc.filename.toLowerCase().endsWith(".docx"));
+
+  // Update page when activePage prop changes
   useEffect(() => {
-    if (activePage) {
+    if (activePage && activePage > 0) {
       setCurrentPage(activePage);
     }
   }, [activePage]);
 
-  // Load PDF annotations for active document
+  // Load Annotations for Active Document
   useEffect(() => {
-    if (!activeDoc) return;
-    const isPdf = activeDoc.filename.toLowerCase().endsWith(".pdf") || activeDoc.mime === "application/pdf";
-    if (!isPdf) {
+    if (!activeDoc) {
       setAnnotations([]);
       return;
     }
 
-    setLoadingAnnotations(true);
-    fetch(`/api/matters/${matterId}/documents/${activeDoc.id}/annotations`, { credentials: "include" })
-      .then(async (res) => {
-        if (!res.ok) return [];
-        return res.json() as Promise<MatterPdfAnnotationDto[]>;
-      })
+    fetch(`/api/matters/${matterId}/documents/${activeDoc.id}/annotations`, {
+      credentials: "include"
+    })
+      .then(async (res) => (res.ok ? res.json() : []))
       .then((data) => {
         setAnnotations(Array.isArray(data) ? data : []);
       })
       .catch(() => {
         setAnnotations([]);
-      })
-      .finally(() => {
-        setLoadingAnnotations(false);
       });
   }, [matterId, activeDoc?.id, activeDoc?.version]);
+
+  // Load PDF Document via PDF.js
+  useEffect(() => {
+    if (!activeDoc || !isPdf) {
+      pdfDocRef.current = null;
+      return;
+    }
+
+    let active = true;
+    setRenderError(null);
+    const pdfUrl = `/api/matters/${matterId}/documents/${activeDoc.id}/content`;
+
+    const loadingTask = pdfjsLib.getDocument({
+      url: pdfUrl,
+      withCredentials: true
+    });
+
+    loadingTask.promise
+      .then((loadedPdf) => {
+        if (!active) return;
+        pdfDocRef.current = loadedPdf;
+        setTotalPages(loadedPdf.numPages);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setRenderError(err.message || "Failed to load PDF document");
+      });
+
+    return () => {
+      active = false;
+      loadingTask.destroy();
+    };
+  }, [matterId, activeDoc?.id, isPdf]);
+
+  // Render Page onto Canvas whenever currentPage, zoom or pdfDoc changes
+  useEffect(() => {
+    const pdfDoc = pdfDocRef.current;
+    const canvas = canvasRef.current;
+    if (!pdfDoc || !canvas || !isPdf) return;
+
+    let active = true;
+    setRendering(true);
+
+    if (renderTaskRef.current) {
+      try {
+        renderTaskRef.current.cancel();
+      } catch {}
+    }
+
+    pdfDoc.getPage(currentPage).then((page: any) => {
+      if (!active) return;
+
+      const viewport = page.getViewport({ scale: zoom });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      setPageDims({ width: viewport.width, height: viewport.height });
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      const renderContext = {
+        canvasContext: ctx,
+        viewport
+      };
+
+      const renderTask = page.render(renderContext);
+      renderTaskRef.current = renderTask;
+
+      renderTask.promise
+        .then(() => {
+          if (!active) return;
+          setRendering(false);
+        })
+        .catch(() => {
+          if (!active) return;
+          setRendering(false);
+        });
+    }).catch((err: any) => {
+      if (!active) return;
+      setRendering(false);
+      setRenderError(err.message || "Error rendering page");
+    });
+
+    return () => {
+      active = false;
+      if (renderTaskRef.current) {
+        try {
+          renderTaskRef.current.cancel();
+        } catch {}
+      }
+    };
+  }, [currentPage, zoom, isPdf, activeDoc?.id]);
+
+  // Interactive Drag-to-Select Region Handlers
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!interactionLayerRef.current) return;
+    const rect = interactionLayerRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+    const initial = { x, y };
+    const box = { x, y, width: 0, height: 0 };
+    dragStartRef.current = initial;
+    dragBoxRef.current = box;
+    setDragBox(box);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const start = dragStartRef.current;
+    if (!start || !interactionLayerRef.current) return;
+    const rect = interactionLayerRef.current.getBoundingClientRect();
+    const curX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const curY = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+    const left = Math.min(start.x, curX);
+    const top = Math.min(start.y, curY);
+    const width = Math.abs(curX - start.x);
+    const height = Math.abs(curY - start.y);
+
+    const box = { x: left, y: top, width, height };
+    dragBoxRef.current = box;
+    setDragBox(box);
+  };
+
+  const handleMouseUp = () => {
+    const curBox = dragBoxRef.current;
+    if (curBox && curBox.width > 0.02 && curBox.height > 0.01) {
+      setSelectedRegion({
+        x: Math.round(curBox.x * 1000) / 1000,
+        y: Math.round(curBox.y * 1000) / 1000,
+        width: Math.round(curBox.width * 1000) / 1000,
+        height: Math.round(curBox.height * 1000) / 1000
+      });
+      setIsSelectingRegion(false);
+      setShowAnnotateModal(true);
+    }
+    dragStartRef.current = null;
+    dragBoxRef.current = null;
+    setDragBox(null);
+  };
 
   const filteredDocs = documents.filter((d) => {
     const matchesSearch = d.filename.toLowerCase().includes(search.toLowerCase()) ||
       (d.displayName || "").toLowerCase().includes(search.toLowerCase());
     if (!matchesSearch) return false;
 
-    const isPdf = d.filename.toLowerCase().endsWith(".pdf") || d.mime === "application/pdf";
-    const isWord = d.filename.toLowerCase().endsWith(".doc") || d.filename.toLowerCase().endsWith(".docx");
+    const isDocPdf = d.filename.toLowerCase().endsWith(".pdf") || d.mime === "application/pdf";
+    const isDocWord = d.filename.toLowerCase().endsWith(".doc") || d.filename.toLowerCase().endsWith(".docx");
 
-    if (filterType === "pdf") return isPdf;
-    if (filterType === "word") return isWord;
+    if (filterType === "pdf") return isDocPdf;
+    if (filterType === "word") return isDocWord;
     return true;
   });
 
@@ -159,7 +326,7 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
     try {
       const payload = {
         page: currentPage,
-        region: { x: 0.1, y: 0.1, width: 0.8, height: 0.15 },
+        region: selectedRegion,
         quote: annoQuote.trim() || undefined,
         text: annoText.trim() || undefined
       };
@@ -190,9 +357,6 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
     }
   };
 
-  const isPdf = activeDoc && (activeDoc.filename.toLowerCase().endsWith(".pdf") || activeDoc.mime === "application/pdf");
-  const isWord = activeDoc && (activeDoc.filename.toLowerCase().endsWith(".doc") || activeDoc.filename.toLowerCase().endsWith(".docx"));
-
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
       {/* Document Rail Header */}
@@ -218,28 +382,26 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
           placeholder="Search documents by name or role..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          className="document-search-input"
         />
-        <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+        <div className="document-filter-chips">
           <button
             type="button"
-            className={`noting-btn ${filterType === "all" ? "noting-btn-primary" : "noting-btn-secondary"}`}
-            style={{ padding: "2px 8px", fontSize: "10.5px" }}
+            className={`filter-chip ${filterType === "all" ? "active" : ""}`}
             onClick={() => setFilterType("all")}
           >
             All ({documents.length})
           </button>
           <button
             type="button"
-            className={`noting-btn ${filterType === "pdf" ? "noting-btn-primary" : "noting-btn-secondary"}`}
-            style={{ padding: "2px 8px", fontSize: "10.5px" }}
+            className={`filter-chip ${filterType === "pdf" ? "active" : ""}`}
             onClick={() => setFilterType("pdf")}
           >
             PDFs
           </button>
           <button
             type="button"
-            className={`noting-btn ${filterType === "word" ? "noting-btn-primary" : "noting-btn-secondary"}`}
-            style={{ padding: "2px 8px", fontSize: "10.5px" }}
+            className={`filter-chip ${filterType === "word" ? "active" : ""}`}
             onClick={() => setFilterType("word")}
           >
             Word
@@ -286,8 +448,8 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
         )}
       </div>
 
-      {/* Embedded Document Viewer Box */}
-      <div className="document-viewer-container">
+      {/* Synchronized Document Viewer Box */}
+      <div className="document-viewer-container" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
         {activeDoc ? (
           <>
             <div className="document-viewer-toolbar">
@@ -308,30 +470,83 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
                       ◀
                     </button>
                     <span style={{ fontSize: "11px", color: "#64748b" }}>
-                      Page {currentPage}
+                      Page {currentPage} of {totalPages}
                     </span>
                     <button
                       type="button"
                       className="noting-btn noting-btn-secondary"
                       style={{ padding: "1px 5px", fontSize: "10.5px" }}
-                      onClick={() => setCurrentPage(currentPage + 1)}
+                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                      disabled={currentPage >= totalPages}
                       title="Next Page"
                     >
                       ▶
                     </button>
                   </div>
                 )}
+                {isPdf && annotations.length > 0 && (
+                  <span
+                    className="pdf-shared-highlights-badge"
+                    style={{ fontSize: "11px", color: "#854d0e", background: "#fef08a", padding: "1px 6px", borderRadius: "3px", fontWeight: 600 }}
+                    title="Shared highlights visible to all authorized officers"
+                  >
+                    Shared Highlights ({annotations.length})
+                  </span>
+                )}
               </div>
 
+              {/* Synchronized Zoom & Region Selection Controls */}
               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                {isPdf && (
+                  <>
+                    <button
+                      type="button"
+                      className="noting-btn noting-btn-secondary"
+                      style={{ padding: "2px 6px", fontSize: "11px" }}
+                      onClick={() => setZoom((z) => Math.max(0.6, Math.round((z - 0.2) * 10) / 10))}
+                      title="Zoom Out"
+                    >
+                      －
+                    </button>
+                    <span style={{ fontSize: "11px", color: "#475569", minWidth: "36px", textAlign: "center" }}>
+                      {Math.round(zoom * 100)}%
+                    </span>
+                    <button
+                      type="button"
+                      className="noting-btn noting-btn-secondary"
+                      style={{ padding: "2px 6px", fontSize: "11px" }}
+                      onClick={() => setZoom((z) => Math.min(2.5, Math.round((z + 0.2) * 10) / 10))}
+                      title="Zoom In"
+                    >
+                      ＋
+                    </button>
+                    <button
+                      type="button"
+                      className="noting-btn noting-btn-secondary"
+                      style={{ padding: "2px 6px", fontSize: "11px" }}
+                      onClick={() => setZoom(1.0)}
+                      title="Reset Zoom to 100%"
+                    >
+                      100%
+                    </button>
+                  </>
+                )}
+
                 {isPdf && canAnnotate && (
                   <button
                     type="button"
-                    className="noting-btn noting-btn-secondary add-highlight-btn"
+                    className={`noting-btn ${isSelectingRegion ? "noting-btn-primary" : "noting-btn-secondary"} add-highlight-btn`}
                     style={{ padding: "2px 6px", fontSize: "11px" }}
-                    onClick={() => setShowAnnotateModal(true)}
+                    onClick={() => {
+                      if (!isSelectingRegion) {
+                        setIsSelectingRegion(true);
+                      } else {
+                        setShowAnnotateModal(true);
+                      }
+                    }}
+                    title={isSelectingRegion ? "Drag on page to select highlight region" : "Add Page Highlight"}
                   >
-                    + Highlight
+                    {isSelectingRegion ? "Draw Region ✎" : "+ Highlight"}
                   </button>
                 )}
                 <a
@@ -346,82 +561,145 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
               </div>
             </div>
 
-            {/* Viewer Content Frame with PDF Highlight Overlays */}
+            {/* Viewer Content Frame: Synchronized Canvas Page Renderer */}
             {isPdf ? (
-              <div className="pdf-page-overlay-wrapper" style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
-                <iframe
-                  src={`/api/matters/${matterId}/documents/${activeDoc.id}/content#page=${currentPage}`}
-                  title={activeDoc.filename}
-                  className="document-viewer-frame"
-                />
+              <div
+                className="pdf-viewport-scroll"
+                style={{
+                  flex: 1,
+                  overflow: "auto",
+                  background: "#334155",
+                  padding: "16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center"
+                }}
+              >
+                {rendering && (
+                  <div style={{ color: "#f8fafc", fontSize: "11.5px", marginBottom: "8px" }}>
+                    Rendering Page {currentPage}…
+                  </div>
+                )}
+                {renderError && (
+                  <div style={{ color: "#fca5a5", fontSize: "12px", marginBottom: "8px" }}>
+                    {renderError}
+                  </div>
+                )}
 
-                {/* Visible PDF-Page Highlight Overlays aligned to backend annotation regions */}
+                {/* Page Wrapper maintaining exact pixel scale for canvas + overlay */}
                 <div
-                  className="pdf-page-overlay-layer"
+                  className="pdf-canvas-page-wrapper"
                   style={{
-                    position: "absolute",
-                    inset: 0,
-                    pointerEvents: "none",
-                    zIndex: 10
+                    position: "relative",
+                    width: `${pageDims.width}px`,
+                    height: `${pageDims.height}px`,
+                    boxShadow: "0 6px 18px rgba(0,0,0,0.35)",
+                    background: "#ffffff"
                   }}
                 >
-                  {annotations
-                    .filter((a) => a.page === currentPage)
-                    .map((a) => {
-                      let region = { x: 0.1, y: 0.1, width: 0.8, height: 0.15 };
-                      try {
-                        if (a.regionJson) {
-                          const parsed = JSON.parse(a.regionJson);
-                          if (parsed && typeof parsed.x === "number") region = parsed;
-                        }
-                      } catch {}
+                  <canvas
+                    ref={canvasRef}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      height: "100%"
+                    }}
+                  />
 
-                      return (
-                        <div
-                          key={a.id}
-                          className="pdf-highlight-overlay"
-                          style={{
-                            position: "absolute",
-                            left: `${region.x * 100}%`,
-                            top: `${region.y * 100}%`,
-                            width: `${region.width * 100}%`,
-                            height: `${region.height * 100}%`,
-                            backgroundColor: "rgba(250, 204, 21, 0.35)",
-                            border: "2px solid #ca8a04",
-                            borderRadius: "3px",
-                            pointerEvents: "auto",
-                            cursor: "pointer"
-                          }}
-                          title={`Page ${a.page} Highlight: ${a.quote || a.text || ""} (by ${a.authorName})`}
-                          onClick={() => setSelectedAnnotation(a)}
-                        >
-                          <span className="pdf-highlight-tag">
-                            {a.authorName}: {a.quote || "Highlight"}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  {/* Interactive Synchronized Overlay Layer */}
+                  <div
+                    ref={interactionLayerRef}
+                    className="pdf-highlight-interaction-layer"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      cursor: isSelectingRegion ? "crosshair" : "default",
+                      userSelect: "none"
+                    }}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                  >
+                    {/* Render Saved Annotations for this page */}
+                    {annotations
+                      .filter((a) => a.page === currentPage)
+                      .map((a) => {
+                        let region = { x: 0.1, y: 0.1, width: 0.8, height: 0.15 };
+                        try {
+                          if (a.regionJson) {
+                            const parsed = JSON.parse(a.regionJson);
+                            if (parsed && typeof parsed.x === "number") region = parsed;
+                          }
+                        } catch {}
+
+                        return (
+                          <div
+                            key={a.id}
+                            className="pdf-highlight-overlay"
+                            style={{
+                              position: "absolute",
+                              left: `${region.x * 100}%`,
+                              top: `${region.y * 100}%`,
+                              width: `${region.width * 100}%`,
+                              height: `${region.height * 100}%`,
+                              backgroundColor: "rgba(250, 204, 21, 0.35)",
+                              border: "2px solid #ca8a04",
+                              borderRadius: "3px",
+                              pointerEvents: "auto",
+                              cursor: "pointer"
+                            }}
+                            title={`Page ${a.page} Highlight: ${a.quote || a.text || ""} (by ${a.authorName})`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedAnnotation(a);
+                            }}
+                          >
+                            <span className="pdf-highlight-tag">
+                              {a.authorName}: {a.quote || a.text || "Highlight"}
+                            </span>
+                          </div>
+                        );
+                      })}
+
+                    {/* Active Drag-to-Select Bounding Box */}
+                    {dragBox && (
+                      <div
+                        className="pdf-selection-drag-box"
+                        style={{
+                          position: "absolute",
+                          left: `${dragBox.x * 100}%`,
+                          top: `${dragBox.y * 100}%`,
+                          width: `${dragBox.width * 100}%`,
+                          height: `${dragBox.height * 100}%`,
+                          border: "2px dashed #f59e0b",
+                          backgroundColor: "rgba(253, 224, 71, 0.3)",
+                          pointerEvents: "none"
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
 
                 {/* Selected Annotation Detail Card */}
                 {selectedAnnotation && (
                   <div
                     style={{
-                      position: "absolute",
-                      top: "10px",
-                      right: "10px",
-                      width: "260px",
+                      position: "sticky",
+                      bottom: "16px",
+                      maxWidth: "480px",
+                      width: "100%",
                       background: "#ffffff",
                       border: "1px solid #cbd5e1",
                       borderRadius: "6px",
-                      padding: "10px 12px",
-                      boxShadow: "0 8px 20px rgba(0,0,0,0.15)",
+                      padding: "10px 14px",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
                       zIndex: 30,
-                      fontSize: "12px"
+                      fontSize: "12px",
+                      marginTop: "16px"
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                      <strong style={{ color: "#854d0e" }}>Highlight (Page {selectedAnnotation.page})</strong>
+                      <strong style={{ color: "#854d0e" }}>Shared Highlight (Page {selectedAnnotation.page})</strong>
                       <button
                         type="button"
                         style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: "13px", color: "#64748b" }}
@@ -445,93 +723,60 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
                     </div>
                   </div>
                 )}
-
-                {/* Shared annotations indicator / details box */}
-                {annotations.length > 0 && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      bottom: "8px",
-                      left: "8px",
-                      right: "8px",
-                      background: "rgba(254, 243, 199, 0.95)",
-                      border: "1px solid #fde68a",
-                      padding: "6px 10px",
-                      borderRadius: "4px",
-                      fontSize: "11.5px",
-                      color: "#92400e",
-                      maxHeight: "60px",
-                      overflowY: "auto",
-                      zIndex: 15
-                    }}
-                  >
-                    <strong>Shared Highlights ({annotations.length}){loadingAnnotations ? " (updating...)" : ""}:</strong>
-                    {annotations.map((a) => (
-                      <div key={a.id} style={{ cursor: "pointer" }} onClick={() => { setCurrentPage(a.page); setSelectedAnnotation(a); }}>
-                        p.{a.page}: {a.quote ? `"${a.quote}"` : a.text} — by {a.authorName}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
             ) : isWord ? (
-              <div className="document-viewer-content" style={{ justifyContent: "center" }}>
-                <div style={{ textAlign: "center", padding: "16px" }}>
-                  <div style={{ fontSize: "28px", marginBottom: "8px" }}>📄</div>
-                  <strong style={{ fontSize: "13px", color: "#1e293b", display: "block", marginBottom: "4px" }}>
-                    Word Document ({activeDoc.filename})
-                  </strong>
-                  <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 12px 0" }}>
-                    Preview and collaborative edits are integrated via ONLYOFFICE / secure download.
-                  </p>
+              <div style={{ padding: "24px", textAlign: "center", background: "#f8fafc", flex: 1 }}>
+                <div style={{ fontSize: "36px", marginBottom: "12px" }}>📄</div>
+                <h4 style={{ margin: "0 0 6px 0", color: "#0f172a" }}>{activeDoc.filename}</h4>
+                <p style={{ margin: "0 0 16px 0", color: "#64748b", fontSize: "12.5px" }}>
+                  Official Word Document linked to this Matter.
+                </p>
+                <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
                   <a
                     href={`/api/matters/${matterId}/documents/${activeDoc.id}/content`}
+                    download={activeDoc.filename}
                     className="noting-btn noting-btn-primary"
                     style={{ textDecoration: "none" }}
-                    download
                   >
-                    Download Original
+                    Download Document
+                  </a>
+                  <a
+                    href={`/editor?documentId=${activeDoc.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="noting-btn noting-btn-secondary"
+                    style={{ textDecoration: "none" }}
+                  >
+                    Open in ONLYOFFICE ↗
                   </a>
                 </div>
               </div>
             ) : (
-              <div className="document-viewer-content" style={{ justifyContent: "center" }}>
-                <div style={{ textAlign: "center", padding: "16px" }}>
-                  <p style={{ fontSize: "12px", color: "#64748b" }}>
-                    Format preview unavailable. Use download link to view safely.
-                  </p>
-                  <a
-                    href={`/api/matters/${matterId}/documents/${activeDoc.id}/content`}
-                    className="noting-btn noting-btn-secondary"
-                    style={{ textDecoration: "none" }}
-                    download
-                  >
-                    Download File
-                  </a>
-                </div>
+              <div style={{ padding: "24px", textAlign: "center", color: "#64748b" }}>
+                Select a document from the rail to preview.
               </div>
             )}
           </>
         ) : (
-          <div style={{ padding: "24px", textAlign: "center", color: "#94a3b8", fontSize: "12px" }}>
-            Select a document from the rail to preview.
+          <div style={{ padding: "24px", textAlign: "center", color: "#94a3b8", fontSize: "13px" }}>
+            No documents uploaded yet. Use <strong>+ Upload File</strong> above to attach petitions, reports or orders.
           </div>
         )}
       </div>
 
-      {/* Upload File Modal */}
+      {/* Upload Document Modal */}
       {showUploadModal && (
         <div className="noting-modal-overlay" onClick={() => setShowUploadModal(false)}>
           <div className="noting-modal-card" onClick={(e) => e.stopPropagation()}>
             <div className="noting-modal-header">
-              <h3>Upload Document to Matter</h3>
+              <h3>Upload Matter Document</h3>
               <button className="noting-btn noting-btn-secondary" onClick={() => setShowUploadModal(false)} type="button">✕</button>
             </div>
             <form onSubmit={handleUploadSubmit}>
               <div className="noting-modal-body">
                 <div>
                   <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155", display: "block", marginBottom: "4px" }}>
-                    Choose File (PDF or Word) <span style={{ color: "#b91c1c" }}>*</span>
+                    Select File (PDF or Word)
                   </label>
                   <input
                     type="file"
@@ -600,6 +845,9 @@ export const DocumentRailViewer: React.FC<DocumentRailViewerProps> = ({
             </div>
             <form onSubmit={handleCreateAnnotation}>
               <div className="noting-modal-body">
+                <div style={{ fontSize: "11px", color: "#475569", background: "#f8fafc", padding: "6px 8px", borderRadius: "4px" }}>
+                  Selected Region: ({Math.round(selectedRegion.x * 100)}%, {Math.round(selectedRegion.y * 100)}%, {Math.round(selectedRegion.width * 100)}%w, {Math.round(selectedRegion.height * 100)}%h)
+                </div>
                 <div>
                   <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155", display: "block", marginBottom: "4px" }}>
                     Excerpt / Quote (Optional)
