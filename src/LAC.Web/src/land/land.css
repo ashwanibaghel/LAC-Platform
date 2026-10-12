@@ -2165,3 +2165,239 @@
   color: #475569;
   font-weight: 500;
 }
+
+/* ==========================================================================
+   Document Ownership Conflict & Already Uploaded Experience
+   ========================================================================== */
+
+.doc-conflict-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.doc-conflict-modal {
+  background: #ffffff;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 620px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  animation: modalFadeIn 0.15s ease-out;
+}
+
+.doc-conflict-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 14px 16px;
+}
+
+.doc-conflict-banner-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+
+.doc-conflict-banner-text {
+  font-size: 12.5px;
+  color: #78350f;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.doc-conflict-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 0 16px 14px 16px;
+}
+
+.doc-conflict-detail-cell {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.doc-conflict-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.doc-conflict-detail-val {
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.doc-conflict-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  align-items: center;
+}
+
+.doc-conflict-policy-note {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 0 16px 14px 16px;
+  font-size: 12.5px;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.doc-conflict-reassign-panel {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 14px 16px;
+}
+
+.doc-conflict-reassign-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.doc-conflict-reassign-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.doc-conflict-reason-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.doc-conflict-reason-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+
+.doc-conflict-reason-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.doc-conflict-perm-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+
+.doc-conflict-audit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.doc-conflict-reassign-success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: #166534;
+  line-height: 1.4;
+}
+
+/* Same-award "Already uploaded" card */
+.doc-already-uploaded-card {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #16a34a;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+
+.doc-already-uploaded-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #15803d;
+  margin: 0 0 4px 0;
+}
+
+.doc-already-uploaded-text {
+  font-size: 13px;
+  color: #166534;
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+/* Badges */
+.intake-badge-conflict {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.doc-conflict-card-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+
+.doc-conflict-card-note {
+  font-size: 12px;
+  color: #92400e;
+  margin: 4px 0 8px 0;
+}
+
+.doc-conflict-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.village-award-card-highlighted {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+  transition: all 0.3s ease;
+}
+

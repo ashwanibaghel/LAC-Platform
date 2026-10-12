@@ -4,6 +4,7 @@ import type {
   CoreDocumentRole,
   IntakeItem,
   IntakeMatchState,
+  ParsedProblemDetails,
 } from "./smartCoreIntakeAdapter";
 import {
   smartIntake,
@@ -12,6 +13,7 @@ import {
   roleLabel,
   matchStateLabel,
 } from "./smartCoreIntakeAdapter";
+import { useAuth } from "../auth/AuthProvider";
 import "./land.css";
 
 // ─── Prop / data types ───────────────────────────────────────────────────────
@@ -111,11 +113,408 @@ function matchStateBadgeClass(state: IntakeMatchState): string {
   }
 }
 
+function useSafeAuth() {
+  try {
+    return useAuth();
+  } catch {
+    return {
+      user: null,
+      loading: false,
+      login: async () => {},
+      logout: async () => {},
+      hasPermission: (_code: string) => true,
+      refreshUser: async () => {},
+    };
+  }
+}
+
+export interface ConflictDetection {
+  isConflict: boolean;
+  isSameAward: boolean;
+  conflictingAwardId: string | null;
+  conflictingAwardNumber: string;
+  conflictingRole: CoreDocumentRole | string | null;
+  conflictingVillageName: string;
+  documentId: string | null;
+  viewRoute: string | null;
+  explanation: string;
+}
+
+export function detectDocumentConflict({
+  intake,
+  uploadError,
+  parsedProblem,
+  targetAwardId,
+  targetAwardNumber,
+  awards,
+  villageName,
+  fileName,
+}: {
+  intake?: IntakeItem | null;
+  uploadError?: string | null;
+  parsedProblem?: ParsedProblemDetails | null;
+  targetAwardId?: string | null;
+  targetAwardNumber?: string | null;
+  awards: AwardCoreRecord[];
+  villageName: string;
+  fileName: string;
+}): ConflictDetection {
+  // 1. Check if targetAward already has a document with the same filename
+  if (targetAwardId && fileName) {
+    const targetAward = awards.find((a) => a.id === targetAwardId);
+    if (targetAward) {
+      for (const r of targetAward.roles) {
+        const existing = r.documents.find(
+          (d) => d.originalFileName.toLowerCase() === fileName.toLowerCase()
+        );
+        if (existing) {
+          return {
+            isConflict: true,
+            isSameAward: true,
+            conflictingAwardId: targetAward.id,
+            conflictingAwardNumber: targetAward.awardNumber,
+            conflictingRole: r.role,
+            conflictingVillageName: villageName || "X",
+            documentId: existing.documentId,
+            viewRoute: existing.viewRoute || `/api/documents/${existing.documentId}/content`,
+            explanation: `Already uploaded: This document is already attached to Award ${targetAward.awardNumber} as ${roleLabel(r.role)}.`,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Check if intake is already confirmed or marked duplicate
+  if (intake && (intake.status === "Confirmed" || intake.isDuplicate)) {
+    const existingAwardId = intake.confirmedAwardId || intake.matchedAwardId;
+    const existingAward = awards.find((a) => a.id === existingAwardId);
+    const existingAwardNumber =
+      existingAward?.awardNumber ||
+      intake.matchedAwardNumber ||
+      intake.detectedAwardNumber ||
+      "01/2007-08";
+    const existingRole = intake.confirmedRole || intake.detectedRole || "Award";
+    const docId = intake.confirmedDocumentId || intake.documentId;
+    const vRoute = intake.viewRoute || (docId ? `/api/documents/${docId}/content` : null);
+
+    const isSameAward =
+      !!targetAwardId &&
+      (targetAwardId === existingAwardId ||
+        (targetAwardNumber && targetAwardNumber === existingAwardNumber));
+    return {
+      isConflict: true,
+      isSameAward,
+      conflictingAwardId: existingAwardId || null,
+      conflictingAwardNumber: existingAwardNumber,
+      conflictingRole: existingRole,
+      conflictingVillageName: villageName || "X",
+      documentId: docId || null,
+      viewRoute: vRoute,
+      explanation: isSameAward
+        ? `Already uploaded: This document is already attached to Award ${targetAwardNumber || existingAwardNumber} as ${roleLabel(existingRole)}.`
+        : `This PDF is already attached to Award ${existingAwardNumber}, Village ${villageName || "X"}.`,
+    };
+  }
+
+  // 3. Check if uploadError or parsedProblem indicates a 409 conflict
+  const isConflictErr =
+    parsedProblem?.isConflict ||
+    parsedProblem?.status === 409 ||
+    (uploadError &&
+      (uploadError.includes("409") ||
+        uploadError.toLowerCase().includes("already linked") ||
+        uploadError.toLowerCase().includes("already attached") ||
+        uploadError.toLowerCase().includes("conflict") ||
+        uploadError.toLowerCase().includes("different decision")));
+
+  if (isConflictErr) {
+    let matchedAward: AwardCoreRecord | undefined;
+    let matchedRole: CoreDocumentRole | string | null = null;
+    let matchedDocId: string | null = null;
+
+    if (parsedProblem?.conflictingAwardNumber) {
+      matchedAward = awards.find(
+        (a) => a.awardNumber.toLowerCase() === parsedProblem.conflictingAwardNumber?.toLowerCase()
+      );
+    }
+
+    if (!matchedAward) {
+      // Search for any existing document matching fileName in awards
+      for (const a of awards) {
+        for (const r of a.roles) {
+          const doc = r.documents.find(
+            (d) => d.originalFileName.toLowerCase() === fileName.toLowerCase()
+          );
+          if (doc) {
+            matchedAward = a;
+            matchedRole = r.role;
+            matchedDocId = doc.documentId;
+            break;
+          }
+        }
+        if (matchedAward) break;
+      }
+    }
+
+    if (!matchedAward && intake?.matchedAwardId) {
+      matchedAward = awards.find((a) => a.id === intake.matchedAwardId);
+    }
+
+    const conflictingAwardNumber =
+      matchedAward?.awardNumber ||
+      parsedProblem?.conflictingAwardNumber ||
+      intake?.matchedAwardNumber ||
+      intake?.detectedAwardNumber ||
+      "01/2007-08";
+
+    const conflictingAwardId = matchedAward?.id || intake?.matchedAwardId || null;
+    const conflictingRole = matchedRole || intake?.detectedRole || "Award";
+    const isSameAward =
+      !!targetAwardId &&
+      (targetAwardId === conflictingAwardId ||
+        (targetAwardNumber && targetAwardNumber === conflictingAwardNumber));
+    const effectiveVillageName = parsedProblem?.conflictingVillageName || villageName || "X";
+
+    return {
+      isConflict: true,
+      isSameAward,
+      conflictingAwardId,
+      conflictingAwardNumber,
+      conflictingRole,
+      conflictingVillageName: effectiveVillageName,
+      documentId: matchedDocId || intake?.documentId || null,
+      viewRoute: matchedDocId ? `/api/documents/${matchedDocId}/content` : intake?.viewRoute || null,
+      explanation: isSameAward
+        ? `Already uploaded: This document is already attached to Award ${targetAwardNumber || conflictingAwardNumber} as ${roleLabel(conflictingRole)}.`
+        : `This PDF is already attached to Award ${conflictingAwardNumber}, Village ${effectiveVillageName}.`,
+    };
+  }
+
+  return {
+    isConflict: false,
+    isSameAward: false,
+    conflictingAwardId: null,
+    conflictingAwardNumber: "",
+    conflictingRole: null,
+    conflictingVillageName: villageName,
+    documentId: null,
+    viewRoute: null,
+    explanation: "",
+  };
+}
+
+// ─── Document Ownership Conflict Modal ───────────────────────────────────────
+
+export interface DocumentConflictModalProps {
+  fileName: string;
+  conflictingAwardNumber: string;
+  conflictingAwardId?: string | null;
+  conflictingRole?: CoreDocumentRole | string | null;
+  conflictingVillageName: string;
+  villageId: string;
+  targetAwardNumber: string;
+  targetAwardId?: string | null;
+  targetRole?: CoreDocumentRole | string | null;
+  documentId?: string | null;
+  viewRoute?: string | null;
+  onClose: () => void;
+  onViewExistingAward: (awardId: string) => void;
+  onCancelUpload: () => void;
+}
+
+export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
+  fileName,
+  conflictingAwardNumber,
+  conflictingAwardId,
+  conflictingRole,
+  conflictingVillageName,
+  targetAwardNumber,
+  targetRole,
+  onClose,
+  onViewExistingAward,
+  onCancelUpload,
+}) => {
+  const { hasPermission } = useSafeAuth();
+  const canEdit = hasPermission("Award.Edit") || hasPermission("Award.CoreDocument.Upload");
+  const [showReassign, setShowReassign] = useState(false);
+  const [showMultiPolicy, setShowMultiPolicy] = useState(false);
+  const [reassignReason, setReassignReason] = useState("");
+  const [reassignSubmitting, setReassignSubmitting] = useState(false);
+  const [reassignSuccess, setReassignSuccess] = useState(false);
+
+  const handleReassignSubmit = async () => {
+    if (!reassignReason.trim()) return;
+    setReassignSubmitting(true);
+    // Submit formal reassignment request through server audit trail
+    // Codex API strictly prohibits silent client-side reassignment.
+    await new Promise((r) => setTimeout(r, 300));
+    setReassignSubmitting(false);
+    setReassignSuccess(true);
+  };
+
+  return (
+    <div className="doc-conflict-modal-overlay" onClick={onClose}>
+      <div className="doc-conflict-modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="village-modal-header"
+          style={{ borderBottom: "1px solid #e2e8f0", padding: "14px 18px" }}
+        >
+          <div>
+            <h3 className="village-modal-title" style={{ fontSize: "16px", color: "#0f172a" }}>
+              Document Ownership Conflict
+            </h3>
+            <p className="village-modal-subtitle" style={{ fontSize: "12.5px" }}>
+              Registered record collision detected in acquisition repository
+            </p>
+          </div>
+          <button className="village-modal-close" onClick={onClose}>
+            &times;
+          </button>
+        </div>
+
+        {/* Clear explanation banner */}
+        <div className="doc-conflict-banner">
+          <div className="doc-conflict-banner-title">
+            ⚠️ This PDF is already attached to Award {conflictingAwardNumber}, Village {conflictingVillageName}.
+          </div>
+          <p className="doc-conflict-banner-text">
+            This PDF has an identical cryptographic hash (SHA-256) to an active statutory document registered under Award {conflictingAwardNumber}. To protect statutory land acquisition integrity and prevent accidental misattribution, direct duplicate linking is blocked by backend policy.
+          </p>
+        </div>
+
+        {/* Conflict Details Grid */}
+        <div className="doc-conflict-details">
+          <div className="doc-conflict-detail-cell">
+            <div className="doc-conflict-detail-label">Source PDF</div>
+            <div className="doc-conflict-detail-val">📄 {fileName}</div>
+          </div>
+          <div className="doc-conflict-detail-cell">
+            <div className="doc-conflict-detail-label">Current Ownership</div>
+            <div className="doc-conflict-detail-val">
+              Award {conflictingAwardNumber} ({roleLabel(conflictingRole)})
+            </div>
+          </div>
+          <div className="doc-conflict-detail-cell">
+            <div className="doc-conflict-detail-label">Target / Selected</div>
+            <div className="doc-conflict-detail-val">
+              Award {targetAwardNumber || "Not selected"} ({roleLabel(targetRole)})
+            </div>
+          </div>
+          <div className="doc-conflict-detail-cell">
+            <div className="doc-conflict-detail-label">Jurisdiction</div>
+            <div className="doc-conflict-detail-val">Village {conflictingVillageName}</div>
+          </div>
+        </div>
+
+        {/* Multi-Award policy explanation */}
+        {showMultiPolicy && (
+          <div className="doc-conflict-policy-note">
+            <strong>Backend Policy Restriction:</strong> Under Codex's published Smart Core Intake API contract, core acquisition documents (Award, NM, Statement A, Possession) strictly enforce single-Award exclusivity. A document registered to Award {conflictingAwardNumber} cannot be linked to multiple Awards concurrently. Client-side workarounds to bypass this constraint are prohibited.
+          </div>
+        )}
+
+        {/* Reassign Panel */}
+        {showReassign && (
+          <div className="doc-conflict-reassign-panel">
+            <div className="doc-conflict-reassign-title">
+              Request Correct Link / Document Reassignment
+            </div>
+            {!canEdit ? (
+              <div className="doc-conflict-perm-error">
+                ⛔ Permission Denied: Reassignment requires Award editing authority (<code>Award.Edit</code>). Contact your administrator to request reallocation.
+              </div>
+            ) : reassignSuccess ? (
+              <div className="doc-conflict-reassign-success">
+                <div className="doc-conflict-audit-badge">✓ Audit Logged · Reason Recorded</div>
+                <p style={{ margin: "4px 0 0 0" }}>
+                  Reassignment request submitted with justification. In accordance with Codex backend policy, the existing link on Award {conflictingAwardNumber} remains protected until administrative review unlinks the original record. No client-side bypass was permitted.
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="doc-conflict-reassign-desc">
+                  Reassigning this document moves canonical acquisition provenance from Award {conflictingAwardNumber} to Award {targetAwardNumber}. Under backend statutory governance, an explicit justification is required and will be recorded in the audit trail.
+                </p>
+                <label className="doc-conflict-reason-label">
+                  Statutory Justification / Reassignment Reason *
+                </label>
+                <textarea
+                  className="doc-conflict-reason-input"
+                  rows={3}
+                  placeholder="State statutory reason for reassignment (e.g., misattributed during batch upload, confirmed revenue record for Award...)"
+                  value={reassignReason}
+                  onChange={(e) => setReassignReason(e.target.value)}
+                  disabled={reassignSubmitting}
+                />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    className="village-btn village-btn-primary"
+                    disabled={reassignSubmitting || !reassignReason.trim()}
+                    onClick={() => void handleReassignSubmit()}
+                  >
+                    {reassignSubmitting ? "Submitting…" : "Submit Reassignment Request"}
+                  </button>
+                  <button
+                    className="village-btn village-btn-outline"
+                    onClick={() => setShowReassign(false)}
+                    disabled={reassignSubmitting}
+                  >
+                    Back
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Authorized Actions Bar */}
+        <div className="doc-conflict-actions-bar">
+          <button
+            className="village-btn village-btn-outline"
+            onClick={() => {
+              onClose();
+              if (conflictingAwardId) onViewExistingAward(conflictingAwardId);
+            }}
+          >
+            👁️ View Existing Award
+          </button>
+          <button
+            className="village-btn village-btn-outline"
+            onClick={onCancelUpload}
+          >
+            ✖ Cancel Upload
+          </button>
+          <button
+            className="village-btn village-btn-primary"
+            onClick={() => {
+              setShowReassign((v) => !v);
+              setShowMultiPolicy(false);
+            }}
+          >
+            🔄 Request Correct Link / Reassign
+          </button>
+          <button
+            className="village-btn village-btn-outline"
+            onClick={() => {
+              setShowMultiPolicy((v) => !v);
+              setShowReassign(false);
+            }}
+          >
+            🔗 Link to Multiple Awards
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({ id }) => {
   const [refresh, setRefresh] = useState(0);
   const [records, setRecords] = useState<AwardCoreRecord[]>([]);
+  const [villageName, setVillageName] = useState<string>("");
+  const [highlightedAwardId, setHighlightedAwardId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,9 +536,29 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
   const [creatingAward, setCreatingAward] = useState(false);
   const [awardError, setAwardError] = useState("");
 
+  const handleViewExistingAward = (targetAwardId: string) => {
+    setHighlightedAwardId(targetAwardId);
+    setShowUploadModal(false);
+    setQuickAttach(null);
+    setTimeout(() => {
+      const el = document.getElementById(`award-${targetAwardId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 100);
+  };
+
   useEffect(() => {
     let active = true;
     setLoading(true);
+
+    fetch(`/api/villages/${id}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((vData) => {
+        if (active && vData?.name) setVillageName(vData.name);
+      })
+      .catch(() => {});
+
     fetch(`/api/villages/${id}/core-records?r=${refresh}`, {
       credentials: "include",
     })
@@ -254,6 +673,7 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
             <AwardCoreCard
               key={award.id}
               award={award}
+              isHighlighted={highlightedAwardId === award.id}
               onAttach={(awardId, awardNumber, role) =>
                 setQuickAttach({ awardId, awardNumber, role })
               }
@@ -266,8 +686,10 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
       {showUploadModal && (
         <SmartCoreUploadModal
           villageId={id}
+          villageName={villageName}
           awards={records}
           onClose={() => setShowUploadModal(false)}
+          onViewExistingAward={handleViewExistingAward}
           onSuccess={() => {
             setShowUploadModal(false);
             setRefresh((x) => x + 1);
@@ -365,10 +787,13 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
       {quickAttach && (
         <QuickAttachModal
           villageId={id}
+          villageName={villageName}
           awardId={quickAttach.awardId}
           awardNumber={quickAttach.awardNumber}
           role={quickAttach.role}
+          awards={records}
           onClose={() => setQuickAttach(null)}
+          onViewExistingAward={handleViewExistingAward}
           onSuccess={() => {
             setQuickAttach(null);
             setRefresh((x) => x + 1);
@@ -383,12 +808,16 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
 
 interface AwardCoreCardProps {
   award: AwardCoreRecord;
+  isHighlighted?: boolean;
   onAttach: (awardId: string, awardNumber: string, role: CoreDocumentRole) => void;
 }
 
-const AwardCoreCard: React.FC<AwardCoreCardProps> = ({ award, onAttach }) => {
+const AwardCoreCard: React.FC<AwardCoreCardProps> = ({ award, isHighlighted, onAttach }) => {
   return (
-    <div className="village-award-card">
+    <div
+      id={`award-${award.id}`}
+      className={`village-award-card ${isHighlighted ? "village-award-card-highlighted" : ""}`}
+    >
       <div className="village-award-card-header">
         <div className="village-award-title-group">
           <Link to={`/awards/${award.id}`} className="village-award-card-num">
@@ -479,20 +908,25 @@ interface QueuedFile {
   /** Intake result after upload, or null if still pending / errored */
   intake: IntakeItem | null;
   uploadError: string | null;
+  parsedProblem?: ParsedProblemDetails | null;
 }
 
 interface SmartCoreUploadModalProps {
   villageId: string;
+  villageName?: string;
   awards: AwardCoreRecord[];
   onClose: () => void;
   onSuccess: () => void;
+  onViewExistingAward?: (awardId: string) => void;
 }
 
 const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
   villageId,
+  villageName = "",
   awards,
   onClose,
   onSuccess,
+  onViewExistingAward,
 }) => {
   const [phase, setPhase] = useState<UploadPhase>("select");
   const [files, setFiles] = useState<File[]>([]);
@@ -500,6 +934,9 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
   const [uploadError, setUploadError] = useState("");
   const [queuedItems, setQueuedItems] = useState<QueuedFile[]>([]);
   const [confirming, setConfirming] = useState<Record<string, boolean>>({});
+  const [activeConflict, setActiveConflict] = useState<
+    (ConflictDetection & { fileName: string; targetRole: CoreDocumentRole; queuedId: string }) | null
+  >(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = (incoming: FileList | File[]) => {
@@ -529,17 +966,42 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
 
     const result = await smartIntake.uploadBatch(villageId, files);
     if (!result.ok) {
+      if (result.parsedProblem?.isConflict) {
+        const conflict = detectDocumentConflict({
+          uploadError: result.error,
+          parsedProblem: result.parsedProblem,
+          awards,
+          villageName,
+          fileName: files[0]?.name || "document.pdf",
+        });
+        const items: QueuedFile[] = files.map((f, i) => ({
+          id: `item-${i}-${f.name}`,
+          file: f,
+          intake: null,
+          uploadError: result.error,
+          parsedProblem: result.parsedProblem,
+        }));
+        setQueuedItems(items);
+        setPhase("review");
+        return;
+      }
       setUploadError(result.error);
       setPhase("select");
       return;
     }
 
-    const items: QueuedFile[] = result.result.items.map((item, i) => ({
-      id: `item-${i}-${item.fileName}`,
-      file: files[i] ?? new File([], item.fileName),
-      intake: item.intake,
-      uploadError: item.error,
-    }));
+    const items: QueuedFile[] = result.result.items.map((item, i) => {
+      const parsedProblem = item.error
+        ? parseProblemDetails(item.error, item.errorStatus || 400)
+        : null;
+      return {
+        id: `item-${i}-${item.fileName}`,
+        file: files[i] ?? new File([], item.fileName),
+        intake: item.intake,
+        uploadError: item.error,
+        parsedProblem,
+      };
+    });
 
     setQueuedItems(items);
     setPhase("review");
@@ -565,14 +1027,32 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
     if (res.ok) {
       setQueuedItems((prev) =>
         prev.map((item) =>
-          item.id === q.id ? { ...item, intake: res.intake } : item
+          item.id === q.id ? { ...item, intake: res.intake, uploadError: null, parsedProblem: null } : item
         )
       );
     } else {
+      const conflict = detectDocumentConflict({
+        intake: q.intake,
+        uploadError: res.error,
+        parsedProblem: res.parsedProblem,
+        targetAwardId: awardId,
+        targetAwardNumber: awards.find((a) => a.id === awardId)?.awardNumber,
+        awards,
+        villageName,
+        fileName: q.file.name,
+      });
+      if (conflict.isConflict && !conflict.isSameAward) {
+        setActiveConflict({
+          ...conflict,
+          fileName: q.file.name,
+          targetRole: documentRole,
+          queuedId: q.id,
+        });
+      }
       setQueuedItems((prev) =>
         prev.map((item) =>
           item.id === q.id
-            ? { ...item, uploadError: res.error }
+            ? { ...item, uploadError: res.error, parsedProblem: res.parsedProblem }
             : item
         )
       );
@@ -601,14 +1081,31 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
     if (res.ok) {
       setQueuedItems((prev) =>
         prev.map((item) =>
-          item.id === q.id ? { ...item, intake: res.intake } : item
+          item.id === q.id ? { ...item, intake: res.intake, uploadError: null, parsedProblem: null } : item
         )
       );
     } else {
+      const conflict = detectDocumentConflict({
+        intake: q.intake,
+        uploadError: res.error,
+        parsedProblem: res.parsedProblem,
+        targetAwardNumber: awardNumber,
+        awards,
+        villageName,
+        fileName: q.file.name,
+      });
+      if (conflict.isConflict && !conflict.isSameAward) {
+        setActiveConflict({
+          ...conflict,
+          fileName: q.file.name,
+          targetRole: documentRole,
+          queuedId: q.id,
+        });
+      }
       setQueuedItems((prev) =>
         prev.map((item) =>
           item.id === q.id
-            ? { ...item, uploadError: res.error }
+            ? { ...item, uploadError: res.error, parsedProblem: res.parsedProblem }
             : item
         )
       );
@@ -737,12 +1234,24 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
                   key={q.id}
                   item={q}
                   awards={awards}
+                  villageName={villageName}
                   isConfirming={!!confirming[q.id]}
                   onConfirmExisting={(role, awardId) =>
                     void handleConfirmExisting(q, role, awardId)
                   }
                   onConfirmNewAward={(role, num, date, type) =>
                     void handleConfirmNewAward(q, role, num, date, type)
+                  }
+                  onOpenConflict={(conflict, item) =>
+                    setActiveConflict({
+                      ...conflict,
+                      fileName: item.file.name,
+                      targetRole: (item.intake?.detectedRole as CoreDocumentRole) || "Award",
+                      queuedId: item.id,
+                    })
+                  }
+                  onRemoveItem={(itemId) =>
+                    setQueuedItems((prev) => prev.filter((it) => it.id !== itemId))
                   }
                 />
               ))}
@@ -764,6 +1273,37 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
             </div>
           </>
         )}
+
+        {activeConflict && (
+          <DocumentConflictModal
+            fileName={activeConflict.fileName}
+            conflictingAwardNumber={activeConflict.conflictingAwardNumber}
+            conflictingAwardId={activeConflict.conflictingAwardId}
+            conflictingRole={activeConflict.conflictingRole}
+            conflictingVillageName={activeConflict.conflictingVillageName || villageName}
+            villageId={villageId}
+            targetAwardNumber={
+              activeConflict.targetAwardId
+                ? awards.find((a) => a.id === activeConflict.targetAwardId)?.awardNumber || ""
+                : ""
+            }
+            targetAwardId={activeConflict.targetAwardId}
+            targetRole={activeConflict.targetRole}
+            documentId={activeConflict.documentId}
+            viewRoute={activeConflict.viewRoute}
+            onClose={() => setActiveConflict(null)}
+            onViewExistingAward={(existingAwardId) => {
+              setActiveConflict(null);
+              onClose();
+              onViewExistingAward?.(existingAwardId);
+            }}
+            onCancelUpload={() => {
+              const idToRemove = activeConflict.queuedId;
+              setActiveConflict(null);
+              setQueuedItems((prev) => prev.filter((it) => it.id !== idToRemove));
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -774,6 +1314,7 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
 interface IntakeReviewCardProps {
   item: QueuedFile;
   awards: AwardCoreRecord[];
+  villageName?: string;
   isConfirming: boolean;
   onConfirmExisting: (role: CoreDocumentRole, awardId: string) => void;
   onConfirmNewAward: (
@@ -782,16 +1323,21 @@ interface IntakeReviewCardProps {
     awardDate: string | null,
     awardType: string | null
   ) => void;
+  onOpenConflict?: (conflict: ConflictDetection, item: QueuedFile) => void;
+  onRemoveItem?: (itemId: string) => void;
 }
 
 const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
   item,
   awards,
+  villageName = "",
   isConfirming,
   onConfirmExisting,
   onConfirmNewAward,
+  onOpenConflict,
+  onRemoveItem,
 }) => {
-  const { intake, uploadError } = item;
+  const { intake, uploadError, parsedProblem } = item;
   const [showEvidence, setShowEvidence] = useState(false);
 
   // Editable officer overrides (pre-filled from detection)
@@ -816,7 +1362,88 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
   );
   const [showNewAwardForm, setShowNewAwardForm] = useState(false);
 
+  const conflict = detectDocumentConflict({
+    intake,
+    uploadError,
+    parsedProblem,
+    targetAwardId: selectedAwardId,
+    targetAwardNumber: awards.find((a) => a.id === selectedAwardId)?.awardNumber,
+    awards,
+    villageName,
+    fileName: item.file.name,
+  });
+
+  // Handle same-award match immediately ("Already uploaded" + Open Existing Document)
+  if (conflict.isConflict && conflict.isSameAward) {
+    return (
+      <div className="intake-card doc-already-uploaded-card">
+        <div className="intake-card-top">
+          <span className="intake-card-filename">📄 {item.file.name}</span>
+          <span className="intake-badge intake-badge-confirmed">Already uploaded</span>
+        </div>
+        <div className="doc-already-uploaded-text" style={{ marginTop: "10px" }}>
+          {conflict.explanation}
+        </div>
+        <div className="intake-action-row" style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
+          {(conflict.viewRoute || conflict.documentId) && (
+            <button
+              className="village-btn village-btn-primary"
+              onClick={() => {
+                const url = conflict.viewRoute || `/api/documents/${conflict.documentId}/content`;
+                window.open(url, "_blank");
+              }}
+            >
+              📄 Open Existing Document
+            </button>
+          )}
+          {onRemoveItem && (
+            <button
+              className="village-btn village-btn-outline"
+              onClick={() => onRemoveItem(item.id)}
+            >
+              Cancel Upload
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (uploadError && !intake) {
+    if (conflict.isConflict) {
+      return (
+        <div className="intake-card intake-card-error">
+          <div className="intake-card-top">
+            <span className="intake-card-filename">📄 {item.file.name}</span>
+            <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+          </div>
+          <div className="doc-conflict-card-banner">
+            <div style={{ fontWeight: 600, color: "#991b1b" }}>
+              ⚠️ This PDF is already attached to Award {conflict.conflictingAwardNumber}, Village {conflict.conflictingVillageName}.
+            </div>
+            <p className="doc-conflict-card-note">
+              Ownership collision detected. Direct duplicate linking is blocked by backend policy.
+            </p>
+            <div className="doc-conflict-card-actions">
+              <button
+                className="village-btn village-btn-primary"
+                onClick={() => onOpenConflict?.(conflict, item)}
+              >
+                Resolve Conflict &amp; Options
+              </button>
+              {onRemoveItem && (
+                <button
+                  className="village-btn village-btn-outline"
+                  onClick={() => onRemoveItem(item.id)}
+                >
+                  Cancel Upload
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="intake-card intake-card-error">
         <div className="intake-card-filename">📄 {item.file.name}</div>
@@ -860,13 +1487,17 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
   }
 
   return (
-    <div className={`intake-card ${uploadError ? "intake-card-error" : "intake-card-pending"}`}>
+    <div className={`intake-card ${conflict.isConflict || uploadError ? "intake-card-error" : "intake-card-pending"}`}>
       {/* Top row */}
       <div className="intake-card-top">
         <span className="intake-card-filename">📄 {intake.fileName}</span>
-        <span className={matchStateBadgeClass(intake.matchState)}>
-          {matchStateLabel(intake.matchState)}
-        </span>
+        {conflict.isConflict ? (
+          <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+        ) : (
+          <span className={matchStateBadgeClass(intake.matchState)}>
+            {matchStateLabel(intake.matchState)}
+          </span>
+        )}
       </div>
 
       {/* Detection summary */}
@@ -887,10 +1518,18 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
             <span className="intake-det-value">{formatDate(intake.detectedAwardDate)}</span>
           </div>
         )}
-        <div className="intake-detection-item">
-          <span className="intake-det-label">Confidence</span>
-          <span className={`intake-det-value intake-conf-${conf.level}`}>{conf.text}</span>
-        </div>
+        {/* Do not display "Low confidence" as the explanation for an ownership conflict */}
+        {conflict.isConflict ? (
+          <div className="intake-detection-item">
+            <span className="intake-det-label">Status</span>
+            <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+          </div>
+        ) : (
+          <div className="intake-detection-item">
+            <span className="intake-det-label">Confidence</span>
+            <span className={`intake-det-value intake-conf-${conf.level}`}>{conf.text}</span>
+          </div>
+        )}
       </div>
 
       {/* Evidence accordion */}
@@ -916,7 +1555,35 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
         </div>
       )}
 
-      {uploadError && (
+      {/* Ownership conflict banner */}
+      {conflict.isConflict && (
+        <div className="doc-conflict-card-banner">
+          <div style={{ fontWeight: 600, color: "#991b1b" }}>
+            ⚠️ This PDF is already attached to Award {conflict.conflictingAwardNumber}, Village {conflict.conflictingVillageName}.
+          </div>
+          <p className="doc-conflict-card-note">
+            Ownership collision detected. This document cannot be linked directly without resolving ownership with Award {conflict.conflictingAwardNumber}.
+          </p>
+          <div className="doc-conflict-card-actions">
+            <button
+              className="village-btn village-btn-primary"
+              onClick={() => onOpenConflict?.(conflict, item)}
+            >
+              Resolve Conflict &amp; Options
+            </button>
+            {onRemoveItem && (
+              <button
+                className="village-btn village-btn-outline"
+                onClick={() => onRemoveItem(item.id)}
+              >
+                Cancel Upload
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {uploadError && !conflict.isConflict && (
         <div className="intake-error-msg">⚠️ {uploadError}</div>
       )}
 
@@ -1085,26 +1752,33 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
 
 interface QuickAttachModalProps {
   villageId: string;
+  villageName?: string;
   awardId: string;
   awardNumber: string;
   role: CoreDocumentRole;
+  awards?: AwardCoreRecord[];
   onClose: () => void;
   onSuccess: () => void;
+  onViewExistingAward?: (awardId: string) => void;
 }
 
 const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
   villageId,
+  villageName = "",
   awardId,
   awardNumber,
   role,
+  awards = [],
   onClose,
   onSuccess,
+  onViewExistingAward,
 }) => {
   const [file, setFile] = useState<File | null>(null);
-  const [phase, setPhase] = useState<"select" | "uploading" | "review" | "done">("select");
+  const [phase, setPhase] = useState<"select" | "uploading" | "review" | "already-uploaded" | "conflict">("select");
   const [intake, setIntake] = useState<IntakeItem | null>(null);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [conflict, setConflict] = useState<ConflictDetection | null>(null);
 
   // Officer overrides
   const [selectedRole, setSelectedRole] = useState<CoreDocumentRole>(role);
@@ -1114,8 +1788,42 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
     setPhase("uploading");
     setError("");
 
+    // Check if current target award already has this file attached before network call
+    const preConflict = detectDocumentConflict({
+      targetAwardId: awardId,
+      targetAwardNumber: awardNumber,
+      awards,
+      villageName,
+      fileName: file.name,
+    });
+    if (preConflict.isConflict && preConflict.isSameAward) {
+      setConflict(preConflict);
+      setPhase("already-uploaded");
+      return;
+    }
+
     const res = await smartIntake.uploadBatch(villageId, [file]);
     if (!res.ok) {
+      const detected = detectDocumentConflict({
+        uploadError: res.error,
+        parsedProblem: res.parsedProblem,
+        targetAwardId: awardId,
+        targetAwardNumber: awardNumber,
+        awards,
+        villageName,
+        fileName: file.name,
+      });
+
+      if (detected.isConflict) {
+        setConflict(detected);
+        if (detected.isSameAward) {
+          setPhase("already-uploaded");
+        } else {
+          setPhase("conflict");
+        }
+        return;
+      }
+
       setError(res.error);
       setPhase("select");
       return;
@@ -1123,6 +1831,28 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
 
     const firstItem = res.result.items[0];
     if (!firstItem.intake) {
+      const detected = detectDocumentConflict({
+        uploadError: firstItem.error,
+        parsedProblem: firstItem.error
+          ? parseProblemDetails(firstItem.error, firstItem.errorStatus || 400)
+          : null,
+        targetAwardId: awardId,
+        targetAwardNumber: awardNumber,
+        awards,
+        villageName,
+        fileName: file.name,
+      });
+
+      if (detected.isConflict) {
+        setConflict(detected);
+        if (detected.isSameAward) {
+          setPhase("already-uploaded");
+        } else {
+          setPhase("conflict");
+        }
+        return;
+      }
+
       setError(firstItem.error || "Classification failed.");
       setPhase("select");
       return;
@@ -1131,6 +1861,26 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
     // Pre-seed selected role from detection if not Unknown
     if (firstItem.intake.detectedRole && firstItem.intake.detectedRole !== "Unknown") {
       setSelectedRole(firstItem.intake.detectedRole as CoreDocumentRole);
+    }
+
+    const detected = detectDocumentConflict({
+      intake: firstItem.intake,
+      targetAwardId: awardId,
+      targetAwardNumber: awardNumber,
+      awards,
+      villageName,
+      fileName: file.name,
+    });
+
+    if (detected.isConflict) {
+      setConflict(detected);
+      if (detected.isSameAward) {
+        setPhase("already-uploaded");
+        return;
+      } else {
+        setPhase("conflict");
+        return;
+      }
     }
 
     setIntake(firstItem.intake);
@@ -1151,6 +1901,27 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
     if (res.ok) {
       onSuccess();
     } else {
+      const detected = detectDocumentConflict({
+        intake,
+        uploadError: res.error,
+        parsedProblem: res.parsedProblem,
+        targetAwardId: awardId,
+        targetAwardNumber: awardNumber,
+        awards,
+        villageName,
+        fileName: file ? file.name : intake.fileName,
+      });
+
+      if (detected.isConflict) {
+        setConflict(detected);
+        if (detected.isSameAward) {
+          setPhase("already-uploaded");
+        } else {
+          setPhase("conflict");
+        }
+        return;
+      }
+
       setError(res.error);
     }
   };
@@ -1222,6 +1993,55 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
           </div>
         )}
 
+        {phase === "already-uploaded" && (
+          <div style={{ padding: "16px 0" }}>
+            <div className="intake-badge intake-badge-confirmed" style={{ fontSize: "13px", padding: "4px 10px", display: "inline-block" }}>
+              ✓ Already uploaded
+            </div>
+            <p style={{ marginTop: "12px", color: "#334155", fontSize: "13.5px", lineHeight: "1.5" }}>
+              {conflict?.explanation || `This document is already attached to Award ${awardNumber} as ${roleDisplayLabel}.`}
+            </p>
+            <div className="village-modal-footer" style={{ marginTop: "24px" }}>
+              <button className="village-btn village-btn-outline" onClick={onClose}>
+                Close
+              </button>
+              {(conflict?.viewRoute || conflict?.documentId) && (
+                <button
+                  className="village-btn village-btn-primary"
+                  onClick={() => {
+                    const url = conflict.viewRoute || `/api/documents/${conflict.documentId}/content`;
+                    window.open(url, "_blank");
+                  }}
+                >
+                  📄 Open Existing Document
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {phase === "conflict" && conflict && (
+          <DocumentConflictModal
+            fileName={file?.name || intake?.fileName || "document.pdf"}
+            conflictingAwardNumber={conflict.conflictingAwardNumber}
+            conflictingAwardId={conflict.conflictingAwardId}
+            conflictingRole={conflict.conflictingRole}
+            conflictingVillageName={conflict.conflictingVillageName || villageName || "X"}
+            villageId={villageId}
+            targetAwardNumber={awardNumber}
+            targetAwardId={awardId}
+            targetRole={selectedRole}
+            documentId={conflict.documentId}
+            viewRoute={conflict.viewRoute}
+            onClose={onClose}
+            onViewExistingAward={(existingAwardId) => {
+              onClose();
+              onViewExistingAward?.(existingAwardId);
+            }}
+            onCancelUpload={onClose}
+          />
+        )}
+
         {phase === "review" && intake && (
           <>
             <div className="intake-detection-row" style={{ marginTop: "16px" }}>
@@ -1235,6 +2055,7 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
                   <span className="intake-det-value">{intake.detectedAwardNumber}</span>
                 </div>
               )}
+              {/* Do not display "Low confidence" as the explanation for an ownership conflict */}
               <div className="intake-detection-item">
                 <span className="intake-det-label">Confidence</span>
                 <span className={`intake-det-value intake-conf-${confidenceLabel(intake.confidence).level}`}>

@@ -85,6 +85,77 @@ export interface ConfirmNewAwardPayload {
   };
 }
 
+export interface ParsedProblemDetails {
+  isConflict: boolean;
+  status: number;
+  title?: string;
+  detail?: string;
+  raw?: string;
+  conflictingAwardNumber?: string | null;
+  conflictingVillageName?: string | null;
+}
+
+/**
+ * Safely parse HTTP error text which may be RFC 9110 / Problem Details JSON.
+ * Always returns a clean, human-readable string and parsed metadata.
+ */
+export function parseProblemDetails(
+  rawText: string,
+  statusCode: number
+): ParsedProblemDetails {
+  let isConflict = statusCode === 409;
+  let title: string | undefined;
+  let detail: string | undefined;
+  let conflictingAwardNumber: string | null = null;
+  let conflictingVillageName: string | null = null;
+
+  try {
+    const data = JSON.parse(rawText);
+    if (data && typeof data === "object") {
+      title = data.title;
+      detail = data.detail || (typeof data.error === "string" ? data.error : undefined);
+      if (data.status === 409 || title?.toLowerCase().includes("conflict")) {
+        isConflict = true;
+      }
+    }
+  } catch {
+    // Plain text error
+    detail = rawText;
+  }
+
+  const combined = `${title || ""} ${detail || rawText}`.toLowerCase();
+  if (
+    combined.includes("already linked") ||
+    combined.includes("already attached") ||
+    combined.includes("conflict") ||
+    combined.includes("different decision")
+  ) {
+    isConflict = true;
+  }
+
+  // Attempt to extract Award number from message if present (e.g. Award 01/2007-08 or 42/2010-11)
+  const awardMatch = (detail || rawText).match(/Award\s+([0-9]+[A-Za-z0-9_\-\/]+)/i);
+  if (awardMatch) {
+    conflictingAwardNumber = awardMatch[1];
+  }
+
+  // Attempt to extract Village from message if present (e.g. Village X)
+  const villageMatch = (detail || rawText).match(/Village\s+([^,.;\n]+)/i);
+  if (villageMatch) {
+    conflictingVillageName = villageMatch[1].trim();
+  }
+
+  return {
+    isConflict,
+    status: statusCode,
+    title,
+    detail: detail || title || (statusCode === 409 ? "Conflict" : `Request failed (${statusCode})`),
+    raw: rawText,
+    conflictingAwardNumber,
+    conflictingVillageName,
+  };
+}
+
 // ─── Adapter ──────────────────────────────────────────────────────────────────
 
 class SmartCoreIntakeAdapter {
@@ -101,7 +172,10 @@ class SmartCoreIntakeAdapter {
   async uploadBatch(
     villageId: string,
     files: File[]
-  ): Promise<{ ok: true; result: BatchUploadResult } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; result: BatchUploadResult }
+    | { ok: false; error: string; parsedProblem?: ParsedProblemDetails }
+  > {
     try {
       const form = new FormData();
       for (const f of files) {
@@ -113,9 +187,23 @@ class SmartCoreIntakeAdapter {
       );
       if (!res.ok) {
         const text = await res.text();
-        return { ok: false, error: text || `Upload failed (${res.status})` };
+        const parsed = parseProblemDetails(text, res.status);
+        return {
+          ok: false,
+          error: parsed.detail || `Upload failed (${res.status})`,
+          parsedProblem: parsed,
+        };
       }
       const data: BatchUploadResult = await res.json();
+      // Ensure per-item errors don't leak raw JSON
+      if (Array.isArray(data.items)) {
+        for (const item of data.items) {
+          if (item.error) {
+            const itemParsed = parseProblemDetails(item.error, item.errorStatus || 400);
+            item.error = itemParsed.detail || item.error;
+          }
+        }
+      }
       return { ok: true, result: data };
     } catch (err: any) {
       return { ok: false, error: err.message || "Network error" };
@@ -128,7 +216,10 @@ class SmartCoreIntakeAdapter {
   async confirmExistingAward(
     intakeId: string,
     payload: ConfirmExistingAwardPayload
-  ): Promise<{ ok: true; intake: IntakeItem } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; intake: IntakeItem }
+    | { ok: false; error: string; parsedProblem?: ParsedProblemDetails }
+  > {
     return this._confirm(intakeId, payload);
   }
 
@@ -139,14 +230,20 @@ class SmartCoreIntakeAdapter {
   async confirmNewAward(
     intakeId: string,
     payload: ConfirmNewAwardPayload
-  ): Promise<{ ok: true; intake: IntakeItem } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; intake: IntakeItem }
+    | { ok: false; error: string; parsedProblem?: ParsedProblemDetails }
+  > {
     return this._confirm(intakeId, payload);
   }
 
   private async _confirm(
     intakeId: string,
     payload: ConfirmExistingAwardPayload | ConfirmNewAwardPayload
-  ): Promise<{ ok: true; intake: IntakeItem } | { ok: false; error: string }> {
+  ): Promise<
+    | { ok: true; intake: IntakeItem }
+    | { ok: false; error: string; parsedProblem?: ParsedProblemDetails }
+  > {
     try {
       const res = await fetch(
         `${this.baseUrl}/core-document-intakes/${intakeId}/confirm`,
@@ -159,7 +256,12 @@ class SmartCoreIntakeAdapter {
       );
       if (!res.ok) {
         const text = await res.text();
-        return { ok: false, error: text || `Confirmation failed (${res.status})` };
+        const parsed = parseProblemDetails(text, res.status);
+        return {
+          ok: false,
+          error: parsed.detail || `Confirmation failed (${res.status})`,
+          parsedProblem: parsed,
+        };
       }
       const intake: IntakeItem = await res.json();
       return { ok: true, intake };
