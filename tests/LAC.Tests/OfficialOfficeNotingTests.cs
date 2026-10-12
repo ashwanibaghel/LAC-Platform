@@ -72,14 +72,26 @@ public sealed class OfficialOfficeNotingTests
         Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>f.Callback(db,session,save,"late overwrite"))).StatusCode);
         var draft=await office.ConfirmAsync(f.Matter,new(preview.Id,preview.CanonicalHash),0,f.Actor,Guid.NewGuid(),default);
         var badSend=new SendWorkingNoteCommand(f.Dak,4,Guid.NewGuid(),f.Other,"Forwarded",false,null,null,preview.Id,preview.CanonicalHash);
-        await Assert.ThrowsAnyAsync<Exception>(()=>f.Workflow(db).SendAsync(f.Matter,badSend,draft.Revision,f.Actor,Guid.NewGuid(),default));
+        await Assert.ThrowsAsync<DakWorkflowException>(()=>f.Workflow(db).SendAsync(f.Matter,badSend,draft.Revision,f.Actor,Guid.NewGuid(),default));
         db.ChangeTracker.Clear(); Assert.Empty(await db.MatterOfficialNotes.ToListAsync()); Assert.Empty(await db.MatterOfficeNoteEvidence.ToListAsync());
         Assert.Equal("Reviewed",(await db.MatterOfficeSessions.SingleAsync()).State);
-        var key=Guid.NewGuid(); var note=await f.Workflow(db).SubmitAsync(f.Matter,new(f.Dak,preview.Id,preview.CanonicalHash),draft.Revision,f.Actor,key,default);
-        var replay=await f.Workflow(db).SubmitAsync(f.Matter,new(f.Dak,preview.Id,preview.CanonicalHash),draft.Revision,f.Actor,key,default);
-        Assert.Equal(note.Id,replay.Id); Assert.Equal(1,note.Number); Assert.Equal(preview.CanonicalText,note.CanonicalText); Assert.Single(await db.MatterOfficeNoteEvidence.ToListAsync());
+        var role=await db.UserRoles.Where(x=>x.UserId==f.Other).Select(x=>x.RoleId).SingleAsync();
+        foreach(var permission in await db.Permissions.Where(x=>x.Code==PermissionCodes.DakView || x.Code==PermissionCodes.DakReceive).ToListAsync())
+            db.RolePermissions.Add(new RolePermission {RoleId=role,PermissionId=permission.Id,ScopeMode=ScopeMode.All});
+        await db.SaveChangesAsync();
+        var desk=await db.UserDeskMemberships.Where(x=>x.UserId==f.Other && x.IsActive).Select(x=>x.OfficeDeskId).SingleAsync();
+        var sendCommand=badSend with {ToDeskId=desk}; var key=Guid.NewGuid();
+        var sent=await f.Workflow(db).SendAsync(f.Matter,sendCommand,draft.Revision,f.Actor,key,default);
+        var replay=await f.Workflow(db).SendAsync(f.Matter,sendCommand,draft.Revision,f.Actor,key,default);
+        Assert.Equal(sent.Note.Id,replay.Note.Id); Assert.Equal(sent.Dak.TransferId,replay.Dak.TransferId);
+        Assert.Equal(1,sent.Note.Number); Assert.Equal(preview.CanonicalText,sent.Note.CanonicalText); Assert.Single(await db.MatterOfficeNoteEvidence.ToListAsync());
+        Assert.Equal("Submitted",(await db.MatterOfficeSessions.SingleAsync()).State);
+        Assert.Single(await db.DakTransfers.Where(x=>x.State==DakTransferState.Pending).ToListAsync());
+        // Database-only physical evidence fixtures; no mocked renderer success is claimed.
+        var source=new MatterGreenSheetSource {MatterId=f.Matter,ActorUserId=f.Actor,StoragePath="synthetic-source.docx",Sha256=new string('0',64),ManifestJson="{}",CreatedAt=DateTimeOffset.UtcNow};
+        db.MatterGreenSheetSources.Add(source);db.MatterGreenSheets.Add(new MatterGreenSheet {SourceId=source.Id,PdfStoragePath="synthetic-output.pdf",PdfSha256=new string('0',64),FontManifestSha256=new string('0',64),RendererVersion="test",PageCount=1,CreatedAt=DateTimeOffset.UtcNow});await db.SaveChangesAsync();
         await using var conn=new NpgsqlConnection(f.Schema.Connection); await conn.OpenAsync();
-        foreach(var sql in new[]{"UPDATE \"MatterOfficeSnapshots\" SET \"Version\"=99","DELETE FROM \"MatterOfficePreviews\"","UPDATE \"MatterOfficeNoteEvidence\" SET \"Sha256\"='bad'","DELETE FROM \"MatterOfficeSaveRequests\"","TRUNCATE \"MatterOfficeSnapshots\" CASCADE","UPDATE \"MatterOfficialNotes\" SET \"CanonicalText\"='bad'"})
+        foreach(var sql in new[]{"UPDATE \"MatterOfficeSnapshots\" SET \"Version\"=99","DELETE FROM \"MatterOfficePreviews\"","UPDATE \"MatterOfficeNoteEvidence\" SET \"Sha256\"='bad'","DELETE FROM \"MatterOfficeSaveRequests\"","TRUNCATE \"MatterOfficeSnapshots\" CASCADE","UPDATE \"MatterOfficialNotes\" SET \"CanonicalText\"='bad'","UPDATE \"MatterGreenSheetSources\" SET \"Sha256\"='bad'","DELETE FROM \"MatterGreenSheets\"","TRUNCATE \"MatterGreenSheets\"","UPDATE \"MatterOfficeSessions\" SET \"State\"='Active',\"Revision\"=\"Revision\"+1"})
         { await using var command=new NpgsqlCommand(sql,conn); await Assert.ThrowsAsync<PostgresException>(()=>command.ExecuteNonQueryAsync()); }
     }
     [OfficeSchemaFact]
