@@ -1,9 +1,9 @@
 [
   {
-    "test": "409 Stale Revision Conflict on Draft",
+    "test": "409 Stale Revision Conflict on Draft (with valid controlling Dak)",
     "endpoint": "PUT /api/matters/{id}/noting/draft",
     "status": 409,
-    "response": "{\"message\":\"Select an explicit active controlling Dak, or use a native Matter you own.\"}",
+    "response": "{\"message\":\"Draft changed; recover saved text before retrying.\"}",
     "passed": true
   },
   {
@@ -32,6 +32,27 @@
     "endpoint": "POST /api/matters/{id}/notes/{noteId}/remarks",
     "status": 400,
     "response": "{\"message\":\"Anchor does not match the immutable canonical text/version/hash.\"}",
+    "passed": true
+  },
+  {
+    "test": "Server-side Immutability: DB UPDATE Trigger (lac_noting_immutable)",
+    "endpoint": "psql: UPDATE MatterOfficialNotes",
+    "status": "EXCEPTION",
+    "response": "ERROR:  Official Matter noting history is immutable\r CONTEXT:  PL/pgSQL function lac_noting_immutable() line 2 at RAISE\r",
+    "passed": true
+  },
+  {
+    "test": "Server-side Immutability: DB DELETE Trigger (lac_noting_immutable)",
+    "endpoint": "psql: DELETE FROM MatterOfficialNotes",
+    "status": "EXCEPTION",
+    "response": "ERROR:  Official Matter noting history is immutable\r CONTEXT:  PL/pgSQL function lac_noting_immutable() line 2 at RAISE\r",
+    "passed": true
+  },
+  {
+    "test": "Server-side Immutability: API Mutation Rejection",
+    "endpoint": "PUT/DELETE /api/matters/{id}/notes/{noteId}",
+    "status": "PUT:404, DELETE:404",
+    "response": "Disallowed by REST contract (append-only official noting)",
     "passed": true
   }
 ]

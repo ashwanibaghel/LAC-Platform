@@ -1,0 +1,163 @@
+{
+  "pdfSha256": "22785856612b694ef7fcd2206401467c29b8f8e9094fc10e62202f886820058e",
+  "pages": [
+    {
+      "page": 1,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1064,
+        617,
+        4732,
+        7650
+      ],
+      "inkClearanceMm": {
+        "left": 45.04266666666667,
+        "top": 26.119666666666667,
+        "right": 15.578666666666667,
+        "bottom": 31.75
+      },
+      "fontBoxBottomMm": 30.79929563888911,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 2,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        356,
+        613,
+        3893,
+        7633
+      ],
+      "inkClearanceMm": {
+        "left": 15.070666666666668,
+        "top": 25.950333333333333,
+        "right": 51.096333333333334,
+        "bottom": 32.46966666666667
+      },
+      "fontBoxBottomMm": 31.54240086111134,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 3,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1065,
+        613,
+        4602,
+        7683
+      ],
+      "inkClearanceMm": {
+        "left": 45.085,
+        "top": 25.950333333333333,
+        "right": 21.082,
+        "bottom": 30.353
+      },
+      "fontBoxBottomMm": 29.425741250000208,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 4,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        356,
+        613,
+        3893,
+        7805
+      ],
+      "inkClearanceMm": {
+        "left": 15.070666666666668,
+        "top": 25.950333333333333,
+        "right": 51.096333333333334,
+        "bottom": 25.188333333333333
+      },
+      "fontBoxBottomMm": 24.240521750000212,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 5,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1063,
+        613,
+        4711,
+        7797
+      ],
+      "inkClearanceMm": {
+        "left": 45.00033333333334,
+        "top": 25.950333333333333,
+        "right": 16.467666666666666,
+        "bottom": 25.527
+      },
+      "fontBoxBottomMm": 24.610003555555743,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 6,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        355,
+        613,
+        4002,
+        7789
+      ],
+      "inkClearanceMm": {
+        "left": 15.028333333333334,
+        "top": 25.950333333333333,
+        "right": 46.482,
+        "bottom": 25.865666666666666
+      },
+      "fontBoxBottomMm": 24.927288361111312,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 7,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1063,
+        613,
+        4711,
+        2502
+      ],
+      "inkClearanceMm": {
+        "left": 45.00033333333334,
+        "top": 25.950333333333333,
+        "right": 16.467666666666666,
+        "bottom": 249.68200000000002
+      },
+      "fontBoxBottomMm": 248.74720238888892,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    }
+  ],
+  "passed": true,
+  "failures": [],
+  "scope": "Printed fixture geometry only; no official-noting or editor-session certification",
+  "metric": "Rasterized visible ink; font boxes reported separately, never treated as ink"
+}
