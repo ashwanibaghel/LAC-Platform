@@ -10,9 +10,9 @@ public sealed record MatterWorkspaceCommand(Guid VillageId, Guid WorkstreamId, G
 public sealed record NativeMatterCommand(Guid WorkstreamId, string Title, string? MatterType);
 public sealed record MatterWorkspaceResult(Guid MatterId, Guid? DakId, int? DakRevision, int MatterRevision);
 public sealed record SaveWorkingNoteCommand(string ContentJson, Guid? SourceDakId);
-public sealed record SubmitWorkingNoteCommand(Guid? SourceDakId);
+public sealed record SubmitWorkingNoteCommand(Guid? SourceDakId, Guid? OfficePreviewId = null, string? CanonicalHash = null);
 public sealed record SendWorkingNoteCommand(Guid SourceDakId, [property: System.Text.Json.Serialization.JsonRequired] int ExpectedDakRevision, Guid ToDeskId, Guid ToUserId, string Action,
-    bool IncludesPhysicalOriginal, string? Instructions, string? Remarks);
+    bool IncludesPhysicalOriginal, string? Instructions, string? Remarks, Guid? OfficePreviewId = null, string? CanonicalHash = null);
 public sealed record SendWorkingNoteResult(MatterOfficialNote Note, DakCommandResult Dak);
 public sealed record CreateRemarkCommand(NoteAnchor Anchor, string Text);
 public sealed record ChangeRemarkCommand(string State, [property: System.Text.Json.Serialization.JsonRequired] int ExpectedRevision);
@@ -23,6 +23,25 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static string Serialize(object? value) => JsonSerializer.Serialize(value, Json);
+
+    public Task<Matter> AuthorizeOfficeEditorAsync(Guid matter, Guid actor, Guid? source, CancellationToken ct) => EditorAsync(matter, actor, source, ct);
+    public Task AuthorizeOfficeReaderAsync(Guid matter, Guid actor, CancellationToken ct) => ScopeAsync(matter, actor, PermissionCodes.MatterView, ct);
+    public Task<T> OfficeCommandAsync<T>(Guid matter, Guid? source, Guid actor, Guid key, object payload,
+        Func<CancellationToken, Task<T>> apply, CancellationToken ct) =>
+        CommandAsync(actor, key, payload, matter, source, async c => { await EditorAsync(matter, actor, source, c); }, async c =>
+        {
+            var result = await apply(c);
+            await AuditAsync(matter, actor, JsonSerializer.SerializeToElement(payload, Json).GetProperty("action").GetString()!, key, c);
+            return result;
+        }, ct);
+    public Task<T> OfficeReadCommandAsync<T>(Guid matter, Guid actor, Guid key, object payload,
+        Func<CancellationToken, Task<T>> apply, CancellationToken ct) =>
+        CommandAsync(actor, key, payload, matter, null, c => ScopeAsync(matter, actor, PermissionCodes.MatterView, c), async c =>
+        {
+            var result = await apply(c);
+            await AuditAsync(matter, actor, JsonSerializer.SerializeToElement(payload, Json).GetProperty("action").GetString()!, key, c);
+            return result;
+        }, ct);
 
     private async Task ScopeAsync(Guid matterId, Guid actor, string permission, CancellationToken ct)
     {
@@ -222,6 +241,7 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
                 var text = NotingText.Canonicalize(cmd.ContentJson);
                 var draft = await db.MatterWorkingNotes.SingleOrDefaultAsync(x => x.MatterId == id && x.AuthorUserId == actor, c);
                 if ((draft?.Revision ?? 0) != revision || revision < 0) throw new MatterWorkflowException("Draft changed; recover saved text before retrying.", 409);
+                if (draft?.OfficeSessionId is not null) throw new MatterWorkflowException("This working note uses an Office lease. Confirm its canonical preview or explicitly revoke that lease before structured editing.", 409);
                 if (draft is null) { draft = new MatterWorkingNote { MatterId = id, AuthorUserId = actor }; db.MatterWorkingNotes.Add(draft); }
                 if (draft.CanonicalText != text) draft.CitationsJson = "[]"; // Never carry stale anchors through edits.
                 draft.ContentJson = cmd.ContentJson; draft.CanonicalText = text; draft.SourceDakId = cmd.SourceDakId; draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
@@ -229,10 +249,11 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
                 return draft;
             }, ct);
 
-    private async Task<MatterOfficialNote> FinalizeAsync(Guid id, int revision, Guid? source, Guid actor, CancellationToken ct)
+    private async Task<MatterOfficialNote> FinalizeAsync(Guid id, int revision, Guid? source, Guid actor, CancellationToken ct, Guid? officePreviewId = null, string? canonicalHash = null)
     {
         var matter = await EditorAsync(id, actor, source, ct);
         var draft = await RequireDraftAsync(id, actor, revision, source, ct);
+        var officeEvidence = await OfficeNotingSubmission.ValidateAsync(db, storage, draft, officePreviewId, canonicalHash, ct);
         var citations = JsonSerializer.Deserialize<List<NoteCitation>>(draft.CitationsJson, Json)!;
         foreach (var citation in citations)
         {
@@ -249,14 +270,16 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
             ContentJson = draft.ContentJson, CanonicalText = draft.CanonicalText, TextHash = NotingText.Hash(draft.CanonicalText), AuthorUserId = actor, AuthorName = user.DisplayName,
             Designation = user.CustomDesignation ?? user.Designation?.Name ?? "", DeskId = desk, DeskName = desk.HasValue ? await db.OfficeDesks.Where(x => x.Id == desk).Select(x => x.Name).SingleAsync(ct) : null,
             SubmittedAt = DateTimeOffset.UtcNow, SourceDakId = source, CitationsJson = draft.CitationsJson, DocumentManifestJson = Serialize(docs) };
-        db.MatterOfficialNotes.Add(note); draft.ContentJson = ""; draft.CanonicalText = ""; draft.CitationsJson = "[]"; draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow; matter.Revision++;
+        db.MatterOfficialNotes.Add(note);
+        if (officeEvidence is not null) { officeEvidence.NoteId = note.Id; db.MatterOfficeNoteEvidence.Add(officeEvidence); }
+        draft.ContentJson = ""; draft.CanonicalText = ""; draft.CitationsJson = "[]"; draft.OfficeSessionId = null; draft.OfficePreviewId = null; draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow; matter.Revision++;
         await AuditAsync(id, actor, "NoteSubmitted", note.Id, ct);
         return note;
     }
 
     public Task<MatterOfficialNote> SubmitAsync(Guid id, SubmitWorkingNoteCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct) =>
         CommandAsync(actor, key, new { action = "Submit", id, cmd, revision }, id, cmd.SourceDakId,
-            c => DraftPermissionAsync(id, actor, c), c => FinalizeAsync(id, revision, cmd.SourceDakId, actor, c), ct);
+            c => DraftPermissionAsync(id, actor, c), c => FinalizeAsync(id, revision, cmd.SourceDakId, actor, c, cmd.OfficePreviewId, cmd.CanonicalHash), ct);
 
     public Task<SendWorkingNoteResult> SendAsync(Guid id, SendWorkingNoteCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct) =>
         CommandAsync(actor, key, new { action = "Send", id, cmd, revision }, id, cmd.SourceDakId,
@@ -266,7 +289,7 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
                 if (cmd.Action is not ("Forwarded" or "Returned")) throw new MatterWorkflowException("Select Forwarded or Returned.");
                 if (!await db.Daks.AsNoTracking().AnyAsync(x => x.Id == cmd.SourceDakId && x.Revision == cmd.ExpectedDakRevision, c))
                     throw new MatterWorkflowException("Controlling Dak changed; refresh before sending.", 409);
-                var note = await FinalizeAsync(id, revision, cmd.SourceDakId, actor, c);
+                var note = await FinalizeAsync(id, revision, cmd.SourceDakId, actor, c, cmd.OfficePreviewId, cmd.CanonicalHash);
                 var result = await dakWorkflow.SendAsync(cmd.SourceDakId, new SendDakCommand(Enum.Parse<DakMovementAction>(cmd.Action), cmd.ToDeskId, cmd.ToUserId,
                     DakDestinationKind.Officer, cmd.IncludesPhysicalOriginal, cmd.Remarks, cmd.Instructions, cmd.ExpectedDakRevision, key), actor, c);
                 return new SendWorkingNoteResult(note, result);
@@ -343,6 +366,12 @@ public sealed class MatterNotingWorkflow(LacDbContext db, IMatterAuthorizationSe
             var citations = JsonSerializer.Deserialize<List<NoteCitation>>(draft.CitationsJson, Json)!;
             if (citations.Count >= 100) throw new MatterWorkflowException("At most 100 citations per note.");
             citations.Add(new(cmd.Anchor, doc.Id, doc.Version, doc.Sha256Hash, cmd.Page, cmd.Region)); draft.CitationsJson = Serialize(citations); draft.Revision++; draft.UpdatedAt = DateTimeOffset.UtcNow;
+            if (draft.OfficeSessionId is { } sid)
+            {
+                var session = await db.MatterOfficeSessions.SingleAsync(x => x.Id == sid, c);
+                if (session.State != "Reviewed" || session.ExpiresAt <= DateTimeOffset.UtcNow) throw new MatterWorkflowException("Confirm the Office preview before adding citations.", 409);
+                session.WorkingRevision = draft.Revision; session.Revision++;
+            }
             await AuditAsync(matter, actor, "CitationAdded", doc.Id, c); return draft;
         }, ct);
     }

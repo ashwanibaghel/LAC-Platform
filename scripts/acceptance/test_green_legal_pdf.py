@@ -1,9 +1,14 @@
 """Regression coverage for page parity, physical clearance and print decorations."""
 import unittest
-from verify_green_legal_pdf import geometry_failures, neutral_color
+from verify_green_legal_pdf import geometry_failures, neutral_color, text_matches
 
 
 class PhysicalGeometryTests(unittest.TestCase):
+    def test_all_composed_text_must_print_in_order_without_glyph_loss(self):
+        self.assertTrue(text_matches('First\n Second\t😀', 'First Second 😀'))
+        self.assertFalse(text_matches('First Second', 'First Second 😀'))
+        self.assertFalse(text_matches('Second First', 'First Second'))
+        self.assertFalse(text_matches('é', 'e\u0301'))
     def row(self, page=1):
         return dict(page=page, widthPt=612, heightPt=1008,
                     inkClearanceMm=dict(left=45 if page % 2 else 15,

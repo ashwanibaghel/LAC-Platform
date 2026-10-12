@@ -40,6 +40,12 @@ def neutral_color(color):
     return False
 
 
+def text_matches(actual, expected):
+    # Whitespace alone changes during pagination. Never normalize Unicode, reorder,
+    # silently omit glyphs, or accept only a partial subsequence of the source.
+    return ''.join(c for c in actual if not c.isspace()) == ''.join(c for c in expected if not c.isspace())
+
+
 def inspect(source, dpi=600):
     import pdfplumber
     import pypdfium2 as pdfium
@@ -95,8 +101,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('pdf', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--expected-text', type=Path)
     args = parser.parse_args()
     report = inspect(args.pdf)
+    if args.expected_text:
+        import pdfplumber
+        with pdfplumber.open(args.pdf) as document:
+            actual = ''.join(page.extract_text() or '' for page in document.pages)
+        report['textCoveragePassed'] = text_matches(actual, args.expected_text.read_text(encoding='utf-8-sig'))
+        if not report['textCoveragePassed']:
+            report['failures'].append('Printed text differs from the composed immutable source; possible font/glyph loss')
+            report['passed'] = False
     args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(report, indent=2))
     raise SystemExit(0 if report['passed'] else 1)

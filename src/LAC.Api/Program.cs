@@ -74,6 +74,11 @@ builder.Services.AddOptions<OnlyOfficeOptions>().BindConfiguration("OnlyOffice")
     .ValidateOnStart();
 builder.Services.AddSingleton<OnlyOfficeTokens>();
 builder.Services.AddScoped<OnlyOfficeDraftService>();
+builder.Services.AddOptions<OnlyOfficeNotingOptions>().BindConfiguration("OnlyOfficeNoting");
+builder.Services.AddScoped<NotingOfficeClient>();
+builder.Services.AddScoped<OnlyOfficeNotingService>();
+builder.Services.AddScoped<GreenSheetService>();
+builder.Services.AddScoped<IGreenSheetPdfVerifier, GreenSheetPdfVerifier>();
 builder.Services.AddHttpClient("OnlyOffice", client => client.Timeout = TimeSpan.FromMinutes(2))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
     .RemoveAllLoggers();
@@ -202,6 +207,20 @@ app.UseSwaggerUI();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/noting-office"))
+    {
+        if (context.Request.ContentLength > 128 * 1024)
+        {
+            context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+            return;
+        }
+        var limit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 128 * 1024;
+    }
+    await next(context);
+});
 // The published React build is staged in wwwroot by scripts/publish-office.ps1.
 // Development still uses Vite; IIS serves this same-site build in production.
 app.UseDefaultFiles();
@@ -242,6 +261,7 @@ api.MapMatterEndpoints();
 api.MapMatterDraftEndpoints();
 api.MapMatterNotingEndpoints();
 api.MapOnlyOfficeEndpoints();
+api.MapOnlyOfficeNotingEndpoints();
 api.MapWorkItemEndpoints();
 api.MapActivityEndpoints();
 api.MapScheduleEndpoints();
