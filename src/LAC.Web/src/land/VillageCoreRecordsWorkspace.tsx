@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type {
+  ConflictKind,
   CoreDocumentRole,
   IntakeItem,
   IntakeMatchState,
@@ -130,11 +131,12 @@ function useSafeAuth() {
 
 export interface ConflictDetection {
   isConflict: boolean;
+  conflictKind: ConflictKind;
   isSameAward: boolean;
   conflictingAwardId: string | null;
-  conflictingAwardNumber: string;
+  conflictingAwardNumber: string | null;
   conflictingRole: CoreDocumentRole | string | null;
-  conflictingVillageName: string;
+  conflictingVillageName: string | null;
   documentId: string | null;
   viewRoute: string | null;
   explanation: string;
@@ -159,64 +161,56 @@ export function detectDocumentConflict({
   villageName: string;
   fileName: string;
 }): ConflictDetection {
-  // 1. Check if targetAward already has a document with the same filename
-  if (targetAwardId && fileName) {
-    const targetAward = awards.find((a) => a.id === targetAwardId);
-    if (targetAward) {
-      for (const r of targetAward.roles) {
-        const existing = r.documents.find(
-          (d) => d.originalFileName.toLowerCase() === fileName.toLowerCase()
-        );
-        if (existing) {
-          return {
-            isConflict: true,
-            isSameAward: true,
-            conflictingAwardId: targetAward.id,
-            conflictingAwardNumber: targetAward.awardNumber,
-            conflictingRole: r.role,
-            conflictingVillageName: villageName || "X",
-            documentId: existing.documentId,
-            viewRoute: existing.viewRoute || `/api/documents/${existing.documentId}/content`,
-            explanation: `Already uploaded: This document is already attached to Award ${targetAward.awardNumber} as ${roleLabel(r.role)}.`,
-          };
-        }
-      }
-    }
-  }
+  // NOTE: Client-side filename collision detection has been removed.
+  // Distinct PDFs can share the same file name (e.g., Award.pdf).
+  // Conflict / duplicate status must be established authoritatively by server responses.
 
-  // 2. Check if intake is already confirmed or marked duplicate
+  // 1. Authoritative check: Intake item marked duplicate or confirmed by server
   if (intake && (intake.status === "Confirmed" || intake.isDuplicate)) {
-    const existingAwardId = intake.confirmedAwardId || intake.matchedAwardId;
-    const existingAward = awards.find((a) => a.id === existingAwardId);
+    const existingAwardId = intake.confirmedAwardId || intake.matchedAwardId || null;
+    const existingAward = existingAwardId ? awards.find((a) => a.id === existingAwardId) : undefined;
     const existingAwardNumber =
       existingAward?.awardNumber ||
       intake.matchedAwardNumber ||
       intake.detectedAwardNumber ||
-      "01/2007-08";
-    const existingRole = intake.confirmedRole || intake.detectedRole || "Award";
-    const docId = intake.confirmedDocumentId || intake.documentId;
+      null;
+    const existingRole = intake.confirmedRole || intake.detectedRole || null;
+    const docId = intake.confirmedDocumentId || intake.documentId || null;
     const vRoute = intake.viewRoute || (docId ? `/api/documents/${docId}/content` : null);
 
     const isSameAward =
       !!targetAwardId &&
       (targetAwardId === existingAwardId ||
-        (targetAwardNumber && targetAwardNumber === existingAwardNumber));
+        (!!targetAwardNumber && !!existingAwardNumber && targetAwardNumber === existingAwardNumber));
+
+    const conflictKind: ConflictKind = isSameAward
+      ? (intake.status === "Confirmed" ? "AlreadyConfirmedDifferentDecision" : "GenericConflict")
+      : "SourceLinkedToAnotherAward";
+
+    let explanation = "";
+    if (isSameAward) {
+      explanation = `Already uploaded: This document is already attached to Award ${targetAwardNumber || existingAwardNumber || ""}${existingRole ? ` as ${roleLabel(existingRole)}` : ""}.`;
+    } else if (existingAwardNumber) {
+      explanation = `This PDF is already attached to Award ${existingAwardNumber}${villageName ? `, Village ${villageName}` : ""}.`;
+    } else {
+      explanation = "This PDF is already linked to another Award. Existing Award could not be identified.";
+    }
+
     return {
       isConflict: true,
+      conflictKind,
       isSameAward,
-      conflictingAwardId: existingAwardId || null,
+      conflictingAwardId: existingAwardId,
       conflictingAwardNumber: existingAwardNumber,
       conflictingRole: existingRole,
-      conflictingVillageName: villageName || "X",
-      documentId: docId || null,
+      conflictingVillageName: villageName || null,
+      documentId: docId,
       viewRoute: vRoute,
-      explanation: isSameAward
-        ? `Already uploaded: This document is already attached to Award ${targetAwardNumber || existingAwardNumber} as ${roleLabel(existingRole)}.`
-        : `This PDF is already attached to Award ${existingAwardNumber}, Village ${villageName || "X"}.`,
+      explanation,
     };
   }
 
-  // 3. Check if uploadError or parsedProblem indicates a 409 conflict
+  // 2. Authoritative check: Server returned 409 Conflict / RFC 9110 Problem Details
   const isConflictErr =
     parsedProblem?.isConflict ||
     parsedProblem?.status === 409 ||
@@ -228,75 +222,101 @@ export function detectDocumentConflict({
         uploadError.toLowerCase().includes("different decision")));
 
   if (isConflictErr) {
-    let matchedAward: AwardCoreRecord | undefined;
-    let matchedRole: CoreDocumentRole | string | null = null;
-    let matchedDocId: string | null = null;
+    const conflictKind: ConflictKind =
+      parsedProblem?.conflictKind ||
+      (uploadError?.toLowerCase().includes("role")
+        ? "RoleConflict"
+        : uploadError?.toLowerCase().includes("concurrent")
+        ? "StagedOrConcurrentIntakeConflict"
+        : uploadError?.toLowerCase().includes("different decision")
+        ? "AlreadyConfirmedDifferentDecision"
+        : "SourceLinkedToAnotherAward");
 
-    if (parsedProblem?.conflictingAwardNumber) {
+    // Authoritative award matching from server data only — no filename guessing
+    let matchedAward: AwardCoreRecord | undefined;
+    if (parsedProblem?.conflictingAwardId) {
+      matchedAward = awards.find((a) => a.id === parsedProblem.conflictingAwardId);
+    } else if (parsedProblem?.conflictingAwardNumber) {
       matchedAward = awards.find(
         (a) => a.awardNumber.toLowerCase() === parsedProblem.conflictingAwardNumber?.toLowerCase()
       );
-    }
-
-    if (!matchedAward) {
-      // Search for any existing document matching fileName in awards
-      for (const a of awards) {
-        for (const r of a.roles) {
-          const doc = r.documents.find(
-            (d) => d.originalFileName.toLowerCase() === fileName.toLowerCase()
-          );
-          if (doc) {
-            matchedAward = a;
-            matchedRole = r.role;
-            matchedDocId = doc.documentId;
-            break;
-          }
-        }
-        if (matchedAward) break;
-      }
-    }
-
-    if (!matchedAward && intake?.matchedAwardId) {
+    } else if (intake?.matchedAwardId) {
       matchedAward = awards.find((a) => a.id === intake.matchedAwardId);
     }
+
+    const conflictingAwardId =
+      matchedAward?.id ||
+      parsedProblem?.conflictingAwardId ||
+      intake?.matchedAwardId ||
+      null;
 
     const conflictingAwardNumber =
       matchedAward?.awardNumber ||
       parsedProblem?.conflictingAwardNumber ||
       intake?.matchedAwardNumber ||
-      intake?.detectedAwardNumber ||
-      "01/2007-08";
+      null;
 
-    const conflictingAwardId = matchedAward?.id || intake?.matchedAwardId || null;
-    const conflictingRole = matchedRole || intake?.detectedRole || "Award";
+    const conflictingVillageName =
+      parsedProblem?.conflictingVillageName ||
+      (matchedAward ? villageName : null);
+
+    const conflictingRole =
+      parsedProblem?.conflictingRole ||
+      intake?.detectedRole ||
+      null;
+
+    const documentId =
+      parsedProblem?.conflictingDocumentId ||
+      intake?.documentId ||
+      null;
+
+    const viewRoute =
+      documentId ? `/api/documents/${documentId}/content` : intake?.viewRoute || null;
+
     const isSameAward =
       !!targetAwardId &&
       (targetAwardId === conflictingAwardId ||
-        (targetAwardNumber && targetAwardNumber === conflictingAwardNumber));
-    const effectiveVillageName = parsedProblem?.conflictingVillageName || villageName || "X";
+        (!!targetAwardNumber && !!conflictingAwardNumber && targetAwardNumber === conflictingAwardNumber));
+
+    let explanation = "";
+    if (conflictKind === "RoleConflict") {
+      explanation = `Role Conflict: A document has already fulfilled the ${roleLabel(conflictingRole || "Award")} role for Award ${targetAwardNumber || conflictingAwardNumber || ""}.`;
+    } else if (conflictKind === "AlreadyConfirmedDifferentDecision") {
+      explanation = `State Conflict: This document was already confirmed under a different role or decision.`;
+    } else if (conflictKind === "StagedOrConcurrentIntakeConflict") {
+      explanation = `Concurrent Conflict: A concurrent upload or staged intake is already in progress.`;
+    } else if (conflictKind === "AwardIdentityConflict") {
+      explanation = `Award Mismatch: The document does not match Award ${targetAwardNumber || ""}.`;
+    } else if (isSameAward) {
+      explanation = `Already uploaded: This document is already attached to Award ${targetAwardNumber || conflictingAwardNumber || ""}${conflictingRole ? ` as ${roleLabel(conflictingRole)}` : ""}.`;
+    } else if (conflictingAwardNumber) {
+      explanation = `This PDF is already attached to Award ${conflictingAwardNumber}${conflictingVillageName ? `, Village ${conflictingVillageName}` : ""}.`;
+    } else {
+      explanation = "This PDF is already linked to another Award. Existing Award could not be identified.";
+    }
 
     return {
       isConflict: true,
+      conflictKind,
       isSameAward,
       conflictingAwardId,
       conflictingAwardNumber,
       conflictingRole,
-      conflictingVillageName: effectiveVillageName,
-      documentId: matchedDocId || intake?.documentId || null,
-      viewRoute: matchedDocId ? `/api/documents/${matchedDocId}/content` : intake?.viewRoute || null,
-      explanation: isSameAward
-        ? `Already uploaded: This document is already attached to Award ${targetAwardNumber || conflictingAwardNumber} as ${roleLabel(conflictingRole)}.`
-        : `This PDF is already attached to Award ${conflictingAwardNumber}, Village ${effectiveVillageName}.`,
+      conflictingVillageName,
+      documentId,
+      viewRoute,
+      explanation,
     };
   }
 
   return {
     isConflict: false,
+    conflictKind: "GenericConflict",
     isSameAward: false,
     conflictingAwardId: null,
-    conflictingAwardNumber: "",
+    conflictingAwardNumber: null,
     conflictingRole: null,
-    conflictingVillageName: villageName,
+    conflictingVillageName: null,
     documentId: null,
     viewRoute: null,
     explanation: "",
@@ -307,12 +327,13 @@ export function detectDocumentConflict({
 
 export interface DocumentConflictModalProps {
   fileName: string;
-  conflictingAwardNumber: string;
+  conflictKind?: ConflictKind;
+  conflictingAwardNumber?: string | null;
   conflictingAwardId?: string | null;
   conflictingRole?: CoreDocumentRole | string | null;
-  conflictingVillageName: string;
+  conflictingVillageName?: string | null;
   villageId: string;
-  targetAwardNumber: string;
+  targetAwardNumber?: string | null;
   targetAwardId?: string | null;
   targetRole?: CoreDocumentRole | string | null;
   documentId?: string | null;
@@ -324,6 +345,7 @@ export interface DocumentConflictModalProps {
 
 export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
   fileName,
+  conflictKind = "SourceLinkedToAnotherAward",
   conflictingAwardNumber,
   conflictingAwardId,
   conflictingRole,
@@ -335,22 +357,36 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
   onCancelUpload,
 }) => {
   const { hasPermission } = useSafeAuth();
-  const canEdit = hasPermission("Award.Edit") || hasPermission("Award.CoreDocument.Upload");
+  // Permission strictly requires Award.Edit — Award.CoreDocument.Upload is insufficient
+  const canEdit = hasPermission("Award.Edit");
   const [showReassign, setShowReassign] = useState(false);
   const [showMultiPolicy, setShowMultiPolicy] = useState(false);
   const [reassignReason, setReassignReason] = useState("");
-  const [reassignSubmitting, setReassignSubmitting] = useState(false);
-  const [reassignSuccess, setReassignSuccess] = useState(false);
 
-  const handleReassignSubmit = async () => {
-    if (!reassignReason.trim()) return;
-    setReassignSubmitting(true);
-    // Submit formal reassignment request through server audit trail
-    // Codex API strictly prohibits silent client-side reassignment.
-    await new Promise((r) => setTimeout(r, 300));
-    setReassignSubmitting(false);
-    setReassignSuccess(true);
-  };
+  const isRoleConflict = conflictKind === "RoleConflict";
+  const isStateConflict = conflictKind === "AlreadyConfirmedDifferentDecision";
+  const isConcurrentConflict = conflictKind === "StagedOrConcurrentIntakeConflict";
+  const isIdentityConflict = conflictKind === "AwardIdentityConflict";
+
+  const titleText = isRoleConflict
+    ? "Document Role Conflict"
+    : isStateConflict
+    ? "Document State Conflict"
+    : isConcurrentConflict
+    ? "Concurrent Intake Conflict"
+    : isIdentityConflict
+    ? "Award Identity Mismatch"
+    : "Document Ownership Conflict";
+
+  const subtitleText = isRoleConflict
+    ? "Statutory role slot is already occupied for this Award"
+    : isStateConflict
+    ? "Conflicting confirmation decision already recorded on this record"
+    : isConcurrentConflict
+    ? "Concurrent upload or staged processing currently in progress"
+    : isIdentityConflict
+    ? "Document identifier conflicts with target Award identity"
+    : "Registered record collision detected in acquisition repository";
 
   return (
     <div className="doc-conflict-modal-overlay" onClick={onClose}>
@@ -361,10 +397,10 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
         >
           <div>
             <h3 className="village-modal-title" style={{ fontSize: "16px", color: "#0f172a" }}>
-              Document Ownership Conflict
+              {titleText}
             </h3>
             <p className="village-modal-subtitle" style={{ fontSize: "12.5px" }}>
-              Registered record collision detected in acquisition repository
+              {subtitleText}
             </p>
           </div>
           <button className="village-modal-close" onClick={onClose}>
@@ -375,10 +411,30 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
         {/* Clear explanation banner */}
         <div className="doc-conflict-banner">
           <div className="doc-conflict-banner-title">
-            ⚠️ This PDF is already attached to Award {conflictingAwardNumber}, Village {conflictingVillageName}.
+            {isRoleConflict ? (
+              <>⚠️ Role Conflict: A document has already fulfilled the {roleLabel(targetRole || conflictingRole)} role for Award {targetAwardNumber || conflictingAwardNumber || "this award"}.</>
+            ) : isStateConflict ? (
+              <>⚠️ Document Already Confirmed: This document was already confirmed under a different role or decision.</>
+            ) : isConcurrentConflict ? (
+              <>⚠️ Concurrent Upload in Progress: A staged intake is currently active for this Award.</>
+            ) : isIdentityConflict ? (
+              <>⚠️ Award Mismatch: Document identified for {conflictingAwardNumber ? `Award ${conflictingAwardNumber}` : "another award"}, not Award {targetAwardNumber || "selected"}.</>
+            ) : conflictingAwardNumber ? (
+              <>⚠️ This PDF is already attached to Award {conflictingAwardNumber}{conflictingVillageName ? `, Village ${conflictingVillageName}` : ""}.</>
+            ) : (
+              <>⚠️ This PDF is already linked to another Award. Existing Award could not be identified.</>
+            )}
           </div>
           <p className="doc-conflict-banner-text">
-            This PDF has an identical cryptographic hash (SHA-256) to an active statutory document registered under Award {conflictingAwardNumber}. To protect statutory land acquisition integrity and prevent accidental misattribution, direct duplicate linking is blocked by backend policy.
+            {isRoleConflict ? (
+              "Under statutory acquisition procedures, each role slot (Award, NM, Statement A, Possession Proceeding) can only be occupied by one primary instrument. Replace or remove the existing document before attaching a new one."
+            ) : isStateConflict ? (
+              "This document has already been confirmed under an alternate role or decision. Conflicting duplicate decisions cannot be applied simultaneously."
+            ) : isConcurrentConflict ? (
+              "Another intake session is currently staging or processing documents for this Award. Please wait or refresh the workspace."
+            ) : (
+              `This PDF has an identical cryptographic hash (SHA-256) to an active statutory document registered under ${conflictingAwardNumber ? `Award ${conflictingAwardNumber}` : "another Award"}. To protect statutory land acquisition integrity and prevent accidental misattribution, direct duplicate linking is blocked by backend policy.`
+            )}
           </p>
         </div>
 
@@ -391,25 +447,31 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
           <div className="doc-conflict-detail-cell">
             <div className="doc-conflict-detail-label">Current Ownership</div>
             <div className="doc-conflict-detail-val">
-              Award {conflictingAwardNumber} ({roleLabel(conflictingRole)})
+              {conflictingAwardNumber ? (
+                <>Award {conflictingAwardNumber}{conflictingRole ? ` (${roleLabel(conflictingRole)})` : ""}</>
+              ) : (
+                <span style={{ color: "#64748b", fontStyle: "italic" }}>Existing Award could not be identified</span>
+              )}
             </div>
           </div>
           <div className="doc-conflict-detail-cell">
             <div className="doc-conflict-detail-label">Target / Selected</div>
             <div className="doc-conflict-detail-val">
-              Award {targetAwardNumber || "Not selected"} ({roleLabel(targetRole)})
+              Award {targetAwardNumber || "Not selected"}{targetRole ? ` (${roleLabel(targetRole)})` : ""}
             </div>
           </div>
           <div className="doc-conflict-detail-cell">
             <div className="doc-conflict-detail-label">Jurisdiction</div>
-            <div className="doc-conflict-detail-val">Village {conflictingVillageName}</div>
+            <div className="doc-conflict-detail-val">
+              {conflictingVillageName ? `Village ${conflictingVillageName}` : "—"}
+            </div>
           </div>
         </div>
 
         {/* Multi-Award policy explanation */}
         {showMultiPolicy && (
           <div className="doc-conflict-policy-note">
-            <strong>Backend Policy Restriction:</strong> Under Codex's published Smart Core Intake API contract, core acquisition documents (Award, NM, Statement A, Possession) strictly enforce single-Award exclusivity. A document registered to Award {conflictingAwardNumber} cannot be linked to multiple Awards concurrently. Client-side workarounds to bypass this constraint are prohibited.
+            <strong>Backend Policy Restriction:</strong> Under Codex's published Smart Core Intake API contract, core acquisition documents (Award, NM, Statement A, Possession) strictly enforce single-Award exclusivity. A document registered to {conflictingAwardNumber ? `Award ${conflictingAwardNumber}` : "another Award"} cannot be linked to multiple Awards concurrently. Client-side workarounds to bypass this constraint are prohibited.
           </div>
         )}
 
@@ -421,19 +483,18 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
             </div>
             {!canEdit ? (
               <div className="doc-conflict-perm-error">
-                ⛔ Permission Denied: Reassignment requires Award editing authority (<code>Award.Edit</code>). Contact your administrator to request reallocation.
-              </div>
-            ) : reassignSuccess ? (
-              <div className="doc-conflict-reassign-success">
-                <div className="doc-conflict-audit-badge">✓ Audit Logged · Reason Recorded</div>
-                <p style={{ margin: "4px 0 0 0" }}>
-                  Reassignment request submitted with justification. In accordance with Codex backend policy, the existing link on Award {conflictingAwardNumber} remains protected until administrative review unlinks the original record. No client-side bypass was permitted.
-                </p>
+                ⛔ Permission required: Award.Edit. Contact your administrator to request reallocation.
               </div>
             ) : (
               <>
+                <div className="doc-conflict-unavailable-notice">
+                  <strong>Administrative Action:</strong> Reassignment requires administrative correction — not yet available.
+                  <p style={{ margin: "4px 0 0 0", fontSize: "12px", color: "#64748b" }}>
+                    The Codex Smart Core Intake API does not currently provide an authorized reassignment-request endpoint. Reassignment cannot be simulated locally. Direct client-side bypass is prohibited by backend policy. Please coordinate administrative correction with the Land Records Authority.
+                  </p>
+                </div>
                 <p className="doc-conflict-reassign-desc">
-                  Reassigning this document moves canonical acquisition provenance from Award {conflictingAwardNumber} to Award {targetAwardNumber}. Under backend statutory governance, an explicit justification is required and will be recorded in the audit trail.
+                  Reassigning this document moves canonical acquisition provenance from {conflictingAwardNumber ? `Award ${conflictingAwardNumber}` : "existing Award"} to Award {targetAwardNumber || "selected"}. Under backend statutory governance, an explicit justification is required once the administrative workflow is active.
                 </p>
                 <label className="doc-conflict-reason-label">
                   Statutory Justification / Reassignment Reason *
@@ -444,20 +505,19 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
                   placeholder="State statutory reason for reassignment (e.g., misattributed during batch upload, confirmed revenue record for Award...)"
                   value={reassignReason}
                   onChange={(e) => setReassignReason(e.target.value)}
-                  disabled={reassignSubmitting}
+                  disabled={true}
                 />
                 <div style={{ display: "flex", gap: "8px" }}>
                   <button
                     className="village-btn village-btn-primary"
-                    disabled={reassignSubmitting || !reassignReason.trim()}
-                    onClick={() => void handleReassignSubmit()}
+                    disabled={true}
+                    title="Reassignment requires administrative correction — not yet available"
                   >
-                    {reassignSubmitting ? "Submitting…" : "Submit Reassignment Request"}
+                    Submit Reassignment Request (Unavailable)
                   </button>
                   <button
                     className="village-btn village-btn-outline"
                     onClick={() => setShowReassign(false)}
-                    disabled={reassignSubmitting}
                   >
                     Back
                   </button>
@@ -471,12 +531,16 @@ export const DocumentConflictModal: React.FC<DocumentConflictModalProps> = ({
         <div className="doc-conflict-actions-bar">
           <button
             className="village-btn village-btn-outline"
+            disabled={!conflictingAwardId}
+            title={!conflictingAwardId ? "Existing Award ID is unavailable" : undefined}
             onClick={() => {
-              onClose();
-              if (conflictingAwardId) onViewExistingAward(conflictingAwardId);
+              if (conflictingAwardId) {
+                onClose();
+                onViewExistingAward(conflictingAwardId);
+              }
             }}
           >
-            👁️ View Existing Award
+            👁️ View Existing Award {!conflictingAwardId && <span style={{ fontSize: "11px", color: "#64748b", marginLeft: "4px" }}>(ID unavailable)</span>}
           </button>
           <button
             className="village-btn village-btn-outline"
@@ -536,16 +600,24 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
   const [creatingAward, setCreatingAward] = useState(false);
   const [awardError, setAwardError] = useState("");
 
+  const navigate = useNavigate();
+
   const handleViewExistingAward = (targetAwardId: string) => {
-    setHighlightedAwardId(targetAwardId);
     setShowUploadModal(false);
     setQuickAttach(null);
-    setTimeout(() => {
-      const el = document.getElementById(`award-${targetAwardId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }, 100);
+    const existingAward = records.find((a) => a.id === targetAwardId);
+    if (existingAward) {
+      setHighlightedAwardId(targetAwardId);
+      setTimeout(() => {
+        const el = document.getElementById(`award-${targetAwardId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
+    } else {
+      // Award is outside currently loaded village records: navigate to /awards/{targetAwardId}
+      navigate(`/awards/${targetAwardId}`);
+    }
   };
 
   useEffect(() => {
@@ -1277,6 +1349,7 @@ const SmartCoreUploadModal: React.FC<SmartCoreUploadModalProps> = ({
         {activeConflict && (
           <DocumentConflictModal
             fileName={activeConflict.fileName}
+            conflictKind={activeConflict.conflictKind}
             conflictingAwardNumber={activeConflict.conflictingAwardNumber}
             conflictingAwardId={activeConflict.conflictingAwardId}
             conflictingRole={activeConflict.conflictingRole}
@@ -1373,8 +1446,8 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
     fileName: item.file.name,
   });
 
-  // Handle same-award match immediately ("Already uploaded" + Open Existing Document)
-  if (conflict.isConflict && conflict.isSameAward) {
+  // Handle same-award match: reserved strictly for server-confirmed duplicate identification (isDuplicate: true)
+  if (conflict.isConflict && conflict.isSameAward && intake?.isDuplicate && !uploadError) {
     return (
       <div className="intake-card doc-already-uploaded-card">
         <div className="intake-card-top">
@@ -1415,14 +1488,24 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
         <div className="intake-card intake-card-error">
           <div className="intake-card-top">
             <span className="intake-card-filename">📄 {item.file.name}</span>
-            <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+            <span className="intake-badge intake-badge-conflict">
+              {conflict.conflictKind === "RoleConflict"
+                ? "Role Conflict"
+                : conflict.conflictKind === "AlreadyConfirmedDifferentDecision"
+                ? "State Conflict"
+                : "Ownership Conflict"}
+            </span>
           </div>
           <div className="doc-conflict-card-banner">
             <div style={{ fontWeight: 600, color: "#991b1b" }}>
-              ⚠️ This PDF is already attached to Award {conflict.conflictingAwardNumber}, Village {conflict.conflictingVillageName}.
+              ⚠️ {conflict.explanation}
             </div>
             <p className="doc-conflict-card-note">
-              Ownership collision detected. Direct duplicate linking is blocked by backend policy.
+              {conflict.conflictKind === "RoleConflict"
+                ? "Statutory role slot is already occupied for this Award."
+                : conflict.conflictKind === "AlreadyConfirmedDifferentDecision"
+                ? "Conflicting decision already recorded. Cannot apply duplicate decision."
+                : "Ownership collision detected. Direct duplicate linking is blocked by backend policy."}
             </p>
             <div className="doc-conflict-card-actions">
               <button
@@ -1492,7 +1575,13 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
       <div className="intake-card-top">
         <span className="intake-card-filename">📄 {intake.fileName}</span>
         {conflict.isConflict ? (
-          <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+          <span className="intake-badge intake-badge-conflict">
+            {conflict.conflictKind === "RoleConflict"
+              ? "Role Conflict"
+              : conflict.conflictKind === "AlreadyConfirmedDifferentDecision"
+              ? "State Conflict"
+              : "Ownership Conflict"}
+          </span>
         ) : (
           <span className={matchStateBadgeClass(intake.matchState)}>
             {matchStateLabel(intake.matchState)}
@@ -1522,7 +1611,13 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
         {conflict.isConflict ? (
           <div className="intake-detection-item">
             <span className="intake-det-label">Status</span>
-            <span className="intake-badge intake-badge-conflict">Ownership Conflict</span>
+            <span className="intake-badge intake-badge-conflict">
+              {conflict.conflictKind === "RoleConflict"
+                ? "Role Conflict"
+                : conflict.conflictKind === "AlreadyConfirmedDifferentDecision"
+                ? "State Conflict"
+                : "Ownership Conflict"}
+            </span>
           </div>
         ) : (
           <div className="intake-detection-item">
@@ -1559,10 +1654,14 @@ const IntakeReviewCard: React.FC<IntakeReviewCardProps> = ({
       {conflict.isConflict && (
         <div className="doc-conflict-card-banner">
           <div style={{ fontWeight: 600, color: "#991b1b" }}>
-            ⚠️ This PDF is already attached to Award {conflict.conflictingAwardNumber}, Village {conflict.conflictingVillageName}.
+            ⚠️ {conflict.explanation}
           </div>
           <p className="doc-conflict-card-note">
-            Ownership collision detected. This document cannot be linked directly without resolving ownership with Award {conflict.conflictingAwardNumber}.
+            {conflict.conflictKind === "RoleConflict"
+              ? "Statutory role slot is already occupied. Direct duplicate linking is blocked by backend policy."
+              : conflict.conflictKind === "AlreadyConfirmedDifferentDecision"
+              ? "Conflicting decision already recorded. Cannot apply duplicate decision."
+              : `Ownership collision detected. This document cannot be linked directly without resolving ownership with ${conflict.conflictingAwardNumber ? `Award ${conflict.conflictingAwardNumber}` : "the registered record"}.`}
           </p>
           <div className="doc-conflict-card-actions">
             <button
@@ -2023,10 +2122,11 @@ const QuickAttachModal: React.FC<QuickAttachModalProps> = ({
         {phase === "conflict" && conflict && (
           <DocumentConflictModal
             fileName={file?.name || intake?.fileName || "document.pdf"}
+            conflictKind={conflict.conflictKind}
             conflictingAwardNumber={conflict.conflictingAwardNumber}
             conflictingAwardId={conflict.conflictingAwardId}
             conflictingRole={conflict.conflictingRole}
-            conflictingVillageName={conflict.conflictingVillageName || villageName || "X"}
+            conflictingVillageName={conflict.conflictingVillageName || villageName || null}
             villageId={villageId}
             targetAwardNumber={awardNumber}
             targetAwardId={awardId}

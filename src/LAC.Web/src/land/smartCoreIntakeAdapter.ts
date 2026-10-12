@@ -85,19 +85,31 @@ export interface ConfirmNewAwardPayload {
   };
 }
 
+export type ConflictKind =
+  | "SourceLinkedToAnotherAward"
+  | "AlreadyConfirmedDifferentDecision"
+  | "RoleConflict"
+  | "AwardIdentityConflict"
+  | "StagedOrConcurrentIntakeConflict"
+  | "GenericConflict";
+
 export interface ParsedProblemDetails {
   isConflict: boolean;
+  conflictKind?: ConflictKind;
   status: number;
   title?: string;
   detail?: string;
   raw?: string;
   conflictingAwardNumber?: string | null;
+  conflictingAwardId?: string | null;
   conflictingVillageName?: string | null;
+  conflictingRole?: CoreDocumentRole | string | null;
+  conflictingDocumentId?: string | null;
 }
 
 /**
  * Safely parse HTTP error text which may be RFC 9110 / Problem Details JSON.
- * Always returns a clean, human-readable string and parsed metadata.
+ * Always returns a clean, human-readable string and parsed metadata without fabricating identity.
  */
 export function parseProblemDetails(
   rawText: string,
@@ -107,7 +119,11 @@ export function parseProblemDetails(
   let title: string | undefined;
   let detail: string | undefined;
   let conflictingAwardNumber: string | null = null;
+  let conflictingAwardId: string | null = null;
   let conflictingVillageName: string | null = null;
+  let conflictingRole: CoreDocumentRole | string | null = null;
+  let conflictingDocumentId: string | null = null;
+  let conflictKind: ConflictKind | undefined;
 
   try {
     const data = JSON.parse(rawText);
@@ -116,6 +132,14 @@ export function parseProblemDetails(
       detail = data.detail || (typeof data.error === "string" ? data.error : undefined);
       if (data.status === 409 || title?.toLowerCase().includes("conflict")) {
         isConflict = true;
+      }
+      if (data.conflictingAwardNumber) conflictingAwardNumber = String(data.conflictingAwardNumber);
+      if (data.conflictingAwardId) conflictingAwardId = String(data.conflictingAwardId);
+      if (data.conflictingVillageName) conflictingVillageName = String(data.conflictingVillageName);
+      if (data.conflictingRole) conflictingRole = data.conflictingRole;
+      if (data.conflictingDocumentId) conflictingDocumentId = String(data.conflictingDocumentId);
+      if (data.conflictKind && typeof data.conflictKind === "string") {
+        conflictKind = data.conflictKind as ConflictKind;
       }
     }
   } catch {
@@ -128,31 +152,74 @@ export function parseProblemDetails(
     combined.includes("already linked") ||
     combined.includes("already attached") ||
     combined.includes("conflict") ||
-    combined.includes("different decision")
+    combined.includes("different decision") ||
+    statusCode === 409
   ) {
     isConflict = true;
   }
 
-  // Attempt to extract Award number from message if present (e.g. Award 01/2007-08 or 42/2010-11)
-  const awardMatch = (detail || rawText).match(/Award\s+([0-9]+[A-Za-z0-9_\-\/]+)/i);
-  if (awardMatch) {
-    conflictingAwardNumber = awardMatch[1];
+  if (isConflict && !conflictKind) {
+    if (combined.includes("different decision") || combined.includes("already confirmed")) {
+      conflictKind = "AlreadyConfirmedDifferentDecision";
+    } else if (
+      combined.includes("role conflict") ||
+      combined.includes("already has an active") ||
+      combined.includes("duplicate role") ||
+      combined.includes("role already fulfilled")
+    ) {
+      conflictKind = "RoleConflict";
+    } else if (
+      combined.includes("identity conflict") ||
+      combined.includes("award mismatch") ||
+      combined.includes("award number mismatch")
+    ) {
+      conflictKind = "AwardIdentityConflict";
+    } else if (
+      combined.includes("concurrent") ||
+      combined.includes("staged") ||
+      combined.includes("concurrency")
+    ) {
+      conflictKind = "StagedOrConcurrentIntakeConflict";
+    } else if (
+      combined.includes("already linked") ||
+      combined.includes("already attached") ||
+      combined.includes("linked to another award") ||
+      combined.includes("ownership conflict")
+    ) {
+      conflictKind = "SourceLinkedToAnotherAward";
+    } else {
+      conflictKind = "GenericConflict";
+    }
   }
 
-  // Attempt to extract Village from message if present (e.g. Village X)
-  const villageMatch = (detail || rawText).match(/Village\s+([^,.;\n]+)/i);
-  if (villageMatch) {
-    conflictingVillageName = villageMatch[1].trim();
+  // Authoritatively extract Award number from message only if explicitly present
+  if (!conflictingAwardNumber) {
+    const awardMatch = (detail || rawText).match(/Award\s+([0-9]+[A-Za-z0-9_\-\/]+)/i);
+    if (awardMatch) {
+      conflictingAwardNumber = awardMatch[1];
+    }
+  }
+
+  // Authoritatively extract Village from message only if explicitly present
+  if (!conflictingVillageName) {
+    const villageMatch = (detail || rawText).match(/Village\s+([^,.;\n]+)/i);
+    if (villageMatch) {
+      conflictingVillageName = villageMatch[1].trim();
+    }
   }
 
   return {
     isConflict,
+    conflictKind,
     status: statusCode,
     title,
     detail: detail || title || (statusCode === 409 ? "Conflict" : `Request failed (${statusCode})`),
     raw: rawText,
     conflictingAwardNumber,
+    conflictingAwardId,
     conflictingVillageName,
+    conflictingRole,
+    conflictingDocumentId,
   };
 }
 

@@ -4,7 +4,7 @@ import test from "node:test";
 
 const BASE_URL = process.env.VITE_TEST_URL || "http://localhost:5173";
 
-test("Land Records UI — Document Conflict Experience Acceptance Test", async (t) => {
+test("Land Records UI — Document Conflict Experience [Mocked UI Contract]", async (t) => {
   const browser = await chromium.launch({
     headless: true,
   });
@@ -14,7 +14,7 @@ test("Land Records UI — Document Conflict Experience Acceptance Test", async (
   const page = await context.newPage();
 
   // Synthetic user with Award editing & upload permissions
-  const testUser = {
+  let currentUser = {
     id: "00000000-0000-0000-0000-000000000001",
     username: "revenue_officer",
     displayName: "Revenue Officer",
@@ -40,7 +40,6 @@ test("Land Records UI — Document Conflict Experience Acceptance Test", async (
     linkedAwards: 2,
   };
 
-  // Award 42 is first so it defaults as selected in dropdown; Award 01 is second
   const coreRecordsData = [
     {
       id: "award-42",
@@ -90,7 +89,7 @@ test("Land Records UI — Document Conflict Experience Acceptance Test", async (
     const pathname = url.pathname;
 
     if (pathname === "/api/auth/me") {
-      return route.fulfill({ status: 200, json: testUser });
+      return route.fulfill({ status: 200, json: currentUser });
     }
 
     if (pathname === "/api/villages/vil-south-01") {
@@ -131,267 +130,509 @@ test("Land Records UI — Document Conflict Experience Acceptance Test", async (
       });
     }
 
-    if (pathname.includes("/core-document-intakes/") && pathname.endsWith("/confirm")) {
-      return route.fulfill({
-        status: 409,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
-          type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
-          title: "Document Ownership Conflict",
-          status: 409,
-          detail: "This PDF is already attached to Award 01/2007-08, Village X.",
-        }),
-      });
-    }
-
     return route.continue();
   });
 
+  const resetToWorkspace = async () => {
+    await page.goto(`${BASE_URL}/villages/vil-south-01?section=core&resetCache=1`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForSelector(".village-core-workspace", { timeout: 10000 });
+  };
+
   try {
-    await t.test("Navigates to Village Core Records workspace", async () => {
-      await page.goto(`${BASE_URL}/villages/vil-south-01?section=core&resetCache=1`, {
-        waitUntil: "networkidle",
-      });
-      await page.waitForSelector(".village-core-workspace", { timeout: 10000 });
-      const title = await page.textContent(".village-core-title");
-      assert.ok(title?.includes("Award Core Records"), `Expected Award Core Records title, got: ${title}`);
-      const awards = await page.$$(".village-award-card");
-      assert.equal(awards.length, 2, "Should show 2 awards");
-    });
+    await t.test(
+      "[Mocked UI Contract] Scenario 1: Reassignment disabled without backend and no false 'Audit Logged'",
+      async () => {
+        await resetToWorkspace();
 
-    await t.test("Scenario 1: Upload batch detects 409 document ownership conflict", async () => {
-      // Mock batch upload returning RFC 9110 / 409 ProblemDetails
-      nextBatchResponse = {
-        status: 409,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
-          type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
-          title: "Document Ownership Conflict",
+        nextBatchResponse = {
           status: 409,
-          detail: "This PDF is already attached to Award 01/2007-08, Village X.",
-        }),
-      };
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+            title: "Document Ownership Conflict",
+            status: 409,
+            detail: "This PDF is already attached to Award 01/2007-08, Village X.",
+          }),
+        };
 
-      // Click "+ Upload Core Documents"
-      await page.click("button:has-text('Upload Core Documents')");
-      await page.waitForSelector(".modal-card", { timeout: 5000 });
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
 
-      // Upload file that collides with Award 01/2007-08
-      const fileInput = await page.$('.modal-card input[type="file"]');
-      assert.ok(fileInput, "File input must be present");
-      await fileInput.setInputFiles({
-        name: "Conflicting_Document.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-1.4 synthetic test pdf"),
-      });
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        assert.ok(fileInput, "File input must be present");
+        await fileInput.setInputFiles({
+          name: "Conflicting_Doc_01.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 synthetic test pdf"),
+        });
 
-      // Click Analyse button
-      await page.click(".modal-card button:has-text('Analyse')");
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
 
-      // Verify the review card displays the clear conflict message
-      await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
-      const bannerText = await page.textContent(".doc-conflict-card-banner");
-      assert.ok(
-        bannerText?.includes("This PDF is already attached to Award 01/2007-08, Village X."),
-        `Expected clear explanation in banner, got: ${bannerText}`
-      );
+        const bannerText = await page.textContent(".doc-conflict-card-banner");
+        assert.ok(
+          bannerText?.includes("This PDF is already attached to Award 01/2007-08, Village X."),
+          `Expected clear conflict explanation, got: ${bannerText}`
+        );
 
-      // Verify raw JSON 409 is NEVER exposed in the UI
-      const bodyText = await page.textContent(".modal-card");
-      assert.ok(!bodyText?.includes("rfc9110"), "Raw RFC 9110 URL must not leak in UI");
-      assert.ok(!bodyText?.includes('"status": 409'), "Raw JSON status must not leak in UI");
-      assert.ok(!bodyText?.includes('"type":'), "Raw JSON fields must not leak in UI");
+        // Open Document Conflict Modal
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
 
-      // Verify "Low confidence" is NOT displayed as the explanation for ownership conflict
-      assert.ok(
-        !bodyText?.includes("Low confidence"),
-        "Ownership conflict must never display 'Low confidence'"
-      );
+        // Open Reassign panel
+        await page.click(".doc-conflict-modal button:has-text('Request Correct Link / Reassign')");
+        await page.waitForSelector(".doc-conflict-reassign-panel", { timeout: 3000 });
 
-      // Verify status badge shows Ownership Conflict
-      const badge = await page.textContent(".intake-badge-conflict");
-      assert.equal(badge?.trim(), "Ownership Conflict", "Badge must state Ownership Conflict");
+        // Must display notice that reassignment requires administrative correction and is not yet available
+        const noticeText = await page.textContent(".doc-conflict-unavailable-notice");
+        assert.ok(
+          noticeText?.includes("Reassignment requires administrative correction — not yet available"),
+          `Expected administrative correction notice, got: ${noticeText}`
+        );
 
-      // Click "Resolve Conflict & Options" to open DocumentConflictModal
-      await page.click("button:has-text('Resolve Conflict & Options')");
-      await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+        // Submit button must be disabled
+        const submitBtn = await page.$(".doc-conflict-reassign-panel button:has-text('Submit Reassignment')");
+        assert.ok(submitBtn, "Submit button should exist");
+        const isDisabled = await submitBtn.isDisabled();
+        assert.equal(isDisabled, true, "Submit Reassignment must be strictly disabled");
 
-      // Verify Document Conflict Modal header and explanation
-      const modalHeader = await page.textContent(".doc-conflict-modal .village-modal-title");
-      assert.equal(modalHeader?.trim(), "Document Ownership Conflict");
+        // Reason textarea must be disabled
+        const reasonInput = await page.$(".doc-conflict-reason-input");
+        const isReasonDisabled = await reasonInput?.isDisabled();
+        assert.equal(isReasonDisabled, true, "Reason textarea must be disabled");
 
-      const conflictBanner = await page.textContent(".doc-conflict-banner-title");
-      assert.ok(
-        conflictBanner?.includes("This PDF is already attached to Award 01/2007-08, Village X."),
-        "Modal must state conflicting award and village"
-      );
+        // NO false 'Audit Logged · Reason Recorded' claim
+        const modalContent = await page.textContent(".doc-conflict-modal");
+        assert.ok(!modalContent?.includes("Audit Logged"), "UI must NOT falsely display 'Audit Logged'");
+        assert.ok(!modalContent?.includes("Reason Recorded"), "UI must NOT falsely display 'Reason Recorded'");
 
-      // Verify 4 Authorized Actions are available
-      const btnViewExisting = await page.$("button:has-text('View Existing Award')");
-      const btnCancelUpload = await page.$("button:has-text('Cancel Upload')");
-      const btnReassign = await page.$("button:has-text('Request Correct Link / Reassign')");
-      const btnMultiAward = await page.$("button:has-text('Link to Multiple Awards')");
+        // Test View Existing Award highlighting
+        await page.click(".doc-conflict-modal button:has-text('View Existing Award')");
+        await page.waitForSelector("#award-award-01.village-award-card-highlighted", { timeout: 5000 });
+        const isHighlighted = await page.isVisible("#award-award-01.village-award-card-highlighted");
+        assert.ok(isHighlighted, "Award 01/2007-08 card must be highlighted");
+      }
+    );
 
-      assert.ok(btnViewExisting, "View Existing Award action must be present");
-      assert.ok(btnCancelUpload, "Cancel Upload action must be present");
-      assert.ok(btnReassign, "Request Correct Link / Reassign action must be present");
-      assert.ok(btnMultiAward, "Link to Multiple Awards action must be present");
+    await t.test(
+      "[Mocked UI Contract] Scenario 2: Unknown conflicting Award identity shows 'Existing Award could not be identified' and disabled View button",
+      async () => {
+        await resetToWorkspace();
 
-      // Check Multi-Award policy note
-      await btnMultiAward.click();
-      await page.waitForSelector(".doc-conflict-policy-note", { timeout: 3000 });
-      const policyNote = await page.textContent(".doc-conflict-policy-note");
-      assert.ok(
-        policyNote?.includes("strictly enforce single-Award exclusivity"),
-        "Must explain backend policy restriction on single-award exclusivity"
-      );
+        nextBatchResponse = {
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+            title: "Document Ownership Conflict",
+            status: 409,
+            detail: "This PDF is already linked to another Award.",
+          }),
+        };
 
-      // Check Reassignment Request with justification requirement and audit logging
-      await btnReassign.click();
-      await page.waitForSelector(".doc-conflict-reassign-panel", { timeout: 3000 });
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
 
-      const submitBtn = await page.$("button:has-text('Submit Reassignment Request')");
-      const isDisabledInitially = await submitBtn?.isDisabled();
-      assert.ok(isDisabledInitially, "Submit Reassignment must be disabled without reason entry");
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Unknown_Owner_Doc.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 synthetic unknown"),
+        });
 
-      // Fill in statutory justification reason
-      await page.fill(
-        ".doc-conflict-reason-input",
-        "Assigned erroneously during batch scanning. Revenue record verified for Award 42/2010-11."
-      );
-      const isEnabledAfterText = !(await submitBtn?.isDisabled());
-      assert.ok(isEnabledAfterText, "Submit Reassignment must be enabled after entering reason");
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
 
-      // Submit reassignment request
-      await submitBtn?.click();
-      await page.waitForSelector(".doc-conflict-audit-badge", { timeout: 3000 });
-      const auditText = await page.textContent(".doc-conflict-reassign-success");
-      assert.ok(
-        auditText?.includes("Audit Logged · Reason Recorded"),
-        "Must display audit trail confirmation badge"
-      );
-      assert.ok(
-        auditText?.includes("No client-side bypass was permitted"),
-        "Must explicitly safeguard against client-side bypass"
-      );
+        const bannerText = await page.textContent(".doc-conflict-card-banner");
+        assert.ok(
+          bannerText?.includes("Existing Award could not be identified"),
+          `Expected 'Existing Award could not be identified', got: ${bannerText}`
+        );
 
-      // Test "View Existing Award" action
-      await page.click("button:has-text('View Existing Award')");
+        // Open Document Conflict Modal
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
 
-      // Conflict modal closes and Award 01/2007-08 card is highlighted in the village workspace
-      await page.waitForSelector("#award-award-01.village-award-card-highlighted", {
-        timeout: 5000,
-      });
-      const isHighlighted = await page.isVisible("#award-award-01.village-award-card-highlighted");
-      assert.ok(isHighlighted, "Award 01/2007-08 should be highlighted on View Existing Award");
-    });
+        // Conflict details must state identity could not be identified without guessing
+        const detailsText = await page.textContent(".doc-conflict-details");
+        assert.ok(
+          detailsText?.includes("Existing Award could not be identified"),
+          "Ownership cell must state identity could not be identified"
+        );
+        assert.ok(!detailsText?.includes("01/2007-08"), "Must not invent 01/2007-08 as fallback");
 
-    await t.test("Scenario 2: Same-award upload shows 'Already uploaded' with Open button", async () => {
-      // Open Smart Core Upload Modal
-      await page.click("button:has-text('Upload Core Documents')");
-      await page.waitForSelector(".modal-card", { timeout: 5000 });
+        // View Existing Award button must be disabled with ID unavailable note
+        const viewBtn = await page.$(".doc-conflict-modal button:has-text('View Existing Award')");
+        assert.ok(viewBtn, "View Existing Award button must exist");
+        const isViewDisabled = await viewBtn.isDisabled();
+        assert.equal(isViewDisabled, true, "View Existing Award must be disabled when ID is unknown");
+        const viewBtnText = await viewBtn.textContent();
+        assert.ok(viewBtnText?.includes("ID unavailable"), "Button must indicate ID unavailable");
 
-      // Upload file with name identical to existing document in Award 01/2007-08
-      const fileInput = await page.$('.modal-card input[type="file"]');
-      await fileInput.setInputFiles({
-        name: "Existing_Award_01.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-1.4 test duplicate"),
-      });
+        // Cancel Upload in conflict modal dismisses cleanly
+        await page.click(".doc-conflict-modal button:has-text('Cancel Upload')");
+        await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+      }
+    );
 
-      nextBatchResponse = {
-        status: 200,
-        json: {
-          batchId: "batch-duplicate-check",
-          items: [
-            {
-              fileName: "Existing_Award_01.pdf",
-              intake: {
-                intakeId: "intake-dup-01",
+    await t.test(
+      "[Mocked UI Contract] Scenario 3: Same filename with different PDF hashes is not falsely flagged as duplicate",
+      async () => {
+        await resetToWorkspace();
+
+        // Filename matches an existing document, but server does NOT mark it as duplicate
+        nextBatchResponse = {
+          status: 200,
+          json: {
+            batchId: "batch-diff-hash",
+            items: [
+              {
                 fileName: "Existing_Award_01.pdf",
-                detectedRole: "Award",
-                detectedAwardNumber: "01/2007-08",
-                matchedAwardId: "award-01",
-                matchedAwardNumber: "01/2007-08",
-                confidence: 0.95,
-                matchState: "MatchedExistingAward",
-                status: "Confirmed",
-                confirmedAwardId: "award-01",
-                confirmedRole: "Award",
-                isDuplicate: true,
-                viewRoute: "/api/documents/doc-existing-01/content",
+                intake: {
+                  intakeId: "intake-new-file",
+                  fileName: "Existing_Award_01.pdf",
+                  detectedRole: "Award",
+                  detectedAwardNumber: "42/2010-11",
+                  matchedAwardId: "award-42",
+                  matchedAwardNumber: "42/2010-11",
+                  confidence: 0.9,
+                  matchState: "MatchedExistingAward",
+                  status: "PendingReview",
+                  isDuplicate: false,
+                },
               },
-            },
-          ],
-        },
-      };
+            ],
+          },
+        };
 
-      await page.click(".modal-card button:has-text('Analyse')");
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
 
-      // Verify "Already uploaded" card is rendered
-      await page.waitForSelector(".doc-already-uploaded-card", { timeout: 5000 });
-      const cardText = await page.textContent(".doc-already-uploaded-card");
-      assert.ok(cardText?.includes("Already uploaded"), "Must show 'Already uploaded' badge");
-      assert.ok(
-        cardText?.includes("Award 01/2007-08"),
-        "Must specify that it is already attached to Award 01/2007-08"
-      );
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Existing_Award_01.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 different content different hash"),
+        });
 
-      const openDocBtn = await page.$("button:has-text('Open Existing Document')");
-      assert.ok(openDocBtn, "Must show 'Open Existing Document' action");
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".intake-review-list", { timeout: 5000 });
 
-      // Close modal
-      await page.click(".village-modal-close");
-      await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 5000 });
-    });
+        // Must NOT show 'Already uploaded' card
+        const isAlreadyUploaded = await page.isVisible(".doc-already-uploaded-card");
+        assert.equal(
+          isAlreadyUploaded,
+          false,
+          "Must NOT flag as duplicate based merely on identical filename"
+        );
 
-    await t.test("Scenario 3: Quick Attach handles conflict and Cancel Upload cleanly", async () => {
-      // Find quick attach button on Award 42/2010-11 for Award slot
-      const award42AttachBtn = await page.$(
-        "#award-award-42 .village-doc-slot:has-text('Award PDF') .village-doc-attach-btn"
-      );
-      assert.ok(award42AttachBtn, "Quick attach button for Award 42 must be available");
-      await award42AttachBtn.click();
+        // Must show normal review and confirmation UI
+        const confirmBtn = await page.$("button:has-text('Confirm & Link')");
+        assert.ok(confirmBtn, "Must show standard officer confirmation action");
 
-      await page.waitForSelector(".modal-card:has-text('Attach Award PDF')", { timeout: 5000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+      }
+    );
 
-      // Select file that triggers 409 conflict
-      nextBatchResponse = {
-        status: 409,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
-          type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
-          title: "Document Ownership Conflict",
+    await t.test(
+      "[Mocked UI Contract] Scenario 4: Same-Award duplicate with verified server ownership (isDuplicate: true)",
+      async () => {
+        await resetToWorkspace();
+
+        nextBatchResponse = {
+          status: 200,
+          json: {
+            batchId: "batch-verified-dup",
+            items: [
+              {
+                fileName: "Existing_Award_01.pdf",
+                intake: {
+                  intakeId: "intake-dup-01",
+                  fileName: "Existing_Award_01.pdf",
+                  detectedRole: "Award",
+                  detectedAwardNumber: "01/2007-08",
+                  matchedAwardId: "award-01",
+                  matchedAwardNumber: "01/2007-08",
+                  confidence: 0.95,
+                  matchState: "MatchedExistingAward",
+                  status: "Confirmed",
+                  confirmedAwardId: "award-01",
+                  confirmedRole: "Award",
+                  isDuplicate: true,
+                  viewRoute: "/api/documents/doc-existing-01/content",
+                },
+              },
+            ],
+          },
+        };
+
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
+
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Existing_Award_01.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 duplicate"),
+        });
+
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-already-uploaded-card", { timeout: 5000 });
+
+        const cardText = await page.textContent(".doc-already-uploaded-card");
+        assert.ok(cardText?.includes("Already uploaded"), "Must show 'Already uploaded' badge");
+        assert.ok(cardText?.includes("Award 01/2007-08"), "Must specify Award 01/2007-08");
+
+        const openDocBtn = await page.$(".doc-already-uploaded-card button:has-text('Open Existing Document')");
+        assert.ok(openDocBtn, "Must show 'Open Existing Document' action");
+
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+      }
+    );
+
+    await t.test(
+      "[Mocked UI Contract] Scenario 5: 409 non-ownership conflicts (RoleConflict, AlreadyConfirmedDifferentDecision, StagedOrConcurrentIntakeConflict)",
+      async () => {
+        // 5a. RoleConflict
+        await resetToWorkspace();
+        nextBatchResponse = {
           status: 409,
-          detail: "This PDF is already attached to Award 01/2007-08, Village X.",
-        }),
-      };
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            type: "https://tools.ietf.org/html/rfc9110#section-15.5.10",
+            title: "Document Role Conflict",
+            status: 409,
+            conflictKind: "RoleConflict",
+            conflictingAwardNumber: "42/2010-11",
+            conflictingRole: "Award",
+            detail: "A document has already fulfilled the Award role for Award 42/2010-11.",
+          }),
+        };
 
-      const fileInput = await page.$('.modal-card input[type="file"]');
-      await fileInput.setInputFiles({
-        name: "Conflicting_Quick_Doc.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-1.4 quick conflict"),
-      });
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
 
-      await page.click(".modal-card button:has-text('Analyse & Attach')");
+        let fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Duplicate_Role_Doc.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 test role conflict"),
+        });
 
-      // Verify Document Conflict Modal opens directly
-      await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
-      const explanation = await page.textContent(".doc-conflict-banner-title");
-      assert.ok(
-        explanation?.includes("This PDF is already attached to Award 01/2007-08, Village X."),
-        "Quick attach conflict must explain existing award ownership"
-      );
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".intake-badge-conflict", { timeout: 5000 });
 
-      // Click "Cancel Upload"
-      await page.click("button:has-text('Cancel Upload')");
+        const roleBadge = await page.textContent(".intake-badge-conflict");
+        assert.equal(roleBadge?.trim(), "Role Conflict", "Badge must show 'Role Conflict'");
 
-      // Verify modal is dismissed cleanly without residual state
-      await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
-      const modalExists = await page.isVisible(".doc-conflict-modal");
-      assert.equal(modalExists, false, "Modal must be dismissed after Cancel Upload");
-    });
+        // Open modal and check title
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+        const modalTitle = await page.textContent(".doc-conflict-modal .village-modal-title");
+        assert.equal(modalTitle?.trim(), "Document Role Conflict");
+        await page.click(".doc-conflict-modal .village-modal-close");
+        await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+
+        // 5b. AlreadyConfirmedDifferentDecision
+        await resetToWorkspace();
+        nextBatchResponse = {
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            conflictKind: "AlreadyConfirmedDifferentDecision",
+            detail: "This document was already confirmed under a different role or decision.",
+          }),
+        };
+
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
+        fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "State_Conflict_Doc.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 state conflict"),
+        });
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".intake-badge-conflict", { timeout: 5000 });
+        const stateBadge = await page.textContent(".intake-badge-conflict");
+        assert.equal(stateBadge?.trim(), "State Conflict", "Badge must show 'State Conflict'");
+
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+        const stateTitle = await page.textContent(".doc-conflict-modal .village-modal-title");
+        assert.equal(stateTitle?.trim(), "Document State Conflict");
+        await page.click(".doc-conflict-modal .village-modal-close");
+        await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+
+        // 5c. StagedOrConcurrentIntakeConflict
+        await resetToWorkspace();
+        nextBatchResponse = {
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            conflictKind: "StagedOrConcurrentIntakeConflict",
+            detail: "A concurrent upload or staged intake is already in progress.",
+          }),
+        };
+
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
+        fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Concurrent_Doc.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 concurrent conflict"),
+        });
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
+
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+        const concTitle = await page.textContent(".doc-conflict-modal .village-modal-title");
+        assert.equal(concTitle?.trim(), "Concurrent Intake Conflict");
+        await page.click(".doc-conflict-modal .village-modal-close");
+        await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+      }
+    );
+
+    await t.test(
+      "[Mocked UI Contract] Scenario 6: Unauthorized correction attempt (Award.CoreDocument.Upload without Award.Edit)",
+      async () => {
+        // Change user permissions to lack Award.Edit
+        currentUser = {
+          id: "00000000-0000-0000-0000-000000000002",
+          username: "uploader_only",
+          displayName: "Upload Clerk",
+          roles: ["Clerk"],
+          permissions: [
+            { code: "Award.View", scope: "All" },
+            { code: "Award.CoreDocument.Upload", scope: "All" },
+          ],
+          workstreams: [],
+          desks: [],
+        };
+
+        await resetToWorkspace();
+
+        nextBatchResponse = {
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            detail: "This PDF is already attached to Award 01/2007-08, Village X.",
+          }),
+        };
+
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
+
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "Unauthorized_Reassign.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 unauth"),
+        });
+
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
+
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+
+        // Open Reassign panel
+        await page.click(".doc-conflict-modal button:has-text('Request Correct Link / Reassign')");
+        await page.waitForSelector(".doc-conflict-perm-error", { timeout: 3000 });
+
+        const permError = await page.textContent(".doc-conflict-perm-error");
+        assert.ok(
+          permError?.includes("Permission required: Award.Edit"),
+          `Expected 'Permission required: Award.Edit', got: ${permError}`
+        );
+
+        // Reassignment reason input should NOT be present
+        const hasReasonInput = await page.isVisible(".doc-conflict-reason-input");
+        assert.equal(hasReasonInput, false, "Reason input must not be shown to unauthorized users");
+
+        await page.click(".doc-conflict-modal .village-modal-close");
+        await page.waitForSelector(".doc-conflict-modal", { state: "detached", timeout: 3000 });
+        await page.click(".intake-modal .village-modal-close");
+        await page.waitForSelector(".modal-backdrop", { state: "detached", timeout: 3000 });
+      }
+    );
+
+    await t.test(
+      "[Mocked UI Contract] Scenario 7: View Existing Award outside visible village cards navigates to award route",
+      async () => {
+        // Reset permissions back to full officer
+        currentUser = {
+          id: "00000000-0000-0000-0000-000000000001",
+          username: "revenue_officer",
+          displayName: "Revenue Officer",
+          roles: ["Officer"],
+          permissions: [
+            { code: "Award.View", scope: "All" },
+            { code: "Award.Edit", scope: "All" },
+            { code: "Award.CoreDocument.Upload", scope: "All" },
+          ],
+          workstreams: [],
+          desks: [],
+        };
+
+        await resetToWorkspace();
+
+        nextBatchResponse = {
+          status: 409,
+          contentType: "application/problem+json",
+          body: JSON.stringify({
+            status: 409,
+            conflictingAwardId: "award-outside-99",
+            conflictingAwardNumber: "99/2015-16",
+            detail: "This PDF is already attached to Award 99/2015-16, Village Other.",
+          }),
+        };
+
+        await page.click("button:has-text('Upload Core Documents')");
+        await page.waitForSelector(".intake-modal", { timeout: 5000 });
+
+        const fileInput = await page.$('.intake-modal input[type="file"]');
+        await fileInput.setInputFiles({
+          name: "External_Award_Doc.pdf",
+          mimeType: "application/pdf",
+          buffer: Buffer.from("%PDF-1.4 external"),
+        });
+
+        await page.click(".intake-modal button:has-text('Analyse')");
+        await page.waitForSelector(".doc-conflict-card-banner", { timeout: 5000 });
+
+        await page.click(".doc-conflict-card-actions button:has-text('Resolve Conflict & Options')");
+        await page.waitForSelector(".doc-conflict-modal", { timeout: 5000 });
+
+        // Click View Existing Award (for award-outside-99 which is not rendered in village records)
+        await page.click(".doc-conflict-modal button:has-text('View Existing Award')");
+
+        // Should navigate to /awards/award-outside-99
+        await page.waitForURL("**/awards/award-outside-99", { timeout: 5000 });
+        const currentUrl = page.url();
+        assert.ok(
+          currentUrl.includes("/awards/award-outside-99"),
+          `Expected navigation to /awards/award-outside-99, got: ${currentUrl}`
+        );
+      }
+    );
   } finally {
     await browser.close();
   }
