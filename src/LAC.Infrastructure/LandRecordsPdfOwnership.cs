@@ -26,10 +26,10 @@ public sealed partial class LandRecordsStaffWorkflowService
                 throw new StaffWorkflowException("Forbidden", "You do not have live access to this staged source.", 403);
         }
     }
-    internal async Task<StaffWorkflowException> OwnershipConflictAsync(Guid documentId, Guid selectedAwardId, CancellationToken ct)
+    internal async Task<StaffWorkflowException> OwnershipConflictAsync(Guid documentId, Guid selectedAwardId, CancellationToken ct, string? knownHash = null)
     {
         var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == documentId, ct);
-        var hash = document.Sha256Hash?.ToLowerInvariant();
+        var hash = (knownHash ?? document.Sha256Hash)?.ToLowerInvariant();
         var owners = await db.DocumentAwards.AsNoTracking().Include(x => x.Document).Include(x => x.Award).ThenInclude(x => x.VillageLinks).ThenInclude(x => x.Village)
             .Where(x => (x.DocumentId == documentId || hash != null && x.Document.Sha256Hash != null && x.Document.Sha256Hash.ToLower() == hash) && !x.IsDetached && x.AwardId != selectedAwardId).OrderBy(x => x.AwardId).ToListAsync(ct);
         var details = new List<PdfOwnershipLink>();
@@ -46,7 +46,7 @@ public sealed partial class LandRecordsStaffWorkflowService
         var visible = details.FirstOrDefault();
         return new("PDF_OWNERSHIP_CONFLICT", "This PDF is attached to another Award. Open the existing Award, or request a reviewed link correction.", 409,
             new PdfOwnershipConflict(visible?.DocumentId, visible?.DocumentReference,
-                visible is not null ? $"/api/documents/{visible.DocumentId}/content" : null, document.Sha256Hash ?? "", selectedAwardId, details, details.Count != owners.Count));
+                visible is not null ? $"/api/documents/{visible.DocumentId}/content" : null, hash ?? "", selectedAwardId, details, details.Count != owners.Count));
     }
 
     public async Task<AwardPdfLinkResolutionResult> ResolvePdfOwnershipAsync(Guid documentId, AwardPdfLinkResolutionInput input, CancellationToken ct)
@@ -66,14 +66,23 @@ public sealed partial class LandRecordsStaffWorkflowService
             if (input.Action is not ("RelinkIncorrectAttachment" or "VoidDuplicateAndRelink" or "ShareSource")) throw new StaffWorkflowException("InvalidResolution", "Choose a reviewed correction, duplicate correction, or explicit shared-source association.");
             if (input.SourceAwardId == input.TargetAwardId) throw new StaffWorkflowException("InvalidResolution", "Source and target Awards must be distinct.");
             await db.Entry(sourceAward).ReloadAsync(ct); await db.Entry(targetAward).ReloadAsync(ct);
+            foreach (var award in new[] { sourceAward, targetAward })
+            {
+                await AuthorizeAsync(PermissionCodes.AwardEdit, award.CreatedBy, ct: ct);
+                await AuthorizeAsync(PermissionCodes.AwardCoreDocumentUpload, award.CreatedBy, ct: ct);
+                await AuthorizeAsync(PermissionCodes.AuditView, award.CreatedBy, ct: ct);
+            }
             Revision(sourceAward.Revision, input.ExpectedSourceAwardRevision); Revision(targetAward.Revision, input.ExpectedTargetAwardRevision);
             if (targetAward.RecordStatus != RecordStatus.Active) throw new StaffWorkflowException("AwardArchived", "Target Award must be active.", 409);
             var sourceLink = await db.DocumentAwards.Include(x => x.Document).SingleOrDefaultAsync(x => x.DocumentId == documentId && x.AwardId == input.SourceAwardId && !x.IsDetached, ct)
                 ?? throw new StaffWorkflowException("AttachmentNotFound", "Active source ownership link was not found.", 404);
             Revision(sourceLink.Revision, input.ExpectedSourceAttachmentRevision);
             if (sourceLink.CoreDocumentRole is not (null or "Award") || sourceLink.Document.DocumentType is not ("Award" or "Award PDF")) throw new StaffWorkflowException("InvalidResolutionRole", "This correction workflow is for Award PDF evidence only.");
-            if (!string.Equals(sourceLink.Document.Sha256Hash, input.ExpectedSha256Hash, StringComparison.OrdinalIgnoreCase) || input.ExpectedSha256Hash?.Length != 64) throw new StaffWorkflowException("SourceHashConflict", "Source hash differs from the confirmed PDF.", 409);
+            if (input.ExpectedSha256Hash?.Length != 64 || sourceLink.Document.Sha256Hash is not null && !string.Equals(sourceLink.Document.Sha256Hash, input.ExpectedSha256Hash, StringComparison.OrdinalIgnoreCase)) throw new StaffWorkflowException("SourceHashConflict", "Source hash differs from the confirmed PDF.", 409);
             await new LandRecordPdfStore(db, storage).VerifyAsync(sourceLink.Document.StoragePath, input.ExpectedSha256Hash, sourceLink.Document.FileSize, ct);
+            // An explicitly confirmed, byte-verified legacy source may lack a hash.
+            // Fill only that missing value atomically; never replace an existing hash.
+            sourceLink.Document.Sha256Hash ??= input.ExpectedSha256Hash.ToLowerInvariant();
             if (!await db.AwardVillages.AnyAsync(x => x.AwardId == input.TargetAwardId && x.VillageId == input.VillageId, ct)) throw new StaffWorkflowException("VillageContextRequired", "Target Village must be directly linked to the target Award.");
             var sourceHash = input.ExpectedSha256Hash.ToLowerInvariant();
             var hashOwners = db.DocumentAwards.Where(x => !x.IsDetached &&

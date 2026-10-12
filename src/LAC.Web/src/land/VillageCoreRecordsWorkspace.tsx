@@ -17,7 +17,6 @@ import {
 } from "./smartCoreIntakeAdapter";
 import { useAuth } from "../auth/AuthProvider";
 import { AwardPdfOwnershipConflictPanel } from "../award/AwardPdfOwnershipConflictPanel";
-import { VillageTemporaryProceedingsSection } from "../award/VillageTemporaryProceedingsSection";
 import { LandRecordApiError, landRecordResponse, type PdfOwnershipConflict } from "../award/LandRecordApiError";
 import "./land.css";
 
@@ -882,13 +881,6 @@ export const VillageCoreRecordsWorkspace: React.FC<VillageCoreRecordsProps> = ({
           }}
         />
       )}
-      {/* Section 35 Temporary Occupation Proceedings */}
-      <VillageTemporaryProceedingsSection
-        villageId={id}
-        villageName={villageName}
-        linkedAwards={records.map((r) => ({ id: r.id, awardNumber: r.awardNumber }))}
-        onRefresh={() => setRefresh((x) => x + 1)}
-      />
     </div>
   );
 };

@@ -24,12 +24,13 @@ public sealed class LandRecordsStaffBrowserTests
         using var client = factory.CreateClient();
         Assert.Equal("127.0.0.1", client.BaseAddress!.Host);
         var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+        var webRoot = Environment.GetEnvironmentVariable("LAC_STAFF_WEB_ROOT") ?? Path.Combine(root, "src/LAC.Web");
         var fixture = Path.Combine(factory.StorageRoot, "synthetic-browser-source.pdf");
         Directory.CreateDirectory(factory.StorageRoot);
         QuestPDF.Settings.License = LicenseType.Community;
         QuestPDF.Fluent.Document.Create(c => c.Page(p => p.Content().Text("Synthetic source includes two Award references for office workflow browser verification. " + Guid.NewGuid()))).GeneratePdf(fixture);
-        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("LAC_STAFF_NODE") ?? "node") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Path.Combine(root, "src/LAC.Web") };
-        start.ArgumentList.Add(Path.Combine(root, "src/LAC.Web/tests/land-records-staff-browser.mjs"));
+        var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("LAC_STAFF_NODE") ?? "node") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = webRoot };
+        start.ArgumentList.Add(Path.Combine(webRoot, "tests/land-records-staff-browser.mjs"));
         start.Environment["LAC_STAFF_BROWSER_API"] = client.BaseAddress.ToString(); start.Environment["LAC_STAFF_BROWSER_PDF"] = fixture;
         using var process = Process.Start(start)!;
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();

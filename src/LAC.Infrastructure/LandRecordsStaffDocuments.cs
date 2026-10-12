@@ -22,7 +22,9 @@ public sealed partial class LandRecordsStaffWorkflowService
         }
         await using var pdf = await PreparedLandRecordPdf.ReadAsync(source, name, MaxPdfBytes, ct);
         var files = new LandRecordPdfStore(db, storage);
-        return await mutations.ExecuteAsync([$"pdf:{pdf.Hash}", $"award:{awardId}"], null, null, input, async () =>
+        // Intake may resolve an existing Award only after taking the identity lock.
+        // Take that lock first on every attachment path to avoid late-Award lock cycles.
+        return await mutations.ExecuteAsync(["award-metadata-identities", $"pdf:{pdf.Hash}", $"award:{awardId}"], null, null, input, async () =>
         {
             var award = await AwardAsync(awardId, PermissionCodes.AwardCoreDocumentUpload, true, ct);
             await db.Entry(award).ReloadAsync(ct);
@@ -93,20 +95,23 @@ public sealed partial class LandRecordsStaffWorkflowService
         var target = await db.DocumentAwards.AsNoTracking().SingleOrDefaultAsync(x => x.DocumentId == documentId && x.AwardId == targetAwardId && !x.IsDetached, ct);
         if (target is not null) return; // Exact same-Award retry introduces no new ownership.
         if (owners.Any(x => !x.IsDetached))
-            throw await OwnershipConflictAsync(documentId, targetAwardId, ct);
+            throw await OwnershipConflictAsync(documentId, targetAwardId, ct, hash);
         foreach (var owner in owners) await AuthorizeAsync(PermissionCodes.AwardEdit, owner.Award.CreatedBy, ct: ct);
     }
 
     public async Task<CoreUploadResult> LinkStoredAwardAsync(Guid awardId, Guid documentId, Guid? villageId, CancellationToken ct)
     {
-        await AwardAsync(awardId, PermissionCodes.AwardEdit, true, ct);
-        var existingHash = await db.Documents.Where(x => x.Id == documentId).Select(x => x.Sha256Hash).SingleOrDefaultAsync(ct);
-        return await mutations.ExecuteAsync([$"award:{awardId}", $"document:{documentId}", $"pdf:{existingHash?.ToLowerInvariant()}"], null, null, new { documentId, villageId }, async () =>
+        var authorizedAward = await AwardAsync(awardId, PermissionCodes.AwardEdit, true, ct);
+        await AuthorizeAsync(PermissionCodes.AwardCoreDocumentUpload, authorizedAward.CreatedBy, ct: ct);
+        var existingHash = await ReadSourceHashAsync(documentId, ct);
+        return await mutations.ExecuteAsync(["award-metadata-identities", $"award:{awardId}", $"document:{documentId}", $"pdf:{existingHash}"], null, null, new { documentId, villageId }, async () =>
         {
             await AwardAsync(awardId, PermissionCodes.AwardEdit, true, ct);
+            await AwardAsync(awardId, PermissionCodes.AwardCoreDocumentUpload, true, ct);
             var document = await db.Documents.SingleOrDefaultAsync(x => x.Id == documentId && x.Status == "Active" && x.RecordStatus == RecordStatus.Active)
                 ?? throw new StaffWorkflowException("DocumentNotFound", "Stored Award PDF was not found.", 404);
             if (document.DocumentType is not ("Award PDF" or "Award")) throw new StaffWorkflowException("InvalidRole", "Only a stored Award PDF can be recovered through this action.");
+            if (document.Sha256Hash is null) document.Sha256Hash = existingHash;
             await ValidatePreviousOwnersAsync(documentId, awardId, ct);
             var villages = await db.AwardVillages.Where(x => x.AwardId == awardId).Select(x => x.VillageId).ToListAsync(ct);
             var selected = villageId ?? (villages.Count == 1 ? villages[0] : (Guid?)null);
@@ -168,10 +173,13 @@ public sealed partial class LandRecordsStaffWorkflowService
     public async Task<AttachmentCorrectionResult> CorrectAttachmentAsync(Guid awardId, Guid linkId, AttachmentCorrectionInput input, CancellationToken ct)
     {
         await AwardAsync(awardId, PermissionCodes.AwardEdit, true, ct);
-        return await mutations.ExecuteAsync([$"award:{awardId}"], $"attachment:{linkId}", input.MutationId, input, async () =>
+        var source = await db.DocumentAwards.AsNoTracking().Where(x => x.Id == linkId && x.AwardId == awardId).Select(x => new { x.DocumentId, x.Document.Sha256Hash }).SingleOrDefaultAsync(ct)
+            ?? throw new StaffWorkflowException("AttachmentNotFound", "Attachment does not belong to this Award.", 404);
+        var hash = input.Action == "Restore" ? await ReadSourceHashAsync(source.DocumentId, ct) : source.Sha256Hash?.ToLowerInvariant();
+        return await mutations.ExecuteAsync(["award-metadata-identities", $"award:{awardId}", $"document:{source.DocumentId}", $"pdf:{hash}"], $"attachment:{linkId}", input.MutationId, input, async () =>
         {
             var award = await AwardAsync(awardId, PermissionCodes.AwardEdit, true, ct);
-            var link = await db.DocumentAwards.Include(x => x.PossessionEvent).SingleOrDefaultAsync(x => x.Id == linkId && x.AwardId == awardId, ct)
+            var link = await db.DocumentAwards.Include(x => x.Document).Include(x => x.PossessionEvent).SingleOrDefaultAsync(x => x.Id == linkId && x.AwardId == awardId, ct)
                 ?? throw new StaffWorkflowException("AttachmentNotFound", "Attachment does not belong to this Award.", 404);
             Revision(link.Revision, input.ExpectedRevision); Reason(input.Reason);
             if (link.CoreDocumentRole == "Award" && input.Action is "Detach" or "Restore")
@@ -185,6 +193,9 @@ public sealed partial class LandRecordsStaffWorkflowService
             if (input.Action == "Restore")
             {
                 if (!link.IsDetached) throw new StaffWorkflowException("InvalidTransition", "Only detached evidence can be restored.", 409);
+                if (link.Document.RecordStatus != RecordStatus.Active || link.Document.Status != "Active") throw new StaffWorkflowException("SourceArchived", "Review inactive source evidence before restoring an attachment.", 409);
+                if (link.Document.Sha256Hash is null) link.Document.Sha256Hash = hash;
+                await new LandRecordPdfStore(db, storage).VerifyAsync(link.Document.StoragePath, hash!, link.Document.FileSize, ct);
                 await ValidatePreviousOwnersAsync(link.DocumentId, awardId, ct);
             }
             if (input.Action == "Update" && link.IsDetached) throw new StaffWorkflowException("AttachmentDetached", "Restore evidence before editing it.", 409);
@@ -211,6 +222,17 @@ public sealed partial class LandRecordsStaffWorkflowService
             Audit(nameof(DocumentAward), link.Id, "StaffAttachment" + input.Action, before, LinkMetadata(link), input.Reason);
             await db.SaveChangesAsync(ct); return new AttachmentCorrectionResult(link.Id, link.Revision, link.IsDetached);
         }, ct);
+    }
+
+    private async Task<string> ReadSourceHashAsync(Guid documentId, CancellationToken ct)
+    {
+        var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId, ct)
+            ?? throw new StaffWorkflowException("DocumentNotFound", "Source document was not found.", 404);
+        await using var source = await storage.OpenReadAsync(document.StoragePath, ct) ?? throw new StaffWorkflowException("SourceUnavailable", "Stored source PDF is unavailable.", 409);
+        await using var pdf = await PreparedLandRecordPdf.ReadAsync(source, document.OriginalFileName, MaxPdfBytes, ct);
+        if (document.Sha256Hash is not null && !string.Equals(document.Sha256Hash, pdf.Hash, StringComparison.OrdinalIgnoreCase))
+            throw new StaffWorkflowException("StorageIntegrityFailure", "Stored PDF hash mismatch.", 409);
+        return pdf.Hash;
     }
     private static object LinkMetadata(DocumentAward link) => new { link.DocumentId, link.AwardId, link.CoreDocumentRole, link.VillageId,
         link.PossessionEventId, link.LegalDate, link.ReferenceNumber, link.PartNumber, link.Title, link.Remarks, link.IsDetached, link.IsSharedSource, link.Revision };

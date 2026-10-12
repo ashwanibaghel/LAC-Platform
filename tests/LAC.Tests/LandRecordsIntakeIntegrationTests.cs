@@ -12,6 +12,70 @@ namespace LAC.Tests;
 public sealed partial class LandRecordsStaffPersistenceTests
 {
     [StaffPostgresFact]
+    public async Task Integrated_officer_relink_of_hashless_legacy_source_verifies_bytes_and_audits_only_missing_hash()
+    {
+        using var client = await ClientAsync(); var a = await ContextAsync(); var b = await ContextAsync(); var bytes = Pdf("Officer-reviewed legacy missing hash " + Guid.NewGuid());
+        var stored = await Body(await Upload(client, Core(a), bytes)); var id = stored.GetProperty("documentId").GetGuid();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); (await db.Documents.SingleAsync(x => x.Id == id)).Sha256Hash = null; await db.SaveChangesAsync();
+        }
+        var conflict = await Body(await client.PostAsync($"/api/awards/{b.Award}/documents/{id}/link?villageId={b.Village}", null), HttpStatusCode.Conflict);
+        var hash = conflict.GetProperty("conflicts").GetProperty("sha256Hash").GetString()!;
+        Assert.Equal(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(), hash);
+        var input = new AwardPdfLinkResolutionInput(Guid.NewGuid(), "RelinkIncorrectAttachment", a.Award, b.Award, b.Village, 0, 0, 0, hash, true, "Officer checked legacy source and target register", null, null);
+        await Body(await client.PostAsJsonAsync($"/api/documents/{id}/award-link-resolutions", input), HttpStatusCode.OK);
+        Assert.Equal(hash, await Read(db => db.Documents.Where(x => x.Id == id).Select(x => x.Sha256Hash).SingleAsync()));
+        Assert.True(await Read(db => db.DocumentAwards.Where(x => x.DocumentId == id && x.AwardId == a.Award).Select(x => x.IsDetached).SingleAsync()));
+        Assert.Equal(bytes, await client.GetByteArrayAsync($"/api/documents/{id}/content"));
+        Assert.True(await Read(db => db.AuditLogs.AnyAsync(x => x.EntityType == nameof(Document) && x.EntityId == id && x.Action == "Updated" && x.OldValues!.Contains("\"Sha256Hash\":null") && x.NewValues!.Contains(hash))));
+    }
+    [StaffPostgresFact]
+    public async Task Integrated_confirmation_reusing_existing_identity_vs_direct_upload_has_no_late_Award_lock_cycle()
+    {
+        using var client = await ClientAsync(); var a = await ContextAsync(); var b = await ContextAsync(); var bytes = Pdf("Existing identity confirmation race " + Guid.NewGuid());
+        var staged = await Body(await Upload(client, $"/api/villages/{a.Village}/core-document-intake", bytes));
+        var number = await Read(db => db.Awards.Where(x => x.Id == a.Award).Select(x => x.AwardNumber).SingleAsync());
+        var decision = new CoreIntakeConfirmation("Award", CreateAward: new(number, Confirmed: true, ActRegime: "LAA1894"));
+        var outcomes = await Task.WhenAll(client.PostAsJsonAsync($"/api/core-document-intakes/{staged.GetProperty("intakeId").GetGuid()}/confirm", decision), Upload(client, Core(b), bytes));
+        Assert.Single(outcomes, x => x.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created); Assert.Single(outcomes, x => x.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal("PDF_OWNERSHIP_CONFLICT", (await Body(outcomes.Single(x => x.StatusCode == HttpStatusCode.Conflict), HttpStatusCode.Conflict)).GetProperty("code").GetString());
+        Assert.Equal(1, await Read(db => db.DocumentAwards.CountAsync(x => x.DocumentId == staged.GetProperty("documentId").GetGuid() && !x.IsDetached)));
+    }
+
+    [StaffPostgresFact]
+    public async Task Integrated_restore_vs_new_upload_is_hash_serialized_and_never_creates_two_unreviewed_owners()
+    {
+        using var client = await ClientAsync(); var a = await ContextAsync(); var b = await ContextAsync(); var bytes = Pdf("Restore ownership race " + Guid.NewGuid());
+        var stored = await Body(await Upload(client, Core(a), bytes)); var id = stored.GetProperty("documentId").GetGuid(); var link = stored.GetProperty("attachmentId").GetGuid();
+        var detach = new AttachmentCorrectionInput(Guid.NewGuid(), 0, "Detach", null, null, null, null, null, "Officer reviewed wrong source link", true);
+        await Body(await client.PutAsJsonAsync($"/api/awards/{a.Award}/core-document-links/{link}", detach), HttpStatusCode.OK);
+        var restore = detach with { MutationId = Guid.NewGuid(), ExpectedRevision = 1, Action = "Restore", Reason = "Officer reviewed restoration" };
+        var outcomes = await Task.WhenAll(client.PutAsJsonAsync($"/api/awards/{a.Award}/core-document-links/{link}", restore), Upload(client, Core(b), bytes));
+        Assert.Single(outcomes, x => x.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created); Assert.Single(outcomes, x => x.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal(1, await Read(db => db.DocumentAwards.CountAsync(x => x.DocumentId == id && !x.IsDetached)));
+        Assert.Equal(bytes, await client.GetByteArrayAsync($"/api/documents/{id}/content"));
+    }
+
+    [StaffPostgresFact]
+    public async Task Integrated_legacy_hashless_recovery_computes_hash_before_ownership_checks_and_rolls_back_on_conflict()
+    {
+        using var client = await ClientAsync(); var a = await ContextAsync(); var b = await ContextAsync(); var c = await ContextAsync(); var bytes = Pdf("Hashless historical recovery " + Guid.NewGuid());
+        var stored = await Body(await Upload(client, Core(a), bytes)); var id = stored.GetProperty("documentId").GetGuid(); var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<LacDbContext>(); var old = await db.Documents.SingleAsync(x => x.Id == id); old.Sha256Hash = null;
+            var duplicate = new Document { DocumentType = "Award PDF", OriginalFileName = "legacy-copy.pdf", StoragePath = old.StoragePath, Sha256Hash = hash, FileSize = old.FileSize };
+            db.AddRange(duplicate, new DocumentAward { Document = duplicate, AwardId = b.Award, CoreDocumentRole = "Award", VillageId = b.Village }); await db.SaveChangesAsync();
+        }
+        var response = await client.PostAsync($"/api/awards/{c.Award}/documents/{id}/link?villageId={c.Village}", null);
+        var body = await Body(response, HttpStatusCode.Conflict); Assert.Equal("PDF_OWNERSHIP_CONFLICT", body.GetProperty("code").GetString());
+        Assert.Equal(2, body.GetProperty("conflicts").GetProperty("existingLinks").GetArrayLength());
+        Assert.Null(await Read(db => db.Documents.Where(x => x.Id == id).Select(x => x.Sha256Hash).SingleAsync()));
+        Assert.Equal(0, await Read(db => db.DocumentAwards.CountAsync(x => x.AwardId == c.Award)));
+        Assert.Equal(bytes, await client.GetByteArrayAsync($"/api/documents/{id}/content"));
+    }
+    [StaffPostgresFact]
     public async Task Integrated_intake_live_Own_scope_redacts_owners_and_never_claims_unattributed_legacy_sources()
     {
         using var admin = await ClientAsync(); var hidden = await ContextAsync(); var own = await ContextAsync(); var bytes = Pdf("Restricted integrated source");
