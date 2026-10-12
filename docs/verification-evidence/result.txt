@@ -1,0 +1,2 @@
+PASS: actual browser ownership correction, grouped canonical timeline/source links, premium Village Direct Upload without classification, Smart Intake proposal/confirmation, same identity/no accidental OCR.
+

@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
 import { landRecordResponse, LandRecordApiError, type PdfOwnershipConflict } from "./LandRecordApiError";
 import { AwardPdfOwnershipConflictPanel } from "./AwardPdfOwnershipConflictPanel";
 import type { CoreAttachment, CoreRole } from "./landRecordsStaffTypes";
@@ -463,7 +462,7 @@ export function AwardCoreDocumentsSection({
               <div style={{ marginTop: "16px" }}>
                 <AwardPdfOwnershipConflictPanel
                   conflict={uploadConflict}
-                  onResolved={(res) => {
+                  onResolved={(_res) => {
                     setUploadConflict(null);
                     setUploadDrawerOpen(false);
                     setSuccessMessage("Ownership link resolved successfully.");

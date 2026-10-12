@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { landRecordResponse, LandRecordApiError } from "./LandRecordApiError";
+import { landRecordResponse } from "./LandRecordApiError";
 
 interface VillageTemporaryProceedingsSectionProps {
   villageId: string;
@@ -10,7 +10,7 @@ interface VillageTemporaryProceedingsSectionProps {
 
 export function VillageTemporaryProceedingsSection({
   villageId,
-  villageName,
+  villageName: _villageName,
   linkedAwards = [],
   onRefresh,
 }: VillageTemporaryProceedingsSectionProps) {
