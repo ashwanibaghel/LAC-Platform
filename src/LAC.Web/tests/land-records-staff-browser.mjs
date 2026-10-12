@@ -1,0 +1,70 @@
+// Invoked by the guarded PostgreSQL acceptance fixture. All network activity is
+// loopback; every Award/source below is a synthetic record in a disposable schema.
+import assert from "node:assert/strict";
+import { readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium } from "playwright";
+import { createServer } from "vite";
+import react from "@vitejs/plugin-react";
+
+const api = new URL(process.env.LAC_STAFF_BROWSER_API || "");
+assert.equal(api.hostname, "127.0.0.1");
+assert.ok(process.env.LAC_STAFF_TEST_POSTGRES?.includes("Database=lac_staff_workflow_v2_test"));
+const bytes = await readFile(process.env.LAC_STAFF_BROWSER_PDF);
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const artifacts = path.resolve(root, "../../out/browser-checks");
+await mkdir(artifacts, { recursive: true });
+const server = await createServer({ root, configFile: false, plugins: [react()], server: { host: "127.0.0.1", port: 0, hmr: false, proxy: { "/api": { target: api.origin, changeOrigin: true } } } });
+await server.listen();
+const origin = server.resolvedUrls.local[0];
+const browser = await chromium.launch({ headless: true });
+try {
+  const context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
+  const request = context.request;
+  async function json(response, status = 200) { assert.equal(response.status(), status, await response.text()); return response.json(); }
+  await json(await request.post(`${origin}api/auth/login`, { data: { username: "staff-v2-admin", password: "SyntheticStaffV2!791" } }));
+  const districts = await json(await request.get(`${origin}api/districts`));
+  const district = await json(await request.get(`${origin}api/districts/${districts[0].id}`));
+  const subdivision = await json(await request.get(`${origin}api/subdivisions/${district.subDivisions[0].id}?page=0&pageSize=10`));
+  const villageId = subdivision.villages.items[0].id;
+  const key = crypto.randomUUID();
+  const ownerNumber = `SYN-UI-SOURCE-${key}`;
+  const source = await json(await request.post(`${origin}api/villages/${villageId}/awards`, { data: { awardNumber: ownerNumber, awardDate: "2002-02-01", awardType: "Permanent" } }), 201);
+  const target = await json(await request.post(`${origin}api/villages/${villageId}/awards`, { data: { awardNumber: `SYN-UI-TARGET-${key}`, awardDate: "2002-03-01", awardType: "Permanent" } }), 201);
+  const uploaded = await json(await request.post(`${origin}api/awards/${source.id}/core-documents?role=Award&villageId=${villageId}`, { multipart: { file: { name: "synthetic-ui.pdf", mimeType: "application/pdf", buffer: bytes } } }), 201);
+  const page = await context.newPage();
+  const pageErrors = []; page.on("pageerror", error => pageErrors.push(error.message));
+  await page.goto(`${origin}awards/${target.id}`);
+  await page.getByRole("button", { name: "Import / Review Data" }).click();
+  const drawer = page.getByRole("complementary", { name: "Upload Award PDF" });
+  await drawer.locator('input[type="file"]').setInputFiles({ name: "synthetic-ui.pdf", mimeType: "application/pdf", buffer: bytes });
+  await drawer.getByRole("button", { name: "Upload PDF", exact: true }).click();
+  const conflict = page.getByRole("alert", { name: "PDF ownership conflict" });
+  await conflict.getByRole("heading", { name: "This PDF is already attached to another Award" }).waitFor();
+  await conflict.getByRole("link", { name: `Open Award ${ownerNumber}` }).waitFor();
+  let text = await conflict.innerText();
+  assert.ok(!text.includes("RFC 9110") && !text.includes("https://tools.ietf.org") && !text.includes('"status":409'));
+  assert.ok(!text.includes("Detected Type") && !text.includes("Low confidence"));
+  await page.screenshot({ path: path.join(artifacts, "ownership-conflict.png"), fullPage: true });
+  await conflict.getByText("Officer link correction", { exact: true }).click();
+  await conflict.getByLabel("Reason for resolution").selectOption("ShareSource");
+  await conflict.getByLabel("Officer reason").fill("Synthetic officer verified page covers the two test Award references.");
+  await conflict.getByLabel("Source pages covering both Awards").fill("1");
+  await conflict.getByLabel("Explain source coverage").fill("Synthetic page 1 source coverage, test-only officer confirmation.");
+  const confirm = conflict.getByRole("button", { name: "Confirm link resolution" });
+  assert.ok(await confirm.isDisabled());
+  await conflict.getByLabel("I reviewed the source and confirm this resolution.").check();
+  await confirm.click();
+  await page.getByText("Source link resolution saved. The existing PDF and history were retained.", { exact: true }).waitFor();
+  const attachments = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
+  assert.equal(attachments.length, 1); assert.equal(attachments[0].documentId, uploaded.documentId); assert.equal(attachments[0].isSharedSource, true);
+  const jobs = await json(await request.get(`${origin}api/awards/${target.id}/pdf-extractions`)); assert.equal(jobs.length, 0);
+  await page.goto(`${origin}villages/${villageId}`);
+  const timeline = page.getByRole("region", { name: "Village acquisition timeline" });
+  await timeline.getByRole("link", { name: `Award ${ownerNumber}`, exact: true }).waitFor();
+  assert.ok(await timeline.getByRole("link", { name: "Source PDF 1" }).count() >= 2);
+  await page.screenshot({ path: path.join(artifacts, "canonical-timeline.png"), fullPage: true });
+  assert.deepEqual(pageErrors, []);
+  console.log("PASS: browser ownership 409 explanation, authorized source identity, no type-confidence confusion, officer-confirmed shared source, same document/no OCR, canonical timeline links.");
+} finally { await browser.close(); await server.close(); }

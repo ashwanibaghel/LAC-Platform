@@ -14,13 +14,18 @@ public sealed class AwardWorkflowService(LacDbContext db)
 {
     public async Task<Award> CreateAsync(AwardCreateInput input, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(input.AwardNumber)) throw new AwardWorkflowException("Award number is required.");
+        return await new LandRecordsMutationStore(db).ExecuteAsync(["award-metadata-identities"], null, null, input, async () =>
+        {
+        if (string.IsNullOrWhiteSpace(input.AwardNumber) || input.AwardNumber.Length > 200) throw new AwardWorkflowException("Award number is required (up to 200 characters).");
         if (!await db.Villages.AnyAsync(x => x.Id == input.VillageId, ct)) throw new AwardWorkflowException("Village was not found.", 404);
         if (input.AcquisitionProjectId is not null && !await db.AcquisitionProjects.AnyAsync(x => x.Id == input.AcquisitionProjectId, ct)) throw new AwardWorkflowException("Acquisition project was not found.", 404);
+        var conflicts = await LandRecordsStaffWorkflowService.ConflictsAsync(db, null, [input.VillageId], input.AwardNumber, input.ActRegime, input.AcquisitionProjectId, ct);
+        if (conflicts.Count > 0) throw new AwardWorkflowException("Possible duplicate Award in the same Village/acquisition context.", 409);
         var award = new Award { AwardNumber = input.AwardNumber.Trim(), AwardDate = input.AwardDate, AwardType = Clean(input.AwardType), ActRegime = Clean(input.ActRegime), Purpose = Clean(input.Purpose), AcquisitionProjectId = input.AcquisitionProjectId, Remarks = Clean(input.Remarks) };
         db.Add(award); db.Add(new AwardVillage { Award = award, VillageId = input.VillageId });
         db.AuditLogs.Add(new AuditLog { EntityType = nameof(Award), EntityId = award.Id, Action = "AwardCreatedWithVillage", ChangedAt = DateTimeOffset.UtcNow });
         await db.SaveChangesAsync(ct); return award;
+        }, ct);
     }
 
     public async Task<Award> CreateSupplementaryAsync(SupplementaryAwardCreateInput input, CancellationToken ct)

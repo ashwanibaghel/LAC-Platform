@@ -1,4 +1,6 @@
 using System.Net.Http.Json;
+using QuestPDF.Fluent;
+using Document = LAC.Domain.Document;
 using System.Security.Claims;
 using Claim = System.Security.Claims.Claim;
 using System.Text.Encodings.Web;
@@ -127,7 +129,7 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Core_document_upload_links_the_single_document_to_every_award_village()
+    public async Task Core_document_upload_requires_explicit_Village_context_for_multi_village_Award()
     {
         Guid awardId; Guid firstVillageId; Guid secondVillageId;
         using (var scope = _factory.Services.CreateScope())
@@ -139,14 +141,21 @@ public sealed class ApiNavigationTests : IClassFixture<ApiFactory>
             db.Add(second); db.Add(award); db.AddRange(new AwardVillage { Award = award, VillageId = first.Id }, new AwardVillage { Award = award, Village = second });
             await db.SaveChangesAsync(); awardId = award.Id; firstVillageId = first.Id; secondVillageId = second.Id;
         }
+        QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+        var pdf = QuestPDF.Fluent.Document.Create(c => c.Page(p => p.Content().Text("Synthetic multi Village NM source " + Guid.NewGuid()))).GeneratePdf();
+        using var missingVillage = new MultipartFormDataContent();
+        missingVillage.Add(new ByteArrayContent(pdf), "file", "source.pdf");
+        using var ambiguous = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM", missingVillage);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, ambiguous.StatusCode);
         using var content = new MultipartFormDataContent();
-        content.Add(new StreamContent(new MemoryStream("%PDF-test"u8.ToArray())), "file", "source.pdf");
-        using var response = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM", content);
+        content.Add(new ByteArrayContent(pdf), "file", "source.pdf");
+        using var response = await _client.PostAsync($"/api/awards/{awardId}/core-documents?role=NM&villageId={firstVillageId}", content);
         response.EnsureSuccessStatusCode();
         var created = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("documentId").GetGuid();
         using var verify = _factory.Services.CreateScope(); var check = verify.ServiceProvider.GetRequiredService<LacDbContext>();
         var links = await check.DocumentVillages.Where(x => x.DocumentId == created).Select(x => x.VillageId).ToListAsync();
-        Assert.Equal(new[] { firstVillageId, secondVillageId }.Order(), links.Order());
+        Assert.Equal(new[] { firstVillageId }, links);
+        Assert.DoesNotContain(secondVillageId, links);
         Assert.Equal(1, await check.Documents.CountAsync(x => x.Id == created));
         await verify.ServiceProvider.GetRequiredService<IDocumentStorage>().DeleteAsync((await check.Documents.SingleAsync(x => x.Id == created)).StoragePath, CancellationToken.None);
     }

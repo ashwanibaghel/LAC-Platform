@@ -168,6 +168,9 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<string>("ActRegime")
                         .HasColumnType("text");
 
+                    b.Property<string>("ArchiveKind")
+                        .HasColumnType("text");
+
                     b.Property<DateOnly?>("AwardDate")
                         .HasColumnType("date");
 
@@ -199,6 +202,12 @@ namespace LAC.Infrastructure.Migrations
 
                     b.Property<string>("Remarks")
                         .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -3136,9 +3145,47 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid>("DocumentId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsDetached")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSharedSource")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("LegalDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("PartNumber")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("PossessionEventId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReferenceNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("Title")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("VillageId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("AwardId");
+
+                    b.HasIndex("PossessionEventId")
+                        .IsUnique();
+
+                    b.HasIndex("VillageId");
 
                     b.HasIndex("DocumentId", "AwardId")
                         .IsUnique();
@@ -3752,6 +3799,40 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("VillageLRId");
 
                     b.ToTable("LREntries");
+                });
+
+            modelBuilder.Entity("LAC.Domain.LandRecordMutationReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MutationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Scope", "MutationId")
+                        .IsUnique();
+
+                    b.ToTable("LandRecordMutationReceipts", (string)null);
                 });
 
             modelBuilder.Entity("LAC.Domain.Matter", b =>
@@ -4886,11 +4967,19 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<string>("GazetteDetails")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsFinalized")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateOnly?>("NotificationDate")
                         .HasColumnType("date");
 
                     b.Property<string>("NotificationNumber")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("NumberAbsentReason")
                         .HasColumnType("text");
 
                     b.Property<string>("RecordStatus")
@@ -4899,6 +4988,12 @@ namespace LAC.Infrastructure.Migrations
 
                     b.Property<string>("Remarks")
                         .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<string>("SectionType")
                         .IsRequired()
@@ -4915,7 +5010,8 @@ namespace LAC.Infrastructure.Migrations
                     b.HasIndex("AcquisitionProjectId");
 
                     b.HasIndex("SectionType", "NotificationNumber", "NotificationDate")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"NotificationNumber\" <> ''");
 
                     b.ToTable("Notifications");
                 });
@@ -6085,6 +6181,95 @@ namespace LAC.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("SubDivisions");
+                });
+
+            modelBuilder.Entity("LAC.Domain.TemporaryAcquisitionProceeding", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AcquisitionProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActRegime")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("AwardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("CommencementDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("CompensationReference")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocumentType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DurationMonths")
+                        .HasColumnType("integer");
+
+                    b.Property<DateOnly?>("ExpiryDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateOnly?>("LegalDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("LegalSection")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Nature")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RecordStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReferenceNumber")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("VillageId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcquisitionProjectId");
+
+                    b.HasIndex("AwardId");
+
+                    b.HasIndex("VillageId");
+
+                    b.HasIndex("DocumentId", "VillageId")
+                        .IsUnique();
+
+                    b.ToTable("TemporaryAcquisitionProceedings", (string)null);
                 });
 
             modelBuilder.Entity("LAC.Domain.UserDeskMembership", b =>
@@ -7687,9 +7872,23 @@ namespace LAC.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("LAC.Domain.PossessionEvent", "PossessionEvent")
+                        .WithMany()
+                        .HasForeignKey("PossessionEventId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.Village", "Village")
+                        .WithMany()
+                        .HasForeignKey("VillageId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Award");
 
                     b.Navigation("Document");
+
+                    b.Navigation("PossessionEvent");
+
+                    b.Navigation("Village");
                 });
 
             modelBuilder.Entity("LAC.Domain.DocumentKhasra", b =>
@@ -8746,6 +8945,39 @@ namespace LAC.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("District");
+                });
+
+            modelBuilder.Entity("LAC.Domain.TemporaryAcquisitionProceeding", b =>
+                {
+                    b.HasOne("LAC.Domain.AcquisitionProject", "AcquisitionProject")
+                        .WithMany()
+                        .HasForeignKey("AcquisitionProjectId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.Award", "Award")
+                        .WithMany()
+                        .HasForeignKey("AwardId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Village", "Village")
+                        .WithMany()
+                        .HasForeignKey("VillageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AcquisitionProject");
+
+                    b.Navigation("Award");
+
+                    b.Navigation("Document");
+
+                    b.Navigation("Village");
                 });
 
             modelBuilder.Entity("LAC.Domain.UserDeskMembership", b =>

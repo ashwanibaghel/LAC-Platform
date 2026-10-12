@@ -5,7 +5,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LAC.Infrastructure;
 
-public sealed class AwardIngestionException(string message, int statusCode = 400) : Exception(message) { public int StatusCode { get; } = statusCode; }
+public sealed class AwardIngestionException(string message, int statusCode = 400, string? code = null, object? conflicts = null) : Exception(message)
+{
+    public int StatusCode { get; } = statusCode;
+    public string? Code { get; } = code;
+    public object? Conflicts { get; } = conflicts;
+}
 
 public interface IAwardDocumentExtractor { Task<AwardIngestionCandidateSet> ExtractAsync(Document sourceDocument, CancellationToken ct); }
 public sealed record AwardIngestionCandidateSet(IReadOnlyList<IAwardIngestionCandidatePayload> Candidates);
@@ -190,6 +195,10 @@ public sealed partial class AwardIngestionService(LacDbContext db, AwardWorkflow
     {
         var session = await db.AwardIngestionSessions.Include(x => x.Candidates).SingleOrDefaultAsync(x => x.Id == sessionId, ct) ?? throw new AwardIngestionException("Ingestion session was not found.", 404);
         if (session.TargetAwardId is null) throw new AwardIngestionException("Select a target Award before committing Award ingestion candidates.");
+        if (!await db.Awards.AnyAsync(x => x.Id == session.TargetAwardId && x.RecordStatus == RecordStatus.Active, ct))
+            throw new AwardIngestionException("Archived or void Awards cannot receive ingestion commits.", 409);
+        if (session.SourceDocumentId is not null && await db.DocumentAwards.AnyAsync(x => x.AwardId == session.TargetAwardId && x.DocumentId == session.SourceDocumentId && x.IsDetached, ct))
+            throw new AwardIngestionException("Detached source evidence cannot be committed to this Award.", 409);
         var selected = session.Candidates.Where(x => candidateIds.Contains(x.Id) && x.Status == AwardIngestionCandidateStatus.Ready).OrderBy(x => x.CandidateType).ThenBy(x => x.Sequence).ToList();
         if (selected.Count == 0) throw new AwardIngestionException("Select one or more Ready candidates.");
         if (session.SourceDocumentId is not null && selected.Any(c => c.VerifiedAt is null || c.VerifiedPayloadJson != c.StructuredPayloadJson)) throw new AwardIngestionException("Every selected document fact must be human verified before commit.");

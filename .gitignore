@@ -24,3 +24,4 @@ dotnet-sdk-*.exe
 supabase/.temp/
 
 /out/
+/tmp/staff-workflow-v2-postgres/

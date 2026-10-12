@@ -24,6 +24,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtExternalOrderObservation> CourtExternalOrderObservations => Set<CourtExternalOrderObservation>();
  public DbSet<CourtExternalAssistedDecision> CourtExternalAssistedDecisions => Set<CourtExternalAssistedDecision>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
+  LandRecordsStaffModel.Configure(b);
   Configurations.DakModelConfiguration.Configure(b);
   Configurations.OutwardModelConfiguration.Configure(b);
   Configurations.MatterModelConfiguration.Configure(b);
@@ -111,6 +112,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   if (ChangeTracker.Entries<CourtCaseEvent>().Any(e => e.State is EntityState.Modified or EntityState.Deleted))
    throw new InvalidOperationException("Court case events are strictly immutable. Official litigation history cannot be modified or deleted.");
   EnsureExternalListingDecisionsImmutable();
+  LandRecordsStaffModel.BeforeSave(this);
   var additions=ChangeTracker.Entries<Khasra>().Where(e=>e.State==EntityState.Added).Select(e=>e.Entity).ToList(); foreach(var khasra in additions) { var duplicateInRequest=additions.Any(x=>x!=khasra&&x.VillageId==khasra.VillageId&&x.NormalizedNumber==khasra.NormalizedNumber&&x.Qualifier==khasra.Qualifier); var duplicateInStore=await Khasras.AnyAsync(x=>x.VillageId==khasra.VillageId&&x.NormalizedNumber==khasra.NormalizedNumber&&x.Qualifier==khasra.Qualifier,ct); if(duplicateInRequest||duplicateInStore) throw new DbUpdateException("A Khasra with this normalized number and qualifier already exists in the village."); }
   var now=DateTimeOffset.UtcNow; var changes=ChangeTracker.Entries().Where(e=>e.Entity is OfficialRecord&&e.State is EntityState.Added or EntityState.Modified or EntityState.Deleted).ToList(); foreach(var entry in changes.Where(e=>e.State==EntityState.Deleted&&e.Entity is OfficialRecord)) { ((OfficialRecord)entry.Entity).RecordStatus=RecordStatus.Archived; entry.State=EntityState.Modified; }
   var actor = currentUser?.UserId?.ToString();

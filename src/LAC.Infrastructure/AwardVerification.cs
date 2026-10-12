@@ -310,6 +310,10 @@ public sealed partial class AwardIngestionService
         if(payload is AwardCoreCandidate core)
         {
             var award=await db.Awards.SingleAsync(x=>x.Id==session.TargetAwardId,ct);
+            if (await db.SourceEvidence.AnyAsync(x => x.AwardId == award.Id &&
+                (x.FactName == "awardDate" || x.FactName == "awardType" || x.FactName == "purpose"), ct) &&
+                (award.AwardDate != core.AwardDate || award.AwardType != Clean(core.AwardType) || award.Purpose != Clean(core.Purpose)))
+                throw new AwardIngestionException("Already reviewed Award metadata differs from this source. A reviewed correction is required; existing facts were retained.", 409);
             // Equivalent source spellings confirm the same Award; keep its existing official number.
             if (!AwardNumberIdentity.Equivalent(award.AwardNumber,core.AwardNumber)) throw new AwardIngestionException("The confirmed Award number no longer matches the linked Award.",409);
             award.AwardDate=core.AwardDate; award.AwardType=Clean(core.AwardType); award.Purpose=Clean(core.Purpose);

@@ -18,7 +18,7 @@ public sealed class AwardPdfExtractionTests
         await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var bytes = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 fictional no-context fixture");
         var storage = new MemoryStorage(bytes);
-        var service = new AwardPdfExtractionService(db, storage, new AwardPdfJobQueue());
+        var service = StaffUnitServices.Extraction(db, storage, new AwardPdfJobQueue());
 
         var error = await Assert.ThrowsAsync<AwardIngestionException>(() => service.QueueUploadAsync(new MemoryStream(bytes), "fictional.pdf", "application/pdf", null, null, "Test officer", default));
 
@@ -36,10 +36,12 @@ public sealed class AwardPdfExtractionTests
     {
         await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var award = new Award { AwardNumber = "FICTIONAL-UPLOAD" };
-        db.Add(award); await db.SaveChangesAsync();
-        var bytes = System.Text.Encoding.ASCII.GetBytes("%PDF-1.7 fictional storage boundary fixture");
+        var uploadVillage = new Village { Name = "Fictional upload village" };
+        db.AddRange(award, uploadVillage, new AwardVillage { Award = award, Village = uploadVillage }); await db.SaveChangesAsync();
+        QuestPDF.Settings.License = LicenseType.Community;
+        var bytes = QuestPDF.Fluent.Document.Create(c => c.Page(p => p.Content().Text("Synthetic Award source PDF for isolated upload validation."))).GeneratePdf();
         var queue = new AwardPdfJobQueue();
-        var service = new AwardPdfExtractionService(db, new MemoryStorage(bytes), queue);
+        var service = StaffUnitServices.Extraction(db, new MemoryStorage(bytes), queue);
         var first = await service.QueueUploadAsync(new MemoryStream(bytes), "fictional.pdf", "application/pdf", award.Id, null, "Test officer", default);
         var link = await db.DocumentAwards.SingleAsync();
         Assert.Equal(award.Id, link.AwardId); Assert.Equal(first.DocumentId, link.DocumentId);
@@ -61,10 +63,13 @@ public sealed class AwardPdfExtractionTests
     {
         await using var db = new LacDbContext(new DbContextOptionsBuilder<LacDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
         var award = new Award { AwardNumber = "FICTIONAL-RECOVERY" };
-        var document = new LAC.Domain.Document { DocumentType = "Award PDF", OriginalFileName = "already-stored.pdf", StoragePath = "stored-on-disk.pdf", Sha256Hash = "fixture" };
-        db.AddRange(award, document); await db.SaveChangesAsync();
-        var storage = new MemoryStorage(Array.Empty<byte>());
-        var service = new AwardPdfExtractionService(db, storage, new AwardPdfJobQueue());
+        QuestPDF.Settings.License = LicenseType.Community;
+        var pdf = QuestPDF.Fluent.Document.Create(c => c.Page(p => p.Content().Text("Synthetic stored recovery PDF used only by isolated tests."))).GeneratePdf();
+        var document = new LAC.Domain.Document { DocumentType = "Award PDF", OriginalFileName = "already-stored.pdf", StoragePath = "stored-on-disk.pdf", Sha256Hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pdf)).ToLowerInvariant() };
+        var recoveryVillage = new Village { Name = "Fictional recovery village" };
+        db.AddRange(award, document, recoveryVillage, new AwardVillage { Award = award, Village = recoveryVillage }); await db.SaveChangesAsync();
+        var storage = new MemoryStorage(pdf);
+        var service = StaffUnitServices.Extraction(db, storage, new AwardPdfJobQueue());
 
         var unlinked = await service.GetUnlinkedStoredDocumentsAsync(default);
         Assert.Contains(unlinked, x => x.DocumentId == document.Id);
@@ -192,7 +197,7 @@ public sealed class AwardPdfExtractionTests
         public int SaveCalls { get; private set; }
         public int DeleteCalls { get; private set; }
         public Task<string> SaveAsync(Stream content, string fileName, CancellationToken ct) { SaveCalls++; return Task.FromResult(fileName); }
-        public Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct) { SaveCalls++; return Task.FromResult(new DocumentStorageWriteResult(fileName, "test", pdf.Length)); }
+        public Task<DocumentStorageWriteResult> SaveAndHashAsync(Stream content, string fileName, CancellationToken ct) { SaveCalls++; return Task.FromResult(new DocumentStorageWriteResult(fileName, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(pdf)).ToLowerInvariant(), pdf.Length)); }
         public Task DeleteAsync(string storagePath, CancellationToken ct) { DeleteCalls++; return Task.CompletedTask; }
         public Task<Stream?> OpenReadAsync(string storagePath, CancellationToken ct) => Task.FromResult<Stream?>(new MemoryStream(pdf, writable: false));
         public StorageHealth GetHealth() => new("test", true, 1, 1);

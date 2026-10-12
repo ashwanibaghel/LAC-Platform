@@ -106,10 +106,11 @@ public sealed class LrWorkflowService(LacDbContext db)
 
     public async Task<Notification> CreateNotificationAsync(string sectionType, string notificationNumber, DateOnly? notificationDate, string? remarks, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(sectionType) || string.IsNullOrWhiteSpace(notificationNumber)) throw new LrWorkflowException("Notification section and number are required for metadata-only draft registration.");
         sectionType = sectionType.Trim(); notificationNumber = notificationNumber.Trim();
-        if (sectionType is not ("4" or "6")) throw new LrWorkflowException("Only Section 4 or Section 6 notifications can be created from an LR row.");
+        if (string.IsNullOrWhiteSpace(sectionType) || sectionType.Length > 200) throw new LrWorkflowException("Notification section/subsection is required.");
         if (string.IsNullOrWhiteSpace(notificationNumber)) throw new LrWorkflowException("Notification number is required.");
-        var existing = await db.Notifications.SingleOrDefaultAsync(x => x.SectionType == sectionType && x.NotificationNumber == notificationNumber, ct);
+        var existing = await db.Notifications.SingleOrDefaultAsync(x => x.SectionType == sectionType && x.NotificationNumber == notificationNumber && x.NotificationDate == notificationDate, ct);
         if (existing is not null) return existing;
         var notification = new Notification { SectionType = sectionType, NotificationNumber = notificationNumber, NotificationDate = notificationDate, Remarks = Clean(remarks) };
         db.Notifications.Add(notification); await db.SaveChangesAsync(ct); return notification;
@@ -117,8 +118,9 @@ public sealed class LrWorkflowService(LacDbContext db)
 
     public async Task<Award> CreateAwardAsync(string awardNumber, DateOnly? awardDate, string? awardType, string? actRegime, CancellationToken ct)
     {
-        awardNumber = awardNumber.Trim(); if (string.IsNullOrWhiteSpace(awardNumber)) throw new LrWorkflowException("Award number is required.");
-        var existing = await db.Awards.SingleOrDefaultAsync(x => x.AwardNumber == awardNumber, ct);
+        if (string.IsNullOrWhiteSpace(awardNumber)) throw new LrWorkflowException("Award number is required.");
+        awardNumber = awardNumber.Trim();
+        var existing = await db.Awards.SingleOrDefaultAsync(x => x.AwardNumber == awardNumber && x.ActRegime == Clean(actRegime) && !x.VillageLinks.Any() && x.RecordStatus == RecordStatus.Active, ct);
         if (existing is not null) return existing;
         var award = new Award { AwardNumber = awardNumber, AwardDate = awardDate, AwardType = Clean(awardType), ActRegime = Clean(actRegime) };
         db.Awards.Add(award); await db.SaveChangesAsync(ct); return award;

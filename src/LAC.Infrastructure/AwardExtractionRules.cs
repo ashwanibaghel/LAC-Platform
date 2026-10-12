@@ -144,6 +144,12 @@ public sealed class AwardExtractionRuleEngine(TextConceptMatcher matcher, Strict
     {
         var allLines = pages.SelectMany(DocumentLayout.Lines).ToList();
         var result = new List<ExtractionCandidate>();
+        if (TemporaryInstrumentDetector.IsOfferOrOccupationProceeding(string.Join("\n", pages.Take(2).Select(x => x.Text))))
+        {
+            Add(result, new UnmappedAwardFindingCandidate("Temporary Offer / Proceedings", "Source describes an Offer or temporary Section 35 occupation; review as temporary proceedings rather than a final Award.", null),
+                pages.FirstOrDefault()?.PageNumber ?? 1, "TemporaryInstrumentGuard", "Offer/temporary proceedings identity requires separate review.", [], ["Not a verified final Award"], pages.FirstOrDefault()?.Text ?? "");
+            return result;
+        }
         ExtractAwardIdentity(allLines, result);
         ExtractVillage(allLines, context, result);
         ExtractNotifications(allLines, result);
