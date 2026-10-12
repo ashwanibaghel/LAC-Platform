@@ -302,13 +302,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       ]
     };
   } else if (path.startsWith("/matters") || path.startsWith("/my-work")) {
-    contextualNav = {
-      categoryTitle: "Matters & Work",
-      links: [
-        { label: "My Work Queue", to: "/my-work", checkPermission: canAccessMyWork },
-        { label: "Matters Directory", to: "/matters", checkPermission: canAccessMatters }
-      ]
-    };
+    // Suppress redundant Matters Directory sub-bar when viewing a specific matter workspace (/matters/:id)
+    if (!path.match(/^\/matters\/[^/]+$/)) {
+      contextualNav = {
+        categoryTitle: "Matters & Work",
+        links: [
+          { label: "My Work Queue", to: "/my-work", checkPermission: canAccessMyWork },
+          { label: "Matters Directory", to: "/matters", checkPermission: canAccessMatters }
+        ]
+      };
+    }
   } else if (path.startsWith("/court-cases") || path.startsWith("/court")) {
     contextualNav = {
       categoryTitle: "Court & Litigation",

@@ -17,6 +17,8 @@ import {
   IconHistory
 } from "../components/Icons";
 import "./matter.css";
+import "./noting.css";
+import { GreenNotingWorkspace } from "./GreenNotingWorkspace";
 
 interface MatterDocumentExtractProvenance {
   sourceDocumentId: string;
@@ -170,7 +172,7 @@ interface WorkstreamOption {
   code: string;
 }
 
-type WorkspaceTab = "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
+type WorkspaceTab = "noting" | "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
 
 export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentType<{ matterId: string }> }> = ({
   MatterOutwardSection
@@ -189,7 +191,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [refresh, setRefresh] = useState(0);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("noting");
 
   // Overflow Menu State
   const [showOverflow, setShowOverflow] = useState(false);
@@ -797,137 +799,127 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
   return (
     <div className="matter-workspace-shell">
-      {/* Top Identity Block */}
-      <div className="matter-identity-card">
-        <nav className="matter-breadcrumbs" aria-label="Breadcrumb">
-          <Link to="/matters">Matters</Link>
-          <span className="matter-breadcrumb-sep">/</span>
-          {contextData.village ? (
-            <Link to={`/villages/${contextData.village.villageId}`}>{contextData.village.name}</Link>
-          ) : (
-            <span>Unknown Village</span>
+      {/* Compact Identity Strip (~54-58px) */}
+      <div className="matter-compact-identity-strip">
+        <div className="matter-identity-strip-left">
+          <Link to="/matters" className="matter-back-link" title="Back to Matters Directory">
+            ← Matters
+          </Link>
+          <span className="matter-strip-sep">/</span>
+          <span className="matter-strip-village">
+            <IconBuilding size={14} style={{ color: "#64748b" }} />
+            {contextData.village ? (
+              <Link to={`/villages/${contextData.village.villageId}`} className="village-link">
+                {contextData.village.name}
+              </Link>
+            ) : (
+              <span>Unlinked Village</span>
+            )}
+          </span>
+          <span className="matter-strip-sep">/</span>
+          <h1 className="matter-strip-title" title={matter.title}>
+            {matter.title}
+          </h1>
+          <span className="matter-strip-type-badge">{matter.matterType}</span>
+          <span className={isArchived ? "matter-badge-archived" : "matter-badge-open"}>
+            {matter.status}
+          </span>
+          {contextData.daks?.[0] && (
+            <span className="matter-strip-dak-badge" title={`Controlling Dak: ${contextData.daks[0].subject}`}>
+              ✉ {contextData.daks[0].diaryNumber}
+            </span>
           )}
-          <span className="matter-breadcrumb-sep">/</span>
-          <span style={{ color: "#0f172a", fontWeight: 600 }}>{matter.title}</span>
-        </nav>
-
-        <div className="matter-header-main">
-          <div className="matter-header-title-block">
-            <h1>{matter.title}</h1>
-            <div className="matter-header-meta-row">
-              <span className="matter-meta-item">
-                <IconBuilding size={14} style={{ color: "#64748b" }} />
-                {contextData.village ? (
-                  <Link to={`/villages/${contextData.village.villageId}`} style={{ color: "#0369a1", fontWeight: 600, textDecoration: "none" }}>
-                    {contextData.village.name}
-                  </Link>
-                ) : (
-                  <span>Unlinked Village</span>
-                )}
-              </span>
-              <span>·</span>
-              <span className="matter-meta-item">Type: <strong>{matter.matterType}</strong></span>
-              <span>·</span>
-              <span className="matter-meta-item">
-                Ref: <strong style={{ fontFamily: "monospace" }}>{matter.referenceNumber || "—"}</strong>
-              </span>
-              <span>·</span>
-              <span className="matter-meta-item">
-                Workstream: <strong>{matter.workstreamName || "[Unclassified]"}</strong>
-              </span>
-              <span>·</span>
-              <span className={isArchived ? "matter-badge-archived" : "matter-badge-open"}>
-                {matter.status}
-              </span>
-              <span className="matter-revision-tag">Rev {matter.revision}</span>
-            </div>
-          </div>
         </div>
 
-        {/* Action Controls Toolbar */}
-        {!isArchived && (
-          <div className="matter-actions-toolbar">
-            {canAssignWork && (
-              <Link to={`/work/new?matterId=${matter.id}`} className="btn-action-primary">
-                <IconPlus size={15} />
-                + Assign Work
-              </Link>
-            )}
+        <div className="matter-identity-strip-right">
+          <span className="matter-revision-tag">Rev {matter.revision}</span>
 
-            {canEdit && (
+          {/* Contextual More Menu */}
+          {!isArchived && (
+            <div className="matter-overflow-wrap" ref={overflowRef}>
               <button
                 type="button"
-                className="btn-action-secondary"
-                onClick={() => {
-                  setManageLinkError(null);
-                  setShowManageLinksDrawer(true);
-                }}
+                className="matter-strip-more-btn"
+                onClick={() => setShowOverflow((v) => !v)}
+                title="More Actions"
               >
-                <IconLink size={14} />
-                Manage Linked Records
+                <IconMoreVertical size={16} />
+                <span>More</span>
               </button>
-            )}
 
-            {canEdit && (
-              <button
-                type="button"
-                className="btn-action-secondary"
-                onClick={() => {
-                  setEditTitle(matter.title);
-                  setEditStatus(matter.status || "Open");
-                  setEditRefNo(matter.referenceNumber || "");
-                  setEditRemarks(matter.remarks || "");
-                  setEditError(null);
-                  setShowEditModal(true);
-                }}
-              >
-                <IconEdit size={14} />
-                Edit Metadata
-              </button>
-            )}
-
-            {canManageDocs && (
-              <>
-                <button
-                  type="button"
-                  className="btn-action-secondary"
-                  onClick={() => {
-                    setUploadError(null);
-                    setShowUploadModal(true);
-                  }}
-                >
-                  <IconUpload size={14} />
-                  + Upload Document
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-action-secondary"
-                  onClick={() => {
-                    setLinkError(null);
-                    setShowLinkDrawer(true);
-                  }}
-                >
-                  <IconFileText size={14} />
-                  Extract / Link Doc
-                </button>
-              </>
-            )}
-
-            {/* Overflow Menu button */}
-            {canEdit && (
-              <div className="matter-overflow-wrap" ref={overflowRef}>
-                <button
-                  type="button"
-                  className="matter-overflow-btn"
-                  onClick={() => setShowOverflow((v) => !v)}
-                  title="More actions"
-                >
-                  <IconMoreVertical size={16} />
-                </button>
-
-                {showOverflow && (
-                  <div className="matter-overflow-menu">
+              {showOverflow && (
+                <div className="matter-overflow-menu">
+                  {canAssignWork && (
+                    <Link
+                      to={`/work/new?matterId=${matter.id}`}
+                      className="matter-overflow-item"
+                      onClick={() => setShowOverflow(false)}
+                    >
+                      <IconPlus size={14} />
+                      Assign Work
+                    </Link>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="matter-overflow-item"
+                      onClick={() => {
+                        setShowOverflow(false);
+                        setManageLinkError(null);
+                        setShowManageLinksDrawer(true);
+                      }}
+                    >
+                      <IconLink size={14} />
+                      Manage Linked Records
+                    </button>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="matter-overflow-item"
+                      onClick={() => {
+                        setShowOverflow(false);
+                        setEditTitle(matter.title);
+                        setEditStatus(matter.status || "Open");
+                        setEditRefNo(matter.referenceNumber || "");
+                        setEditRemarks(matter.remarks || "");
+                        setEditError(null);
+                        setShowEditModal(true);
+                      }}
+                    >
+                      <IconEdit size={14} />
+                      Edit Metadata
+                    </button>
+                  )}
+                  {canManageDocs && (
+                    <>
+                      <button
+                        type="button"
+                        className="matter-overflow-item"
+                        onClick={() => {
+                          setShowOverflow(false);
+                          setUploadError(null);
+                          setShowUploadModal(true);
+                        }}
+                      >
+                        <IconUpload size={14} />
+                        Upload Document
+                      </button>
+                      <button
+                        type="button"
+                        className="matter-overflow-item"
+                        onClick={() => {
+                          setShowOverflow(false);
+                          setLinkError(null);
+                          setShowLinkDrawer(true);
+                        }}
+                      >
+                        <IconFileText size={14} />
+                        Extract / Link Doc
+                      </button>
+                    </>
+                  )}
+                  {canEdit && (
                     <button
                       type="button"
                       className="matter-overflow-item"
@@ -940,17 +932,25 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
                       <IconBuilding size={14} />
                       Reclassify Workstream
                     </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Internal Workspace Tabs Bar */}
       <div>
         <nav className="matter-tabs-nav" aria-label="Matter Work Surfaces">
+          <button
+            type="button"
+            className={`matter-tab-btn tab-green-noting ${activeTab === "noting" ? "active" : ""}`}
+            onClick={() => setActiveTab("noting")}
+          >
+            <span className="tab-green-dot" />
+            Green Noting
+          </button>
           <button
             type="button"
             className={`matter-tab-btn ${activeTab === "overview" ? "active" : ""}`}
@@ -1002,6 +1002,15 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
         {/* Tab Body Surfaces */}
         <div className="matter-tab-body">
+          {/* TAB 0: GREEN NOTING */}
+          {activeTab === "noting" && (
+            <GreenNotingWorkspace
+              matterId={id!}
+              villageName={contextData.village?.name}
+              controllingDakNumber={contextData.daks?.[0]?.diaryNumber}
+            />
+          )}
+
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="matter-overview-grid">

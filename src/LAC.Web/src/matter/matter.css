@@ -792,6 +792,143 @@
   padding-bottom: 12px;
 }
 
+/* Compact Identity Strip (~56-62px tall, replacing oversized identity card) */
+.matter-compact-identity-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px 16px;
+  min-height: 52px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.matter-identity-strip-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.matter-back-link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0369a1;
+  text-decoration: none;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.matter-back-link:hover {
+  background: #f0f9ff;
+  text-decoration: underline;
+}
+
+.matter-strip-sep {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.matter-strip-village {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: #475569;
+}
+
+.matter-strip-village .village-link {
+  color: #0369a1;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.matter-strip-village .village-link:hover {
+  text-decoration: underline;
+}
+
+.matter-strip-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  max-width: 380px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.matter-strip-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1e293b;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.matter-strip-dak-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0369a1;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.matter-identity-strip-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.matter-strip-more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.matter-strip-more-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.tab-green-noting {
+  font-weight: 700 !important;
+  color: #166534 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tab-green-noting.active {
+  background: #f0fdf4 !important;
+  border-bottom: 2px solid #16a34a !important;
+  color: #14532d !important;
+}
+
+.tab-green-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #16a34a;
+  display: inline-block;
+}
+
 /* Accessibility & Reduced Motion */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
