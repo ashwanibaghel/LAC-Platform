@@ -14,6 +14,8 @@ public readonly record struct MatterDraftLayoutProfile(
 
 public static class MatterDraftOfficeProfiles
 {
+    public static readonly MatterDraftLayoutProfile GreenLegalV2 = new(
+        "GreenLegalV2", "Legal", "Portrait", true, 45m, 15m, 25m, 25m, 0m);
     public static readonly MatterDraftLayoutProfile DelhiLacNotingV1 = new(
         Code: "DelhiLacNotingV1",
         PageSize: "Legal",

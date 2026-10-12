@@ -13,6 +13,8 @@ public sealed class MatterWorkingNote
     public Guid? SourceDakId { get; set; }
     public string CitationsJson { get; set; } = "[]";
     public DateTimeOffset UpdatedAt { get; set; }
+    public Guid? OfficeSessionId { get; set; }
+    public Guid? OfficePreviewId { get; set; }
 }
 
 public sealed class MatterOfficialNote

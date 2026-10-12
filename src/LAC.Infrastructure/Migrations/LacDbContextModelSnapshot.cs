@@ -4898,6 +4898,86 @@ namespace LAC.Infrastructure.Migrations
                     b.ToTable("MatterEvents");
                 });
 
+            modelBuilder.Entity("LAC.Domain.MatterGreenSheet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FontManifestSha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("PageCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("PdfSha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PdfStoragePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RendererVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceId")
+                        .IsUnique();
+
+                    b.ToTable("MatterGreenSheets");
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterGreenSheetSource", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ManifestJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("MatterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("WorkingPreviewId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("MatterId");
+
+                    b.HasIndex("WorkingPreviewId");
+
+                    b.ToTable("MatterGreenSheetSources");
+                });
+
             modelBuilder.Entity("LAC.Domain.MatterKhasra", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4980,6 +5060,261 @@ namespace LAC.Infrastructure.Migrations
                         {
                             t.HasCheckConstraint("CK_Remark_State", "\"State\" IN ('Open','Addressed')");
                         });
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeNoteEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConverterVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LayoutPolicy")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("NoteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PreviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NoteId")
+                        .IsUnique();
+
+                    b.HasIndex("PreviewId");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.ToTable("MatterOfficeNoteEvidence");
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficePreview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CanonicalHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CanonicalText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ConverterVersion")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("MatterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SourceDakId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("WorkingRevision")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("MatterId");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.HasIndex("SourceDakId");
+
+                    b.HasIndex("SessionId", "SnapshotId")
+                        .IsUnique();
+
+                    b.ToTable("MatterOfficePreviews");
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSaveRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ClientGeneration")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("Deadline")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SessionRevision")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SessionId")
+                        .IsUnique()
+                        .HasFilter("\"State\" = 'Pending'");
+
+                    b.HasIndex("SnapshotId");
+
+                    b.HasIndex("ActorUserId", "RequestId")
+                        .IsUnique();
+
+                    b.ToTable("MatterOfficeSaveRequests", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MatterOfficeSaveRequest_State", "\"State\" IN ('Pending','Failed','Committed')");
+                        });
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorSessionVersion")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocumentKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LatestSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("MatterId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SourceDakId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("WorkingRevision")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("DocumentKey")
+                        .IsUnique();
+
+                    b.HasIndex("SourceDakId");
+
+                    b.HasIndex("MatterId", "ActorUserId")
+                        .IsUnique()
+                        .HasFilter("\"State\" IN ('Active','Frozen','Reviewed')");
+
+                    b.ToTable("MatterOfficeSessions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_MatterOfficeSession_State", "\"State\" IN ('Active','Frozen','Reviewed','Revoked','Submitted')");
+                        });
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid?>("SaveRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("SaveRequestId");
+
+                    b.HasIndex("SessionId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("MatterOfficeSnapshots");
                 });
 
             modelBuilder.Entity("LAC.Domain.MatterOfficialNote", b =>
@@ -5163,6 +5498,12 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid>("MatterId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("OfficePreviewId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("OfficeSessionId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Revision")
                         .IsConcurrencyToken()
                         .HasColumnType("integer");
@@ -5176,6 +5517,10 @@ namespace LAC.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AuthorUserId");
+
+                    b.HasIndex("OfficePreviewId");
+
+                    b.HasIndex("OfficeSessionId");
 
                     b.HasIndex("MatterId", "AuthorUserId")
                         .IsUnique();
@@ -9638,6 +9983,35 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("Matter");
                 });
 
+            modelBuilder.Entity("LAC.Domain.MatterGreenSheet", b =>
+                {
+                    b.HasOne("LAC.Domain.MatterGreenSheetSource", null)
+                        .WithMany()
+                        .HasForeignKey("SourceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterGreenSheetSource", b =>
+                {
+                    b.HasOne("LAC.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Matter", null)
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficePreview", null)
+                        .WithMany()
+                        .HasForeignKey("WorkingPreviewId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("LAC.Domain.MatterKhasra", b =>
                 {
                     b.HasOne("LAC.Domain.Khasra", "Khasra")
@@ -9674,6 +10048,119 @@ namespace LAC.Infrastructure.Migrations
                     b.HasOne("LAC.Domain.MatterOfficialNote", null)
                         .WithMany()
                         .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeNoteEvidence", b =>
+                {
+                    b.HasOne("LAC.Domain.MatterOfficialNote", null)
+                        .WithMany()
+                        .HasForeignKey("NoteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficePreview", null)
+                        .WithMany()
+                        .HasForeignKey("PreviewId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficePreview", b =>
+                {
+                    b.HasOne("LAC.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Matter", null)
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Dak", null)
+                        .WithMany()
+                        .HasForeignKey("SourceDakId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSaveRequest", b =>
+                {
+                    b.HasOne("LAC.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSnapshot", null)
+                        .WithMany()
+                        .HasForeignKey("SnapshotId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSession", b =>
+                {
+                    b.HasOne("LAC.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Matter", null)
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Dak", null)
+                        .WithMany()
+                        .HasForeignKey("SourceDakId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("LAC.Domain.MatterOfficeSnapshot", b =>
+                {
+                    b.HasOne("LAC.Domain.AppUser", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficeSaveRequest", null)
+                        .WithMany()
+                        .HasForeignKey("SaveRequestId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.MatterOfficeSession", null)
+                        .WithMany()
+                        .HasForeignKey("SessionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -9736,6 +10223,16 @@ namespace LAC.Infrastructure.Migrations
                         .HasForeignKey("MatterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("LAC.Domain.MatterOfficePreview", null)
+                        .WithMany()
+                        .HasForeignKey("OfficePreviewId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.MatterOfficeSession", null)
+                        .WithMany()
+                        .HasForeignKey("OfficeSessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("LAC.Domain.NmDocument", b =>

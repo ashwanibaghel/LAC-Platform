@@ -25,6 +25,13 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<Dak> Daks => Set<Dak>(); public DbSet<DakAssignment> DakAssignments => Set<DakAssignment>(); public DbSet<DakMovement> DakMovements => Set<DakMovement>(); public DbSet<DakAttachment> DakAttachments => Set<DakAttachment>(); public DbSet<DakCategory> DakCategories => Set<DakCategory>(); public DbSet<DakVillageLink> DakVillageLinks => Set<DakVillageLink>(); public DbSet<DakAwardLink> DakAwardLinks => Set<DakAwardLink>(); public DbSet<DakMatterLink> DakMatterLinks => Set<DakMatterLink>(); public DbSet<DakKhasraLink> DakKhasraLinks => Set<DakKhasraLink>();
  public DbSet<Outward> Outwards => Set<Outward>(); public DbSet<OutwardEvent> OutwardEvents => Set<OutwardEvent>(); public DbSet<OutwardAttachment> OutwardAttachments => Set<OutwardAttachment>(); public DbSet<OutwardDakLink> OutwardDakLinks => Set<OutwardDakLink>();
  public DbSet<MatterWorkingNote> MatterWorkingNotes => Set<MatterWorkingNote>(); public DbSet<MatterOfficialNote> MatterOfficialNotes => Set<MatterOfficialNote>(); public DbSet<MatterNoteRemark> MatterNoteRemarks => Set<MatterNoteRemark>(); public DbSet<MatterPdfAnnotation> MatterPdfAnnotations => Set<MatterPdfAnnotation>(); public DbSet<MatterWorkflowReceipt> MatterWorkflowReceipts => Set<MatterWorkflowReceipt>();
+ public DbSet<MatterOfficeSession> MatterOfficeSessions => Set<MatterOfficeSession>();
+ public DbSet<MatterOfficeSaveRequest> MatterOfficeSaveRequests => Set<MatterOfficeSaveRequest>();
+ public DbSet<MatterOfficeSnapshot> MatterOfficeSnapshots => Set<MatterOfficeSnapshot>();
+ public DbSet<MatterOfficePreview> MatterOfficePreviews => Set<MatterOfficePreview>();
+ public DbSet<MatterOfficeNoteEvidence> MatterOfficeNoteEvidence => Set<MatterOfficeNoteEvidence>();
+ public DbSet<MatterGreenSheetSource> MatterGreenSheetSources => Set<MatterGreenSheetSource>();
+ public DbSet<MatterGreenSheet> MatterGreenSheets => Set<MatterGreenSheet>();
  public DbSet<MatterEvent> MatterEvents => Set<MatterEvent>();
  public DbSet<RecordAccessEvent> RecordAccessEvents => Set<RecordAccessEvent>();
  public DbSet<WorkItem> WorkItems => Set<WorkItem>(); public DbSet<WorkItemAssignment> WorkItemAssignments => Set<WorkItemAssignment>(); public DbSet<WorkItemContributor> WorkItemContributors => Set<WorkItemContributor>(); public DbSet<WorkItemUpdate> WorkItemUpdates => Set<WorkItemUpdate>(); public DbSet<WorkItemAttachment> WorkItemAttachments => Set<WorkItemAttachment>(); public DbSet<WorkItemMatterLink> WorkItemMatterLinks => Set<WorkItemMatterLink>(); public DbSet<WorkItemDakLink> WorkItemDakLinks => Set<WorkItemDakLink>(); public DbSet<WorkItemEvent> WorkItemEvents => Set<WorkItemEvent>();
@@ -48,6 +55,7 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
   Configurations.DakModelConfiguration.Configure(b);
   Configurations.OutwardModelConfiguration.Configure(b);
   Configurations.MatterModelConfiguration.Configure(b); Configurations.MatterNotingConfiguration.Configure(b);
+  Configurations.MatterOfficeNotingConfiguration.Configure(b);
   Configurations.WorkItemModelConfiguration.Configure(b);
   Configurations.RecordAccessConfiguration.Configure(b);
   Configurations.ScheduledEventModelConfiguration.Configure(b);
@@ -138,7 +146,26 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
     throw new InvalidOperationException("Physical recovery evidence is immutable.");
   }
  }
- private void CheckHistoryImmutability() { foreach (var e in ChangeTracker.Entries().Where(e => e.Entity is MatterOfficialNote or MatterWorkflowReceipt or MatterPdfAnnotation)) if (e.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Official noting history is immutable."); foreach (var entry in ChangeTracker.Entries<CompensationHistory>()) { if (entry.State == EntityState.Deleted || (entry.State == EntityState.Modified && entry.Properties.Any(p => p.IsModified && p.Metadata.Name != nameof(LAC.Domain.CompensationHistory.Title)))) throw new InvalidOperationException("Calculation evidence is immutable; create a new history entry."); } }
+ private void CheckHistoryImmutability()
+ {
+  foreach (var e in ChangeTracker.Entries().Where(e => e.Entity is MatterOfficialNote or MatterWorkflowReceipt or MatterPdfAnnotation or
+      MatterOfficeSnapshot or MatterOfficePreview or LAC.Domain.MatterOfficeNoteEvidence or MatterGreenSheetSource or MatterGreenSheet))
+   if (e.State is EntityState.Modified or EntityState.Deleted) throw new InvalidOperationException("Official noting history and Office snapshots are immutable.");
+  foreach (var e in ChangeTracker.Entries<MatterOfficeSession>())
+   if (e.State == EntityState.Deleted || e.State == EntityState.Modified &&
+       (e.OriginalValues.GetValue<string>(nameof(MatterOfficeSession.State)) is "Revoked" or "Submitted" ||
+        e.Entity.Revision != e.OriginalValues.GetValue<int>(nameof(MatterOfficeSession.Revision)) + 1 ||
+        e.Properties.Any(p => p.IsModified && p.Metadata.Name is not (nameof(MatterOfficeSession.State) or nameof(MatterOfficeSession.Revision) or nameof(MatterOfficeSession.WorkingRevision) or nameof(MatterOfficeSession.LatestSnapshotId)))))
+    throw new InvalidOperationException("Office lease identity, expiry and retired state are immutable.");
+  foreach (var e in ChangeTracker.Entries<MatterOfficeSaveRequest>())
+   if (e.State == EntityState.Deleted || e.State == EntityState.Modified &&
+       (e.OriginalValues.GetValue<string>(nameof(MatterOfficeSaveRequest.State)) == "Committed" || e.Properties.Any(p => p.IsModified &&
+        p.Metadata.Name is not (nameof(MatterOfficeSaveRequest.State) or nameof(MatterOfficeSaveRequest.SnapshotId) or nameof(MatterOfficeSaveRequest.FailureCode) or nameof(MatterOfficeSaveRequest.Deadline)))))
+    throw new InvalidOperationException("Office save request identity and committed receipts are immutable.");
+  foreach (var entry in ChangeTracker.Entries<CompensationHistory>())
+   if (entry.State == EntityState.Deleted || entry.State == EntityState.Modified && entry.Properties.Any(p => p.IsModified && p.Metadata.Name != nameof(LAC.Domain.CompensationHistory.Title)))
+    throw new InvalidOperationException("Calculation evidence is immutable; create a new history entry.");
+ }
  public override int SaveChanges(bool acceptAllChangesOnSuccess) { CheckHistoryImmutability();
   CourtIntelligencePersistence.GuardImmutableRevisions(this);
   EnsureDakHistoryImmutable();
