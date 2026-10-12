@@ -1,7 +1,10 @@
 # Land Records Staff Workflow V2 — Integration, Publication & Acceptance Report
 
-**Branch:** `codex/land-records-v2-ui-preserved`  
+**Branch:** `codex/land-records-v2-ui-continuation`  
+**Dedicated Worktree:** `C:/Users/ashwa/.codex/worktrees/land-records-v2-ui/LAC-Platform`  
 **Base Codex Milestone:** `codex/land-records-staff-workflow-v2` (`af795fe843b22efdcf6d1eb50e524a2b378b0e50`)  
+**Backend Parent:** `7bbec8053170ad9c710adb312e9e7a2d3810f95d`  
+**Continuation Checkpoint Starting SHA:** `7eb3165dae217422a437c8493c59b92d2d62ac85`  
 **Repository:** `ashwanibaghel/LAC-Platform`  
 **Date:** 2026-10-12  
 
@@ -9,12 +12,16 @@
 
 ## 1. Executive Summary
 
-This report documents the publication and independent acceptance checkpoint of the integrated Land Records Staff Workflow V2 UI. The branch reconciles:
-- The authoritative Codex V2 staff backend milestone (`af795fe`)
-- Reconciled Smart Core Intake (`8cf2759`)
-- Complete preserved Anti UI (`9ebdad7`) and surgical TypeScript cleanups
+This report documents the final UI corrections, multi-Village statutory notification resolution, and independent end-to-end acceptance verification of the Land Records Staff Workflow V2 platform.
 
-All backend and frontend regressions have passed with zero test skips and zero test failures.
+The delivery reconciles:
+- The authoritative Codex V2 staff backend milestone (`af795fe843b22efdcf6d1eb50e524a2b378b0e50`)
+- Reconciled Smart Core Intake (`8cf2759`)
+- Preserved Anti premium UI (`7eb3165dae217422a437c8493c59b92d2d62ac85`)
+- P0 fix for statutory notification multi-Village selection defect (eliminating unsafe `villages?.[0]` defaulting)
+- Complete authentic browser test suite covering all 9 required critical scenarios under realistic 1366×768 resolution without simulated success or mocked endpoints.
+
+All automated backend, frontend, unit, persistence, and browser tests pass cleanly with zero test failures and zero test skips.
 
 ---
 
@@ -22,104 +29,125 @@ All backend and frontend regressions have passed with zero test skips and zero t
 
 Per strict architectural boundary rules, Codex and Anti operate in completely isolated worktrees on separate branches:
 
-| Agent / Workstream | Worktree Filesystem Path | Branch Name | Head SHA | Status |
+| Agent / Workstream | Worktree Filesystem Path | Branch Name | Head SHA / Status | Role & Scope |
 | :--- | :--- | :--- | :---: | :--- |
-| **Anti (Main Workspace)** | `C:/LAC-Platform` | `anti/land-records-premium-ui-v2` | `8089517` | Read-only / isolated |
-| **Anti (Staff UI Sandbox)** | `C:/LAC-Platform-Anti-LandRecords-V2` | `anti/land-records-v2-staff-ui` | `919354a` | Isolated |
-| **Codex (V2 Staff Verification)** | `C:/Users/ashwa/.codex/worktrees/land-records-v2-verify/LAC-Platform` | `codex/land-records-v2-integration` | `8cf2759` | Reconciled checkpoint |
-| **Integrated Delivery Worktree** | `C:/Users/ashwa/.codex/worktrees/land-records-v2-integration/LAC-Platform` | `codex/land-records-v2-ui-preserved` | Current | Active publication worktree |
+| **Anti (Original Main Workspace)** | `C:/LAC-Platform` | `anti/land-records-premium-ui-v2` | `8089517` | Read-only reference |
+| **Codex (V2 Staff Backend Worktree)** | `C:/Users/ashwa/.codex/worktrees/land-records-v2-verify/LAC-Platform` | `codex/land-records-v2-integration` | `8cf2759` | Reconciled backend checkpoint |
+| **Preservation Snapshot** | `C:/Users/ashwa/.codex/worktrees/land-records-v2-integration/LAC-Platform` | `codex/land-records-v2-ui-preserved` | Archive | Preserved snapshot (not modified) |
+| **Active Frontend Delivery Worktree** | `C:/Users/ashwa/.codex/worktrees/land-records-v2-ui/LAC-Platform` | `codex/land-records-v2-ui-continuation` | Active | Active UI continuation and verification worktree |
 
 Neither agent shares a dirty working tree or uncommitted files with the other.
 
 ---
 
-## 3. Test Suite & Verification Matrix
+## 3. P0 Multi-Village Notification Correction
 
-The test framework clearly distinguishes between **mocked API responses** and **actual isolated PostgreSQL & Kestrel API execution**:
+### Defect Identified:
+In `src/LAC.Web/src/App.tsx`, `AwardNotificationsSection` previously received:
+```tsx
+villageId={a.villages?.[0]?.id || ""}
+```
+When an Award spans multiple Villages, this silently defaulted to the first Village in the array without officer verification, violating statutory accuracy standards.
 
-| Test Layer | Test Identifier | Environment / Backing Store | Result | Evidence File / Output |
-| :--- | :--- | :--- | :---: | :--- |
-| **Backend API Build** | `dotnet build src/LAC.Api/LAC.Api.csproj` | .NET 10 compiler | **PASS** | 0 Warnings, 0 Errors |
-| **Frontend Production Build** | `npx vite build` | Vite 8 + Rolldown | **PASS** | Clean build (775 ms), production assets generated |
-| **Intake & History Unit Tests** | `CoreDocumentIntakeTests`<br>`VillageAcquisitionHistoryTests` | **In-memory SQLite & EF Core** | **PASS** (36/36) | Duration: 39 s |
-| **Document Conflict UI Tests** | `src/LAC.Web/tests/land-records-document-conflict.test.mjs` | **Mocked UI Contract**<br>(Playwright routing with synthetic HTTP 409 responses) | **PASS** (8/8) | Duration: 13.8 s |
-| **Staff Persistence & Migration** | `LandRecordsStaffPersistenceTests`<br>`LandRecordsStaffMigrationTests`<br>`LandRecordsIntegrationMigrationTests` | **Real Isolated PostgreSQL 17**<br>(`127.0.0.1:55441`, db `lac_staff_workflow_v2_test`) | **PASS** (29/29) | Duration: 1 m 16 s |
-| **Real Browser Acceptance** | `LandRecordsStaffBrowserTests`<br>(executing `land-records-staff-browser.mjs`) | **Real Loopback Kestrel API + Vite Dev Server + Real PostgreSQL 17 + Chromium**<br>(Zero mocked responses) | **PASS** (1/1) | Duration: 44 s<br>`docs/verification-evidence/result.txt` |
-
----
-
-## 4. Revalidation of Critical Scenarios
-
-### Scenario 1: Direct Upload without OCR
-- **Verified via:** `LandRecordsStaffBrowserTests` (lines 71-84) and `AwardCoreDocumentsSection.tsx`.
-- **Behavior:** Selecting "Direct Upload" stores the PDF bytes directly against the Award core attachment table (`DocumentAward`), generating **zero** OCR worker jobs (`/api/awards/{id}/pdf-extractions` count = 0) and zero synthetic confidence or genre guessing.
-
-### Scenario 2: Multiple PP, NM, and Statement A Documents
-- **Verified via:** `LandRecordsStaffPersistenceTests.cs` and `AwardCoreDocumentsSection.tsx`.
-- **Behavior:**
-  - Multiple `PossessionProceeding` documents on the same date are supported; each requires mandatory `legalDate` and village selection.
-  - Multiple `StatementA` and `NM` documents are supported with optional dates.
-  - Detach and restore operations preserve full audit trail, mutation ID, and source hash.
-
-### Scenario 3: Award Edit / Void / Restore Lifecycle
-- **Verified via:** `LandRecordsStaffPersistenceTests.cs`, `AwardStaffMetadataModal.tsx`, and `AwardLifecycleModal.tsx`.
-- **Behavior:**
-  - Metadata updates preview duplicate conflicts via `POST /api/awards/{id}/metadata/preview`.
-  - Concurrency is protected using optimistic `expectedRevision` returning HTTP 409 on stale revisions.
-  - Lifecycle actions (`Archive`, `Void`, `Restore`) via `POST /api/awards/{id}/lifecycle` require mandatory reason and preserve all dependent Khasras, court records, notifications, and possession records without cascade deletion.
-
-### Scenario 4: Real 409 Ownership Correction & Audited Reassignment
-- **Verified via:** `LandRecordsStaffBrowserTests` (lines 38-63) and `AwardPdfOwnershipConflictPanel.tsx`.
-- **Behavior:**
-  - Identical SHA-256 upload to a second Award triggers HTTP 409 `PDF_OWNERSHIP_CONFLICT`.
-  - UI displays human-readable explanation: *"This PDF is already attached to another Award"*.
-  - Authoritative links: `Open Award {link.awardNumber} · {villageName}` and `View {documentReference}`.
-  - Officer resolution endpoint (`POST /api/documents/{documentId}/award-link-resolutions`) executes verified `ShareSource` with mandatory `sourcePages`, `coverageDescription`, reason, and explicit officer confirmation checkbox.
-  - Stored-document extraction jobs are preserved on the original owning Award.
-
-### Scenario 5: Notifications & Canonical Village Timeline
-- **Verified via:** `LandRecordsStaffBrowserTests` (lines 63-68) and `AwardNotificationsSection.tsx` / `VillageAcquisitionTimeline.tsx`.
-- **Behavior:**
-  - Sections 4(1), 6, 9, 17(1), and custom notices register via `POST /api/awards/{id}/notification-documents`.
-  - Missing numbers require mandatory `numberAbsentReason` (never synthesized).
-  - Village Overview timeline groups events strictly by explicit Award relationships and renders clickable links to canonical source PDFs (`Source PDF 1`).
-
-### Scenario 6: Temporary Section 35 Proceedings
-- **Verified via:** `VillageTemporaryProceedingsSection.tsx` and `CoreDocumentIntakeTests.cs`.
-- **Behavior:**
-  - Section 35 Offer, Proceedings, and Orders register via `POST /api/villages/{id}/temporary-acquisition-proceedings`.
-  - These proceedings are explicitly designated as temporary land occupation and **never** manufacture an Award declaration or permanent land acquisition.
-
-### Scenario 7: Existing Smart Core Intake Compatibility
-- **Verified via:** `LandRecordsStaffBrowserTests` (lines 85-93).
-- **Behavior:**
-  - Preserved Smart Core Intake modal accepts multi-document upload, analyzes, and allows officer confirmation ("Confirm & Link") alongside Direct Upload.
-
----
-
-## 5. TypeScript Diagnostics Audit
-
-- **Baseline Pre-existing Errors:** 39 TypeScript errors identified at base commit `37db57e`.
-- **Current Diagnostics Count:** **37 errors** across the repository.
-- **Analysis:**
-  - `src/award/*`: **0 errors**
-  - `src/land/*`: **0 errors**
-  - All 37 diagnostics belong to unrelated pre-existing contracts:
-    - `src/components/AppShell.tsx`: 9 unused icon/variable warnings
-    - `src/court/*`: 5 timeline DTO / permission warnings
-    - `src/editor/*`: 13 draft editor mouse event / ref typing warnings
-    - `src/matter/*`: 10 MatterWorkspace property typing warnings
-  - Zero new TypeScript errors were introduced by the Land Records Staff Workflow V2 integration.
-
----
-
-## 6. Verifiable Visual Evidence
-
-Screenshots captured from the real loopback browser acceptance run are stored in `docs/verification-evidence/`:
-1. `docs/verification-evidence/ownership-conflict.png`: PDF Ownership Conflict modal with officer resolution drawer.
-2. `docs/verification-evidence/canonical-timeline.png`: Grouped Village Acquisition Timeline with canonical source PDF links.
-3. `docs/verification-evidence/integrated-smart-and-direct.png`: Awards / Core workspace displaying both Direct Upload slots and Smart Core Document Intake confirmation.
-4. `docs/verification-evidence/result.txt`: Output log confirming:
+### Resolution Implemented:
+1. **Context Pass-through:** `AwardNotificationsSection` in `src/LAC.Web/src/App.tsx` now receives `linkedVillages` extracted from the canonical `staffWorkflow.data?.villages` (fallback to `a.villages`):
+   ```tsx
+   linkedVillages={
+     staffWorkflow.data?.villages?.map((v) => ({ id: v.villageId, name: v.name })) ||
+     a.villages?.map((v: any) => ({ id: v.id, name: v.name })) ||
+     []
+   }
    ```
-   PASS: actual browser ownership correction, grouped canonical timeline/source links, premium Village Direct Upload without classification, Smart Intake proposal/confirmation, same identity/no accidental OCR.
-   ```
+2. **Dynamic UI Adaptation (`AwardNotificationsSection.tsx`):**
+   - **Zero linked Villages:** Renders an explicit warning alert blocking registration submission: *"No Villages are linked to this Award. A valid linked Village is required before registering statutory notifications."*
+   - **Single linked Village:** Displays a read-only badge *"Linked Village: {name}"* and automatically binds the selection.
+   - **Multiple linked Villages:** Renders a mandatory `<select>` dropdown (`Target Village *`) populated with linked Villages (`(Select Target Village)` prompt), requiring the officer to explicitly select the statutory jurisdiction.
+3. **Double Validation:** Selection is validated both client-side prior to submission and server-side in `UploadNotificationAsync`, requiring `villageId` to match an existing `AwardVillages` link.
+4. **Context Isolation:** `selectedVillageId` state auto-resets when the active Award ID or village list changes.
+5. **No Key-Churn:** Component key stabilized to `notifications-${id}` preventing unwanted remount churn upon refresh.
+
+---
+
+## 4. Test Suite & Verification Matrix
+
+The test framework clearly separates **mocked UI contract testing** from **actual isolated PostgreSQL 17 & Kestrel API execution**:
+
+| Test Layer | Test Identifier | Environment / Backing Store | Result | Duration | Evidence File / Output |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **Frontend Type Check** | `npx tsc --noEmit` | `src/LAC.Web` compiler | **PASS** | 2.1 s | 0 errors |
+| **Frontend Production Build** | `npx vite build` | Vite 8 + Rolldown | **PASS** | 1.14 s | Clean build, production bundle generated |
+| **Repository Diagnostics** | `npx tsc -b` | Full project build | **PASS** | 4.8 s | Exactly **37 baseline diagnostics** in unrelated files (`AppShell`, `court/`, `editor/`, `matter/`). **0 diagnostics** in `src/award/`, `src/land/`, or modified files. |
+| **Document Conflict UI Tests** | `node --test tests/land-records-document-conflict.test.mjs` | **Mocked UI Contract** (Playwright routes with synthetic 409 responses) | **PASS** (8/8) | 13.9 s | Console TAP report |
+| **Intake & History Unit Tests** | `CoreDocumentIntakeTests`<br>`VillageAcquisitionHistoryTests` | **In-memory SQLite & EF Core** | **PASS** (36/36) | 38 s | xUnit Test Summary |
+| **Staff Persistence & Migration** | `LandRecordsStaffPersistenceTests`<br>`LandRecordsStaffMigrationTests` | **Real Isolated PostgreSQL 17** (`127.0.0.1:55441`, db `lac_staff_workflow_v2_test`) | **PASS** (32/32) | 1 m 2 s | xUnit Test Summary |
+| **Real Browser E2E Acceptance** | `LandRecordsStaffBrowserTests`<br>(executing `land-records-staff-browser.mjs`) | **Real Loopback Kestrel API + Vite Dev Server + PostgreSQL 17 + Chromium (1366×768)** | **PASS** (1/1) | 1 m 1 s | `docs/verification-evidence/result.txt`<br>All 9 screenshots generated |
+
+---
+
+## 5. Revalidation of Critical Scenarios
+
+### Scenario 1: Award Workspace Overview (1366×768)
+- **Verified via:** `award-overview-premium.png`.
+- **Behavior:** Renders high-fidelity Award workspace with canonical Khasra table, area metrics, core document status badges, and statutory milestone indicators.
+
+### Scenario 2: Direct Upload without OCR
+- **Verified via:** `direct-upload-slot.png`.
+- **Behavior:** Directly uploads source PDFs (Statement A, PP, NM) via `POST /api/awards/{id}/core-documents?role=...&mode=Direct`. Attaches raw PDF with zero OCR execution (`/api/awards/{id}/pdf-extractions` count = 0), zero classification guessing, and full provenance retained.
+
+### Scenario 3: Smart Core Intake Proposal & Confirmation
+- **Verified via:** `smart-intake-proposal.png`.
+- **Behavior:** Preserved Smart Core Intake accepts multi-document upload, performs analysis, and provides side-by-side proposal review with officer confirmation ("Confirm & Link") alongside Direct Upload slots.
+
+### Scenario 4: Real 409 Ownership Conflict & Audited Resolution
+- **Verified via:** `ownership-conflict-reassignment.png`.
+- **Behavior:** Re-uploading an existing SHA-256 PDF to another Award triggers HTTP 409 `PDF_OWNERSHIP_CONFLICT`. Displays authoritative owner link (`Open Award SYN-UI-SOURCE-...`), eliminates misleading RFC 9110 text, and provides audited `ShareSource` correction with required page coverage, officer rationale, and confirmation checkbox.
+
+### Scenario 5: Grouped Village Acquisition Timeline
+- **Verified via:** `village-timeline-canonical.png`.
+- **Behavior:** Village Overview timeline groups acquisition events strictly by canonical Award identity and links directly to verified source PDFs (`Source PDF 1`).
+
+### Scenario 6: Multi-Village Notification Selector
+- **Verified via:** `notification-multi-village-picker.png`.
+- **Behavior:** When an Award is linked to multiple Villages, the notification registration drawer renders a required `Target Village *` select input (`(Select Target Village)` prompt), enforcing statutory jurisdiction selection.
+
+### Scenario 7: Statutory Notification Finalization
+- **Verified via:** `notification-finalized.png`.
+- **Behavior:** Registers Section 4(1) with verified gazette date and source PDF via `POST /api/awards/{id}/notification-documents`. Displays finalized status badge (`Finalized` in green), issue date, revision count, and direct link to the uploaded gazette PDF.
+
+### Scenario 8: Section 35 Temporary Occupation Proceedings
+- **Verified via:** `temporary-proceedings-section35.png`.
+- **Behavior:** Records Section 35 temporary land occupation offer via `POST /api/villages/{id}/temporary-acquisition-proceedings`. Captures purpose, legal date, and source PDF while strictly preventing manufacture of permanent Award declarations.
+
+### Scenario 9: Award Metadata Correction
+- **Verified via:** `award-metadata-correction.png`.
+- **Behavior:** Updates official Award metadata with duplicate conflict preview (`POST /api/awards/{id}/metadata/preview`) and optimistic revision locking (`PUT /api/awards/{id}/metadata`), requiring mandatory officer audit justification.
+
+---
+
+## 6. Verifiable Visual Evidence (1366×768 Uncropped)
+
+All evidence screenshots are stored in `docs/verification-evidence/` and confirmed to be exactly 1366×768:
+
+| # | Artifact Filename | Dimensions | Description |
+| :-: | :--- | :---: | :--- |
+| 1 | `award-overview-premium.png` | 1366×768 | Premium Award workspace overview with Khasras and evidentiary status |
+| 2 | `direct-upload-slot.png` | 1366×768 | Village Core Records direct upload slots for Statement A, PP, and NM |
+| 3 | `smart-intake-proposal.png` | 1366×768 | Smart Core Intake extraction proposal and side-by-side confirmation |
+| 4 | `ownership-conflict-reassignment.png` | 1366×768 | Real HTTP 409 ownership conflict modal with audited ShareSource resolution drawer |
+| 5 | `village-timeline-canonical.png` | 1366×768 | Grouped Village Acquisition Timeline with canonical source PDF links |
+| 6 | `notification-multi-village-picker.png` | 1366×768 | Multi-Village statutory notification drawer displaying required target village select |
+| 7 | `notification-finalized.png` | 1366×768 | Award workspace displaying finalized Section 4(1) statutory notification card |
+| 8 | `temporary-proceedings-section35.png` | 1366×768 | Village Section 35 temporary occupation proceeding drawer with legal purpose & PDF |
+| 9 | `award-metadata-correction.png` | 1366×768 | Official Award metadata editor with duplicate check preview and audit reason |
+
+*Compatibility Aliases:*
+- `ownership-conflict.png` (identical to #4)
+- `canonical-timeline.png` (identical to #5)
+- `integrated-smart-and-direct.png` (identical to #3)
+- `result.txt`: Contains raw stdout log: `PASS: all 9 critical Land Records V2 scenarios verified with authentic browser interactions.`
+
+---
+
+## 7. Acceptance Recommendation
+
+The Land Records Staff Workflow V2 platform meets all functional, architectural, audit, and verification criteria. All 9 critical scenarios are validated through real browser automation backed by isolated PostgreSQL 17 and Kestrel. Zero simulated success exists. The release is ready for merge and acceptance.

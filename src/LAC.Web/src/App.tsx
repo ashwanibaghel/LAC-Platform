@@ -2568,9 +2568,13 @@ function Award() {
         linkedVillages={a.villages?.map((v: any) => ({ id: v.id, name: v.name })) || []}
       />
       <AwardNotificationsSection
-        key={`notifications-${id}-${refresh}`}
+        key={`notifications-${id}`}
         awardId={id}
-        villageId={a.villages?.[0]?.id || ""}
+        linkedVillages={
+          staffWorkflow.data?.villages?.map((v) => ({ id: v.villageId, name: v.name })) ||
+          a.villages?.map((v: any) => ({ id: v.id, name: v.name })) ||
+          []
+        }
         notifications={staffWorkflow.data?.notifications || []}
         onRefresh={() => setRefresh((x) => x + 1)}
       />

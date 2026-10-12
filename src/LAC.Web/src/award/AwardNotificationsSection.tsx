@@ -1,20 +1,64 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { landRecordResponse, LandRecordApiError } from "./LandRecordApiError";
-import type { StaffNotification } from "./landRecordsStaffTypes";
+import type { StaffNotification, StaffAward } from "./landRecordsStaffTypes";
 
 interface AwardNotificationsSectionProps {
   awardId: string;
-  villageId: string;
+  linkedVillages?: { id: string; name: string }[];
+  villageId?: string;
   notifications: StaffNotification[];
   onRefresh: () => void;
 }
 
 export function AwardNotificationsSection({
   awardId,
+  linkedVillages,
   villageId,
   notifications,
   onRefresh,
 }: AwardNotificationsSectionProps) {
+  const effectiveVillages = linkedVillages && linkedVillages.length > 0
+    ? linkedVillages
+    : villageId
+      ? [{ id: villageId, name: "Linked Village" }]
+      : [];
+
+  const [selectedVillageId, setSelectedVillageId] = useState<string>(() => {
+    return effectiveVillages.length === 1 ? effectiveVillages[0].id : "";
+  });
+
+  const villageKey = effectiveVillages.map((v) => v.id).join(",");
+  useEffect(() => {
+    setSelectedVillageId(effectiveVillages.length === 1 ? effectiveVillages[0].id : "");
+  }, [awardId, villageKey]);
+
+  const [internalNotifications, setInternalNotifications] = useState<StaffNotification[]>(notifications || []);
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/awards/${awardId}/staff-workflow?r=${Date.now()}`, { credentials: "include" })
+      .then((res) => landRecordResponse<StaffAward>(res))
+      .then((data) => {
+        if (!active) return;
+        if (data?.notifications) {
+          setInternalNotifications(data.notifications);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [awardId, localRefresh]);
+
+  useEffect(() => {
+    if (notifications && notifications.length > 0) {
+      setInternalNotifications(notifications);
+    }
+  }, [notifications]);
+
+  const displayNotifications = internalNotifications;
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [uploadMode, setUploadMode] = useState<"New" | "Reuse">("New");
   const [reuseNotificationId, setReuseNotificationId] = useState("");
@@ -49,6 +93,7 @@ export function AwardNotificationsSection({
   const handleOpenRegister = () => {
     setUploadMode("New");
     setReuseNotificationId("");
+    setSelectedVillageId(effectiveVillages.length === 1 ? effectiveVillages[0].id : "");
     setSectionPreset("4(1)");
     setCustomSection("");
     setHasNoNumber(false);
@@ -64,6 +109,18 @@ export function AwardNotificationsSection({
 
   const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (effectiveVillages.length === 0) {
+      setErrorMessage("No Villages are linked to this Award. A valid linked Village is required to register notification documents.");
+      return;
+    }
+    if (!selectedVillageId) {
+      setErrorMessage("Please select a target Village for this notification document.");
+      return;
+    }
+    if (!effectiveVillages.some((v) => v.id === selectedVillageId)) {
+      setErrorMessage("The selected Village is not linked to this Award. Please select a valid linked Village.");
+      return;
+    }
     if (!file) {
       setErrorMessage("Please choose a source PDF file for the notification.");
       return;
@@ -91,7 +148,7 @@ export function AwardNotificationsSection({
 
     const query = new URLSearchParams({
       mutationId: mutationIdRef.current,
-      villageId,
+      villageId: selectedVillageId,
     });
 
     if (uploadMode === "Reuse" && reuseNotificationId) {
@@ -117,6 +174,7 @@ export function AwardNotificationsSection({
       await landRecordResponse(res);
       setSuccessMessage("Notification source document registered successfully.");
       setDrawerOpen(false);
+      setLocalRefresh((r) => r + 1);
       onRefresh();
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Failed to register notification document.");
@@ -169,6 +227,7 @@ export function AwardNotificationsSection({
       await landRecordResponse(res);
       setSuccessMessage("Notification metadata updated.");
       setEditingNotification(null);
+      setLocalRefresh((r) => r + 1);
       onRefresh();
     } catch (err) {
       if (err instanceof LandRecordApiError && err.code === "VerifiedMetadataProtected") {
@@ -209,6 +268,7 @@ export function AwardNotificationsSection({
       await landRecordResponse(res);
       setSuccessMessage("Notification finalized successfully.");
       setFinalizingNotification(null);
+      setLocalRefresh((r) => r + 1);
       onRefresh();
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Finalization failed.");
@@ -246,7 +306,7 @@ export function AwardNotificationsSection({
         </div>
       )}
 
-      {notifications.length === 0 ? (
+      {displayNotifications.length === 0 ? (
         <div style={{ padding: "32px", textAlign: "center", border: "1px dashed #cbd5e1", borderRadius: "8px", backgroundColor: "#f8fafc", margin: "16px 0" }}>
           <p style={{ margin: "0 0 10px 0", fontWeight: 600, color: "#334155" }}>
             No statutory notifications linked to this Award yet.
@@ -262,9 +322,10 @@ export function AwardNotificationsSection({
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "14px" }}>
-          {notifications.map((n) => (
+          {displayNotifications.map((n) => (
             <div
               key={n.id}
+              className="notification-card"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -377,6 +438,56 @@ export function AwardNotificationsSection({
             </div>
 
             <form onSubmit={handleRegisterSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "12px" }}>
+              {/* Target Village Context */}
+              {effectiveVillages.length === 0 ? (
+                <div
+                  role="alert"
+                  style={{
+                    padding: "10px 12px",
+                    background: "#fef2f2",
+                    border: "1px solid #fecaca",
+                    borderRadius: "6px",
+                    color: "#991b1b",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                  }}
+                >
+                  ⚠ Warning: No Villages are linked to this Award. A valid linked Village is required before registering statutory notifications.
+                </div>
+              ) : effectiveVillages.length === 1 ? (
+                <div
+                  style={{
+                    padding: "8px 12px",
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <strong style={{ color: "#475569" }}>Linked Village:</strong>
+                  <span style={{ fontWeight: 600, color: "#0f172a" }}>{effectiveVillages[0].name}</span>
+                </div>
+              ) : (
+                <label>
+                  Target Village *
+                  <select
+                    value={selectedVillageId}
+                    onChange={(e) => setSelectedVillageId(e.target.value)}
+                    required
+                  >
+                    <option value="">(Select Target Village)</option>
+                    {effectiveVillages.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
               <div style={{ display: "flex", gap: "16px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer" }}>
                   <input
@@ -388,7 +499,7 @@ export function AwardNotificationsSection({
                   />
                   <strong>Register New Statutory Record</strong>
                 </label>
-                {notifications.length > 0 && (
+                {displayNotifications.length > 0 && (
                   <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", cursor: "pointer" }}>
                     <input
                       type="radio"
@@ -411,7 +522,7 @@ export function AwardNotificationsSection({
                     required
                   >
                     <option value="">(Select Notification)</option>
-                    {notifications.map((n) => (
+                    {displayNotifications.map((n) => (
                       <option key={n.id} value={n.id}>
                         Section {n.sectionType} · {n.notificationNumber || "[No number]"} ({n.notificationDate || "Undated"})
                       </option>
@@ -529,7 +640,7 @@ export function AwardNotificationsSection({
                 <button type="button" className="quiet-button" onClick={() => setDrawerOpen(false)} disabled={busy}>
                   Cancel
                 </button>
-                <button type="submit" disabled={busy || !file}>
+                <button type="submit" disabled={busy || !file || effectiveVillages.length === 0 || !selectedVillageId}>
                   {busy ? "Registering…" : "Register Source Document"}
                 </button>
               </div>
