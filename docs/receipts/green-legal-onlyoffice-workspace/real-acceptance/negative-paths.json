@@ -1,0 +1,37 @@
+[
+  {
+    "test": "409 Stale Revision Conflict on Draft",
+    "endpoint": "PUT /api/matters/{id}/noting/draft",
+    "status": 409,
+    "response": "{\"message\":\"Select an explicit active controlling Dak, or use a native Matter you own.\"}",
+    "passed": true
+  },
+  {
+    "test": "404 Nonexistent / Expired Session",
+    "endpoint": "GET /api/noting-office/sessions/{id}/config",
+    "status": 404,
+    "response": "{\"message\":\"Office session is unavailable.\"}",
+    "passed": true
+  },
+  {
+    "test": "409 Conflict on Stale Remark Revision",
+    "endpoint": "PUT /api/matters/{id}/notes/{noteId}/remarks/{id}",
+    "status": 409,
+    "response": "{\"message\":\"Remark changed; refresh.\"}",
+    "passed": true
+  },
+  {
+    "test": "428 / 400 Missing Idempotency Key Required",
+    "endpoint": "POST /api/matters/{id}/notes/{noteId}/remarks",
+    "status": 428,
+    "response": "{\"message\":\"A UUID Idempotency-Key is required.\"}",
+    "passed": true
+  },
+  {
+    "test": "Tampered Anchor Hash Rejected",
+    "endpoint": "POST /api/matters/{id}/notes/{noteId}/remarks",
+    "status": 400,
+    "response": "{\"message\":\"Anchor does not match the immutable canonical text/version/hash.\"}",
+    "passed": true
+  }
+]

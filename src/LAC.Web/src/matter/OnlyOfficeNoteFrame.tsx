@@ -47,6 +47,7 @@ function loadOfficeScript(url: string): Promise<any> {
 interface OnlyOfficeNoteFrameProps {
   sessionId: string;
   isFrozen?: boolean;
+  isInputBlocked?: boolean;
   onDocumentReady?: () => void;
   onDocumentStateChange?: (isDirty: boolean) => void;
   onError?: (errorMessage: string) => void;
@@ -55,6 +56,7 @@ interface OnlyOfficeNoteFrameProps {
 export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
   sessionId,
   isFrozen = false,
+  isInputBlocked = false,
   onDocumentReady,
   onDocumentStateChange,
   onError
@@ -124,6 +126,7 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
             }
           }
         });
+        (window as any).__lacEditor = editorRef.current;
       } catch (err: any) {
         if (!aborted) {
           clearTimeout(readyTimeout);
@@ -181,9 +184,40 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
         </div>
       )}
 
-      {isFrozen && (
-        <div className="onlyoffice-note-frozen-banner">
-          🔒 Note lease frozen for canonical preview & official submission.
+      {(isInputBlocked || isFrozen) && (
+        <div
+          className={`onlyoffice-note-quiesce-overlay ${isFrozen ? "frozen" : "quiescing"}`}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 10,
+            background: isFrozen ? "rgba(248, 250, 252, 0.88)" : "rgba(255, 255, 255, 0.75)",
+            backdropFilter: "blur(2px)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "not-allowed",
+            textAlign: "center",
+            padding: "20px"
+          }}
+        >
+          {isFrozen ? (
+            <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", padding: "16px 24px", maxWidth: "420px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+              <span style={{ fontSize: "28px", display: "block", marginBottom: "8px" }}>🔒</span>
+              <strong style={{ fontSize: "14px", color: "#0f172a", display: "block", marginBottom: "4px" }}>Note Lease Frozen for Canonical Review</strong>
+              <p style={{ fontSize: "12px", color: "#64748b", margin: 0 }}>Editor input is locked. Official note content is verified against the canonical preview.</p>
+            </div>
+          ) : (
+            <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "8px", padding: "16px 24px", maxWidth: "420px", boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+              <div className="noting-spinner" style={{ margin: "0 auto 8px" }} />
+              <strong style={{ fontSize: "14px", color: "#0f172a", display: "block", marginBottom: "4px" }}>Quiescing Editor Input…</strong>
+              <p style={{ fontSize: "12px", color: "#64748b", margin: 0 }}>Capturing final committed keystrokes before review barrier.</p>
+            </div>
+          )}
         </div>
       )}
 

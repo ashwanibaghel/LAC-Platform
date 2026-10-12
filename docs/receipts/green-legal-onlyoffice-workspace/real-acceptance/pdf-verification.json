@@ -1,0 +1,31 @@
+{
+  "pdfSha256": "cd7fbe97ee79d8ca0a6a5b4c11b6bf17a97621c92f5a1bb9bfd2f3b4b458f08d",
+  "pages": [
+    {
+      "page": 1,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1063,
+        614,
+        4726,
+        5156
+      ],
+      "inkClearanceMm": {
+        "left": 45.00033333333334,
+        "top": 25.99266666666667,
+        "right": 15.832666666666666,
+        "bottom": 137.32933333333332
+      },
+      "fontBoxBottomMm": 136.41143025000022,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    }
+  ],
+  "passed": true,
+  "failures": [],
+  "scope": "Printed fixture geometry only; no official-noting or editor-session certification",
+  "metric": "Rasterized visible ink; font boxes reported separately, never treated as ink"
+}

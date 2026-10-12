@@ -29,6 +29,10 @@ export const AddRemarkModal: React.FC<AddRemarkModalProps> = ({
       setError("Please enter remark text.");
       return;
     }
+    if (!anchor || anchor.version !== 1 || !anchor.quoteHash || anchor.start < 0 || anchor.end <= anchor.start || !anchor.quote.trim()) {
+      setError("Cannot submit remark: invalid anchor. Exact canonical text selection and SHA-256 quote hash are required.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
 
@@ -89,6 +93,9 @@ export const AddRemarkModal: React.FC<AddRemarkModalProps> = ({
                 }}
               >
                 "{anchor.quote}"
+              </div>
+              <div style={{ fontSize: "11px", color: "#64748b", marginTop: "3px" }}>
+                Offsets: {anchor.start}..{anchor.end} ({anchor.end - anchor.start} chars) • SHA256: {anchor.quoteHash ? `${anchor.quoteHash.substring(0, 12)}…` : "None"}
               </div>
             </div>
 

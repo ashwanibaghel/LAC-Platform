@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { notingOfficeApi } from "./notingOfficeApi";
+import { notingOfficeApi, generateUuid } from "./notingOfficeApi";
 import type {
   MatterNotingWorkspaceData,
   MatterWorkingDraftDto,
@@ -15,24 +15,44 @@ import { GreenSheetViewer } from "./GreenSheetViewer";
 import { OnlyOfficeNoteFrame } from "./OnlyOfficeNoteFrame";
 import { SendReturnModal } from "./SendReturnModal";
 import { AddRemarkModal, ViewRemarksModal } from "./RemarkModal";
+import { extractAnchorFromDomSelection, type NoteAnchorDto } from "./canonicalTextSelection";
 
 interface GreenNotingWorkspaceProps {
   matterId: string;
   villageName?: string;
   controllingDakNumber?: string | null;
+  initialControllingDakId?: string | null;
+  linkedDaks?: Array<{ id: string; diaryNumber: string; subject?: string; status?: string }>;
 }
 
 type WorkspaceViewMode = "split" | "focus-editor" | "focus-sheet";
+type RightPaneViewMode = "pdf" | "canonical-notes";
 
 export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   matterId,
   villageName,
-  controllingDakNumber
+  controllingDakNumber,
+  initialControllingDakId,
+  linkedDaks = []
 }) => {
   // Layout & View Mode
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("split");
+  const [rightPaneView, setRightPaneView] = useState<RightPaneViewMode>("pdf");
 
-  // Core Data
+  // Controlling Dak Selection
+  const [selectedDakId, setSelectedDakId] = useState<string | null>(
+    initialControllingDakId || linkedDaks[0]?.id || null
+  );
+
+  useEffect(() => {
+    if (initialControllingDakId && initialControllingDakId !== selectedDakId) {
+      setSelectedDakId(initialControllingDakId);
+    } else if (!selectedDakId && linkedDaks.length > 0 && linkedDaks[0]?.id) {
+      setSelectedDakId(linkedDaks[0].id);
+    }
+  }, [initialControllingDakId, linkedDaks, selectedDakId]);
+
+  // Core Workspace & Notes Data
   const [workspaceData, setWorkspaceData] = useState<MatterNotingWorkspaceData | null>(null);
   const [, setWorkingDraft] = useState<MatterWorkingDraftDto | null>(null);
   const [workingRevision, setWorkingRevision] = useState<number>(0);
@@ -41,24 +61,33 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
 
   // ONLYOFFICE Session State
   const [sessionInfo, setSessionInfo] = useState<OfficeSessionInfo | null>(null);
-  const [sessionRevision, setSessionRevision] = useState<number>(1);
-  const [clientGeneration, setClientGeneration] = useState<number>(1);
+  const [, setSessionRevision] = useState<number>(1);
+  const sessionRevisionRef = useRef<number>(1);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState<boolean>(false);
+
+  // Edit Generation Tracking & Safe Serialization (Fix 2)
+  const dirtyGenerationRef = useRef<number>(0);
+  const lastRequestedGenerationRef = useRef<number>(0);
+  const lastCommittedGenerationRef = useRef<number>(0);
+  const inFlightSavePromiseRef = useRef<Promise<OfficeSaveReceiptDto | null> | null>(null);
+  const lastSaveCommandRef = useRef<{ key: string; gen: number; rev: number } | null>(null);
 
   // Save Receipts & Truthful Status
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "committed" | "failed">("idle");
   const [saveStatusText, setSaveStatusText] = useState<string>("Draft initialised");
   const [lastCommittedReceipt, setLastCommittedReceipt] = useState<OfficeSaveReceiptDto | null>(null);
-  const lastSaveRequestIdRef = useRef<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
   const autoSaveTimerRef = useRef<number | null>(null);
 
-  // Continuous Green Sheet State
+  // Continuous Green Sheet PDF State
   const [greenSheet, setGreenSheet] = useState<GreenSheetMetadataDto | null>(null);
   const [loadingSheet, setLoadingSheet] = useState<boolean>(false);
 
-  // Quiesced Preview & Review Flow
+  // Quiesced Preview & Review Flow (Fix 2)
   const [isQuiescing, setIsQuiescing] = useState<boolean>(false);
+  const [isInputBlocked, setIsInputBlocked] = useState<boolean>(false);
+  const [isFrozen, setIsFrozen] = useState<boolean>(false);
   const [preview, setPreview] = useState<MatterOfficePreviewDto | null>(null);
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
   const [isConfirmingPreview, setIsConfirmingPreview] = useState<boolean>(false);
@@ -70,20 +99,22 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   const [showSendModal, setShowSendModal] = useState<boolean>(false);
   const [submitSuccessNotice, setSubmitSuccessNotice] = useState<string | null>(null);
 
-  // Remarks Modals
+  // Supervisory Remarks & Canonical Text Selection (Fix 3)
   const [activeRemarkNote, setActiveRemarkNote] = useState<MatterOfficialNoteDto | null>(null);
   const [showViewRemarksModal, setShowViewRemarksModal] = useState<boolean>(false);
   const [showAddRemarkModal, setShowAddRemarkModal] = useState<boolean>(false);
-  const [pendingRemarkAnchor, setPendingRemarkAnchor] = useState<NoteAnchor | null>(null);
+  const [selectedAnchor, setSelectedAnchor] = useState<NoteAnchorDto | null>(null);
+  const [selectedNoteForAnchor, setSelectedNoteForAnchor] = useState<MatterOfficialNoteDto | null>(null);
+  const [selectionNotice, setSelectionNotice] = useState<string | null>(null);
   const [noteRemarksMap, setNoteRemarksMap] = useState<{ [noteId: string]: MatterNoteRemarkDto[] }>({});
 
-  // 1. Initial Load: Workspace, Working Draft, and Green Sheet
-  const loadWorkspace = useCallback(async () => {
+  // 1. Separate: Refresh Official Notes & PDF (Fix 4 - Does NOT wipe or recreate session)
+  const loadNotesAndPdf = useCallback(async (dakId: string | null = selectedDakId) => {
     setLoading(true);
     setError(null);
     try {
       const [ws, draftRes] = await Promise.all([
-        notingOfficeApi.getNotingWorkspace(matterId),
+        notingOfficeApi.getNotingWorkspace(matterId, dakId),
         notingOfficeApi.getWorkingDraft(matterId)
       ]);
       setWorkspaceData(ws);
@@ -96,61 +127,82 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
         const sheet = await notingOfficeApi.createGreenSheet(matterId, null);
         setGreenSheet(sheet);
       } catch {
-        // If no official sheet exists yet, greenSheet remains null (viewer renders blank official template)
         setGreenSheet(null);
       } finally {
         setLoadingSheet(false);
-      }
-
-      // If user has edit permissions, initialize ONLYOFFICE session
-      if (ws.capabilities.canEditDraft) {
-        try {
-          const session = await notingOfficeApi.createOfficeSession(
-            matterId,
-            ws.sourceDakId,
-            null,
-            draftRes.etagRevision
-          );
-          setSessionInfo(session);
-          setSessionRevision(session.revision);
-          setSaveStatusText("Editor ready");
-        } catch (sErr: any) {
-          setSessionError(sErr.message || "Failed to establish ONLYOFFICE session");
-        }
       }
     } catch (err: any) {
       setError(err.message || "Failed to load noting workspace");
     } finally {
       setLoading(false);
     }
-  }, [matterId]);
+  }, [matterId, selectedDakId]);
 
+  // 2. Initial Mount: Load Notes & PDF
   useEffect(() => {
-    void loadWorkspace();
+    void loadNotesAndPdf(selectedDakId);
     return () => {
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [loadWorkspace]);
+  }, [loadNotesAndPdf, selectedDakId]);
 
-  // 2. Poll Save Receipt until Committed or Failed
+  // 3. Start or Resume an Authorized ONLYOFFICE Session (Fix 4)
+  const handleStartOrResumeSession = async (resumeSnapshotId?: string | null) => {
+    if (!workspaceData?.capabilities.canEditDraft) return;
+    setIsStartingSession(true);
+    setSessionError(null);
+
+    try {
+      const sourceDak = selectedDakId || workspaceData.sourceDakId;
+      const snapId = resumeSnapshotId !== undefined ? resumeSnapshotId : (sessionInfo?.latestSnapshotId || null);
+
+      const session = await notingOfficeApi.createOfficeSession(
+        matterId,
+        sourceDak,
+        snapId,
+        workingRevision
+      );
+
+      setSessionInfo(session);
+      sessionRevisionRef.current = session.revision;
+      setSessionRevision(session.revision);
+      setIsFrozen(session.state === "Frozen" || session.state === "Submitted");
+      setIsInputBlocked(false);
+      setSaveStatus("idle");
+      setSaveStatusText("Editor session active");
+    } catch (err: any) {
+      setSessionError(err.message || "Failed to create or resume ONLYOFFICE session");
+    } finally {
+      setIsStartingSession(false);
+    }
+  };
+
+  // 4. Poll Save Receipt until Committed or Failed (Fix 2 - correlated revision and generation)
   const pollSaveReceipt = useCallback(
-    async (sessionId: string, saveId: string) => {
+    async (sessionId: string, saveId: string, requestedGeneration: number) => {
       try {
         const receipt = await notingOfficeApi.getSaveStatus(sessionId, saveId);
         if (receipt.state === "Pending") {
-          // Poll again after 600ms
           pollTimerRef.current = window.setTimeout(() => {
-            void pollSaveReceipt(sessionId, saveId);
-          }, 600);
+            void pollSaveReceipt(sessionId, saveId, requestedGeneration);
+          }, 500);
         } else if (receipt.state === "Committed") {
-          setSaveStatus("committed");
+          lastCommittedGenerationRef.current = receipt.clientGeneration;
           setLastCommittedReceipt(receipt);
-          lastSaveRequestIdRef.current = receipt.id;
-          const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
-          setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
           if (receipt.sessionRevision) {
+            sessionRevisionRef.current = receipt.sessionRevision;
             setSessionRevision(receipt.sessionRevision);
+          }
+
+          // If edits occurred while save was in flight, do NOT mark as fully saved
+          if (dirtyGenerationRef.current > receipt.clientGeneration) {
+            setSaveStatus("saving");
+            setSaveStatusText(`Edits pending save (newer than v${receipt.version || 1})`);
+          } else {
+            setSaveStatus("committed");
+            const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
+            setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
           }
         } else if (receipt.state === "Failed") {
           setSaveStatus("failed");
@@ -165,98 +217,188 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     []
   );
 
-  // 3. Trigger Server Force-Save
+  // 5. Serialized Force-Save Execution (Fix 2 - prevents races and stale generations)
   const triggerSave = useCallback(
-    async (_isManual: boolean = false): Promise<string | null> => {
-      if (!sessionInfo || sessionInfo.state !== "Active") return null;
-      if (saveStatus === "saving") return lastSaveRequestIdRef.current;
+    async (_isManual: boolean = false): Promise<OfficeSaveReceiptDto | null> => {
+      if (!sessionInfo || sessionInfo.state !== "Active" || isFrozen) return null;
 
-      setSaveStatus("saving");
-      setSaveStatusText("Saving to server…");
-
-      const nextGen = clientGeneration + 1;
-      setClientGeneration(nextGen);
-
-      try {
-        const receipt = await notingOfficeApi.requestSave(sessionInfo.id, nextGen, sessionRevision);
-        lastSaveRequestIdRef.current = receipt.id;
-
-        if (receipt.state === "Committed") {
-          setSaveStatus("committed");
-          setLastCommittedReceipt(receipt);
-          const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
-          setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
-          return receipt.id;
-        }
-
-        // State is Pending: poll until committed
-        void pollSaveReceipt(sessionInfo.id, receipt.id);
-        return receipt.id;
-      } catch (err: any) {
-        setSaveStatus("failed");
-        setSaveStatusText(`Save request failed: ${err.message}`);
-        return null;
+      // If a save request is already in-flight, return the active promise
+      if (inFlightSavePromiseRef.current) {
+        return inFlightSavePromiseRef.current;
       }
+
+      const runSave = async (): Promise<OfficeSaveReceiptDto | null> => {
+        setSaveStatus("saving");
+        setSaveStatusText("Saving to server…");
+
+        const nextGen = Math.max(dirtyGenerationRef.current, lastRequestedGenerationRef.current + 1);
+        lastRequestedGenerationRef.current = nextGen;
+
+        const cmd = {
+          key: generateUuid(),
+          gen: nextGen,
+          rev: sessionRevisionRef.current
+        };
+        lastSaveCommandRef.current = cmd;
+
+        try {
+          const receipt = await notingOfficeApi.requestSave(
+            sessionInfo.id,
+            nextGen,
+            sessionRevisionRef.current,
+            cmd.key
+          );
+
+          if (receipt.state === "Committed") {
+            lastCommittedGenerationRef.current = receipt.clientGeneration;
+            setSaveStatus("committed");
+            setLastCommittedReceipt(receipt);
+            if (receipt.sessionRevision) {
+              sessionRevisionRef.current = receipt.sessionRevision;
+              setSessionRevision(receipt.sessionRevision);
+            }
+            const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
+            setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
+            return receipt;
+          }
+
+          // State is Pending: poll until committed or failed
+          void pollSaveReceipt(sessionInfo.id, receipt.id, nextGen);
+          return receipt;
+        } catch (err: any) {
+          // If 409 conflict: session revision changed. Query current revision and retry once.
+          if (err.status === 409) {
+            try {
+              const cfg = await notingOfficeApi.getSessionConfig(sessionInfo.id);
+              const latestRev = cfg?.session?.revision;
+              if (latestRev && latestRev !== sessionRevisionRef.current) {
+                sessionRevisionRef.current = latestRev;
+                setSessionRevision(latestRev);
+                const retryReceipt = await notingOfficeApi.requestSave(
+                  sessionInfo.id,
+                  nextGen,
+                  latestRev,
+                  cmd.key
+                );
+                if (retryReceipt.state === "Committed") {
+                  lastCommittedGenerationRef.current = retryReceipt.clientGeneration;
+                  setSaveStatus("committed");
+                  setLastCommittedReceipt(retryReceipt);
+                  if (retryReceipt.sessionRevision) {
+                    sessionRevisionRef.current = retryReceipt.sessionRevision;
+                    setSessionRevision(retryReceipt.sessionRevision);
+                  }
+                  const shortHash = retryReceipt.sha256 ? retryReceipt.sha256.substring(0, 8) : "";
+                  setSaveStatusText(`Saved to server: v${retryReceipt.version || 1} (${shortHash})`);
+                  return retryReceipt;
+                }
+                void pollSaveReceipt(sessionInfo.id, retryReceipt.id, nextGen);
+                return retryReceipt;
+              }
+            } catch (retryErr: any) {
+              setSaveStatus("failed");
+              setSaveStatusText(`Save request failed: ${retryErr.message}`);
+              return null;
+            }
+          }
+          setSaveStatus("failed");
+          setSaveStatusText(`Save request failed: ${err.message}`);
+          return null;
+        } finally {
+          inFlightSavePromiseRef.current = null;
+        }
+      };
+
+      const promise = runSave();
+      inFlightSavePromiseRef.current = promise;
+      return promise;
     },
-    [sessionInfo, sessionRevision, clientGeneration, saveStatus, pollSaveReceipt]
+    [sessionInfo, isFrozen, pollSaveReceipt]
   );
 
-  // 4. Handle Document State Change (Debounced Autosave Trigger)
+  // 6. Handle Document State Change (Debounced Autosave Trigger)
   const handleDocumentStateChange = useCallback(
     (isDirty: boolean) => {
-      if (!isDirty) return;
+      if (!isDirty || isFrozen || isInputBlocked) return;
+      dirtyGenerationRef.current = Math.max(dirtyGenerationRef.current, lastRequestedGenerationRef.current) + 1;
+
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      // Debounce 2500ms
       autoSaveTimerRef.current = window.setTimeout(() => {
         void triggerSave(false);
-      }, 2500);
+      }, 2000);
     },
-    [triggerSave]
+    [isFrozen, isInputBlocked, triggerSave]
   );
 
-  // 5. Quiesce Input & Generate Canonical Preview Flow
+  // 7. Quiesce Input & Generate Canonical Preview Flow (Fix 2)
   const handleStartReview = async () => {
-    if (!sessionInfo) return;
+    if (!sessionInfo || sessionInfo.state !== "Active") return;
+
+    // Block typing immediately
+    setIsInputBlocked(true);
     setIsQuiescing(true);
-    setSaveStatusText("Quiescing editor & obtaining committed receipt…");
+    setSaveStatusText("Quiescing editor & saving latest content…");
 
     try {
-      // 1. Ensure latest save request is committed
-      let committedSaveId = lastCommittedReceipt?.id;
-      if (!committedSaveId || saveStatus !== "committed") {
-        committedSaveId = await triggerSave(true) || undefined;
-        // Wait up to 5 seconds for commit if pending
-        let retries = 10;
-        while (retries > 0 && saveStatus !== "committed" && committedSaveId) {
+      // 1. Ensure latest keystrokes are saved and committed
+      if (dirtyGenerationRef.current > lastCommittedGenerationRef.current || !lastCommittedReceipt) {
+        const receipt = await triggerSave(true);
+        if (!receipt) {
+          throw new Error("Unable to save latest note edits. Please retry.");
+        }
+
+        // Wait up to 10 seconds for commit
+        let retries = 20;
+        let activeReceipt = receipt;
+        while (retries > 0 && activeReceipt.state !== "Committed") {
           await new Promise((r) => setTimeout(r, 500));
-          const receipt = await notingOfficeApi.getSaveStatus(sessionInfo.id, committedSaveId);
-          if (receipt.state === "Committed") {
-            setLastCommittedReceipt(receipt);
-            committedSaveId = receipt.id;
+          activeReceipt = await notingOfficeApi.getSaveStatus(sessionInfo.id, activeReceipt.id);
+          if (activeReceipt.state === "Committed") {
+            lastCommittedGenerationRef.current = activeReceipt.clientGeneration;
+            setLastCommittedReceipt(activeReceipt);
+            if (activeReceipt.sessionRevision) {
+              setSessionRevision(activeReceipt.sessionRevision);
+            }
             break;
+          }
+          if (activeReceipt.state === "Failed") {
+            throw new Error(`Save failed: ${activeReceipt.failureCode || "rejected by server"}.`);
           }
           retries--;
         }
+
+        if (activeReceipt.state !== "Committed") {
+          throw new Error("Save timed out before server commit was confirmed.");
+        }
       }
 
+      const committedSaveId = lastCommittedReceipt?.id;
       if (!committedSaveId) {
-        throw new Error("Cannot create preview: No committed snapshot found. Please type note content first.");
+        throw new Error("Cannot review note: No committed snapshot found.");
       }
 
-      // 2. Generate immutable canonical preview (freezes lease)
-      setSaveStatusText("Converting DOCX to verified canonical legal text…");
-      const prev = await notingOfficeApi.createPreview(sessionInfo.id, committedSaveId, sessionRevision);
+      // 2. Generate immutable canonical preview (freezes lease on backend)
+      setSaveStatusText("Converting DOCX to verified canonical text…");
+      const prev = await notingOfficeApi.createPreview(
+        sessionInfo.id,
+        committedSaveId,
+        sessionRevisionRef.current
+      );
+
       setPreview(prev);
+      setIsFrozen(true);
       setIsConfirmed(false);
       setShowReviewModal(true);
+      setSessionInfo((prevInfo) => (prevInfo ? { ...prevInfo, state: "Frozen" } : null));
     } catch (err: any) {
       alert(err.message || "Failed to generate canonical preview");
+      setIsInputBlocked(false);
     } finally {
       setIsQuiescing(false);
     }
   };
 
-  // 6. Confirm Canonical Preview
+  // 8. Confirm Canonical Preview
   const handleConfirmPreview = async (resetCitations: boolean = false) => {
     if (!preview) return;
     setIsConfirmingPreview(true);
@@ -281,7 +423,6 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
       } catch {}
     } catch (err: any) {
       if (err.status === 409) {
-        // Citation conflict!
         setCitationConflictModal(true);
       } else {
         alert(err.message || "Failed to confirm canonical preview");
@@ -291,38 +432,43 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     }
   };
 
-  // 7. Atomic Submit to Official File
-  const handleSubmitToOfficialFile = async () => {
+  // 9. Official Submit Note
+  const handleOfficialSubmit = async () => {
     if (!preview) return;
-    if (!window.confirm("Submit this note to the official continuous Green Legal file? This action cannot be undone.")) {
-      return;
-    }
-
     setIsSubmitting(true);
+
     try {
-      const result = await notingOfficeApi.submitOfficeNote(
+      const sourceDak = selectedDakId || workspaceData?.sourceDakId || null;
+      const res = await notingOfficeApi.submitOfficeNote(
         matterId,
-        workspaceData?.sourceDakId || null,
+        sourceDak,
         preview.id,
         preview.canonicalHash,
         workingRevision
       );
 
-      setSubmitSuccessNotice(`Note #${result.noteNumber} successfully published to official continuous Green Legal file!`);
       setShowReviewModal(false);
+      setSubmitSuccessNotice(`Official Note #${res.noteNumber} submitted successfully.`);
+
+      // Reset editor session and reload notes/PDF
+      setSessionInfo(null);
+      setIsFrozen(false);
+      setIsInputBlocked(false);
       setPreview(null);
       setIsConfirmed(false);
+      dirtyGenerationRef.current = 0;
+      lastRequestedGenerationRef.current = 0;
+      lastCommittedGenerationRef.current = 0;
 
-      // Reload fresh workspace and official green sheet
-      await loadWorkspace();
+      await loadNotesAndPdf(selectedDakId);
     } catch (err: any) {
-      alert(err.message || "Failed to submit note to official file");
+      alert(err.message || "Failed to submit official note");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 8. Open Remarks for Note
+  // 10. Remarks Handling (Fix 3 - Exact Text Selection)
   const handleOpenRemarks = async (note: MatterOfficialNoteDto) => {
     setActiveRemarkNote(note);
     try {
@@ -335,15 +481,26 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     setShowViewRemarksModal(true);
   };
 
-  const handleInitiateRemark = (note: MatterOfficialNoteDto) => {
-    setActiveRemarkNote(note);
-    setPendingRemarkAnchor({
-      version: 1,
-      start: 0,
-      end: Math.min(60, note.canonicalText?.length || 0),
-      quote: note.canonicalText?.substring(0, 60) || "Note entry",
-      quoteHash: ""
+  const handleNoteTextMouseUp = (e: React.MouseEvent<HTMLDivElement>, note: MatterOfficialNoteDto) => {
+    const container = e.currentTarget;
+    void extractAnchorFromDomSelection(container, note.canonicalText).then((res) => {
+      if (res.success && res.anchor) {
+        setSelectedAnchor(res.anchor);
+        setSelectedNoteForAnchor(note);
+        setSelectionNotice(null);
+      } else {
+        setSelectedAnchor(null);
+        setSelectedNoteForAnchor(null);
+      }
     });
+  };
+
+  const handleTriggerRemarkModal = () => {
+    if (!selectedAnchor || !selectedNoteForAnchor) {
+      setSelectionNotice("Please select text in an official note first.");
+      return;
+    }
+    setActiveRemarkNote(selectedNoteForAnchor);
     setShowAddRemarkModal(true);
   };
 
@@ -356,37 +513,40 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
             <span className="file-badge-icon">📁</span>
             <span className="file-badge-text">OFFICIAL FILE NOTING</span>
           </div>
-          {villageName && <span className="noting-meta-crumb">Village: <strong>{villageName}</strong></span>}
-          {controllingDakNumber && (
+
+          {villageName && (
+            <span className="noting-meta-crumb">Village: <strong>{villageName}</strong></span>
+          )}
+
+          {/* Controlling Dak Selector */}
+          {linkedDaks.length > 1 ? (
+            <div className="noting-dak-selector-wrap">
+              <span className="noting-meta-crumb">Controlling Dak:</span>
+              <select
+                className="noting-dak-select"
+                value={selectedDakId || ""}
+                onChange={(e) => {
+                  const newDakId = e.target.value || null;
+                  setSelectedDakId(newDakId);
+                  void loadNotesAndPdf(newDakId);
+                }}
+              >
+                {linkedDaks.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.diaryNumber} {d.status ? `(${d.status})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : controllingDakNumber ? (
             <span className="noting-meta-crumb">
               Controlling Dak: <strong style={{ color: "#0369a1" }}>{controllingDakNumber}</strong>
             </span>
-          )}
+          ) : null}
+
           <span className="noting-meta-crumb">
             Official Notes: <strong>{workspaceData?.notes.length || 0}</strong>
           </span>
-          {workspaceData && workspaceData.notes.length > 0 && (
-            <div style={{ display: "inline-flex", gap: "4px" }}>
-              <button
-                type="button"
-                className="noting-text-btn"
-                onClick={() => void handleOpenRemarks(workspaceData.notes[workspaceData.notes.length - 1])}
-                title="View remarks on latest official note"
-              >
-                💬 Remarks
-              </button>
-              {workspaceData.capabilities.canRemark && (
-                <button
-                  type="button"
-                  className="noting-text-btn"
-                  onClick={() => handleInitiateRemark(workspaceData.notes[workspaceData.notes.length - 1])}
-                  title="Add remark on latest official note"
-                >
-                  + Add Remark
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Truthful Save Status Banner */}
@@ -457,16 +617,108 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
 
       {/* Main Split / Focus Workspace Panes */}
       <div className="green-noting-panes-wrapper">
-        {/* LEFT PANE: Immutable Continuous Physical Green Sheet PDF */}
+        {/* LEFT PANE: Immutable Continuous Physical Green Sheet PDF OR Canonical Notes Surface (Fix 3) */}
         {(viewMode === "split" || viewMode === "focus-sheet") && (
           <div className="green-noting-left-pane">
-            <GreenSheetViewer
-              matterId={matterId}
-              sheetId={greenSheet?.id || null}
-              metadata={greenSheet}
-              onRefresh={() => void loadWorkspace()}
-              isLoading={loadingSheet}
-            />
+            <div className="left-pane-header-tabs">
+              <button
+                type="button"
+                className={`pane-tab-btn ${rightPaneView === "pdf" ? "active" : ""}`}
+                onClick={() => setRightPaneView("pdf")}
+              >
+                📄 Continuous Green Sheet PDF
+              </button>
+              <button
+                type="button"
+                className={`pane-tab-btn ${rightPaneView === "canonical-notes" ? "active" : ""}`}
+                onClick={() => setRightPaneView("canonical-notes")}
+              >
+                📝 Inspect Official Notes ({workspaceData?.notes.length || 0})
+              </button>
+            </div>
+
+            {rightPaneView === "pdf" ? (
+              <GreenSheetViewer
+                matterId={matterId}
+                sheetId={greenSheet?.id || null}
+                metadata={greenSheet}
+                onRefresh={() => void loadNotesAndPdf(selectedDakId)}
+                isLoading={loadingSheet}
+              />
+            ) : (
+              <div className="canonical-notes-viewer-surface">
+                <div className="canonical-surface-toolbar">
+                  <span style={{ fontSize: "12px", color: "#475569" }}>
+                    Select any excerpt below to attach an exact supervisory remark.
+                  </span>
+
+                  <button
+                    type="button"
+                    className="noting-btn noting-btn-primary btn-sm"
+                    onClick={handleTriggerRemarkModal}
+                    disabled={!selectedAnchor || !workspaceData?.capabilities.canRemark}
+                    title={selectedAnchor ? `Add remark on "${selectedAnchor.quote.substring(0, 30)}…"` : "Select text first"}
+                  >
+                    💬 Add Supervisory Remark on Selected Text
+                  </button>
+                </div>
+
+                {selectionNotice && (
+                  <div style={{ background: "#fef3c7", color: "#92400e", padding: "4px 8px", fontSize: "11.5px", borderRadius: "4px" }}>
+                    ℹ {selectionNotice}
+                  </div>
+                )}
+
+                {selectedAnchor && selectedNoteForAnchor && (
+                  <div className="active-selection-bar">
+                    <span className="selection-label">SELECTED EXCERPT (Note #{selectedNoteForAnchor.number}):</span>
+                    <span className="selection-quote">"{selectedAnchor.quote}"</span>
+                    <span className="selection-meta">
+                      [{selectedAnchor.start}..{selectedAnchor.end}] • SHA: {selectedAnchor.quoteHash.substring(0, 8)}…
+                    </span>
+                  </div>
+                )}
+
+                <div className="canonical-notes-list">
+                  {(!workspaceData?.notes || workspaceData.notes.length === 0) ? (
+                    <div style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>
+                      No official notes have been submitted for this matter yet.
+                    </div>
+                  ) : (
+                    workspaceData.notes.map((note) => (
+                      <div key={note.id} className="canonical-note-entry-card" data-note-id={note.id}>
+                        <div className="canonical-note-card-header">
+                          <div className="note-card-identity">
+                            <span className="note-card-badge">NOTE #{note.number}</span>
+                            <strong className="note-card-author">{note.authorName}</strong>
+                            <span className="note-card-desig">{note.designation}</span>
+                          </div>
+                          <div className="note-card-actions">
+                            <span className="note-card-date">
+                              {new Date(note.submittedAt).toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              className="noting-btn-text"
+                              onClick={() => void handleOpenRemarks(note)}
+                            >
+                              💬 Remarks ({noteRemarksMap[note.id]?.length ?? 0})
+                            </button>
+                          </div>
+                        </div>
+
+                        <div
+                          className="canonical-note-text-body"
+                          onMouseUp={(e) => handleNoteTextMouseUp(e, note)}
+                        >
+                          <pre className="canonical-pre-wrap">{note.canonicalText}</pre>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -479,13 +731,18 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
                 <span className="editor-note-hint">
                   {workspaceData ? `Drafting Note #${workspaceData.notes.length + 1}` : "Drafting Note"}
                 </span>
+                {sessionInfo && (
+                  <span className="editor-lease-tag" title={`Expires at ${new Date(sessionInfo.expiresAt).toLocaleTimeString()}`}>
+                    Lease: {sessionInfo.state}
+                  </span>
+                )}
               </div>
               <div className="editor-card-controls">
                 <button
                   type="button"
                   className="btn-save-receipt"
                   onClick={() => void triggerSave(true)}
-                  disabled={saveStatus === "saving" || !sessionInfo || sessionInfo.state !== "Active"}
+                  disabled={saveStatus === "saving" || !sessionInfo || sessionInfo.state !== "Active" || isFrozen}
                   title="Request immediate force-save receipt from Document Server"
                 >
                   Force Save
@@ -497,12 +754,13 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
               {loading ? (
                 <div className="noting-loading-pane">
                   <div className="noting-spinner" />
-                  <p>Loading actor note editor…</p>
+                  <p>Loading noting workspace…</p>
                 </div>
               ) : sessionInfo ? (
                 <OnlyOfficeNoteFrame
                   sessionId={sessionInfo.id}
-                  isFrozen={sessionInfo.state === "Frozen"}
+                  isFrozen={isFrozen || sessionInfo.state === "Frozen" || sessionInfo.state === "Submitted"}
+                  isInputBlocked={isInputBlocked}
                   onDocumentStateChange={handleDocumentStateChange}
                   onError={(err) => setSessionError(err)}
                 />
@@ -510,14 +768,15 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
                 <div className="noting-no-session-pane">
                   <div className="info-icon">ℹ</div>
                   <h4>No Active Editing Lease</h4>
-                  <p>{sessionError || "You currently do not have an active editing lease for this Matter."}</p>
+                  <p>{sessionError || "Start or resume an authorized editing session for this matter."}</p>
                   {workspaceData?.capabilities.canEditDraft && (
                     <button
                       type="button"
                       className="noting-btn noting-btn-primary"
-                      onClick={() => void loadWorkspace()}
+                      onClick={() => void handleStartOrResumeSession(null)}
+                      disabled={isStartingSession}
                     >
-                      Start New Editing Lease
+                      {isStartingSession ? "Establishing Lease…" : "Start Note Session"}
                     </button>
                   )}
                 </div>
@@ -544,7 +803,10 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
               <button
                 type="button"
                 className="noting-btn-close"
-                onClick={() => setShowReviewModal(false)}
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setIsInputBlocked(false);
+                }}
               >
                 ✕
               </button>
@@ -580,28 +842,8 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
                   </button>
                 </div>
               ) : (
-                <div className="confirmed-action-panel">
-                  <div className="confirmed-badge">
-                    ✓ Canonical preview confirmed! Ready for official file submission or forwarding.
-                  </div>
-                  <div className="submit-action-buttons">
-                    <button
-                      type="button"
-                      className="noting-btn-submit-file"
-                      onClick={() => void handleSubmitToOfficialFile()}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? "Publishing…" : "✓ Submit to Official File (Keep at Desk)"}
-                    </button>
-                    <button
-                      type="button"
-                      className="noting-btn-send-dak"
-                      onClick={() => setShowSendModal(true)}
-                      disabled={isSubmitting}
-                    >
-                      📤 Submit & Forward File (Dispatch Dak)
-                    </button>
-                  </div>
+                <div className="confirmed-notice-box">
+                  <span>✓ Canonical text confirmed and preview frozen. Ready for official submission.</span>
                 </div>
               )}
             </div>
@@ -610,31 +852,57 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
               <button
                 type="button"
                 className="noting-btn noting-btn-secondary"
-                onClick={() => setShowReviewModal(false)}
-                disabled={isSubmitting || isConfirmingPreview}
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setIsInputBlocked(false);
+                }}
               >
-                Close
+                Close Preview
               </button>
+
+              {isConfirmed && (
+                <>
+                  <button
+                    type="button"
+                    className="noting-btn noting-btn-secondary"
+                    onClick={() => {
+                      setShowReviewModal(false);
+                      setShowSendModal(true);
+                    }}
+                    disabled={!workspaceData?.capabilities.canSend}
+                  >
+                    Send & Forward Matter →
+                  </button>
+                  <button
+                    type="button"
+                    className="noting-btn noting-btn-primary"
+                    onClick={handleOfficialSubmit}
+                    disabled={isSubmitting || !workspaceData?.capabilities.canSubmit}
+                  >
+                    {isSubmitting ? "Submitting…" : "Submit Note Officially"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Citation Conflict Modal (HTTP 409) */}
+      {/* Citation Conflict 409 Modal */}
       {citationConflictModal && (
         <div className="noting-modal-overlay">
           <div className="noting-modal-card" style={{ maxWidth: "520px" }}>
             <div className="noting-modal-header">
-              <h3 style={{ color: "#b91c1c" }}>⚠️ Citation Range Conflict (HTTP 409)</h3>
+              <h3>Citation Anchor Conflict (409)</h3>
               <button type="button" className="noting-btn-close" onClick={() => setCitationConflictModal(false)}>✕</button>
             </div>
             <div className="noting-modal-body">
-              <p style={{ margin: 0, fontSize: "13px", color: "#334155" }}>
-                This note previously had document citations linked to specific text excerpts. The edited note text has changed, so prior citation anchors are invalid.
+              <p style={{ fontSize: "13px", color: "#334155" }}>
+                The canonical note text was modified after citations were attached. Submitting without reset would cause misaligned citations.
               </p>
-              <p style={{ margin: "10px 0 0 0", fontSize: "12.5px", color: "#64748b" }}>
-                Under office policy, citation ranges are never silently shifted. You must deliberately reset citations and re-anchor them if necessary.
-              </p>
+              <div style={{ background: "#fef3c7", border: "1px solid #fde68a", padding: "10px", borderRadius: "4px", fontSize: "12px", color: "#92400e" }}>
+                ⚠️ You must deliberately reset document citations to match the edited note content.
+              </div>
             </div>
             <div className="noting-modal-footer">
               <button
@@ -646,68 +914,73 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
               </button>
               <button
                 type="button"
-                className="noting-btn noting-btn-danger"
+                className="noting-btn noting-btn-primary"
                 onClick={() => void handleConfirmPreview(true)}
-                disabled={isConfirmingPreview}
               >
-                {isConfirmingPreview ? "Resetting…" : "Reset Citations & Confirm"}
+                Reset Citations & Confirm
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Send / Forward Modal */}
-      {showSendModal && preview && (
+      {/* Send & Return Modal */}
+      {showSendModal && (
         <SendReturnModal
           matterId={matterId}
-          sourceDakId={workspaceData?.sourceDakId || null}
-          officePreviewId={preview.id}
-          canonicalHash={preview.canonicalHash}
+          sourceDakId={selectedDakId || workspaceData?.sourceDakId || null}
+          officePreviewId={preview?.id || undefined}
+          canonicalHash={preview?.canonicalHash || undefined}
           workingRevision={workingRevision}
           onClose={() => setShowSendModal(false)}
           onSent={(res) => {
-            setSubmitSuccessNotice(`Note #${res.noteNumber} published and file successfully forwarded!`);
             setShowSendModal(false);
-            setShowReviewModal(false);
+            setSubmitSuccessNotice(`Matter note #${res.noteNumber} submitted and Dak forwarded successfully.`);
+            setSessionInfo(null);
+            setIsFrozen(false);
+            setIsInputBlocked(false);
             setPreview(null);
-            void loadWorkspace();
+            setIsConfirmed(false);
+            void loadNotesAndPdf(selectedDakId);
           }}
         />
       )}
 
-      {/* Add Supervisory Remark Modal */}
-      {showAddRemarkModal && activeRemarkNote && pendingRemarkAnchor && (
-        <AddRemarkModal
-          matterId={matterId}
-          noteId={activeRemarkNote.id}
-          noteNumber={activeRemarkNote.number}
-          anchor={pendingRemarkAnchor}
-          onClose={() => setShowAddRemarkModal(false)}
-          onCreated={(r) => {
-            setNoteRemarksMap((prev) => ({
-              ...prev,
-              [activeRemarkNote.id]: [...(prev[activeRemarkNote.id] || []), r]
-            }));
-            setShowAddRemarkModal(false);
-          }}
-        />
-      )}
-
-      {/* View Remarks Modal */}
+      {/* Remarks View Modal */}
       {showViewRemarksModal && activeRemarkNote && (
         <ViewRemarksModal
           matterId={matterId}
           noteId={activeRemarkNote.id}
           noteNumber={activeRemarkNote.number}
           remarks={noteRemarksMap[activeRemarkNote.id] || []}
-          canManage={workspaceData?.capabilities.canRemark || false}
+          canManage={Boolean(workspaceData?.capabilities.canRemark)}
           onClose={() => setShowViewRemarksModal(false)}
-          onUpdated={(updated) => {
+          onUpdated={(updated: MatterNoteRemarkDto) => {
             setNoteRemarksMap((prev) => ({
               ...prev,
-              [activeRemarkNote.id]: (prev[activeRemarkNote.id] || []).map((x) => (x.id === updated.id ? updated : x))
+              [activeRemarkNote.id]: (prev[activeRemarkNote.id] || []).map((r) =>
+                r.id === updated.id ? updated : r
+              )
             }));
+          }}
+        />
+      )}
+
+      {/* Add Supervisory Remark Modal with exact anchor (Fix 3) */}
+      {showAddRemarkModal && activeRemarkNote && selectedAnchor && (
+        <AddRemarkModal
+          matterId={matterId}
+          noteId={activeRemarkNote.id}
+          noteNumber={activeRemarkNote.number}
+          anchor={selectedAnchor as unknown as NoteAnchor}
+          onClose={() => setShowAddRemarkModal(false)}
+          onCreated={(newRemark) => {
+            setNoteRemarksMap((prev) => ({
+              ...prev,
+              [activeRemarkNote.id]: [...(prev[activeRemarkNote.id] || []), newRemark]
+            }));
+            setSelectedAnchor(null);
+            setSelectedNoteForAnchor(null);
           }}
         />
       )}

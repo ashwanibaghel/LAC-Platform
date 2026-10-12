@@ -40,8 +40,11 @@ async function handleResponse<T>(res: Response, defaultMessage: string): Promise
 }
 
 export const notingOfficeApi = {
-  async getNotingWorkspace(matterId: string): Promise<MatterNotingWorkspaceData> {
-    const res = await fetch(`/api/matters/${matterId}/noting`, {
+  async getNotingWorkspace(matterId: string, sourceDakId?: string | null): Promise<MatterNotingWorkspaceData> {
+    const url = sourceDakId
+      ? `/api/matters/${matterId}/noting?sourceDakId=${encodeURIComponent(sourceDakId)}`
+      : `/api/matters/${matterId}/noting`;
+    const res = await fetch(url, {
       credentials: "include",
       headers: { "Cache-Control": "no-store" }
     });
@@ -98,14 +101,15 @@ export const notingOfficeApi = {
   async requestSave(
     sessionId: string,
     clientGeneration: number,
-    sessionRevision: number
+    sessionRevision: number,
+    idempotencyKey?: string
   ): Promise<OfficeSaveReceiptDto> {
     const res = await fetch(`/api/noting-office/sessions/${sessionId}/saves`, {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": generateUuid(),
+        "Idempotency-Key": idempotencyKey || generateUuid(),
         "If-Match": `"${sessionRevision}"`
       },
       body: JSON.stringify({ clientGeneration })

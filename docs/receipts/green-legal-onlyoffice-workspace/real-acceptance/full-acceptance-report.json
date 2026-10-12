@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-10-12T20:05:24.647Z",
+  "steps": {
+    "1_login_officerA": "PASS",
+    "2_open_matter_A": "PASS",
+    "3_editor_active_A": "PASS (verified)",
+    "4_type_note1": "PASS (verified)",
+    "5_force_save_note1": "PASS (verified: abcab4bd)",
+    "6_freeze_review_note1": "PASS (verified)",
+    "7_confirm_preview_note1": "PASS (verified)",
+    "8_submit_note1": "PASS (Official Note #1 confirmed)",
+    "9_forward_dak_to_officerB": "PASS: transferId=1ca0a3ef-d8c5-4e72-8f7a-f502c4888c51",
+    "10_login_officerB": "PASS",
+    "11_receive_dak_officerB": "PASS",
+    "12_open_matter_B": "PASS",
+    "13_note1_readonly": "PASS: Note 1 continuous stream immutable",
+    "14_editor_active_B": "PASS",
+    "15_type_note2": "PASS",
+    "16_force_save_note2": "PASS: ●\nSaved to server: v1 (2c3a612a)",
+    "17_review_confirm_note2": "PASS",
+    "18_submit_note2": "PASS",
+    "20_supervisory_remark": "PASS: id=152f27f0-8a10-43af-afd4-4349174e3e4a"
+  },
+  "screenshots": [
+    "C:\\LAC-Platform-Anti-GreenNoting\\docs\\receipts\\green-legal-onlyoffice-workspace\\real-acceptance\\05-noting-note1-submitted-greensheet.png",
+    "C:\\LAC-Platform-Anti-GreenNoting\\docs\\receipts\\green-legal-onlyoffice-workspace\\real-acceptance\\06-officerB-note2-editor.png",
+    "C:\\LAC-Platform-Anti-GreenNoting\\docs\\receipts\\green-legal-onlyoffice-workspace\\real-acceptance\\07-final-continuous-green-sheet-both-notes.png",
+    "C:\\LAC-Platform-Anti-GreenNoting\\docs\\receipts\\green-legal-onlyoffice-workspace\\real-acceptance\\08-noting-supervisory-remark-anchored.png"
+  ],
+  "failures": [],
+  "evidence": {
+    "note1_id": "296b3a27-461c-40e3-9519-c000cf0e0196",
+    "note1_number": 1,
+    "note1_canonical_hash": "1D23FDCBABFE09B09FAB1E3CD7EECD361D0A3098CF9773A513DF46755A1CB2FB",
+    "note2_save_status": "●\nSaved to server: v1 (2c3a612a)",
+    "remark_id": "152f27f0-8a10-43af-afd4-4349174e3e4a"
+  }
+}

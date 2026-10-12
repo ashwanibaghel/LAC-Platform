@@ -11,7 +11,7 @@
     "test:calculator": "node --test tests/calculator.test.mjs tests/bulk-revenue.test.mjs tests/compensation-calculator.test.mjs",
     "test:matter-contract": "node --test tests/matter-workspace-contract.test.mjs",
     "test:village-matters": "node --experimental-strip-types --test tests/village-matter-groups.test.mjs",
-    "test:green-noting": "node --test tests/green-noting-workspace.test.mjs",
+    "test:green-noting": "node --experimental-strip-types --test tests/green-noting-workspace.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

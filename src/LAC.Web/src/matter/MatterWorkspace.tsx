@@ -1008,6 +1008,13 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
               matterId={id!}
               villageName={contextData.village?.name}
               controllingDakNumber={contextData.daks?.[0]?.diaryNumber}
+              initialControllingDakId={contextData.daks?.[0]?.dakId}
+              linkedDaks={(contextData.daks || []).map((d) => ({
+                id: d.dakId,
+                diaryNumber: d.diaryNumber,
+                subject: d.subject,
+                status: d.status
+              }))}
             />
           )}
 
