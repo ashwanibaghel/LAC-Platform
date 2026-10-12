@@ -25,6 +25,11 @@ public static class ApiStartupPolicy
     {
         if (!BackgroundWorkersEnabled(configuration)) return;
         services.AddHostedService<AwardPdfExtractionWorker>();
-        if (!testingEnvironment) services.AddHostedService<DelhiHighCourtSyncWorker>();
+        if (!testingEnvironment)
+        {
+            services.AddHostedService<DelhiHighCourtSyncWorker>();
+            services.AddHostedService<CourtScopeIngestionWorker>();
+            services.AddHostedService<DhcHistoryIntelligenceBridge>();
+        }
     }
 }

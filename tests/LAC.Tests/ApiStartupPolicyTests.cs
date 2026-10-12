@@ -4,10 +4,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace LAC.Tests;
 
+[Collection("Startup environment")]
 public sealed class ApiStartupPolicyTests
 {
     private static IConfiguration Configuration(bool? bootstrap = null, bool? workers = null)
@@ -75,11 +79,15 @@ public sealed class ApiStartupPolicyTests
             x.ImplementationType == typeof(AwardPdfExtractionWorker));
         Assert.Contains(services, x => x.ServiceType == typeof(IHostedService) &&
             x.ImplementationType == typeof(DelhiHighCourtSyncWorker));
+        Assert.Contains(services, x => x.ImplementationType == typeof(DhcHistoryIntelligenceBridge));
+        Assert.Contains(services, x => x.ImplementationType == typeof(CourtScopeIngestionWorker));
 
         var testingServices = new ServiceCollection();
         ApiStartupPolicy.RegisterBackgroundWorkers(testingServices, Configuration(), true);
         Assert.Contains(testingServices, x => x.ImplementationType == typeof(AwardPdfExtractionWorker));
         Assert.DoesNotContain(testingServices, x => x.ImplementationType == typeof(DelhiHighCourtSyncWorker));
+        Assert.DoesNotContain(testingServices, x => x.ImplementationType == typeof(DhcHistoryIntelligenceBridge));
+        Assert.DoesNotContain(testingServices, x => x.ImplementationType == typeof(CourtScopeIngestionWorker));
     }
 
     [Fact]
@@ -109,4 +117,41 @@ public sealed class ApiStartupPolicyTests
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedService>());
         Assert.NotNull(scope.ServiceProvider.GetRequiredService<DelhiHighCourtAssistedCoordinator>());
     }
+
+    [Theory]
+    [InlineData("Testing")]
+    [InlineData("Development")]
+    public void Disabled_workers_are_absent_from_the_actual_host(string environment)
+    {
+        // Program's registrations read configuration before WAF's late callbacks.
+        // Use process startup inputs, serialize this collection, and restore them.
+        var values = new Dictionary<string, string?>
+        {
+            ["Startup__RunDatabaseBootstrap"] = "false", ["BackgroundWorkers__Enabled"] = "false",
+            ["ConnectionStrings__DefaultConnection"] = "Host=127.0.0.1;Port=1;Database=never_connect;Username=never_connect;Timeout=1"
+        };
+        var previous = values.Keys.ToDictionary(k => k, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var pair in values) Environment.SetEnvironmentVariable(pair.Key, pair.Value);
+            using var factory = new ApiFactory().WithWebHostBuilder(builder =>
+            {
+                builder.UseEnvironment(environment);
+                builder.ConfigureServices(services =>
+                {
+                    services.RemoveAll<IDbContextOptionsConfiguration<LacDbContext>>();
+                    services.RemoveAll<DbContextOptions<LacDbContext>>();
+                    services.RemoveAll<LacDbContext>();
+                    services.AddDbContext<LacDbContext>(o => o.UseInMemoryDatabase(Guid.NewGuid().ToString()));
+                });
+            });
+            using var client = factory.CreateClient();
+            Assert.DoesNotContain(factory.Services.GetServices<IHostedService>(), x =>
+                x is DhcHistoryIntelligenceBridge or CourtScopeIngestionWorker or DelhiHighCourtSyncWorker or AwardPdfExtractionWorker);
+        }
+        finally { foreach (var pair in previous) Environment.SetEnvironmentVariable(pair.Key, pair.Value); }
+    }
 }
+
+[CollectionDefinition("Startup environment", DisableParallelization = true)]
+public sealed class StartupEnvironmentCollection { }

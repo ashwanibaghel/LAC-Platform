@@ -128,16 +128,12 @@ builder.Services.AddScoped<CourtIntelligencePersistence>();
 builder.Services.AddScoped<CourtOrderLinkReview>();
 builder.Services.AddScoped<CourtConfirmedOrderProjection>();
 builder.Services.AddScoped<CourtStructuredIntelligenceService>();
-if (!builder.Environment.IsEnvironment("Testing") && builder.Configuration.GetValue<bool?>("BackgroundWorkers:Enabled") != false)
-    builder.Services.AddHostedService<CourtScopeIngestionWorker>();
 builder.Services.AddScoped<ICourtImportService, CourtImportService>();
 builder.Services.AddScoped<ICourtImportReviewService, CourtImportReviewService>();
 builder.Services.AddSingleton<DelhiHighCourtSyncGate>();
 builder.Services.AddScoped<DelhiHighCourtSyncService>();
 builder.Services.AddScoped<DelhiHighCourtAssistedService>();
 builder.Services.AddSingleton<DelhiHighCourtAssistedCoordinator>();
-if (!builder.Environment.IsEnvironment("Testing"))
-    builder.Services.AddHostedService<DhcHistoryIntelligenceBridge>();
 builder.Services.AddSingleton<DelhiHighCourtHistoricalLauncher>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<CourtQuestionConversation>();
