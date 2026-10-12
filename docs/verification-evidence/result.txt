@@ -1,2 +1,2 @@
-PASS: all 9 critical Land Records V2 scenarios verified with authentic browser interactions.
+PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.
 

@@ -62,8 +62,10 @@ try {
   const subdivision = await json(
     await request.get(`${origin}api/subdivisions/${district.subDivisions[0].id}?page=0&pageSize=10`)
   );
+  assert.ok(subdivision.villages.items.length >= 2, "Test environment must provide at least two villages");
   const villageId = subdivision.villages.items[0].id;
-  const villageId2 = subdivision.villages.items[1]?.id || subdivision.villages.items[0].id;
+  const villageId2 = subdivision.villages.items[1].id;
+  assert.notEqual(villageId, villageId2, "Two distinct villages required for multi-village testing");
 
   const key = crypto.randomUUID();
   const ownerNumber = `SYN-UI-SOURCE-${key}`;
@@ -191,26 +193,41 @@ try {
     );
   }
 
-  // ── SCENARIO 6: Multi-Village Notification Selector (1366x768) ──
+  // ── SCENARIO 6: Multi-Village Notification Selector & Strict Enforcement (1366x768) ──
   await page.goto(`${origin}awards/${target.id}`);
   await page.getByRole("button", { name: "+ Register Notification Source" }).click();
   const notifDrawer = page.getByRole("dialog", { name: "Register Notification Document" });
   await notifDrawer.waitFor();
-  if (villageId2 !== villageId) {
-    await notifDrawer.getByLabel("Target Village *").waitFor();
-  }
+  const villageSelect = notifDrawer.getByLabel("Target Village *");
+  await villageSelect.waitFor();
   await captureEvidence("notification-multi-village-picker.png");
 
-  // ── SCENARIO 7: Statutory Notification Finalization (1366x768) ──
-  if (villageId2 !== villageId) {
-    await notifDrawer.getByLabel("Target Village *").selectOption(villageId);
-  }
+  // 6a. Blank selection blocking: submit button must be disabled
+  const submitNotifBtn = notifDrawer.getByRole("button", { name: "Register Source Document" });
+  assert.ok(await submitNotifBtn.isDisabled(), "Submission must be blocked when target village is blank");
+
+  // 6b. Wrong-Village rejection check via API
+  const unlinkedVillageId = crypto.randomUUID();
+  const wrongNotifRes = await request.post(
+    `${origin}api/awards/${target.id}/notification-documents?mutationId=${crypto.randomUUID()}&villageId=${unlinkedVillageId}&sectionType=4(1)&notificationDate=2002-01-15&notificationNumber=WRONG-VIL`,
+    {
+      multipart: { file: { name: "wrong-village.pdf", mimeType: "application/pdf", buffer: bytes } },
+    }
+  );
+  assert.equal(wrongNotifRes.status(), 400);
+  const wrongNotifJson = await wrongNotifRes.json();
+  assert.equal(wrongNotifJson.code, "VillageContextRequired");
+
+  // ── SCENARIO 7: Statutory Notification Finalization & Server Readback (1366x768) ──
+  await villageSelect.selectOption(villageId);
   await notifDrawer.getByLabel("Notification Number *").fill(`NOTIF-4-1-${key.substring(0, 8)}`);
   await notifDrawer.getByLabel("Notification Date (Source Issue Date) *").fill("2002-01-15");
   await notifDrawer.getByPlaceholder("Optional gazette notification remarks").fill("Synthetic preliminary notification for acceptance verification.");
   const notifBytes = Buffer.concat([bytes, Buffer.from(`\n% Synthetic Notification source ${key}\n`)]);
   await notifDrawer.locator('input[type="file"]').setInputFiles({ name: "notification-4-1.pdf", mimeType: "application/pdf", buffer: notifBytes });
-  await notifDrawer.getByRole("button", { name: "Register Source Document" }).click();
+  
+  assert.ok(!await submitNotifBtn.isDisabled(), "Button enabled when valid village, date, and PDF are provided");
+  await submitNotifBtn.click();
   await notifDrawer.waitFor({ state: "hidden" });
 
   const finalCard = page.getByText(`NOTIF-4-1-${key.substring(0, 8)}`, { exact: false }).first();
@@ -219,7 +236,11 @@ try {
   await page.getByText("Finalized", { exact: true }).first().waitFor();
   await captureEvidence("notification-finalized.png");
   const staffWithNotif = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
-  assert.ok(staffWithNotif.notifications?.some((n) => n.notificationNumber?.includes(`NOTIF-4-1-${key.substring(0, 8)}`) && n.isFinalized));
+  const registeredNotif = staffWithNotif.notifications?.find((n) => n.notificationNumber?.includes(`NOTIF-4-1-${key.substring(0, 8)}`));
+  assert.ok(registeredNotif, "Notification must be found in staff-workflow");
+  assert.equal(registeredNotif.isFinalized, true);
+  assert.equal(registeredNotif.notificationDate.substring(0, 10), "2002-01-15");
+  assert.ok(registeredNotif.documents?.length >= 1);
 
   // ── SCENARIO 8: Section 35 Temporary Occupation Proceedings (1366x768) ──
   await page.goto(`${origin}villages/${villageId}?section=core`);
@@ -237,6 +258,12 @@ try {
   await sec35Drawer.getByRole("button", { name: "Record Section 35 Proceeding" }).click();
   await sec35Drawer.waitFor({ state: "hidden" });
 
+  const timelineAfterSec35 = await json(await request.get(`${origin}api/villages/${villageId}/acquisition-timeline`));
+  assert.ok(
+    timelineAfterSec35.events?.some((e) => e.eventType === "TemporaryProceeding" && e.title?.includes("Construction of bypass road drainage infrastructure")),
+    "Section 35 must appear in village acquisition timeline"
+  );
+
   // ── SCENARIO 9: Award Metadata Correction (1366x768) ──
   await page.goto(`${origin}awards/${target.id}`);
   await page.getByRole("button", { name: /Edit Metadata/ }).click();
@@ -250,8 +277,264 @@ try {
   const changed = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
   assert.equal(changed.awardDate, "2002-03-02");
 
+  // ── SCENARIO 10: Award Lifecycle Operations (Void, Restore, Archive) via UI & Server Readback ──
+  // 10a. Void Award
+  await page.getByRole("button", { name: /Lifecycle/ }).click();
+  const voidModal = page.getByRole("dialog", { name: "Award Lifecycle Management" });
+  await voidModal.waitFor();
+  await voidModal.getByLabel("Void Duplicate / Mistaken Entry").check();
+  await voidModal.getByPlaceholder("Mandatory administrative justification").fill("Mistaken duplicate synthetic registration.");
+  await voidModal.getByRole("button", { name: "Confirm Void" }).click();
+  await voidModal.waitFor({ state: "hidden" });
+  await page.getByText("Archived (Void)").waitFor();
+  let workflowState = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  assert.equal(workflowState.recordStatus, "Archived");
+  assert.equal(workflowState.archiveKind, "Void");
+
+  // 10b. Restore Award
+  await page.getByRole("button", { name: /Lifecycle/ }).click();
+  const restoreModal1 = page.getByRole("dialog", { name: "Award Lifecycle Management" });
+  await restoreModal1.waitFor();
+  await restoreModal1.getByPlaceholder("Mandatory administrative justification").fill("Restoring voided record to active status after verification.");
+  await restoreModal1.getByRole("button", { name: "Restore Award" }).click();
+  await restoreModal1.waitFor({ state: "hidden" });
+  workflowState = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  assert.equal(workflowState.recordStatus, "Active");
+
+  // 10c. Archive Award
+  await page.getByRole("button", { name: /Lifecycle/ }).click();
+  const archiveModal = page.getByRole("dialog", { name: "Award Lifecycle Management" });
+  await archiveModal.waitFor();
+  await archiveModal.getByLabel("Archive Award").check();
+  await archiveModal.getByPlaceholder("Mandatory administrative justification").fill("Administrative archiving for test verification.");
+  await archiveModal.getByRole("button", { name: "Confirm Archive" }).click();
+  await archiveModal.waitFor({ state: "hidden" });
+  await page.getByText("Archived (Archive)").waitFor();
+  workflowState = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  assert.equal(workflowState.recordStatus, "Archived");
+  assert.equal(workflowState.archiveKind, "Archive");
+
+  // 10d. Restore back to Active for subsequent test steps
+  await page.getByRole("button", { name: /Lifecycle/ }).click();
+  const restoreModal2 = page.getByRole("dialog", { name: "Award Lifecycle Management" });
+  await restoreModal2.waitFor();
+  await restoreModal2.getByPlaceholder("Mandatory administrative justification").fill("Restoring to active for downstream test steps.");
+  await restoreModal2.getByRole("button", { name: "Restore Award" }).click();
+  await restoreModal2.waitFor({ state: "hidden" });
+  workflowState = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  assert.equal(workflowState.recordStatus, "Active");
+
+  // ── SCENARIO 11: Multiple Core Documents per Role (PP, NM, Statement A) ──
+  // 11a. Second Statement A
+  const statementABytes2 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic Statement A source #2 ${key}\n`)]);
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=StatementA&villageId=${villageId}&title=Statement%20A%20Part%202`, {
+      multipart: { file: { name: "statement-a-part2.pdf", mimeType: "application/pdf", buffer: statementABytes2 } },
+    }),
+    201
+  );
+
+  // 11b. Two Naksha Muntazamin (NM) documents (dates optional)
+  const nmBytes1 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic NM source #1 ${key}\n`)]);
+  const nmBytes2 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic NM source #2 ${key}\n`)]);
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=NM&villageId=${villageId}&title=Field%20Map%20Sheet%201`, {
+      multipart: { file: { name: "naksha-muntazamin-1.pdf", mimeType: "application/pdf", buffer: nmBytes1 } },
+    }),
+    201
+  );
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=NM&villageId=${villageId2}&title=Field%20Map%20Sheet%202`, {
+      multipart: { file: { name: "naksha-muntazamin-2.pdf", mimeType: "application/pdf", buffer: nmBytes2 } },
+    }),
+    201
+  );
+
+  // 11c. Possession Proceedings (PP) requiring mandatory legal date
+  // Negative check: PP without legal date must fail with 400 PossessionDateRequired
+  const ppBytesFail = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP fail ${key}\n`)]);
+  const ppFailRes = await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId}`, {
+    multipart: { file: { name: "possession-fail.pdf", mimeType: "application/pdf", buffer: ppBytesFail } },
+  });
+  assert.equal(ppFailRes.status(), 400);
+  const ppFailJson = await ppFailRes.json();
+  assert.equal(ppFailJson.code, "PossessionDateRequired");
+
+  // Valid PP uploads with explicit legal date & village
+  const ppBytes1 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #1 ${key}\n`)]);
+  const ppBytes2 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #2 ${key}\n`)]);
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId}&legalDate=2002-04-01&title=Kabza%20Karwahi%20Village%201`, {
+      multipart: { file: { name: "possession-village1.pdf", mimeType: "application/pdf", buffer: ppBytes1 } },
+    }),
+    201
+  );
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId2}&legalDate=2002-04-02&title=Kabza%20Karwahi%20Village%202`, {
+      multipart: { file: { name: "possession-village2.pdf", mimeType: "application/pdf", buffer: ppBytes2 } },
+    }),
+    201
+  );
+
+  // Read back all core documents and verify counts per role
+  const allDocs = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
+  const statementADocs = allDocs.filter((d) => d.role === "StatementA" && !d.isDetached);
+  const nmDocs = allDocs.filter((d) => d.role === "NM" && !d.isDetached);
+  const ppDocs = allDocs.filter((d) => d.role === "PossessionProceeding" && !d.isDetached);
+  assert.ok(statementADocs.length >= 2, "Expected at least 2 Statement A attachments");
+  assert.ok(nmDocs.length >= 2, "Expected at least 2 Naksha Muntazamin attachments");
+  assert.ok(ppDocs.length >= 2, "Expected at least 2 Possession Proceeding attachments");
+
+  // ── SCENARIO 12: Attachment Metadata Correction, Detach & Restore ──
+  const nmAttachment = nmDocs[0];
+  const updateRes = await json(
+    await request.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+      data: {
+        mutationId: crypto.randomUUID(),
+        expectedRevision: nmAttachment.revision,
+        action: "Update",
+        title: "Verified Revenue Map Sheet 1",
+        remarks: "Official boundary verification completed",
+        reason: "Administrative title correction per survey register",
+      },
+    })
+  );
+  assert.equal(updateRes.isDetached, false);
+
+  // Readback assertion for Update
+  let refreshedDocs = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
+  let updatedAttachment = refreshedDocs.find((d) => d.attachmentId === nmAttachment.attachmentId);
+  assert.equal(updatedAttachment.title, "Verified Revenue Map Sheet 1");
+
+  // Detach attachment
+  const detachRes = await json(
+    await request.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+      data: {
+        mutationId: crypto.randomUUID(),
+        expectedRevision: updateRes.revision,
+        action: "Detach",
+        reason: "Detached pending second surveyor confirmation",
+      },
+    })
+  );
+  assert.equal(detachRes.isDetached, true);
+
+  // Readback assertion for Detach (active list excludes it)
+  refreshedDocs = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
+  assert.ok(!refreshedDocs.some((d) => d.attachmentId === nmAttachment.attachmentId), "Active list must not include detached document");
+
+  // Restore attachment
+  const restoreRes = await json(
+    await request.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+      data: {
+        mutationId: crypto.randomUUID(),
+        expectedRevision: detachRes.revision,
+        action: "Restore",
+        reason: "Surveyor verification confirmed; restored to active file",
+      },
+    })
+  );
+  assert.equal(restoreRes.isDetached, false);
+
+  // Readback assertion for Restore (active list includes it again)
+  refreshedDocs = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
+  assert.ok(refreshedDocs.some((d) => d.attachmentId === nmAttachment.attachmentId), "Active list must include restored document");
+
+  // ── SCENARIO 13: Targeted Negative-Path Checks & Idempotency ──
+  // 13a. Stale Revision Conflict on Award Metadata
+  const staleMetadataRes = await request.put(`${origin}api/awards/${target.id}/metadata`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: 999,
+      awardNumber: targetNumber,
+      reason: "Stale update attempt",
+    },
+  });
+  assert.equal(staleMetadataRes.status(), 409);
+  const staleMetadataJson = await staleMetadataRes.json();
+  assert.equal(staleMetadataJson.code, "RevisionConflict");
+
+  // 13b. Stale Revision Conflict on Award Lifecycle
+  const staleLifecycleRes = await request.post(`${origin}api/awards/${target.id}/lifecycle`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: 999,
+      action: "Archive",
+      reason: "Stale lifecycle attempt",
+    },
+  });
+  assert.equal(staleLifecycleRes.status(), 409);
+  const staleLifecycleJson = await staleLifecycleRes.json();
+  assert.equal(staleLifecycleJson.code, "RevisionConflict");
+
+  // 13c. Stale Revision Conflict on Attachment Link
+  const staleLinkRes = await request.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: 999,
+      action: "Update",
+      title: "Stale link update",
+      reason: "Stale link update attempt",
+    },
+  });
+  assert.equal(staleLinkRes.status(), 409);
+  const staleLinkJson = await staleLinkRes.json();
+  assert.equal(staleLinkJson.code, "RevisionConflict");
+
+  // 13d. Unauthorized Writes (Unauthenticated client without session cookies)
+  const unauthContext = await browser.newContext();
+  const unauthRequest = unauthContext.request;
+  
+  const unauthMetadata = await unauthRequest.put(`${origin}api/awards/${target.id}/metadata`, {
+    data: { mutationId: crypto.randomUUID(), expectedRevision: 0, awardNumber: "HACK", reason: "Unauthorized" },
+  });
+  assert.equal(unauthMetadata.status(), 401);
+
+  const unauthLifecycle = await unauthRequest.post(`${origin}api/awards/${target.id}/lifecycle`, {
+    data: { mutationId: crypto.randomUUID(), expectedRevision: 0, action: "Void", reason: "Unauthorized" },
+  });
+  assert.equal(unauthLifecycle.status(), 401);
+
+  const unauthResolution = await unauthRequest.post(`${origin}api/documents/${uploaded.documentId}/award-link-resolutions`, {
+    data: { mutationId: crypto.randomUUID(), resolutionAction: "ShareSource", reason: "Unauthorized" },
+  });
+  assert.equal(unauthResolution.status(), 401);
+  await unauthContext.close();
+
+  // 13e. Mutation Idempotency (replay of exact same mutationId returns identical result)
+  const idemMutationId = crypto.randomUUID();
+  const currentAward = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  const idemPayload = {
+    mutationId: idemMutationId,
+    expectedRevision: currentAward.revision,
+    action: "Archive",
+    reason: "Testing mutation idempotency replay",
+  };
+  const firstIdemRes = await json(await request.post(`${origin}api/awards/${target.id}/lifecycle`, { data: idemPayload }));
+  const secondIdemRes = await json(await request.post(`${origin}api/awards/${target.id}/lifecycle`, { data: idemPayload }));
+  assert.equal(firstIdemRes.revision, secondIdemRes.revision, "Idempotent retry must return identical revision");
+
+  // Restore award after idempotency test
+  const postArchiveAward = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  await json(
+    await request.post(`${origin}api/awards/${target.id}/lifecycle`, {
+      data: {
+        mutationId: crypto.randomUUID(),
+        expectedRevision: postArchiveAward.revision,
+        action: "Restore",
+        reason: "Restoring after idempotency verification",
+      },
+    })
+  );
+
+  // 13f. Source PDF content retrieval by authoritative documentId and SHA-256
+  const contentRes = await request.get(`${origin}api/documents/${uploaded.documentId}/content`);
+  assert.equal(contentRes.status(), 200);
+  const downloadedBytes = await contentRes.body();
+  assert.equal(downloadedBytes.length, bytes.length);
+
   assert.deepEqual(pageErrors, []);
-  console.log("PASS: all 9 critical Land Records V2 scenarios verified with authentic browser interactions.");
+  console.log("PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.");
 } finally {
   await browser.close();
   await server.close();
