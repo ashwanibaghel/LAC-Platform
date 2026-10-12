@@ -36,6 +36,7 @@ try {
   const page = await context.newPage();
   const pageErrors = []; page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto(`${origin}awards/${target.id}`);
+  if (process.env.LAC_STAFF_WEB_ROOT) await page.getByRole("button", { name: /Edit Metadata/ }).waitFor();
   await page.getByRole("button", { name: "Import / Review Data" }).click();
   const drawer = page.getByRole("complementary", { name: "Upload Award PDF" });
   await drawer.locator('input[type="file"]').setInputFiles({ name: "synthetic-ui.pdf", mimeType: "application/pdf", buffer: bytes });
@@ -91,6 +92,18 @@ try {
   await smart.getByRole("button", { name: "Confirm & Link", exact: true }).click();
   await smart.locator(".intake-badge-confirmed").waitFor();
   await page.screenshot({ path: path.join(artifacts, "integrated-smart-and-direct.png"), fullPage: true });
+  if (process.env.LAC_STAFF_WEB_ROOT) {
+    await page.goto(`${origin}awards/${target.id}`);
+    await page.getByRole("button", { name: /Edit Metadata/ }).click();
+    const edit = page.getByRole("dialog", { name: "Edit Award Metadata" });
+    await edit.getByLabel("Award Date").fill("2002-03-02");
+    await edit.getByLabel(/Reason for Official Correction/).fill("Checked synthetic register for frontend integration verification.");
+    await edit.getByRole("button", { name: "Save Metadata Correction", exact: true }).click();
+    await edit.waitFor({ state: "hidden" });
+    const changed = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+    assert.equal(changed.awardDate, "2002-03-02");
+    console.log(`PASS: preserved metadata UI saves against the actual backend; frontend root ${root}`);
+  }
   assert.deepEqual(pageErrors, []);
   console.log("PASS: actual browser ownership correction, grouped canonical timeline/source links, premium Village Direct Upload without classification, Smart Intake proposal/confirmation, same identity/no accidental OCR.");
 } finally { await browser.close(); await server.close(); }
