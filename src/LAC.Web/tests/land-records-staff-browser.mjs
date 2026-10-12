@@ -62,9 +62,35 @@ try {
   const jobs = await json(await request.get(`${origin}api/awards/${target.id}/pdf-extractions`)); assert.equal(jobs.length, 0);
   await page.goto(`${origin}villages/${villageId}`);
   const timeline = page.getByRole("region", { name: "Village acquisition timeline" });
-  await timeline.getByRole("link", { name: `Award ${ownerNumber}`, exact: true }).waitFor();
+  await timeline.getByRole("button").filter({ hasText: ownerNumber }).waitFor();
+  for (const button of await timeline.getByRole("button", { expanded: false }).all()) await button.click();
   assert.ok(await timeline.getByRole("link", { name: "Source PDF 1" }).count() >= 2);
   await page.screenshot({ path: path.join(artifacts, "canonical-timeline.png"), fullPage: true });
+  // Verify the preserved premium Village workspace now uses the canonical V2
+  // attachment path, while Smart Intake remains a separate proposal step.
+  await page.goto(`${origin}villages/${villageId}?section=core`);
+  const card = page.locator(`#award-${target.id}`);
+  await card.getByText(`Award SYN-UI-TARGET-${key}`, { exact: true }).waitFor();
+  const statementSlot = card.locator(".village-doc-slot").filter({ has: page.locator(".village-doc-role-name", { hasText: "Statement A" }) });
+  await statementSlot.getByRole("button", { name: "+ Attach", exact: true }).click();
+  const attach = page.getByRole("dialog", { name: "Attach core PDF" });
+  const statementBytes = Buffer.concat([bytes, Buffer.from(`\n% Synthetic Statement A source ${key}\n`)]);
+  await attach.locator('input[type="file"]').setInputFiles({ name: "statement-a.pdf", mimeType: "application/pdf", buffer: statementBytes });
+  assert.equal(await attach.getByText("Low confidence").count(), 0);
+  await attach.getByRole("button", { name: "Direct Upload", exact: true }).click();
+  await attach.getByRole("status").getByText("Attached", { exact: true }).waitFor();
+  await attach.getByRole("button", { name: "Done — Refresh Records" }).click();
+  await card.getByText("statement-a.pdf", { exact: false }).waitFor();
+  assert.equal((await json(await request.get(`${origin}api/awards/${target.id}/pdf-extractions`))).length, 0);
+  await page.getByRole("button", { name: /Upload Core Documents/ }).click();
+  const smart = page.locator(".intake-modal");
+  const smartBytes = Buffer.concat([bytes, Buffer.from(`\n% Synthetic staged source ${key}\n`)]);
+  await smart.locator('input[type="file"]').setInputFiles({ name: "staged-source.pdf", mimeType: "application/pdf", buffer: smartBytes });
+  await smart.getByRole("button", { name: /Analyse/ }).click();
+  await smart.locator(".intake-review-list").waitFor();
+  await smart.getByRole("button", { name: "Confirm & Link", exact: true }).click();
+  await smart.locator(".intake-badge-confirmed").waitFor();
+  await page.screenshot({ path: path.join(artifacts, "integrated-smart-and-direct.png"), fullPage: true });
   assert.deepEqual(pageErrors, []);
-  console.log("PASS: browser ownership 409 explanation, authorized source identity, no type-confidence confusion, officer-confirmed shared source, same document/no OCR, canonical timeline links.");
+  console.log("PASS: actual browser ownership correction, grouped canonical timeline/source links, premium Village Direct Upload without classification, Smart Intake proposal/confirmation, same identity/no accidental OCR.");
 } finally { await browser.close(); await server.close(); }

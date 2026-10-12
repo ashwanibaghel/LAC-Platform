@@ -49,9 +49,10 @@ public sealed partial class LandRecordsStaffWorkflowService
         if (award.RecordStatus != RecordStatus.Active) await AuthorizeAsync(PermissionCodes.AuditView, award.CreatedBy, ct: ct);
         var canPossession = await access.CanAsync(PermissionCodes.AwardView, Context(award.CreatedBy, WorkstreamCodes.Possession), ct);
         return await db.DocumentAwards.AsNoTracking().Where(x => x.AwardId == id && x.CoreDocumentRole != null &&
-            (includeDetached || !x.IsDetached) && (canPossession || x.CoreDocumentRole != "PossessionProceeding"))
+            (includeDetached || !x.IsDetached && x.Document.RecordStatus == RecordStatus.Active && x.Document.Status == "Active") && (canPossession || x.CoreDocumentRole != "PossessionProceeding"))
             .OrderBy(x => x.LegalDate == null).ThenBy(x => x.LegalDate).ThenBy(x => x.Document.UploadedAt).ThenBy(x => x.Id)
-            .Select(x => new { attachmentId = x.Id, x.DocumentId, role = x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType,
+            .Select(x => new { attachmentId = x.Id, x.DocumentId, role = x.CoreDocumentRole, x.CoreDocumentRole, x.Document.OriginalFileName, x.Document.MimeType,
+                x.Document.Status, viewRoute = $"/api/documents/{x.DocumentId}/content", downloadRoute = $"/api/documents/{x.DocumentId}/content?download=true",
                 x.Document.UploadedAt, sourceHash = x.Document.Sha256Hash, x.VillageId, x.LegalDate, x.ReferenceNumber, x.PartNumber, x.Title,
                 x.Remarks, x.Revision, x.IsDetached, x.IsSharedSource, x.PossessionEventId, needsReview = x.CoreDocumentRole == "PossessionProceeding" && (x.LegalDate == null || x.PossessionEventId == null) }).ToListAsync(ct);
     }

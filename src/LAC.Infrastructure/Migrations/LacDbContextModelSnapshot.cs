@@ -1132,6 +1132,85 @@ namespace LAC.Infrastructure.Migrations
                     b.ToTable("ClaimKhasra");
                 });
 
+            modelBuilder.Entity("LAC.Domain.CoreDocumentIntake", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ClassifierVersion")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ConfirmationJson")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConfirmedAwardId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConfirmedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("ConfirmedDocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConfirmedRole")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProposalJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Sha256Hash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("SourcePagesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<Guid>("VillageId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfirmedAwardId");
+
+                    b.HasIndex("ConfirmedDocumentId");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("VillageId", "CreatedAt");
+
+                    b.HasIndex("VillageId", "Sha256Hash")
+                        .IsUnique();
+
+                    b.ToTable("CoreDocumentIntakes");
+                });
+
             modelBuilder.Entity("LAC.Domain.CourtCase", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7318,6 +7397,39 @@ namespace LAC.Infrastructure.Migrations
                     b.Navigation("Claim");
 
                     b.Navigation("Khasra");
+                });
+
+            modelBuilder.Entity("LAC.Domain.CoreDocumentIntake", b =>
+                {
+                    b.HasOne("LAC.Domain.Award", "ConfirmedAward")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedAwardId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.Document", "ConfirmedDocument")
+                        .WithMany()
+                        .HasForeignKey("ConfirmedDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("LAC.Domain.Document", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("LAC.Domain.Village", "Village")
+                        .WithMany()
+                        .HasForeignKey("VillageId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ConfirmedAward");
+
+                    b.Navigation("ConfirmedDocument");
+
+                    b.Navigation("Document");
+
+                    b.Navigation("Village");
                 });
 
             modelBuilder.Entity("LAC.Domain.CourtCase", b =>

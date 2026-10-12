@@ -75,7 +75,8 @@ internal sealed class LandRecordPdfStore(LacDbContext db, IDocumentStorage stora
     public async Task<Document> GetOrStoreAsync(PreparedLandRecordPdf pdf, string name, string type, string? actor, CancellationToken ct, Guid? preferredAwardId = null)
     {
         // Older duplicate rows remain historical; select deterministically, never Single().
-        var document = await db.Documents.Where(x => x.Sha256Hash != null && x.Sha256Hash.ToLower() == pdf.Hash && x.RecordStatus == RecordStatus.Active && x.Status == "Active")
+        var document = await db.Documents.Where(x => x.Sha256Hash != null && x.Sha256Hash.ToLower() == pdf.Hash && x.RecordStatus == RecordStatus.Active &&
+            (x.Status == "Active" || x.Status == "Staged" && x.DocumentType == "Unclassified Core PDF"))
             .OrderByDescending(x => preferredAwardId != null && x.AwardLinks.Any(a => a.AwardId == preferredAwardId && !a.IsDetached))
             .ThenBy(x => x.UploadedAt).ThenBy(x => x.Id).FirstOrDefaultAsync(ct);
         if (document is not null)

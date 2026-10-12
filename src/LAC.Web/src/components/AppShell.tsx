@@ -155,10 +155,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       description: "Villages, khasras, awards, and khatauni registers",
       icon: <IconLand size={20} />,
       links: [
-        { label: "Administrative Hierarchy", to: "/land-records" },
-        { label: "Village Directory", to: "/villages" },
-        { label: "Awards Register", to: "/awards" },
-        { label: "LR Import Registers", to: "/imports/lr" }
+        { label: "Overview", to: "/land-records" },
+        { label: "Villages", to: "/villages" },
+        { label: "Awards", to: "/awards" }
       ]
     },
     {
@@ -226,10 +225,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     contextualNav = {
       categoryTitle: "Land Records",
       links: [
-        { label: "Hierarchy Overview", to: "/land-records" },
+        { label: "Overview", to: "/land-records" },
         { label: "Villages", to: "/villages" },
-        { label: "Awards", to: "/awards" },
-        { label: "LR Registers", to: "/imports/lr" }
+        { label: "Awards", to: "/awards" }
       ]
     };
   } else if (path.startsWith("/dak") || path.startsWith("/my-desk") || path.startsWith("/outward")) {

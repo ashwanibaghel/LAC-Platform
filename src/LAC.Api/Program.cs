@@ -70,6 +70,10 @@ builder.Services.AddScoped<OwnershipService>();
 builder.Services.AddScoped<KhasraWorkspaceService>();
 builder.Services.AddScoped<AwardWorkflowService>();
 builder.Services.AddScoped<LandRecordsStaffWorkflowService>();
+builder.Services.AddSingleton<CoreIntakeGate>();
+builder.Services.AddSingleton<ICoreDocumentTextReader, CoreDocumentNativeTextReader>();
+builder.Services.AddSingleton<ICoreDocumentClassifier, CoreDocumentClassifier>();
+builder.Services.AddScoped<CoreDocumentIntakeService>();
 builder.Services.AddScoped<AwardIngestionService>();
 builder.Services.AddScoped<NmWorkflowService>();
 builder.Services.AddScoped<DocumentSourceCropService>();
@@ -184,6 +188,7 @@ var api = app.MapGroup("/api");
 api.GuardArchivedAwardWrites();
 api.MapRbacEndpoints();
 api.MapLandRecordsStaffEndpoints();
+api.MapCoreDocumentIntakeEndpoints();
 api.MapDakEndpoints();
 api.MapOutwardEndpoints();
 api.MapMatterEndpoints();
@@ -576,10 +581,15 @@ api.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, LacDb
 api.MapGet("/villages/{id:guid}/core-records", async (Guid id, LacDbContext db, CancellationToken ct) =>
 {
     if (!await db.Villages.AsNoTracking().AnyAsync(x => x.Id == id, ct)) return NotFound("Village", id);
-    var awards = await db.Awards.AsNoTracking().Where(a => a.RecordStatus == RecordStatus.Active && a.VillageLinks.Any(v => v.VillageId == id)).OrderByDescending(a => a.AwardDate).ThenBy(a => a.AwardNumber)
-        .Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, documents = a.DocumentRelationships.Where(d => !d.IsDetached).Select(d => new { d.DocumentId, d.CoreDocumentRole, d.Document.OriginalFileName, d.Document.UploadedAt }).ToList() }).ToListAsync(ct);
-    return Results.Ok(awards.Select(a => new { a.Id, a.AwardNumber, a.AwardDate, a.AwardType, roles = new[] { "Award", "NM", "StatementA", "PossessionProceeding" }.Select(role => new { role, count = a.documents.Count(d => d.CoreDocumentRole == role), available = a.documents.Any(d => d.CoreDocumentRole == role) }), documents = a.documents }));
-}).RequirePermission(PermissionCodes.VillageView);
+    return Results.Ok(await CoreDocumentInventory.VillageAsync(db, id, ct));
+}).RequirePermission(PermissionCodes.VillageView).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
+api.MapGet("/villages/{villageId:guid}/acquisition-history", async (Guid villageId, LacDbContext db, IAccessControlService access, CancellationToken ct) =>
+{
+    var possession = await access.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.Possession), ct);
+    var temporary = await access.CanAsync(PermissionCodes.AwardView, new AccessResourceContext(WorkstreamCode: WorkstreamCodes.LandRecords), ct);
+    var history = await VillageAcquisitionHistoryQueries.ReadAsync(db, villageId, possession, ct, temporary);
+    return history is null ? NotFound("Village", villageId) : Results.Ok(history);
+}).RequirePermission(PermissionCodes.VillageView).RequirePermission(PermissionCodes.AwardView, WorkstreamCodes.Award);
 api.MapPost("/villages/{id:guid}/awards", async (Guid id, CreateVillageAwardRequest request, AwardWorkflowService workflow, CancellationToken ct) =>
 {
     try { var award = await workflow.CreateAsync(new(request.AwardNumber, id, request.AwardDate, request.AwardType, request.ActRegime, request.Purpose, request.AcquisitionProjectId, request.Remarks), ct); return Results.Created($"/api/awards/{award.Id}", new IdResponse(award.Id)); }

@@ -6,7 +6,7 @@ namespace LAC.Infrastructure;
 
 public sealed partial class LandRecordsStaffWorkflowService
 {
-    private long MaxPdfBytes => Math.Clamp(configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024) * 1024L * 1024L;
+    internal long MaxPdfBytes => Math.Clamp(configuration.GetValue<int?>("PdfImport:MaxFileSizeMb") ?? 250, 1, 1024) * 1024L * 1024L;
     private static readonly string[] CoreRoles = ["Award", "NM", "StatementA", "PossessionProceeding", "TemporaryOffer", "TemporaryProceedings"];
 
     public async Task<CoreUploadResult> UploadCoreAsync(Guid awardId, CoreUploadInput input, Stream source, string name, CancellationToken ct)
@@ -36,6 +36,8 @@ public sealed partial class LandRecordsStaffWorkflowService
             if (validCount != khasras.Length) throw new StaffWorkflowException("InvalidKhasraContext", "Every selected Khasra must belong to the selected Award and Village.");
             var document = await files.GetOrStoreAsync(pdf, name, input.Role == "Award" ? "Award PDF" : input.Role, Actor, ct, awardId);
             await ValidatePreviousOwnersAsync(document.Id, awardId, ct);
+            if (document.Status == "Staged" && document.DocumentType == "Unclassified Core PDF")
+            { document.Status = "Active"; document.DocumentType = input.Role == "Award" ? "Award PDF" : input.Role; }
             // Notification/temporary sources must not become final Award evidence by hash reuse.
             if (input.Role == "Award" && (await db.DocumentNotifications.AnyAsync(x => x.DocumentId == document.Id, ct) ||
                 await db.Set<TemporaryAcquisitionProceeding>().AnyAsync(x => x.DocumentId == document.Id, ct)))

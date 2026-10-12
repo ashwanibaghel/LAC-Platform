@@ -30,11 +30,13 @@ public sealed class StaffPostgresFactAttribute : FactAttribute
 public sealed class StaffRollbackInterceptor : SaveChangesInterceptor
 {
     public Guid? FailAwardId { get; set; }
+    public bool FailNextCoreAttachment { get; set; }
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken ct = default)
     {
-        if (FailAwardId is Guid id && eventData.Context!.ChangeTracker.Entries<DocumentAward>().Any(x => x.State == EntityState.Added && x.Entity.AwardId == id))
+        if (eventData.Context!.ChangeTracker.Entries<DocumentAward>().Any(x => x.State == EntityState.Added && (FailNextCoreAttachment || FailAwardId is Guid id && x.Entity.AwardId == id)))
         {
             FailAwardId = null;
+            FailNextCoreAttachment = false;
             throw new DbUpdateException("Synthetic isolated transaction failure.");
         }
         return ValueTask.FromResult(result);
@@ -69,7 +71,7 @@ public sealed class StaffPostgresFactory : WebApplicationFactory<Program>
     }
 }
 
-public sealed class LandRecordsStaffPersistenceTests(StaffPostgresFactory factory) : IClassFixture<StaffPostgresFactory>
+public sealed partial class LandRecordsStaffPersistenceTests(StaffPostgresFactory factory) : IClassFixture<StaffPostgresFactory>
 {
     private async Task<HttpClient> ClientAsync()
     {

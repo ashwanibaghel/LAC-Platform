@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
 namespace LAC.Infrastructure;
 public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurrentUserContext? currentUser = null) : DbContext(options) {
+ public DbSet<CoreDocumentIntake> CoreDocumentIntakes => Set<CoreDocumentIntake>();
  public DbSet<Designation> Designations => Set<Designation>(); public DbSet<AppUser> AppUsers => Set<AppUser>(); public DbSet<Role> Roles => Set<Role>(); public DbSet<Permission> Permissions => Set<Permission>(); public DbSet<UserRole> UserRoles => Set<UserRole>(); public DbSet<RolePermission> RolePermissions => Set<RolePermission>(); public DbSet<Workstream> Workstreams => Set<Workstream>(); public DbSet<UserWorkstreamMembership> UserWorkstreamMemberships => Set<UserWorkstreamMembership>(); public DbSet<OfficeDesk> OfficeDesks => Set<OfficeDesk>(); public DbSet<UserDeskMembership> UserDeskMemberships => Set<UserDeskMembership>();
  public DbSet<SourceEvidence> SourceEvidence => Set<SourceEvidence>(); public DbSet<DocumentTrainingExample> DocumentTrainingExamples => Set<DocumentTrainingExample>();
  public DbSet<AwardIngestionSession> AwardIngestionSessions => Set<AwardIngestionSession>(); public DbSet<AwardIngestionCandidate> AwardIngestionCandidates => Set<AwardIngestionCandidate>(); public DbSet<AwardDocumentExtractionJob> AwardDocumentExtractionJobs => Set<AwardDocumentExtractionJob>(); public DbSet<AwardDocumentPageExtraction> AwardDocumentPageExtractions => Set<AwardDocumentPageExtraction>(); public DbSet<NmDocument> NmDocuments => Set<NmDocument>(); public DbSet<NmReviewRow> NmReviewRows => Set<NmReviewRow>(); public DbSet<NmReviewKhasra> NmReviewKhasras => Set<NmReviewKhasra>(); public DbSet<NmReviewFragment> NmReviewFragments => Set<NmReviewFragment>(); public DbSet<NmSemanticAnalysisSession> NmSemanticAnalysisSessions => Set<NmSemanticAnalysisSession>(); public DbSet<NmSemanticOwnerBlock> NmSemanticOwnerBlocks => Set<NmSemanticOwnerBlock>(); public DbSet<NmSemanticParcelGroup> NmSemanticParcelGroups => Set<NmSemanticParcelGroup>(); public DbSet<NmSemanticParcelEntry> NmSemanticParcelEntries => Set<NmSemanticParcelEntry>(); public DbSet<NmSemanticCompensationComponent> NmSemanticCompensationComponents => Set<NmSemanticCompensationComponent>(); public DbSet<NmSemanticSourceRelation> NmSemanticSourceRelations => Set<NmSemanticSourceRelation>(); public DbSet<NmSemanticException> NmSemanticExceptions => Set<NmSemanticException>(); public DbSet<NmRecordedPerson> NmRecordedPeople => Set<NmRecordedPerson>(); public DbSet<NmEntitlement> NmEntitlements => Set<NmEntitlement>(); public DbSet<NmEntitlementKhasra> NmEntitlementKhasras => Set<NmEntitlementKhasra>(); public DbSet<NmEntitlementComponent> NmEntitlementComponents => Set<NmEntitlementComponent>();
@@ -24,6 +25,17 @@ public sealed class LacDbContext(DbContextOptions<LacDbContext> options, ICurren
  public DbSet<CourtExternalOrderObservation> CourtExternalOrderObservations => Set<CourtExternalOrderObservation>();
  public DbSet<CourtExternalAssistedDecision> CourtExternalAssistedDecisions => Set<CourtExternalAssistedDecision>();
  protected override void OnModelCreating(ModelBuilder b) { base.OnModelCreating(b); foreach(var e in b.Model.GetEntityTypes().Where(x=>typeof(OfficialRecord).IsAssignableFrom(x.ClrType))) b.Entity(e.ClrType).Property("RecordStatus").HasConversion<string>();
+  b.Entity<CoreDocumentIntake>().HasIndex(x => new { x.VillageId, x.Sha256Hash }).IsUnique();
+  b.Entity<CoreDocumentIntake>().HasIndex(x => new { x.VillageId, x.CreatedAt });
+  b.Entity<CoreDocumentIntake>().HasIndex(x => x.DocumentId);
+  b.Entity<CoreDocumentIntake>().Property(x => x.Sha256Hash).HasMaxLength(64);
+  b.Entity<CoreDocumentIntake>().Property(x => x.Status).HasMaxLength(32);
+  b.Entity<CoreDocumentIntake>().Property(x => x.ClassifierVersion).HasMaxLength(64);
+  b.Entity<CoreDocumentIntake>().Property(x => x.Revision).IsConcurrencyToken();
+  b.Entity<CoreDocumentIntake>().HasOne(x => x.Village).WithMany().HasForeignKey(x => x.VillageId).OnDelete(DeleteBehavior.Restrict);
+  b.Entity<CoreDocumentIntake>().HasOne(x => x.Document).WithMany().HasForeignKey(x => x.DocumentId).OnDelete(DeleteBehavior.Restrict);
+  b.Entity<CoreDocumentIntake>().HasOne(x => x.ConfirmedDocument).WithMany().HasForeignKey(x => x.ConfirmedDocumentId).OnDelete(DeleteBehavior.Restrict);
+  b.Entity<CoreDocumentIntake>().HasOne(x => x.ConfirmedAward).WithMany().HasForeignKey(x => x.ConfirmedAwardId).OnDelete(DeleteBehavior.Restrict);
   LandRecordsStaffModel.Configure(b);
   Configurations.DakModelConfiguration.Configure(b);
   Configurations.OutwardModelConfiguration.Configure(b);

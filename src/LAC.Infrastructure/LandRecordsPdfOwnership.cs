@@ -6,7 +6,27 @@ namespace LAC.Infrastructure;
 
 public sealed partial class LandRecordsStaffWorkflowService
 {
-    private async Task<StaffWorkflowException> OwnershipConflictAsync(Guid documentId, Guid selectedAwardId, CancellationToken ct)
+    internal async Task EnsureIntakeSourceReadAsync(Guid documentId, CancellationToken ct)
+    {
+        if (await db.DocumentAwards.AnyAsync(x => x.DocumentId == documentId, ct))
+        {
+            try { await AuthorizeDocumentReadAsync(documentId, ct); }
+            catch (StaffWorkflowException ex) when (ex.StatusCode == 403) { throw await OwnershipConflictAsync(documentId, Guid.Empty, ct); }
+        }
+        else if (await db.DocumentNotifications.AnyAsync(x => x.DocumentId == documentId, ct) ||
+                 await db.Set<TemporaryAcquisitionProceeding>().AnyAsync(x => x.DocumentId == documentId, ct))
+            await AuthorizeDocumentReadAsync(documentId, ct);
+        else
+        {
+            var document = await db.Documents.FindAsync([documentId], ct) ?? throw new StaffWorkflowException("DocumentNotFound", "Source was not found.", 404);
+            if (db.Entry(document).State == EntityState.Added) return;
+            var owner = document.CreatedBy ?? document.UploadedBy;
+            Guid? ownerId = Guid.TryParse(owner, out var id) ? id : await db.AppUsers.Where(x => x.Username == owner).Select(x => (Guid?)x.Id).SingleOrDefaultAsync(ct);
+            if (!await access.CanAsync(PermissionCodes.AwardView, new(WorkstreamCode: WorkstreamCodes.Award, OwnerUserId: ownerId), ct))
+                throw new StaffWorkflowException("Forbidden", "You do not have live access to this staged source.", 403);
+        }
+    }
+    internal async Task<StaffWorkflowException> OwnershipConflictAsync(Guid documentId, Guid selectedAwardId, CancellationToken ct)
     {
         var document = await db.Documents.AsNoTracking().SingleAsync(x => x.Id == documentId, ct);
         var hash = document.Sha256Hash?.ToLowerInvariant();

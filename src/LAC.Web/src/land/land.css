@@ -1,0 +1,2414 @@
+/* ==========================================================================
+   LAC Platform - Land Records Premium UI/UX Workspace
+   Target Device: 1366x768 first-class enterprise workspace
+   ========================================================================== */
+
+.land-records-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+/* --------------------------------------------------------------------------
+   Overview Header & Stats
+   -------------------------------------------------------------------------- */
+.land-overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 16px 20px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.land-overview-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.land-overview-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.land-overview-subtitle {
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  margin: 0;
+}
+
+.land-overview-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.land-stat-pill {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.land-stat-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  font-feature-settings: "tnum";
+}
+
+.land-stat-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Quick Toolbar */
+.land-overview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.land-overview-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.land-toolbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+}
+
+/* --------------------------------------------------------------------------
+   Sub-Division 2x2 Grid Section
+   -------------------------------------------------------------------------- */
+.subdivision-grid-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.subdivision-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.subdivision-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 18px 20px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.subdivision-card:hover {
+  border-color: #93c5fd;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.subdivision-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.subdivision-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.subdivision-card-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subdivision-card-meta {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.subdivision-card-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background-color: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #1d4ed8;
+  font-feature-settings: "tnum";
+}
+
+.subdivision-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 10px;
+}
+
+.subdivision-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.subdivision-card:hover .subdivision-card-action {
+  color: #1d4ed8;
+}
+
+/* --------------------------------------------------------------------------
+   Villages & Awards Directory Shared Headers
+   -------------------------------------------------------------------------- */
+.villages-header-strip,
+.awards-header-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.villages-filter-toolbar,
+.awards-filter-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Segmented Sub-Division Filter */
+.subdivision-segmented-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #f1f5f9;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.subdivision-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.subdivision-filter-btn:hover {
+  color: #0f172a;
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+.subdivision-filter-btn.active {
+  background-color: #ffffff;
+  color: #1e3a8a;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.subdivision-filter-count {
+  display: inline-block;
+  padding: 1px 6px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-feature-settings: "tnum";
+}
+
+.subdivision-filter-btn.active .subdivision-filter-count {
+  background-color: #dbeafe;
+  color: #1e40af;
+}
+
+/* Search Box */
+.villages-search-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 260px;
+}
+
+.villages-search-box input {
+  width: 100%;
+  padding: 6px 28px 6px 30px;
+  font-size: 12.5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+  color: #0f172a;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.villages-search-box input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.villages-search-box .lac-search-icon {
+  position: absolute;
+  left: 9px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.search-clear-btn:hover {
+  color: #475569;
+}
+
+/* --------------------------------------------------------------------------
+   Dense Tables (Villages & Awards)
+   -------------------------------------------------------------------------- */
+.village-dense-table-wrap {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.02);
+}
+
+.village-dense-table,
+.award-dense-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.village-dense-table thead,
+.award-dense-table thead {
+  background-color: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.village-dense-table th,
+.award-dense-table th {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.village-dense-table td,
+.award-dense-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.village-dense-table tbody tr:hover,
+.award-dense-table tbody tr:hover {
+  background-color: #f8fafc;
+}
+
+.village-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.village-link-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.village-link-title:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+/* Tone Badges */
+.subdivision-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2.5px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.subdivision-badge.bijwasan {
+  background-color: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+.subdivision-badge.dwarka {
+  background-color: #f0fdf4;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+
+.subdivision-badge.matiala {
+  background-color: #faf5ff;
+  color: #6b21a8;
+  border: 1px solid #e9d5ff;
+}
+
+.subdivision-badge.najafgarh {
+  background-color: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+
+.subdivision-badge.unassigned {
+  background-color: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.count-badge-khasra {
+  font-weight: 600;
+  color: #0f172a;
+  font-feature-settings: "tnum";
+}
+
+.count-badge-award {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 4px;
+  color: #166534;
+  font-size: 11.5px;
+  font-weight: 600;
+  font-feature-settings: "tnum";
+}
+
+.village-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.village-action-btn:hover {
+  background-color: #eff6ff;
+}
+
+/* --------------------------------------------------------------------------
+   Awards Accordion Structure
+   -------------------------------------------------------------------------- */
+.awards-accordion-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.quiet-action-btn {
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.quiet-action-btn:hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+.awards-accordions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.award-village-accordion {
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.02);
+}
+
+.award-accordion-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background-color: #ffffff;
+  border: none;
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+
+.award-accordion-header:hover {
+  background-color: #f8fafc;
+}
+
+.award-village-accordion:has(.award-accordion-content) .award-accordion-header {
+  border-bottom-color: #e2e8f0;
+  background-color: #f8fafc;
+}
+
+.award-accordion-title-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.award-accordion-chevron {
+  font-size: 9px;
+  color: #64748b;
+  display: inline-block;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
+.award-accordion-chevron.open {
+  transform: rotate(0deg);
+}
+
+.award-accordion-village {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.award-accordion-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.award-group-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  font-feature-settings: "tnum";
+}
+
+.award-accordion-content {
+  background-color: #ffffff;
+}
+
+.award-group-note {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: #475569;
+  background-color: #f8fafc;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.award-link-bold {
+  font-weight: 600;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.award-link-bold:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.award-project-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.award-project-name {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.award-requiring-agency {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.award-multi-village-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.multi-village-chip {
+  display: inline-block;
+  padding: 1px 5px;
+  background-color: #f1f5f9;
+  border-radius: 3px;
+  font-size: 10.5px;
+  color: #475569;
+}
+
+/* Multi-Village & Unlinked Accordion Accents */
+.multi-village-accordion {
+  border-left: 3px solid #3b82f6;
+}
+
+.unlinked-accordion {
+  border-left: 3px solid #f59e0b;
+}
+
+.text-muted {
+  color: #94a3b8;
+}
+
+/* ==========================================================================
+   Village Workspace - Overview & Core Records Styles (1366x768 Optimized)
+   ========================================================================== */
+
+/* Summary Card & Metrics */
+.village-summary-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.village-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.village-summary-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.village-summary-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.village-status-pill.canonical-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 650;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  letter-spacing: 0.02em;
+}
+
+.village-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.village-metric-cell {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+.village-metric-value {
+  font-size: 20px;
+  font-weight: 750;
+  color: #0f172a;
+  font-feature-settings: "tnum";
+  line-height: 1.2;
+}
+
+.village-metric-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* Common Village Card Container */
+.village-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.village-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.village-card-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.village-card-subtitle {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* Tables */
+.village-table-wrapper {
+  overflow-x: auto;
+}
+
+.village-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.village-table th {
+  padding: 8px 12px;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 650;
+  font-size: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.village-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #1e293b;
+  vertical-align: middle;
+}
+
+.village-type-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 550;
+}
+
+.land-doc-status.loaded {
+  color: #059669;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.land-doc-status.pending {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.village-action-link {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.village-action-link:hover {
+  text-decoration: underline;
+}
+
+/* Acquisition Timeline */
+.village-timeline {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 4px;
+}
+
+.village-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+.village-timeline-date-col {
+  width: 95px;
+  flex-shrink: 0;
+  padding-top: 10px;
+  text-align: right;
+}
+
+.village-timeline-date {
+  font-size: 12px;
+  font-weight: 650;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.village-timeline-marker-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: stretch;
+  width: 16px;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.village-timeline-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 14px;
+  z-index: 2;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.village-timeline-dot.green {
+  background: #10b981;
+  box-shadow: 0 0 0 2px #d1fae5;
+}
+
+.village-timeline-dot.blue {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+
+.village-timeline-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px #fef3c7;
+}
+
+.village-timeline-dot.purple {
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px #ede9fe;
+}
+
+.village-timeline-line {
+  width: 2px;
+  background: #e2e8f0;
+  flex-grow: 1;
+  margin-top: 4px;
+  margin-bottom: -10px;
+}
+
+.village-timeline-content-col {
+  flex-grow: 1;
+  padding-bottom: 16px;
+}
+
+.village-timeline-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  transition: border-color 0.15s ease;
+}
+
+.village-timeline-card:hover {
+  border-color: #cbd5e1;
+}
+
+.village-timeline-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.village-timeline-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.village-timeline-badge.green {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.village-timeline-badge.blue {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.village-timeline-badge.amber {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.village-timeline-badge.purple {
+  background: #faf5ff;
+  color: #6b21a8;
+}
+
+.village-timeline-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.village-timeline-link:hover {
+  text-decoration: underline;
+}
+
+.village-timeline-card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.village-timeline-card-sub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+/* Compact Pending Review */
+.pending-review-section {
+  border-left: 3px solid #f59e0b;
+}
+
+.village-review-pill {
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 650;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.village-pending-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.village-pending-card {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.village-pending-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.village-pending-doc-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #78350f;
+  word-break: break-all;
+}
+
+.village-pending-award-ctx {
+  font-size: 12px;
+  color: #92400e;
+  margin-top: 2px;
+}
+
+.village-batch-tag {
+  font-weight: 600;
+  color: #b45309;
+}
+
+.village-review-cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 5px;
+  background: #d97706;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.village-review-cta:hover {
+  background: #b45309;
+}
+
+.village-review-dim {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.village-pending-findings-count {
+  font-size: 12.5px;
+  color: #78350f;
+}
+
+.village-candidate-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.village-candidate-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #ffffff;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 550;
+}
+
+/* Empty State */
+.village-empty-state {
+  padding: 24px 16px;
+  text-align: center;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px dashed #cbd5e1;
+}
+
+.village-empty-title {
+  font-size: 14px;
+  font-weight: 650;
+  color: #334155;
+  margin: 0 0 4px 0;
+}
+
+.village-empty-desc {
+  font-size: 12.5px;
+  color: #64748b;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Core Records & Documents Tab Styles
+   ========================================================================== */
+
+.village-core-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.village-core-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.village-core-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0 0 2px 0;
+}
+
+.village-core-subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin: 0;
+}
+
+.village-core-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.village-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.village-btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #2563eb;
+}
+
+.village-btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.village-btn-outline {
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.village-btn-outline:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.village-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Award Core Card */
+.village-award-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.village-award-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.village-award-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 14px;
+}
+
+.village-award-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.village-award-card-num {
+  font-size: 16px;
+  font-weight: 750;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.village-award-card-num:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.village-award-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.village-award-meta-sep {
+  color: #cbd5e1;
+}
+
+.village-open-award-link {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.village-open-award-link:hover {
+  text-decoration: underline;
+}
+
+/* 4-Slot Grid for Core Documents */
+.village-core-docs-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 1024px) {
+  .village-core-docs-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.village-doc-slot {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.15s ease;
+}
+
+.village-doc-slot.slot-filled {
+  border-color: #cbd5e1;
+  background: #ffffff;
+}
+
+.village-doc-slot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.village-doc-role-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.village-doc-badge {
+  font-size: 10.5px;
+  font-weight: 650;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.village-doc-badge.badge-uploaded {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.village-doc-badge.badge-missing {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+}
+
+.village-doc-slot-desc {
+  font-size: 11px;
+  color: #64748b;
+  margin: 0 0 10px 0;
+  line-height: 1.3;
+}
+
+.village-doc-slot-content {
+  margin-top: auto;
+}
+
+.village-doc-file-info {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  padding: 8px 10px;
+}
+
+.village-doc-filename {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.village-doc-date {
+  font-size: 10.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.village-doc-view-btn {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.village-doc-view-btn:hover {
+  text-decoration: underline;
+}
+
+.village-doc-missing-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+}
+
+.village-doc-missing-text {
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.village-doc-attach-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.village-doc-attach-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+/* Modals */
+.village-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.village-modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.village-modal-subtitle {
+  font-size: 12px;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.village-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.village-modal-close:hover {
+  color: #334155;
+}
+
+.village-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Dropzone */
+.village-dropzone {
+  border: 2px dashed #cbd5e1;
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.village-dropzone:hover,
+.village-dropzone.dragging {
+  border-color: #3b82f6;
+  background: #eff6ff;
+}
+
+.village-dropzone-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.village-dropzone-text {
+  font-size: 13.5px;
+  color: #334155;
+}
+
+.village-dropzone-hint {
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+/* Queue */
+.village-queue-list {
+  margin-top: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.village-queue-heading {
+  padding: 6px 10px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: #475569;
+}
+
+.village-queue-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 12px;
+}
+
+.village-queue-item:last-child {
+  border-bottom: none;
+}
+
+.village-queue-file-desc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  max-width: 320px;
+}
+
+.village-queue-filename {
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.village-queue-filesize {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.village-queue-error {
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.village-queue-success {
+  color: #059669;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.village-queue-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.village-queue-role-select {
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  font-size: 11.5px;
+  background: #ffffff;
+}
+
+.village-queue-remove-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.village-queue-remove-btn:hover {
+  color: #ef4444;
+}
+
+/* ═══════════════════════════════════════════════════════
+   SMART CORE DOCUMENT INTAKE — Review UI
+   ═══════════════════════════════════════════════════════ */
+
+/* Wider modal for the intake review */
+.intake-modal {
+  max-width: 720px !important;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+/* Role hint shown in select file phase */
+.intake-role-hint {
+  font-size: 11px;
+  color: #64748b;
+  margin-left: 8px;
+  font-style: italic;
+}
+
+/* ── Review list ── */
+.intake-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 14px 0;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* ── Individual intake card ── */
+.intake-card {
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  padding: 14px 16px;
+  background: #fff;
+}
+
+.intake-card-pending {
+  border-left: 3px solid #2563eb;
+}
+
+.intake-card-confirmed {
+  border-left: 3px solid #16a34a;
+  background: #f0fdf4;
+}
+
+.intake-card-error {
+  border-left: 3px solid #ef4444;
+  background: #fef2f2;
+}
+
+.intake-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.intake-card-filename {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+}
+
+/* ── Match state badges ── */
+.intake-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.intake-badge-matched {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.intake-badge-proposed {
+  background: #fef9c3;
+  color: #a16207;
+}
+
+.intake-badge-review {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.intake-badge-confirmed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+/* ── Detection summary row ── */
+.intake-detection-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  background: #f8fafc;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.intake-detection-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.intake-det-label {
+  font-size: 10.5px;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.intake-det-value {
+  font-size: 13px;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+/* Confidence level colouring */
+.intake-conf-high   { color: #15803d; }
+.intake-conf-medium { color: #a16207; }
+.intake-conf-low    { color: #dc2626; }
+
+/* ── Evidence accordion ── */
+.intake-evidence-section {
+  margin-bottom: 10px;
+}
+
+.intake-evidence-toggle {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: #2563eb;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+}
+
+.intake-evidence-toggle:hover {
+  text-decoration: underline;
+}
+
+.intake-evidence-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.intake-evidence-item {
+  display: flex;
+  gap: 10px;
+  font-size: 11.5px;
+  color: #374151;
+  background: #f1f5f9;
+  padding: 4px 8px;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.intake-ev-field {
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 80px;
+}
+
+.intake-ev-page {
+  color: #94a3b8;
+  min-width: 28px;
+}
+
+.intake-ev-text {
+  color: #475569;
+  font-style: italic;
+  flex: 1;
+}
+
+/* ── Error inline ── */
+.intake-error-msg {
+  font-size: 12.5px;
+  color: #dc2626;
+  margin: 6px 0;
+}
+
+/* ── Confirm section ── */
+.intake-confirm-section {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intake-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.intake-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  min-width: 110px;
+  flex-shrink: 0;
+}
+
+.intake-select {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12.5px;
+  color: #0f172a;
+  background: #fff;
+}
+
+.intake-input {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12.5px;
+  color: #0f172a;
+  background: #fff;
+  width: 100%;
+}
+
+.intake-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── Proposed note ── */
+.intake-proposed-note {
+  font-size: 12px;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 6px 10px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  flex: 1;
+}
+
+/* ── New Award form ── */
+.intake-new-award-form {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.intake-new-award-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 4px;
+}
+
+/* ── Confirmed card summary ── */
+.intake-confirmed-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.intake-confirmed-role {
+  font-weight: 700;
+  color: #15803d;
+}
+
+.intake-confirmed-award {
+  color: #166534;
+  font-size: 12px;
+}
+
+/* ── Duplicate note ── */
+.intake-duplicate-note {
+  font-size: 12px;
+  color: #0369a1;
+  background: #e0f2fe;
+  padding: 5px 10px;
+  border-radius: 5px;
+  margin-top: 4px;
+}
+
+/* ── Multi-document entries in a single slot ── */
+.village-doc-file-entry {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.village-doc-file-entry:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+/* ═══════════════════════════════════════════════════════
+   ACQUISITION HISTORY (Award-wise Explicit Groups)
+   ═══════════════════════════════════════════════════════ */
+
+.village-history-scope-notice {
+  font-size: 12px;
+  color: #64748b;
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.village-history-award-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.village-history-award-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.village-history-award-group:hover {
+  border-color: #cbd5e1;
+}
+
+.village-history-award-group.expanded {
+  border-color: #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.village-history-award-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.village-history-award-header:hover {
+  background: #f1f5f9;
+}
+
+.village-history-award-group.expanded .village-history-award-header {
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.village-history-award-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.village-history-toggle-icon {
+  font-size: 11px;
+  color: #64748b;
+  width: 14px;
+  display: inline-block;
+  user-select: none;
+}
+
+.village-history-award-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+.village-history-award-date {
+  font-size: 12.5px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.village-history-award-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.village-history-milestone-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  background: #e2e8f0;
+  padding: 3px 9px;
+  border-radius: 12px;
+}
+
+.village-history-award-body {
+  padding: 16px 20px;
+  background: #ffffff;
+}
+
+.village-history-milestones-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.village-history-milestone-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  position: relative;
+}
+
+.village-history-milestone-date {
+  width: 95px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  text-align: right;
+  padding-top: 1px;
+}
+
+.village-history-milestone-track {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.village-history-track-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 4px;
+  z-index: 2;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #cbd5e1;
+}
+
+.village-history-track-dot.green {
+  background: #10b981;
+  box-shadow: 0 0 0 2px #d1fae5;
+}
+
+.village-history-track-dot.blue {
+  background: #3b82f6;
+  box-shadow: 0 0 0 2px #dbeafe;
+}
+
+.village-history-track-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px #fef3c7;
+}
+
+.village-history-track-dot.purple {
+  background: #8b5cf6;
+  box-shadow: 0 0 0 2px #ede9fe;
+}
+
+.village-history-track-line {
+  width: 2px;
+  background: #e2e8f0;
+  flex-grow: 1;
+  margin-top: 2px;
+  margin-bottom: -4px;
+}
+
+.village-history-milestone-detail {
+  flex-grow: 1;
+  padding-bottom: 16px;
+}
+
+.village-history-milestone-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.village-history-milestone-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.village-history-shared-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+
+.village-history-milestone-ref {
+  font-size: 11.5px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.village-history-award-footer {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.village-history-open-award-btn {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  transition: all 0.15s ease;
+}
+
+.village-history-open-award-btn:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+/* ── Unassigned Section ── */
+.village-history-unassigned-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.village-history-unassigned-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.village-history-unassigned-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #475569;
+  margin: 0;
+}
+
+.village-history-unassigned-subtitle {
+  font-size: 11.5px;
+  color: #64748b;
+  margin: 2px 0 0 0;
+}
+
+.village-history-unassigned-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.village-history-unassigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.village-history-unassigned-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.village-history-unassigned-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.village-history-unassigned-item-name {
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.village-history-unassigned-item-ref {
+  color: #64748b;
+  font-size: 11.5px;
+}
+
+.village-history-unassigned-item-date {
+  font-size: 11.5px;
+  color: #475569;
+  font-weight: 500;
+}
+
+/* ==========================================================================
+   Document Ownership Conflict & Already Uploaded Experience
+   ========================================================================== */
+
+.doc-conflict-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 16px;
+}
+
+.doc-conflict-modal {
+  background: #ffffff;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 620px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  animation: modalFadeIn 0.15s ease-out;
+}
+
+.doc-conflict-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 4px solid #f59e0b;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 14px 16px;
+}
+
+.doc-conflict-banner-title {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #92400e;
+  margin-bottom: 4px;
+}
+
+.doc-conflict-banner-text {
+  font-size: 12.5px;
+  color: #78350f;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.doc-conflict-details {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 0 16px 14px 16px;
+}
+
+.doc-conflict-detail-cell {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.doc-conflict-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.doc-conflict-detail-val {
+  font-size: 13px;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.doc-conflict-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  align-items: center;
+}
+
+.doc-conflict-policy-note {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin: 0 16px 14px 16px;
+  font-size: 12.5px;
+  color: #334155;
+  line-height: 1.4;
+}
+
+.doc-conflict-reassign-panel {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  padding: 14px 16px;
+}
+
+.doc-conflict-reassign-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.doc-conflict-reassign-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+
+.doc-conflict-reason-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.doc-conflict-reason-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+
+.doc-conflict-reason-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.doc-conflict-perm-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  margin-bottom: 10px;
+}
+
+.doc-conflict-unavailable-notice {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.doc-conflict-audit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #047857;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.doc-conflict-reassign-success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: #166534;
+  line-height: 1.4;
+}
+
+/* Same-award "Already uploaded" card */
+.doc-already-uploaded-card {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #16a34a;
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin: 14px 0;
+}
+
+.doc-already-uploaded-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #15803d;
+  margin: 0 0 4px 0;
+}
+
+.doc-already-uploaded-text {
+  font-size: 13px;
+  color: #166534;
+  margin: 0 0 12px 0;
+  line-height: 1.4;
+}
+
+/* Badges */
+.intake-badge-conflict {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.doc-conflict-card-banner {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+
+.doc-conflict-card-note {
+  font-size: 12px;
+  color: #92400e;
+  margin: 4px 0 8px 0;
+}
+
+.doc-conflict-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.village-award-card-highlighted {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+  transition: all 0.3s ease;
+}
+

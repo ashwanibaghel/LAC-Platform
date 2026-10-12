@@ -10,13 +10,16 @@ internal static partial class AwardNumberIdentity
     public static bool Equivalent(string? left, string? right)
     {
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right)) return false;
-        var first = left.Trim().TrimEnd('.').TrimEnd();
-        var second = right.Trim().TrimEnd('.').TrimEnd();
+        var first = Clean(left);
+        var second = Clean(right);
         if (string.Equals(first, second, StringComparison.OrdinalIgnoreCase)) return true;
         return TryNormalizeYearRange(first, out var firstKey)
             && TryNormalizeYearRange(second, out var secondKey)
             && string.Equals(firstKey, secondKey, StringComparison.Ordinal);
     }
+
+    private static string Clean(string value) => Regex.Replace(
+        value.Trim().TrimEnd('.').TrimEnd().Replace('–', '-').Replace('—', '-'), @"\s*([/-])\s*", "$1");
 
     private static bool TryNormalizeYearRange(string value, out string key)
     {

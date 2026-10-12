@@ -18,6 +18,16 @@ internal sealed class LandRecordsMutationStore(LacDbContext db)
         if (scope is not null && (!mutationId.HasValue || mutationId == Guid.Empty))
             throw new StaffWorkflowException("MutationIdRequired", "A non-empty mutationId is required.");
         var fingerprint = Hash(input);
+        // Smart Intake confirmation composes the canonical attachment operation
+        // inside its outer transaction. The outer operation owns retry/rollback.
+        if (db.Database.CurrentTransaction is not null)
+        {
+            if (scope is not null) throw new InvalidOperationException("Nested receipt mutations are not supported.");
+            if (db.Database.IsNpgsql())
+                foreach (var key in locks.Distinct().Order(StringComparer.Ordinal))
+                    await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", ct);
+            return await apply();
+        }
         return await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
             await using var tx = db.Database.IsRelational() ? await db.Database.BeginTransactionAsync(ct) : null;

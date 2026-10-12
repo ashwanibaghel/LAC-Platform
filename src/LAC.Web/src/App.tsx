@@ -48,6 +48,11 @@ import { AppShell } from "./components/AppShell";
 import { Home } from "./home/Home";
 import { CalculatorProvider } from "./calculator/CalculatorContext";
 import { LandRecordsHierarchy } from "./land/LandRecordsHierarchy";
+import { VillagesDirectory } from "./land/VillagesDirectory";
+import { AwardsDirectory } from "./land/AwardsDirectory";
+import { VillageOverviewWorkspace } from "./land/VillageOverviewWorkspace";
+import { VillageCoreRecordsWorkspace } from "./land/VillageCoreRecordsWorkspace";
+import "./land/land.css";
 import "./attention/attention.css";
 import "./work/work.css";
 import "./court/court.css";
@@ -747,7 +752,37 @@ function Villages() {
 
 function Village() {
   const { id = "" } = useParams();
-  const [section,setSection]=useState<"overview"|"core"|"matters"|"khasras">("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawSection = searchParams.get("section");
+  const validSection: "overview" | "khasras" | "core" | "matters" =
+    rawSection === "khasras" || rawSection === "core" || rawSection === "matters"
+      ? rawSection
+      : "overview";
+  const [section, setSection] = useState<
+    "overview" | "khasras" | "core" | "matters"
+  >(validSection);
+
+  useEffect(() => {
+    const s = searchParams.get("section");
+    if (s === "khasras" || s === "core" || s === "matters") {
+      setSection(s);
+    } else {
+      setSection("overview");
+    }
+  }, [searchParams]);
+
+  const handleTabClick = (tab: "overview" | "khasras" | "core" | "matters") => {
+    setSection(tab);
+    if (tab === "overview") {
+      const next = new URLSearchParams(searchParams);
+      next.delete("section");
+      setSearchParams(next, { replace: true });
+    } else {
+      const next = new URLSearchParams(searchParams);
+      next.set("section", tab);
+      setSearchParams(next, { replace: true });
+    }
+  };
   const village = useApi<any>(`/villages/${id}`);
   if (village.loading) return <LoadingState />;
   if (village.error) return <ErrorState message={village.error} />;
@@ -781,11 +816,11 @@ function Village() {
           <Metric label="Linked awards" value={data.linkedAwards} />
         )}
       </div>
-      <div className="section-tabs">{(["overview","core","matters","khasras"] as const).map(value=><button key={value} className={section===value?"active":""} onClick={()=>setSection(value)}>{value==="core"?"Core Records":value[0].toUpperCase()+value.slice(1)}</button>)}</div>
-      {section==="overview"&&<VillageOverview id={id} />}
-      {section==="core"&&<VillageCoreRecords id={id} />}
-      {section==="matters"&&<VillageMatters id={id} />}
-      {section==="khasras"&&<VillageKhasras id={id} />}
+      <div className="section-tabs">{(["overview", "khasras", "core", "matters"] as const).map(value => <button key={value} className={section === value ? "active" : ""} onClick={() => handleTabClick(value)}>{value === "core" ? "Awards / Core" : value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+      {(section === "overview" || (section !== "khasras" && section !== "core" && section !== "matters")) && <VillageOverviewWorkspace id={id} />}
+      {section === "khasras" && <VillageKhasras id={id} />}
+      {section === "core" && <VillageCoreRecordsWorkspace id={id} />}
+      {section === "matters" && <VillageMatters id={id} />}
     </>
   );
 }
@@ -3813,7 +3848,7 @@ function AuthenticatedApp() {
         <Route path="/land-records" element={<LandRecordsHierarchy />} />
         <Route path="/districts/:id" element={<District />} />
         <Route path="/subdivisions/:id" element={<Subdivision />} />
-        <Route path="/villages" element={<Villages />} />
+        <Route path="/villages" element={<VillagesDirectory />} />
         <Route path="/villages/:id" element={<Village />} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
@@ -3832,7 +3867,7 @@ function AuthenticatedApp() {
         <Route path="/khatauni/:id" element={<Khatauni />} />
         <Route path="/khatas/:id" element={<Khata />} />
         <Route path="/parties/:id" element={<Party />} />
-        <Route path="/awards" element={<Awards />} />
+        <Route path="/awards" element={<AwardsDirectory />} />
         <Route path="/awards/import-pdf" element={<AwardPdfImportPanel />} />
         <Route path="/awards/:id/nm/:nmId/review" element={<NmLegacyReviewRedirect />} />
         <Route path="/awards/:id/nm/:nmId/semantic-review" element={<NmOwnerReviewWorkspace />} />
@@ -4638,6 +4673,10 @@ function LrReview() {
 }
 // Kept as internal compatibility views while they are intentionally absent from the Village workspace.
 void [
+  VillageCoreRecords,
+  VillageOverview,
+  Villages,
+  Awards,
   VillageAwards,
   VillageNotifications,
   VillageKhatauni,

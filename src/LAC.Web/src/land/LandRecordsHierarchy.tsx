@@ -1,10 +1,23 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { IconLand, IconSearch, IconAward, IconChevronRight } from "../components/Icons";
+import { IconLand, IconAward, IconArrowRight } from "../components/Icons";
+import "./land.css";
 
 const api = "/api";
 
-function LoadingState({ label = "Loading land records…" }: { label?: string }) {
+interface SubDivisionItem {
+  id: string;
+  name: string;
+  villageCount: number;
+}
+
+interface DistrictData {
+  id: string;
+  name: string;
+  subDivisions: SubDivisionItem[];
+}
+
+function LoadingState({ label = "Loading administrative hierarchy…" }: { label?: string }) {
   return (
     <div className="state loading" role="status">
       {label}
@@ -31,30 +44,61 @@ function EmptyState({ title, detail }: { title: string; detail: string }) {
 }
 
 export const LandRecordsHierarchy: React.FC = () => {
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [district, setDistrict] = React.useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [district, setDistrict] = useState<DistrictData | null>(null);
+  const [awardTotalCount, setAwardTotalCount] = useState<number | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     let active = true;
-    fetch(`${api}/home`, { credentials: "include" })
+
+    // 1. Fetch District hierarchy & Sub-Divisions
+    const fetchDistrict = fetch(`${api}/home`, { credentials: "include" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (active) {
+        if (active && data) {
           setDistrict(data);
-          setLoading(false);
         }
       })
       .catch((err) => {
-        if (active) {
-          setError(err?.message || "Failed to load land records");
-          setLoading(false);
-        }
+        if (active) setError(err?.message || "Failed to load land records");
       });
+
+    // 2. Fetch Awards count from /api/awards
+    const fetchAwardsCount = fetch(`${api}/awards?page=0&pageSize=1`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data && typeof data.totalCount === "number") {
+          setAwardTotalCount(data.totalCount);
+        }
+      })
+      .catch(() => {});
+
+    Promise.allSettled([fetchDistrict, fetchAwardsCount]).finally(() => {
+      if (active) setLoading(false);
+    });
+
     return () => {
       active = false;
     };
   }, []);
+
+  const totalVillages = useMemo(() => {
+    return (
+      district?.subDivisions?.reduce(
+        (acc: number, s: SubDivisionItem) => acc + (s.villageCount || 0),
+        0
+      ) || 0
+    );
+  }, [district]);
+
+  // Order sub-divisions by village count descending (Matiala: 38, Najafgarh: 21, Bijwasan: 13, Dwarka: 4)
+  const sortedSubDivisions = useMemo(() => {
+    if (!district?.subDivisions) return [];
+    return [...district.subDivisions].sort(
+      (a, b) => (b.villageCount || 0) - (a.villageCount || 0)
+    );
+  }, [district]);
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} />;
@@ -66,100 +110,83 @@ export const LandRecordsHierarchy: React.FC = () => {
       />
     );
 
+  const subDivisionsCount = district.subDivisions?.length || 0;
+
   return (
-    <div className="land-records-page">
+    <div className="land-records-workspace">
+      {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" className="breadcrumbs">
         <Link to="/">Home</Link>
         <i>/</i>
         <span>Land Records</span>
       </nav>
 
-      <div className="page-header">
-        <div>
-          <p className="eyebrow">Administrative Hierarchy</p>
-          <h1>{district.name} District</h1>
-          <p>
-            Explore land acquisition records by administrative sub-divisions, villages, and canonical khasra records.
-          </p>
+      {/* Simplified, Calm Header */}
+      <div className="land-overview-header">
+        <div className="land-overview-titles">
+          <h1 className="land-overview-title">Land Records</h1>
+          <p className="land-overview-subtitle">{district.name}</p>
         </div>
 
-        <div className="page-actions" style={{ display: "flex", gap: "10px" }}>
-          <Link to="/villages" className="secondary-button">
-            <IconLand size={16} /> All Villages
-          </Link>
-          <Link to="/imports/lr" className="secondary-button">
-            <IconSearch size={16} /> LR Registers
-          </Link>
-        </div>
-      </div>
-
-      <div className="summary-strip" style={{ marginBottom: "28px" }}>
-        <div className="metric">
-          <strong>{district.name}</strong>
-          <span>District Jurisdiction</span>
-        </div>
-        <div className="metric">
-          <strong>{district.subDivisions?.length || 0}</strong>
-          <span>Sub-divisions</span>
-        </div>
-        <div className="metric">
-          <strong>
-            {district.subDivisions?.reduce(
-              (acc: number, s: any) => acc + (s.villageCount || 0),
-              0
-            ) || 0}
-          </strong>
-          <span>Total Villages</span>
-        </div>
-      </div>
-
-      <section className="section">
-        <div className="section-heading">
-          <div>
-            <h2>Sub-divisions in {district.name}</h2>
-            <span>Select a sub-division to view its constituent villages and land records.</span>
+        <div className="land-overview-stats">
+          <div className="land-stat-pill">
+            <span className="land-stat-val">{subDivisionsCount}</span>
+            <span className="land-stat-lbl">Sub-Divisions</span>
           </div>
-          <span>{district.subDivisions?.length || 0} available</span>
+          <div className="land-stat-pill">
+            <span className="land-stat-val">{totalVillages}</span>
+            <span className="land-stat-lbl">Villages</span>
+          </div>
+          {awardTotalCount !== null && (
+            <div className="land-stat-pill">
+              <span className="land-stat-val">{awardTotalCount}</span>
+              <span className="land-stat-lbl">Awards</span>
+            </div>
+          )}
         </div>
+      </div>
 
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Sub-division</th>
-                <th scope="col">Villages</th>
-                <th scope="col">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {district.subDivisions?.map((subdivision: any) => (
-                <tr key={subdivision.id}>
-                  <td>
-                    <Link
-                      to={`/subdivisions/${subdivision.id}`}
-                      className="entity-link"
-                      style={{ fontWeight: 650 }}
-                    >
-                      {subdivision.name}
-                    </Link>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: 600 }}>{subdivision.villageCount}</span> villages
-                  </td>
-                  <td>
-                    <Link
-                      className="text-action"
-                      to={`/subdivisions/${subdivision.id}`}
-                      style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
-                    >
-                      <span>Explore</span>
-                      <IconChevronRight size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Quick Jump Strip */}
+      <div className="land-overview-toolbar">
+        <div className="land-overview-nav-links">
+          <Link to="/villages" className="secondary-button land-toolbar-link">
+            <IconLand size={14} />
+            <span>Villages Directory</span>
+          </Link>
+          <Link to="/awards" className="secondary-button land-toolbar-link">
+            <IconAward size={14} />
+            <span>Awards Register</span>
+          </Link>
+        </div>
+      </div>
+
+      {/* 4 Premium Cards Grid */}
+      <section className="subdivision-grid-section" aria-label="Administrative sub-divisions">
+        <div className="subdivision-cards-grid">
+          {sortedSubDivisions.map((subdivision) => (
+            <Link
+              key={subdivision.id}
+              to={`/subdivisions/${subdivision.id}`}
+              className="subdivision-card"
+            >
+              <div className="subdivision-card-header">
+                <div className="subdivision-card-main">
+                  <h2 className="subdivision-card-name">{subdivision.name}</h2>
+                  <span className="subdivision-card-meta">Sub-Division</span>
+                </div>
+                <span className="subdivision-card-count">
+                  {subdivision.villageCount} {subdivision.villageCount === 1 ? "village" : "villages"}
+                </span>
+              </div>
+
+              <div className="subdivision-card-footer">
+                <span className="subdivision-card-action">
+                  <span>Explore</span>
+                  <IconArrowRight size={14} />
+                </span>
+              </div>
+            </Link>
+          ))}
         </div>
       </section>
     </div>
