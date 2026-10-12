@@ -1,6 +1,7 @@
 // Invoked by the guarded PostgreSQL acceptance fixture. All network activity is
 // loopback; every Award/source below is a synthetic record in a disposable schema.
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import { readFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -360,21 +361,28 @@ try {
   const ppFailJson = await ppFailRes.json();
   assert.equal(ppFailJson.code, "PossessionDateRequired");
 
-  // Valid PP uploads with explicit legal date & village
-  const ppBytes1 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #1 ${key}\n`)]);
-  const ppBytes2 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #2 ${key}\n`)]);
-  await json(
-    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId}&legalDate=2002-04-01&title=Kabza%20Karwahi%20Village%201`, {
+  // Deterministic check: Two genuinely distinct Possession Proceedings with the same legalDate and correct canonical village/attachment associations
+  const commonLegalDate = "2002-04-01";
+  const ppBytes1 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #1 distinct source ${key}\n`)]);
+  const ppBytes2 = Buffer.concat([bytes, Buffer.from(`\n% Synthetic PP #2 distinct source ${key}\n`)]);
+  assert.notEqual(crypto.createHash("sha256").update(ppBytes1).digest("hex"), crypto.createHash("sha256").update(ppBytes2).digest("hex"), "PP byte sources must be distinct");
+
+  const ppRes1 = await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId}&legalDate=${commonLegalDate}&title=Kabza%20Karwahi%20Village%201`, {
       multipart: { file: { name: "possession-village1.pdf", mimeType: "application/pdf", buffer: ppBytes1 } },
     }),
     201
   );
-  await json(
-    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId2}&legalDate=2002-04-02&title=Kabza%20Karwahi%20Village%202`, {
+  const ppRes2 = await json(
+    await request.post(`${origin}api/awards/${target.id}/core-documents?role=PossessionProceeding&villageId=${villageId2}&legalDate=${commonLegalDate}&title=Kabza%20Karwahi%20Village%202`, {
       multipart: { file: { name: "possession-village2.pdf", mimeType: "application/pdf", buffer: ppBytes2 } },
     }),
     201
   );
+
+  assert.notEqual(ppRes1.attachmentId, ppRes2.attachmentId, "Attachments must have distinct IDs");
+  assert.notEqual(ppRes1.documentId, ppRes2.documentId, "Attachments must reference distinct documents");
+  assert.notEqual(ppRes1.possessionEventId, ppRes2.possessionEventId, "Attachments must create distinct possession events");
 
   // Read back all core documents and verify counts per role
   const allDocs = await json(await request.get(`${origin}api/awards/${target.id}/core-documents`));
@@ -384,6 +392,18 @@ try {
   assert.ok(statementADocs.length >= 2, "Expected at least 2 Statement A attachments");
   assert.ok(nmDocs.length >= 2, "Expected at least 2 Naksha Muntazamin attachments");
   assert.ok(ppDocs.length >= 2, "Expected at least 2 Possession Proceeding attachments");
+
+  // Specific canonical village and attachment associations for the two same-date PPs
+  const ppDoc1 = ppDocs.find((d) => d.attachmentId === ppRes1.attachmentId);
+  const ppDoc2 = ppDocs.find((d) => d.attachmentId === ppRes2.attachmentId);
+  assert.ok(ppDoc1, "PP #1 must be found in core documents list");
+  assert.ok(ppDoc2, "PP #2 must be found in core documents list");
+  assert.equal(ppDoc1.legalDate.substring(0, 10), commonLegalDate);
+  assert.equal(ppDoc2.legalDate.substring(0, 10), commonLegalDate);
+  assert.equal(ppDoc1.villageId, villageId, "PP #1 must be canonically associated with Village 1");
+  assert.equal(ppDoc2.villageId, villageId2, "PP #2 must be canonically associated with Village 2");
+  assert.equal(ppDoc1.title, "Kabza Karwahi Village 1");
+  assert.equal(ppDoc2.title, "Kabza Karwahi Village 2");
 
   // ── SCENARIO 12: Attachment Metadata Correction, Detach & Restore ──
   const nmAttachment = nmDocs[0];
@@ -481,7 +501,7 @@ try {
   const staleLinkJson = await staleLinkRes.json();
   assert.equal(staleLinkJson.code, "RevisionConflict");
 
-  // 13d. Unauthorized Writes (Unauthenticated client without session cookies)
+  // 13d(i). Unauthorized Writes: Anonymous unauthenticated client without session cookies (401)
   const unauthContext = await browser.newContext();
   const unauthRequest = unauthContext.request;
   
@@ -495,24 +515,146 @@ try {
   });
   assert.equal(unauthLifecycle.status(), 401);
 
+  const unauthAttachment = await unauthRequest.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+    data: { mutationId: crypto.randomUUID(), expectedRevision: nmAttachment.revision, action: "Update", title: "HACK", reason: "Unauthorized" },
+  });
+  assert.equal(unauthAttachment.status(), 401);
+
   const unauthResolution = await unauthRequest.post(`${origin}api/documents/${uploaded.documentId}/award-link-resolutions`, {
-    data: { mutationId: crypto.randomUUID(), resolutionAction: "ShareSource", reason: "Unauthorized" },
+    data: { mutationId: crypto.randomUUID(), action: "ShareSource", reason: "Unauthorized" },
   });
   assert.equal(unauthResolution.status(), 401);
   await unauthContext.close();
 
-  // 13e. Mutation Idempotency (replay of exact same mutationId returns identical result)
+  // 13d(ii). Authenticated Permission-Limited Officer (403 Forbidden checks)
+  // Provision a viewer-only role without edit/lifecycle/attachment/resolution authorities
+  const limitedRoleCode = `LIMIT_${key.substring(0, 8).toUpperCase()}`;
+  const limitedRole = await json(
+    await request.post(`${origin}api/admin/roles`, {
+      data: {
+        code: limitedRoleCode,
+        name: "Permission Limited Officer",
+        description: "Authenticated officer with read-only view access but no mutation rights",
+        permissions: [
+          { permissionCode: "Award.View", scopeMode: 0 },
+        ],
+      },
+    }),
+    201
+  );
+
+  const limitedUsername = `limited-officer-${key.substring(0, 8)}`;
+  const limitedPassword = "SyntheticLimited!791";
+  await json(
+    await request.post(`${origin}api/admin/users`, {
+      data: {
+        username: limitedUsername,
+        displayName: "Limited Test Officer",
+        password: limitedPassword,
+        roleIds: [limitedRole.id],
+      },
+    }),
+    201
+  );
+
+  const limitedContext = await browser.newContext();
+  const limitedRequest = limitedContext.request;
+  const limitedLoginRes = await limitedRequest.post(`${origin}api/auth/login`, {
+    data: { username: limitedUsername, password: limitedPassword },
+  });
+  assert.equal(limitedLoginRes.status(), 200, "Limited officer must authenticate successfully");
+
+  // 1. Unauthorized Award metadata edits -> 403 Forbidden
+  const targetWorkflow = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  const limitedMetaRes = await limitedRequest.put(`${origin}api/awards/${target.id}/metadata`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: targetWorkflow.revision,
+      awardNumber: targetNumber,
+      reason: "Attempted metadata edit by limited officer",
+    },
+  });
+  assert.equal(limitedMetaRes.status(), 403, "Limited officer metadata edit must return 403 Forbidden");
+  const limitedMetaJson = await limitedMetaRes.json();
+  assert.equal(limitedMetaJson.code, "Forbidden");
+
+  // 2. Unauthorized Award lifecycle mutations -> 403 Forbidden
+  const limitedLifeRes = await limitedRequest.post(`${origin}api/awards/${target.id}/lifecycle`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: targetWorkflow.revision,
+      action: "Archive",
+      reason: "Attempted lifecycle mutation by limited officer",
+    },
+  });
+  assert.equal(limitedLifeRes.status(), 403, "Limited officer lifecycle mutation must return 403 Forbidden");
+  const limitedLifeJson = await limitedLifeRes.json();
+  assert.equal(limitedLifeJson.code, "Forbidden");
+
+  // 3. Unauthorized attachment correction -> 403 Forbidden
+  const limitedLinkRes = await limitedRequest.put(`${origin}api/awards/${target.id}/core-document-links/${nmAttachment.attachmentId}`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      expectedRevision: nmAttachment.revision,
+      action: "Update",
+      title: "Attempted attachment correction by limited officer",
+      reason: "Attempted attachment correction by limited officer",
+    },
+  });
+  assert.equal(limitedLinkRes.status(), 403, "Limited officer attachment correction must return 403 Forbidden");
+  const limitedLinkJson = await limitedLinkRes.json();
+  assert.equal(limitedLinkJson.code, "Forbidden");
+
+  // 4. Unauthorized officer ownership resolution -> 403 Forbidden
+  const limitedResolRes = await limitedRequest.post(`${origin}api/documents/${uploaded.documentId}/award-link-resolutions`, {
+    data: {
+      mutationId: crypto.randomUUID(),
+      action: "ShareSource",
+      sourceAwardId: source.id,
+      targetAwardId: target.id,
+      villageId: villageId,
+      expectedSourceAwardRevision: 1,
+      expectedTargetAwardRevision: targetWorkflow.revision,
+      expectedSourceAttachmentRevision: 1,
+      expectedSha256Hash: crypto.createHash("sha256").update(bytes).digest("hex"),
+      officerConfirmed: true,
+      reason: "Attempted ownership resolution by limited officer",
+      sourcePages: [1],
+      coverageDescription: "Test coverage description",
+    },
+  });
+  assert.equal(limitedResolRes.status(), 403, "Limited officer ownership resolution must return 403 Forbidden");
+  const limitedResolJson = await limitedResolRes.json();
+  assert.equal(limitedResolJson.code, "Forbidden");
+  await limitedContext.close();
+
+  // 13e. Mutation Idempotency (replay of exact same mutationId returns identical result without duplicate audit log)
   const idemMutationId = crypto.randomUUID();
+  const idemReason = `Testing mutation idempotency replay ${key.substring(0, 8)}`;
   const currentAward = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
+  const auditsBefore = await json(await request.get(`${origin}api/audit-logs?entityType=Award&entityId=${target.id}&page=0&pageSize=100`));
+  const countBefore = auditsBefore.items.filter((a) => a.action === "StaffAwardArchive" && a.newValues?.includes(idemReason)).length;
+  assert.equal(countBefore, 0, "No audit entry for idempotency reason should exist prior to mutation");
+
   const idemPayload = {
     mutationId: idemMutationId,
     expectedRevision: currentAward.revision,
     action: "Archive",
-    reason: "Testing mutation idempotency replay",
+    reason: idemReason,
   };
   const firstIdemRes = await json(await request.post(`${origin}api/awards/${target.id}/lifecycle`, { data: idemPayload }));
+  const auditsAfterFirst = await json(await request.get(`${origin}api/audit-logs?entityType=Award&entityId=${target.id}&page=0&pageSize=100`));
+  const countAfterFirst = auditsAfterFirst.items.filter((a) => a.action === "StaffAwardArchive" && a.newValues?.includes(idemReason)).length;
+  assert.equal(countAfterFirst, 1, "Initial mutation must write exactly one audit log for this mutation");
+
+  // Replay identical mutation with matching mutationId
   const secondIdemRes = await json(await request.post(`${origin}api/awards/${target.id}/lifecycle`, { data: idemPayload }));
+  const auditsAfterReplay = await json(await request.get(`${origin}api/audit-logs?entityType=Award&entityId=${target.id}&page=0&pageSize=100`));
+  const countAfterReplay = auditsAfterReplay.items.filter((a) => a.action === "StaffAwardArchive" && a.newValues?.includes(idemReason)).length;
+  assert.equal(countAfterReplay, 1, "Replay of mutation must not create any duplicate audit log");
+  assert.equal(auditsAfterReplay.items.length, auditsAfterFirst.items.length, "Total audit log items count must remain unchanged on replay");
   assert.equal(firstIdemRes.revision, secondIdemRes.revision, "Idempotent retry must return identical revision");
+  assert.deepEqual(firstIdemRes, secondIdemRes, "Idempotent retry must return identical result object");
 
   // Restore award after idempotency test
   const postArchiveAward = await json(await request.get(`${origin}api/awards/${target.id}/staff-workflow`));
@@ -527,11 +669,14 @@ try {
     })
   );
 
-  // 13f. Source PDF content retrieval by authoritative documentId and SHA-256
+  // 13f. Source PDF content retrieval by authoritative documentId and real SHA-256 equality
   const contentRes = await request.get(`${origin}api/documents/${uploaded.documentId}/content`);
   assert.equal(contentRes.status(), 200);
   const downloadedBytes = await contentRes.body();
-  assert.equal(downloadedBytes.length, bytes.length);
+  const downloadedSha256 = crypto.createHash("sha256").update(downloadedBytes).digest("hex");
+  const originalSha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  assert.equal(downloadedSha256, originalSha256, "Downloaded PDF bytes must match original source SHA-256 hash");
+  assert.ok(downloadedBytes.equals(bytes), "Downloaded PDF bytes must match original source buffer exactly");
 
   assert.deepEqual(pageErrors, []);
   console.log("PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.");

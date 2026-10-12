@@ -1,2 +1,3 @@
+[2m12:01:09 am[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
 PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.
 

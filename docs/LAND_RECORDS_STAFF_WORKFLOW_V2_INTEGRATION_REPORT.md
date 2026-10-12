@@ -87,97 +87,94 @@ The test framework clearly separates **mocked UI contract testing** from **actua
 | Test Layer | Test Identifier | Environment / Backing Store | Result | Duration | Notes / Status |
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Frontend Type Check** | `npx tsc --noEmit` | `src/LAC.Web` compiler | **PASS** | 2.1 s | 0 errors in entire `src/LAC.Web` project |
-| **Frontend Production Build** | `npx vite build` | Vite 8 + Rolldown | **PASS** | 1.11 s | Clean production bundle generated in 1.11s |
-| **Repository Diagnostics** | `npx tsc -b` | Full project build | **FAIL (Expected Baseline)** | 4.8 s | **37 pre-existing baseline diagnostics** in unrelated modules (`AppShell.tsx`, `court/`, `editor/`, `matter/`). **0 new diagnostics** introduced by Land Records V2 code. |
-| **Document Conflict UI Tests** | `node --test tests/land-records-document-conflict.test.mjs` | **Mocked UI Contract** (Playwright routes with synthetic 409 responses) | **PASS** (8/8) | 16.7 s | TAP console report (all 8 scenarios pass) |
-| **Full .NET Regression Suite** | `dotnet test tests/LAC.Tests/LAC.Tests.csproj` | **Real Isolated PostgreSQL 17** (`127.0.0.1:55441`, db `lac_staff_workflow_v2_test`) | **PASS** (814/814) | 5 m 49 s | **814 Passed, 0 Failed, 0 Skipped** across all domain, API, infrastructure, intake, and staff persistence suites |
-| **Real Browser E2E Acceptance** | `LandRecordsStaffBrowserTests`<br>(executing `land-records-staff-browser.mjs`) | **Real Loopback Kestrel API + Vite Dev Server + PostgreSQL 17 + Chromium (1366×768)** | **PASS** (1/1) | 53 s | All 13 critical acceptance scenarios, lifecycle transitions, multi-docs, detach/restore, and negative checks verified |
+| **Frontend Production Build** | `npx vite build` | Vite 8 + Rolldown | **PASS** | 1.11 s | Clean production bundle generated |
+| **Full Project Solution Check** | `npx tsc -b` | Root tsconfig project references | **FAIL (Expected Baseline)** | 4.8 s | **37 pre-existing baseline diagnostics** in unrelated modules (`AppShell.tsx`, `court/`, `editor/`, `matter/`). **0 new diagnostics** introduced by Land Records V2 code. |
+| **Document Conflict UI Tests** | `node --test tests/land-records-document-conflict.test.mjs` | **Mocked UI Contract** (Playwright routes with synthetic 409 responses against local Vite dev server) | **PASS** (8/8) | 34.6 s | TAP console report (all 8 scenarios pass) |
+| **Full .NET Regression Suite** | `dotnet test tests/LAC.Tests/LAC.Tests.csproj` | **Real Isolated PostgreSQL 17** (`127.0.0.1:55441`, db `lac_staff_workflow_v2_test`) | **PASS** (813 Passed, 1 Skipped*) | 7 m 18 s | **813 Passed, 0 Failed, 1 Skipped** (*`LandRecordsStaffBrowserTests` skipped when browser flag unset). Raw execution log preserved in machine-readable TRX: `docs/verification-evidence/lac-tests-regression.trx` (6.55 MB). |
+| **Real Browser E2E Acceptance** | `LandRecordsStaffBrowserTests`<br>(executing `land-records-staff-browser.mjs`) | **Real Loopback Kestrel API + Vite Dev Server + PostgreSQL 17 + Chromium (1366×768)** | **PASS** (1/1) | 55 s | All 13 critical scenarios verified with genuine authentication, readbacks, 403 permission tests, and negative checks. Machine-readable TRX: `docs/verification-evidence/lac-browser-acceptance.trx` (1.74 MB). |
 
 ---
 
 ## 5. Revalidation of Critical Scenarios & Acceptance Gaps
 
-### Scenario 1: Award Workspace Overview (1366×768)
-- **Verified via:** `award-overview-premium.png`.
-- **State Type:** **Server-Confirmed Post-Submit Result**.
-- **Readback Assertion:** Validates rendering of Award overview populated directly from `GET /api/awards/{id}/workspace` and `staff-workflow` (canonical Khasra list, area totals, core document slot badges).
+The test execution clearly distinguishes **user flows executed through the actual React UI DOM** from **direct authenticated API validation calls**:
 
-### Scenario 2: Direct Upload without OCR
-- **Verified via:** `direct-upload-slot.png`.
-- **State Type:** **Pre-Submit Form State** (Attach core PDF dialog with Statement A selected).
-- **Readback Assertion:** Following submit, `GET /api/awards/{id}/core-documents` confirms attachment count increments, while `GET /api/awards/{id}/pdf-extractions` confirms extraction job count is strictly 0.
+### A. Flows Executed Through Actual React UI (Playwright & Chromium at 1366×768)
 
-### Scenario 3: Smart Core Intake Proposal & Confirmation
-- **Verified via:** `smart-intake-proposal.png`.
-- **State Type:** **Server-Confirmed Proposal State** (intake review list showing extracted metadata fields awaiting confirmation).
-- **Readback Assertion:** Following "Confirm & Link", badge updates to `.intake-badge-confirmed` and core document list reflects the linked attachment.
+1. **Scenario 1: Award Workspace Overview**
+   - **Execution Method:** **Actual React UI**. Navigates to `/awards/{id}`, waits for React DOM hydration, and verifies Award overview components loaded directly from `GET /api/awards/{id}/workspace` and `staff-workflow`.
+   - **Visual Evidence:** `award-overview-premium.png` (Server-Confirmed Post-Submit Result).
 
-### Scenario 4: Real 409 Ownership Conflict & Audited Resolution
-- **Verified via:** `ownership-conflict-reassignment.png`.
-- **State Type:** **Active Server Conflict Resolution State** (HTTP 409 received from server; officer link correction drawer filled with ShareSource details).
-- **Readback Assertion:** Following resolution submit, `GET /api/awards/{id}/core-documents` confirms attachment has `isSharedSource === true` and documentId matches original source document.
+2. **Scenario 2: Real 409 Ownership Conflict & Officer Resolution**
+   - **Execution Method:** **Actual React UI**. Clicks `Import / Review Data` in Award workspace, selects duplicate PDF in file drawer, uploads, observes React DOM alert `#pdf-ownership-conflict` with human-readable explanation and authorized existing Award link, clicks `Officer link correction`, selects `ShareSource`, enters source page coverage and justification, and submits.
+   - **Visual Evidence:** `ownership-conflict-reassignment.png` (Active Conflict Resolution State) and `ownership-conflict.png`.
+   - **Readback Assertion:** `GET /api/awards/{target.id}/core-documents` confirms attachment has `isSharedSource === true` and documentId matches original source document.
 
-### Scenario 5: Grouped Village Acquisition Timeline
-- **Verified via:** `village-timeline-canonical.png`.
-- **State Type:** **Server-Confirmed Post-Submit Result**.
-- **Readback Assertion:** Events loaded from `GET /api/villages/{id}/acquisition-timeline` group strictly by Award identity and provide functional links to source PDFs (`Source PDF 1`).
+3. **Scenario 3: Canonical Village Acquisition Timeline**
+   - **Execution Method:** **Actual React UI**. Navigates to `/villages/{id}`, expands timeline event nodes via button clicks, and asserts grouped canonical Award relationships and functional `Source PDF 1` links.
+   - **Visual Evidence:** `village-timeline-canonical.png` (Server-Confirmed Post-Submit Result) and `canonical-timeline.png`.
 
-### Scenario 6: Multi-Village Statutory Notification Selector
-- **Verified via:** `notification-multi-village-picker.png`.
-- **State Type:** **Pre-Submit Form State** (drawer displaying required `Target Village *` dropdown).
-- **Readback Assertion:** Validates blank selection disables submission; wrong-village payload returns HTTP 400 `VillageContextRequired`.
+4. **Scenario 4: Direct Upload Slot (Village Core Records)**
+   - **Execution Method:** **Actual React UI**. Navigates to `/villages/{id}?section=core`, locates Award card, clicks `+ Attach` on Statement A slot, uploads PDF in dialog, clicks `Direct Upload`, and asserts status transition to `Attached` without extraction jobs.
+   - **Visual Evidence:** `direct-upload-slot.png` (Pre-Submit Form State).
 
-### Scenario 7: Statutory Notification Finalization
-- **Verified via:** `notification-finalized.png`.
-- **State Type:** **Server-Confirmed Post-Submit Result**.
-- **Readback Assertion:** `GET /api/awards/{id}/staff-workflow` confirms `notifications` contains registered record with `isFinalized === true`, date `2002-01-15`, and attached gazette PDF.
+5. **Scenario 5: Smart Core Intake Proposal & Confirmation**
+   - **Execution Method:** **Actual React UI**. Clicks `Upload Core Documents`, uploads staged PDF in Smart Core Intake modal, clicks `Analyse`, verifies extraction proposal in `.intake-review-list`, and clicks `Confirm & Link`.
+   - **Visual Evidence:** `smart-intake-proposal.png` (Server-Confirmed Proposal State) and `integrated-smart-and-direct.png`.
 
-### Scenario 8: Section 35 Temporary Occupation Proceedings
-- **Verified via:** `temporary-proceedings-section35.png`.
-- **State Type:** **Pre-Submit Form State** (Section 35 drawer populated with purpose, legal date, and PDF).
-- **Readback Assertion:** `GET /api/villages/{id}/acquisition-timeline` confirms temporary proceeding event with matching title appears in village timeline.
+6. **Scenario 6: Multi-Village Statutory Notification Selector**
+   - **Execution Method:** **Actual React UI**. Clicks `+ Register Notification Source`, opens drawer, verifies mandatory `Target Village *` select dropdown, asserts blank selection blocks submission, selects valid village, enters date and gazette remarks, and submits.
+   - **Visual Evidence:** `notification-multi-village-picker.png` (Pre-Submit Form State).
 
-### Scenario 9: Award Metadata Correction
-- **Verified via:** `award-metadata-correction.png`.
-- **State Type:** **Pre-Submit Form State** (edit drawer with modified date and audit reason).
-- **Readback Assertion:** `GET /api/awards/{id}/staff-workflow` confirms `awardDate === "2002-03-02"`.
+7. **Scenario 7: Statutory Notification Finalization**
+   - **Execution Method:** **Actual React UI**. Submits notification from drawer, verifies card appears in workspace with `Finalized` badge.
+   - **Visual Evidence:** `notification-finalized.png` (Server-Confirmed Post-Submit Result).
+   - **Readback Assertion:** `GET /api/awards/{id}/staff-workflow` confirms `isFinalized === true` with attached gazette PDF.
 
-### Scenario 10: Award Lifecycle Operations (Void, Restore, Archive)
-- **Verified via:** Browser UI interaction and API readbacks.
-- **State Type:** **Server-Confirmed Mutations**.
-- **Readback Assertions:**
-  - Void: `recordStatus === "Archived"`, `archiveKind === "Void"`, UI displays `Archived (Void)`.
-  - Restore: `recordStatus === "Active"`.
-  - Archive: `recordStatus === "Archived"`, `archiveKind === "Archive"`, UI displays `Archived (Archive)`.
-  - Final Restore: `recordStatus === "Active"`.
+8. **Scenario 8: Section 35 Temporary Occupation Proceedings**
+   - **Execution Method:** **Actual React UI**. Clicks `+ Record Section 35 Proceeding` on Village Core tab, completes drawer fields (purpose, reference number, date, PDF), and submits.
+   - **Visual Evidence:** `temporary-proceedings-section35.png` (Pre-Submit Form State).
+   - **Readback Assertion:** `GET /api/villages/{id}/acquisition-timeline` confirms temporary proceeding event with matching title appears in village timeline.
 
-### Scenario 11: Multiple Core Documents per Role (PP, NM, Statement A)
-- **Verified via:** Browser test execution against Kestrel.
-- **State Type:** **Server-Confirmed Mutations**.
-- **Readback Assertions:**
-  - Statement A: At least 2 active attachments.
-  - NM: At least 2 active attachments under canonical role `NM`.
-  - PP: At least 2 active attachments with explicit `legalDate` and village jurisdiction.
-  - Negative Check: PP upload without `legalDate` rejected with HTTP 400 `PossessionDateRequired`.
+9. **Scenario 9: Award Metadata Correction**
+   - **Execution Method:** **Actual React UI**. Clicks `Edit Metadata` button, updates date to `2002-03-02`, enters mandatory justification, and saves.
+   - **Visual Evidence:** `award-metadata-correction.png` (Pre-Submit Form State).
+   - **Readback Assertion:** `GET /api/awards/{id}/staff-workflow` confirms `awardDate === "2002-03-02"`.
 
-### Scenario 12: Attachment Metadata Correction, Detach & Restore
-- **Verified via:** `PUT /api/awards/{id}/core-document-links/{attachmentId}`.
-- **State Type:** **Server-Confirmed Mutations**.
-- **Readback Assertions:**
-  - Update: Title updated to *"Verified Revenue Map Sheet 1"*; revision increments.
-  - Detach: `isDetached === true`; active document list excludes attachment.
-  - Restore: `isDetached === false`; active document list includes attachment again.
+10. **Scenario 10: Award Lifecycle Operations (Void, Restore, Archive)**
+    - **Execution Method:** **Actual React UI**. Executes Void, Restore, Archive, and final Restore directly through `AwardLifecycleModal` dialogs, asserting UI badges (`Archived (Void)`, `Archived (Archive)`) and server readbacks.
 
-### Scenario 13: Targeted Negative-Path Checks & Idempotency
-- **Verified via:** API execution in browser test context.
-- **State Type:** **Server-Confirmed Boundary Tests**.
-- **Readback Assertions:**
-  - Stale revision on metadata (`expectedRevision: 999`) -> HTTP 409 `RevisionConflict`.
-  - Stale revision on lifecycle (`expectedRevision: 999`) -> HTTP 409 `RevisionConflict`.
-  - Stale revision on attachment link (`expectedRevision: 999`) -> HTTP 409 `RevisionConflict`.
-  - Unauthorized writes (unauthenticated context) -> HTTP 401 Unauthorized across metadata, lifecycle, and resolution endpoints.
-  - Retry Idempotency: Replaying identical mutation payload with matching `mutationId` returns identical response and revision without duplicate audit logs.
-  - Source PDF Integrity: `GET /api/documents/{documentId}/content` returns exact binary stream matching original SHA-256 hash.
+---
+
+### B. Validations Executed Via Authenticated Direct API Calls
+
+11. **Scenario 11: Multiple Core Documents & Deterministic Same-Date Possession Proceedings**
+    - **Execution Method:** **Authenticated Direct API Calls**.
+    - **Multiple Documents:** Uploads second Statement A and two field map schedules (`role=NM`).
+    - **Negative Check:** PP upload without possession date rejected with HTTP 400 `PossessionDateRequired`.
+    - **Deterministic Same-Date PP Validation:** Uploads two genuinely distinct Possession Proceedings sharing the **exact same legal date** (`2002-04-01`):
+      - PP #1 attached to Village 1 (`villageId`) with title *"Kabza Karwahi Village 1"*.
+      - PP #2 attached to Village 2 (`villageId2`) with title *"Kabza Karwahi Village 2"*.
+      - Asserts distinct document IDs, distinct attachment IDs, distinct possession event IDs, and validates that readback from `GET /api/awards/{target.id}/core-documents` accurately reflects canonical village and attachment associations for both records.
+
+12. **Scenario 12: Attachment Metadata Correction, Detach & Restore**
+    - **Execution Method:** **Authenticated Direct API Calls**.
+    - Calls `PUT /api/awards/{id}/core-document-links/{attachmentId}` for Update (title and remarks updated), Detach (active list excludes attachment), and Restore (active list includes attachment again).
+
+13. **Scenario 13: Targeted Negative-Path Checks, Authorization & Idempotency**
+    - **Execution Method:** **Authenticated Direct API Calls**.
+    - **13a-c. Stale Revision Concurrency:** Submitting `expectedRevision: 999` returns HTTP 409 `RevisionConflict` across metadata, lifecycle, and attachment links.
+    - **13d(i). Anonymous Unauthenticated Writes:** Requests without session cookies return HTTP 401 across metadata, lifecycle, attachment link, and resolution endpoints.
+    - **13d(ii). Authenticated Permission-Limited Officer (403 Forbidden):** Provisions a dedicated authenticated officer account with viewer-only rights (`Award.View` scope, but omitting `Award.Edit`, `Award.CoreDocument.Upload`, and `Audit.View`). Confirms server returns **HTTP 403 `Forbidden`** for:
+      - Award metadata correction (`PUT /api/awards/{id}/metadata`)
+      - Award lifecycle mutation (`POST /api/awards/{id}/lifecycle`)
+      - Attachment link correction (`PUT /api/awards/{id}/core-document-links/{attId}`)
+      - Officer ownership resolution (`POST /api/documents/{id}/award-link-resolutions`)
+    - **13e. Mutation Retry Idempotency & Audit Log Integrity:** Replays identical lifecycle mutation payload with matching `mutationId`. Asserts:
+      - Initial mutation adds exactly 1 audit log entry (`countAfterFirst === 1`).
+      - Replay mutation adds **0 duplicate audit entries** (`countAfterReplay === 1` and `auditsAfterReplay.items.length === auditsAfterFirst.items.length`).
+      - Returns identical revision (`firstIdemRes.revision === secondIdemRes.revision`) and deeply equal result payload.
+    - **13f. Source PDF Real SHA-256 Equality:** Downloads PDF binary stream via `GET /api/documents/{id}/content` and asserts exact SHA-256 hash equality (`crypto.createHash("sha256")`) and buffer equality (`downloadedBytes.equals(bytes)`) against original source.
 
 ---
 
@@ -197,11 +194,13 @@ All evidence screenshots are stored in `docs/verification-evidence/` and confirm
 | 8 | `temporary-proceedings-section35.png` | 1366×768 | **Pre-Submit Form State** | Village Section 35 temporary occupation proceeding drawer with legal purpose & PDF |
 | 9 | `award-metadata-correction.png` | 1366×768 | **Pre-Submit Form State** | Official Award metadata editor with duplicate check preview and audit reason |
 
-*Compatibility Aliases & Log:*
+*Compatibility Aliases & Machine-Readable Evidence:*
 - `ownership-conflict.png` (identical to #4)
 - `canonical-timeline.png` (identical to #5)
 - `integrated-smart-and-direct.png` (identical to #3)
-- `result.txt`: Contains raw stdout log: `PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.`
+- `result.txt`: Contains raw stdout execution log: `PASS: all Land Records V2 acceptance scenarios, lifecycle transitions, multi-document roles, attachment corrections, and negative-path checks verified.`
+- `lac-tests-regression.trx`: Full machine-readable MSTest/xUnit execution log for 814 tests across the .NET regression suite (6.55 MB).
+- `lac-browser-acceptance.trx`: Full machine-readable execution log for the real browser/Kestrel acceptance test (1.74 MB).
 
 ---
 
