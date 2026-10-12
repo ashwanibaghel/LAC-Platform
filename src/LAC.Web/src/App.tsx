@@ -19,6 +19,11 @@ import { AwardReviewWorkbench } from "./award/AwardReviewWorkbench";
 import { LandRecordApiError, landRecordResponse, type PdfOwnershipConflict } from "./award/LandRecordApiError";
 import { AwardPdfOwnershipConflictPanel } from "./award/AwardPdfOwnershipConflictPanel";
 import { VillageAcquisitionTimeline } from "./award/VillageAcquisitionTimeline";
+import { AwardStaffMetadataModal } from "./award/AwardStaffMetadataModal";
+import { AwardLifecycleModal } from "./award/AwardLifecycleModal";
+import { AwardCoreDocumentsSection } from "./award/AwardCoreDocumentsSection";
+import { AwardNotificationsSection } from "./award/AwardNotificationsSection";
+import type { StaffAward } from "./award/landRecordsStaffTypes";
 import { LoginPage } from "./auth/LoginPage";
 import { UsersAdmin } from "./admin/UsersAdmin";
 import { AccessAdmin } from "./admin/AccessAdmin";
@@ -2349,11 +2354,13 @@ function Award() {
   const [pdfImport, setPdfImport] = useState(false);
   const [rectangle, setRectangle] = useState("");
   const [selectedCourtCaseForProceedings, setSelectedCourtCaseForProceedings] = useState<{ id: string; caseNumber: string; courtName: string } | null>(null);
+  const [showMetadataEdit, setShowMetadataEdit] = useState(false);
+  const [showLifecycle, setShowLifecycle] = useState(false);
+  const staffWorkflow = useApi<StaffAward>(`/awards/${id}/staff-workflow?r=${refresh}`);
   const overview = useApi<any>(`/awards/${id}/workspace?r=${refresh}`);
   const workspace = useApi<Page<any>>(
     path(`/awards/${id}/khasras`, { page, pageSize: 25, r: refresh }),
   );
-  const notifications = useApi<any[]>(overview.data?.notificationCount > 0 ? `/awards/${id}/notifications?r=${refresh}` : undefined);
   const possession = useApi<any[]>(overview.data?.possessionEventCount > 0 ? `/awards/${id}/possession-events?r=${refresh}` : undefined);
   const courtCases = useApi<any[]>(overview.data?.courtCaseCount > 0 ? `/awards/${id}/court-cases?r=${refresh}` : undefined);
   const claims = useApi<Page<any>>(overview.data?.claimCount > 0 ? path(`/awards/${id}/claims`, { page: 0, pageSize: 25, r: refresh }) : undefined);
@@ -2381,7 +2388,7 @@ function Award() {
       <PageHeader
         eyebrow="Award workspace"
         title={a.awardNumber}
-        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><button className="secondary-button" onClick={() => setPdfImport(true)}>Import / Review Data ▾</button><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
+        actions={<div className="award-actions"><button onClick={() => setAdding(true)}>+ Add / Link Khasra</button><button className="secondary-button" onClick={() => setShowMetadataEdit(true)}>✏️ Edit Metadata</button><button className="secondary-button" onClick={() => setShowLifecycle(true)}>⚙️ Lifecycle</button><button className="secondary-button" onClick={() => setPdfImport(true)}>Import / Review Data ▾</button><button className="secondary-button" onClick={() => setRelated(true)}>+ Add Related Record ▾</button><ExportMenu baseUrl={`/api/awards/${id}/export`} query="" /></div>}
       >
         <p>
           {[
@@ -2394,6 +2401,13 @@ function Award() {
             .filter(Boolean)
             .join(" · ")}
         </p>
+        {staffWorkflow.data?.recordStatus === "Archived" && (
+          <div style={{ marginTop: "6px" }}>
+            <span style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: "2px 8px", borderRadius: "4px", fontSize: "12px", fontWeight: 700 }}>
+              Archived ({staffWorkflow.data?.archiveKind || "Archived"})
+            </span>
+          </div>
+        )}
       </PageHeader>
       {(a.parentAwardNumber || a.parentAwardReference) && <section className="supplementary-reference"><strong>Main Award reference</strong><span>{a.parentAwardNumber || a.parentAwardReference}</span>{a.parentAwardNumber && a.parentAwardReference && a.parentAwardReference !== a.parentAwardNumber && <small>Source reference: {a.parentAwardReference}</small>}{!a.parentAwardNumber && <small>Not linked to a main Award record yet; this reference remains for review.</small>}</section>}
       <section className="award-summary">
@@ -2477,12 +2491,6 @@ function Award() {
           />
         )}
       </section>
-      {a.notificationCount > 0 && (
-        <section className="section">
-          <h2>Notifications</h2>
-          <DataTable headers={["Notification", "Section", "Date"]}>{notifications.data?.map(n => <tr key={n.id}><td><EntityLink to={route.notification(n.id)}>{n.notificationNumber}</EntityLink></td><td>Section {n.sectionType}</td><td>{date(n.notificationDate)}</td></tr>)}</DataTable>
-        </section>
-      )}
       {a.possessionEventCount > 0 && (
         <section className="section">
           <h2>Possession</h2>
@@ -2554,7 +2562,42 @@ function Award() {
           onClose={() => setSelectedCourtCaseForProceedings(null)}
         />
       )}
-      <AwardDocumentsSection key={`${id}-${refresh}`} awardId={id} />
+      <AwardCoreDocumentsSection
+        key={`core-docs-${id}-${refresh}`}
+        awardId={id}
+        linkedVillages={a.villages?.map((v: any) => ({ id: v.id, name: v.name })) || []}
+      />
+      <AwardNotificationsSection
+        key={`notifications-${id}-${refresh}`}
+        awardId={id}
+        villageId={a.villages?.[0]?.id || ""}
+        notifications={staffWorkflow.data?.notifications || []}
+        onRefresh={() => setRefresh((x) => x + 1)}
+      />
+      {showMetadataEdit && (
+        <AwardStaffMetadataModal
+          awardId={id}
+          onClose={() => setShowMetadataEdit(false)}
+          onSaved={() => {
+            setShowMetadataEdit(false);
+            setRefresh((x) => x + 1);
+          }}
+        />
+      )}
+      {showLifecycle && (
+        <AwardLifecycleModal
+          awardId={id}
+          awardNumber={a.awardNumber}
+          currentStatus={staffWorkflow.data?.recordStatus || "Active"}
+          currentArchiveKind={staffWorkflow.data?.archiveKind}
+          revision={staffWorkflow.data?.revision || a.revision || 1}
+          onClose={() => setShowLifecycle(false)}
+          onSaved={() => {
+            setShowLifecycle(false);
+            setRefresh((x) => x + 1);
+          }}
+        />
+      )}
       <PermanentSourceLines endpoint={`/awards/${id}/evidence`} />
       {pdfImport && <AwardPdfImportPanel award={a} onUploaded={() => setRefresh(v => v + 1)} onClose={() => setPdfImport(false)} />}
     </>
