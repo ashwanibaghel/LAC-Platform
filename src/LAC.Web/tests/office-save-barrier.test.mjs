@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { awaitCommittedOfficeSave, submittedNoteNumber } from '../src/matter/officeSaveBarrier.ts';
+import { awaitCommittedOfficeSave, submittedNoteNumber, validateOfficeSaveResolution } from '../src/matter/officeSaveBarrier.ts';
 
 const receipt = (state = 'Pending') => ({
   id: 'request-A', sessionId: 'session-A', clientGeneration: 7, sessionRevision: 2,
@@ -56,4 +56,25 @@ test('submit and send use the actual backend number fields', () => {
   for (const malformed of [null,{}, {noteNumber:2}, {number:undefined}, {number:0}]) {
     assert.throws(() => submittedNoteNumber(malformed), /did not identify an official note/);
   }
+});
+
+const verified = () => ({ noChanges:true, snapshotId:'snapshot-A',sha256:'a'.repeat(64),snapshotVersion:1,sessionRevision:2,committedReceipt:receipt('Committed') });
+test('no-change verification preserves the original receipt and its older generation',()=>{
+  const value=verified();const result=validateOfficeSaveResolution(value,'session-A',2);
+  assert.equal(result,value);assert.equal(result.committedReceipt,value.committedReceipt);
+  assert.equal(result.committedReceipt.clientGeneration,7,'a later local capture cannot invent a newer committed generation');
+});
+test('reopened server seed has no fabricated committed save receipt',()=>{
+  const value={...verified(),snapshotVersion:0,committedReceipt:null};assert.equal(validateOfficeSaveResolution(value,'session-A',2),value);
+  assert.throws(()=>validateOfficeSaveResolution({...value,snapshotVersion:1},'session-A',2),/no valid committed receipt or server seed/);
+  assert.throws(()=>validateOfficeSaveResolution({...value,committedReceipt:{...receipt('Committed'),version:0}},'session-A',2),/different or incomplete/);
+});
+for(const patch of [{sessionId:'another-session'},{snapshotId:'another-snapshot'},{sha256:'b'.repeat(64)},{sessionRevision:3},{state:'Failed'}]){
+  test(`reject no-change receipt mismatch ${Object.keys(patch)[0]}`,()=>{
+    const value=verified();assert.throws(()=>validateOfficeSaveResolution({...value,committedReceipt:{...value.committedReceipt,...patch}},'session-A',2),/different or incomplete/);
+  });
+}
+test('changed content or stale revision cannot reuse a committed no-change receipt',()=>{
+  assert.throws(()=>validateOfficeSaveResolution({...verified(),noChanges:false},'session-A',2),/different or incomplete/);
+  assert.throws(()=>validateOfficeSaveResolution(verified(),'session-A',3),/valid current snapshot evidence/);
 });

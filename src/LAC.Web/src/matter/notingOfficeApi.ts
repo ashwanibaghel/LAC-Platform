@@ -5,6 +5,7 @@ import type {
   OfficeCompositionVersion,
   OfficeSessionConfigResponse,
   OfficeSaveReceiptDto,
+  OfficeSaveResolutionDto,
   MatterOfficialNoteDto,
   MatterOfficePreviewDto,
   GreenSheetMetadataDto,
@@ -130,10 +131,25 @@ export const notingOfficeApi = {
     return handleResponse<OfficeSaveReceiptDto>(res, "Failed to check save receipt status");
   },
 
+  async checkNativeSave(sessionId: string, nativeExportUrl: string, sessionRevision: number, key = generateUuid()): Promise<OfficeSaveResolutionDto> {
+    const res = await fetch(`/api/noting-office/sessions/${sessionId}/save-check`, {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json", "If-Match": `"${sessionRevision}"`, "Idempotency-Key": key },
+      body: JSON.stringify({ nativeExportUrl })
+    });
+    return handleResponse<OfficeSaveResolutionDto>(res, "Unable to verify current server content");
+  },
+
+  async getFrozenPreview(sessionId: string): Promise<{ session: OfficeSessionInfo; preview: MatterOfficePreviewDto }> {
+    const res = await fetch(`/api/noting-office/sessions/${sessionId}/preview`, { credentials: "include", cache: "no-store" });
+    return handleResponse(res, "Frozen review is unavailable or expired");
+  },
+
   async createPreview(
     sessionId: string,
-    saveRequestId: string,
-    sessionRevision: number
+    saveRequestId: string | null,
+    sessionRevision: number,
+    nativeExportUrl?: string
   ): Promise<MatterOfficePreviewDto> {
     const res = await fetch(`/api/noting-office/sessions/${sessionId}/previews`, {
       method: "POST",
@@ -143,7 +159,7 @@ export const notingOfficeApi = {
         "Idempotency-Key": generateUuid(),
         "If-Match": `"${sessionRevision}"`
       },
-      body: JSON.stringify({ saveRequestId })
+      body: JSON.stringify({ saveRequestId, ...(nativeExportUrl === undefined ? {} : { nativeExportUrl }) })
     });
     return handleResponse<MatterOfficePreviewDto>(res, "Failed to generate canonical preview");
   },

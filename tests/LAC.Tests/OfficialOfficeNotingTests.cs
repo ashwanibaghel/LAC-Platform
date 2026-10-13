@@ -25,9 +25,14 @@ public sealed class OfficialOfficeNotingTests
     {
         internal byte[] Bytes = [];
         internal int Error;
+        internal int Commands;
         public HttpClient CreateClient(string name) => new(this,false);
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-        { Content = request.Method == HttpMethod.Post ? new StringContent("{\"error\":"+Error+"}",Encoding.UTF8,"application/json") : new ByteArrayContent(Bytes) });
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,CancellationToken ct)
+        {
+            if(request.Method==HttpMethod.Post) Interlocked.Increment(ref Commands);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            { Content = request.Method == HttpMethod.Post ? new StringContent("{\"error\":"+Error+"}",Encoding.UTF8,"application/json") : new ByteArrayContent(Bytes) });
+        }
     }
     private sealed record Fixture(OfficeNotingSchema Schema,Guid Actor,Guid Other,Guid Matter,Guid Dak,NotingTestStorage Storage,DocsStub Docs)
     {
@@ -143,6 +148,76 @@ public sealed class OfficialOfficeNotingTests
         var token=tokens.Sign(new { key="valid" }); Assert.Throws<UnauthorizedAccessException>(()=>tokens.Verify(token[..^1]+(token[^1]=='a'?'b':'a')));
         var office=new NotingOfficeClient(new DocsStub(),tokens,options,Options.Create(new OnlyOfficeNotingOptions{Enabled=true}));
         foreach(var url in new[]{"http://evil.invalid/cache.docx","http://localhost:8083/cache.docx","http://user@localhost:8082/cache.docx","http://localhost:8082/cache.docx#fragment","file:///C:/secret"}) Assert.Throws<MatterWorkflowException>(()=>office.ValidateOrigin(url));
+    }
+    [OfficeSchemaFact]
+    public async Task V2_unchanged_receipt_reopen_seed_review_and_submit_do_not_invent_commits()
+    {
+        var f=await Setup();await using var db=f.Schema.Context();var service=f.Service(db);
+        var s=await service.OpenAsync(f.Matter,new(f.Dak,null,ContinuousGreenEnvelope.Version),0,f.Actor,Guid.NewGuid(),default);
+        var row=await db.MatterOfficeSessions.SingleAsync(x=>x.Id==s.Id);var manifest=ContinuousGreenEnvelope.Read(row.HistoryManifestJson!,row.HistoryManifestHash!);
+        using var bytes=ContinuousGreenEnvelope.Compose(manifest,MatterNotingTextTests.Text("Actual unchanged committed content"));f.Docs.Bytes=bytes.ToArray();
+        var url="http://localhost:8082/cache/files/lac-note-"+s.Id.ToString("N")+"_1/output.docx/Continuous%20Green%20Noting.docx";
+        var save=await service.SaveAsync(s.Id,new(1,url),s.Revision,f.Actor,Guid.NewGuid(),default);
+        var callback=JsonSerializer.SerializeToElement(new {key="lac-note-"+s.Id.ToString("N"),status=6,users=new[]{f.Actor.ToString()},userdata=save.Id.ToString(),url});
+        await service.CallbackAsync(s.Id,callback,default);var receipt=await service.StatusAsync(s.Id,save.Id,f.Actor,default);
+        var snapshots=await db.MatterOfficeSnapshots.CountAsync();var saves=await db.MatterOfficeSaveRequests.CountAsync();var commands=f.Docs.Commands;
+        for(var i=0;i<3;i++)
+        {
+            var result=await service.CheckSaveAsync(s.Id,new(url),receipt.SessionRevision,f.Actor,Guid.NewGuid(),default);
+            Assert.True(result.NoChanges);Assert.Equal(receipt.Id,result.CommittedReceipt!.Id);Assert.Equal(receipt.ClientGeneration,result.CommittedReceipt.ClientGeneration);
+        }
+        Assert.Equal(snapshots,await db.MatterOfficeSnapshots.CountAsync());Assert.Equal(saves,await db.MatterOfficeSaveRequests.CountAsync());Assert.Equal(commands,f.Docs.Commands);
+        using(var later=ContinuousGreenEnvelope.Compose(manifest,MatterNotingTextTests.Text("Edit between check and preview")))
+        {
+            f.Docs.Bytes=later.ToArray();Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.PreviewAsync(s.Id,new(receipt.Id,url),receipt.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+            db.ChangeTracker.Clear();Assert.Empty(await db.MatterOfficePreviews.ToListAsync());Assert.Equal("Active",(await db.MatterOfficeSessions.SingleAsync(x=>x.Id==s.Id)).State);
+        }
+        f.Docs.Bytes=bytes.ToArray();
+        var reopened=await service.OpenAsync(f.Matter,new(f.Dak,null,ContinuousGreenEnvelope.Version),0,f.Actor,Guid.NewGuid(),default);
+        var seed=await db.MatterOfficeSnapshots.SingleAsync(x=>x.Id==reopened.LatestSnapshotId);f.Docs.Bytes=f.Storage.Files[seed.StoragePath];
+        var reopenedUrl="http://localhost:8082/cache/files/lac-note-"+reopened.Id.ToString("N")+"_1/output.docx/Continuous%20Green%20Noting.docx";
+        var noChange=await service.CheckSaveAsync(reopened.Id,new(reopenedUrl),reopened.Revision,f.Actor,Guid.NewGuid(),default);
+        Assert.True(noChange.NoChanges);Assert.Null(noChange.CommittedReceipt);Assert.Equal(0,noChange.SnapshotVersion);Assert.Null(seed.SaveRequestId);
+        var preview=await service.PreviewAsync(reopened.Id,new(null,reopenedUrl),reopened.Revision,f.Actor,Guid.NewGuid(),default);
+        Assert.NotNull(preview.NativeCaptureJson);Assert.Equal("Actual unchanged committed content\n",preview.CanonicalText);
+        await service.FrozenPreviewAsync(reopened.Id,f.Actor,default);await service.FrozenPreviewAsync(reopened.Id,f.Actor,default);
+        Assert.Single(await db.MatterOfficePreviews.ToListAsync());Assert.Equal(commands,f.Docs.Commands);Assert.Equal(saves,await db.MatterOfficeSaveRequests.CountAsync());
+        await using(var conn=new NpgsqlConnection(f.Schema.Connection))
+        {
+            await conn.OpenAsync();await using var tamper=new NpgsqlCommand("UPDATE \"MatterOfficePreviews\" SET \"NativeCaptureJson\"='{}'",conn);
+            await Assert.ThrowsAsync<PostgresException>(()=>tamper.ExecuteNonQueryAsync());
+        }
+        var draft=await service.ConfirmAsync(f.Matter,new(preview.Id,preview.CanonicalHash),0,f.Actor,Guid.NewGuid(),default);
+        Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>f.Workflow(db).SubmitAsync(f.Matter,new(f.Dak,preview.Id,"wrong"),draft.Revision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        db.ChangeTracker.Clear();Assert.Empty(await db.MatterOfficialNotes.ToListAsync());
+        var note=await f.Workflow(db).SubmitAsync(f.Matter,new(f.Dak,preview.Id,preview.CanonicalHash),draft.Revision,f.Actor,Guid.NewGuid(),default);
+        Assert.Equal(1,note.Number);Assert.Equal(preview.CanonicalText,note.CanonicalText);Assert.Equal(commands,f.Docs.Commands);
+    }
+    [OfficeSchemaFact]
+    public async Task V2_no_change_check_rejects_failed_new_text_concurrency_identity_revocation_chain_and_expiry()
+    {
+        var f=await Setup();await using var db=f.Schema.Context();var clock=new MutableClock(DateTimeOffset.UtcNow);var service=f.Service(db,clock);
+        var s=await service.OpenAsync(f.Matter,new(f.Dak,null,ContinuousGreenEnvelope.Version),0,f.Actor,Guid.NewGuid(),default);
+        var row=await db.MatterOfficeSessions.SingleAsync(x=>x.Id==s.Id);var manifest=ContinuousGreenEnvelope.Read(row.HistoryManifestJson!,row.HistoryManifestHash!);
+        using var bytes=ContinuousGreenEnvelope.Compose(manifest,MatterNotingTextTests.Text("Committed text"));f.Docs.Bytes=bytes.ToArray();
+        var url="http://localhost:8082/cache/files/lac-note-"+s.Id.ToString("N")+"_1/output.docx/Continuous%20Green%20Noting.docx";
+        var save=await service.SaveAsync(s.Id,new(1,url),s.Revision,f.Actor,Guid.NewGuid(),default);
+        await service.CallbackAsync(s.Id,JsonSerializer.SerializeToElement(new {key="lac-note-"+s.Id.ToString("N"),status=6,users=new[]{f.Actor.ToString()},userdata=save.Id.ToString(),url}),default);
+        var receipt=await service.StatusAsync(s.Id,save.Id,f.Actor,default);
+        using var changed=ContinuousGreenEnvelope.Compose(manifest,MatterNotingTextTests.Text("New text after failed callback"));f.Docs.Bytes=changed.ToArray();f.Docs.Error=4;
+        var failed=await service.SaveAsync(s.Id,new(2,url),receipt.SessionRevision,f.Actor,Guid.NewGuid(),default);Assert.Equal("Failed",failed.State);
+        Assert.False((await service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,Guid.NewGuid(),default)).NoChanges);
+        Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),receipt.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        f.Docs.Bytes=bytes.ToArray();var key=Guid.NewGuid();var unchanged=await service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,key,default);
+        Assert.True(unchanged.NoChanges);Assert.Equal(receipt.Id,unchanged.CommittedReceipt!.Id);
+        f.Docs.Bytes=changed.ToArray();Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,key,default))).StatusCode);
+        f.Docs.Bytes=bytes.ToArray();var user=await db.AppUsers.SingleAsync(x=>x.Id==f.Actor);var name=user.DisplayName;user.DisplayName="Changed identity";await db.SaveChangesAsync();
+        Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        user.DisplayName=name;user.IsActive=false;await db.SaveChangesAsync();Assert.Equal(403,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        user.IsActive=true;await db.SaveChangesAsync();
+        var json=MatterNotingTextTests.Text("Concurrent official chain entry");var text=NotingText.Canonicalize(json);db.MatterOfficialNotes.Add(new MatterOfficialNote {MatterId=f.Matter,Number=1,AuthorUserId=f.Actor,AuthorName=name,Designation="Kanungo",ContentJson=json,CanonicalText=text,TextHash=NotingText.Hash(text),SubmittedAt=DateTimeOffset.UtcNow});await db.SaveChangesAsync();
+        Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        clock.Advance(TimeSpan.FromHours(2));Assert.Equal(409,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.CheckSaveAsync(s.Id,new(url),failed.SessionRevision,f.Actor,Guid.NewGuid(),default))).StatusCode);
     }
     [OfficeSchemaFact]
     public async Task V2_tamper_callback_never_commits_and_manifest_is_database_immutable()

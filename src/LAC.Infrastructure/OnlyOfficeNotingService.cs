@@ -8,7 +8,10 @@ using Microsoft.EntityFrameworkCore;
 public sealed record OpenOfficeNoteCommand(Guid? SourceDakId, Guid? ResumeSnapshotId = null, string? CompositionVersion = null);
 public sealed record SaveOfficeNoteCommand([property: System.Text.Json.Serialization.JsonRequired] int ClientGeneration,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? NativeExportUrl = null);
-public sealed record PreviewOfficeNoteCommand(Guid SaveRequestId);
+public sealed record PreviewOfficeNoteCommand(Guid? SaveRequestId,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? NativeExportUrl = null);
+public sealed record CheckOfficeSaveCommand(string NativeExportUrl);
+public sealed record OfficeSaveResolution(bool NoChanges, Guid SnapshotId, string Sha256, int SnapshotVersion, int SessionRevision, OfficeSaveInfo? CommittedReceipt);
 public sealed record ConfirmOfficeNoteCommand(Guid PreviewId, string CanonicalHash, bool ResetCitations = false);
 public sealed record OfficeSessionInfo(Guid Id, Guid MatterId, Guid ActorUserId, Guid? SourceDakId, int WorkingRevision, int Revision, string State, DateTimeOffset ExpiresAt, Guid? LatestSnapshotId, string CompositionVersion = "OfficeNoteV1");
 public sealed record OfficeSaveInfo(Guid Id, Guid SessionId, int ClientGeneration, int SessionRevision, string State, DateTimeOffset Deadline, Guid? SnapshotId, string? Sha256, int? Version, string? FailureCode);
@@ -167,11 +170,7 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
         if (session.CompositionVersion == ContinuousGreenEnvelope.Version)
         {
             if (string.IsNullOrWhiteSpace(cmd.NativeExportUrl)) throw new MatterWorkflowException("V2 requires a native DOCX export after input quiescence and synchronization; no save was started.", 428);
-            var exportUri = office.ValidateOrigin(cmd.NativeExportUrl);
-            var path = Uri.UnescapeDataString(exportUri.AbsolutePath);
-            var acceptedPath = "^/cache/files/(?:data/)?" + System.Text.RegularExpressions.Regex.Escape(session.DocumentKey) + "(?:_[A-Za-z0-9-]+)?/output[.]docx/[A-Za-z0-9._ -]+[.]docx$";
-            if (cmd.NativeExportUrl.Length > 8192 || !System.Text.RegularExpressions.Regex.IsMatch(path, acceptedPath) || path.Split('/').Any(x => x is "." or ".."))
-                throw new MatterWorkflowException("Unexpected native DOCX export path.", 422);
+            ValidateNativeExport(session, cmd.NativeExportUrl);
             if (!await db.MatterOfficeSaveRequests.AnyAsync(x => x.SessionId == id && x.ActorUserId == actor && x.RequestId == key, ct))
                 nativeBytes = await office.DownloadAsync(cmd.NativeExportUrl, OfficeNoteDocx.MaxBytes, ct);
         }
@@ -225,6 +224,59 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         { await FailAsync(id, requestId, "DocumentServerCommandUnavailable", CancellationToken.None); }
         return await StatusAsync(id, requestId, actor, ct);
+    }
+
+    private void ValidateNativeExport(MatterOfficeSession session, string url)
+    {
+        var exportUri=office.ValidateOrigin(url);var path=Uri.UnescapeDataString(exportUri.AbsolutePath);
+        var acceptedPath="^/cache/files/(?:data/)?"+System.Text.RegularExpressions.Regex.Escape(session.DocumentKey)+"(?:_[A-Za-z0-9-]+)?/output[.]docx/[A-Za-z0-9._ -]+[.]docx$";
+        if(url.Length>8192 || !System.Text.RegularExpressions.Regex.IsMatch(path,acceptedPath) || path.Split('/').Any(x=>x is "." or ".."))
+            throw new MatterWorkflowException("Unexpected native DOCX export path.",422);
+    }
+    private async Task<OfficeSaveResolution> CompareCurrentAsync(MatterOfficeSession s, byte[] native, CancellationToken ct)
+    {
+        var manifest=VerifyManifestSeal(s);await ContinuousGreenEnvelope.AuthoritativeAsync(db,s,ct);
+        using var captured=new MemoryStream(native);var target=ContinuousGreenEnvelope.Convert(captured,manifest);
+        var snap=await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x=>x.Id==s.LatestSnapshotId && x.SessionId==s.Id && x.ActorUserId==s.ActorUserId,ct);
+        await OfficeNotingSubmission.VerifyBytesAsync(storage,snap,ct);
+        await using var saved=await storage.OpenReadAsync(snap.StoragePath,ct) ?? throw new MatterWorkflowException("Snapshot unavailable.",409);
+        var canonical=ContinuousGreenEnvelope.Convert(saved,manifest);
+        var equal=canonical.CanonicalHash==target.CanonicalHash && ContinuousGreenEnvelope.ContentFingerprint(canonical)==ContinuousGreenEnvelope.ContentFingerprint(target);
+        OfficeSaveInfo? receipt=null;
+        if(equal && snap.SaveRequestId is { } save)
+        {
+            var r=await db.MatterOfficeSaveRequests.AsNoTracking().SingleOrDefaultAsync(x=>x.Id==save && x.SessionId==s.Id && x.ActorUserId==s.ActorUserId && x.State=="Committed" && x.SnapshotId==snap.Id,ct)
+                ?? throw new MatterWorkflowException("Snapshot has no valid committed receipt.",409);
+            await OfficeNativeCapture.VerifyAsync(storage,r,manifest,ct);
+            if(r.NativeCanonicalHash!=canonical.CanonicalHash || r.NativeContentHash!=ContinuousGreenEnvelope.ContentFingerprint(canonical))
+                throw new MatterWorkflowException("Committed receipt differs from snapshot content.",409);
+            receipt=new(r.Id,s.Id,r.ClientGeneration,s.Revision,r.State,r.Deadline,snap.Id,snap.Sha256,snap.Version,null);
+        }
+        else if(equal && snap.Version!=0) throw new MatterWorkflowException("A valid seed or committed receipt is required.",409);
+        return new(equal,snap.Id,snap.Sha256,snap.Version,s.Revision,receipt);
+    }
+    public async Task<OfficeSaveResolution> CheckSaveAsync(Guid id, CheckOfficeSaveCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct)
+    {
+        var session=await AuthorizeAsync(id,actor,true,ct);
+        if(session.CompositionVersion!=ContinuousGreenEnvelope.Version) throw new MatterWorkflowException("Native no-change checks require V2.",422);
+        ValidateNativeExport(session,cmd.NativeExportUrl);
+        var native=await office.DownloadAsync(cmd.NativeExportUrl,OfficeNoteDocx.MaxBytes,ct);
+        var result=await workflow.OfficeCommandAsync(session.MatterId,session.SourceDakId,actor,key,new {action="OfficeCheckSave",id,cmd,revision},async c=>
+        {
+            var s=await AuthorizeAsync(id,actor,true,c);
+            if(s.Revision!=revision || await db.MatterOfficeSaveRequests.AnyAsync(x=>x.SessionId==id && x.State=="Pending" && x.Deadline>Now,c))
+                throw new MatterWorkflowException("Session changed or a save is still pending.",409);
+            return await CompareCurrentAsync(s,native,c);
+        },ct);
+        // A replay returns original evidence, but cannot describe a superseded snapshot
+        // or a changed lease/content as current. No save request, commit or forcesave is created.
+        var live=await AuthorizeAsync(id,actor,true,ct);
+        if(live.Revision!=result.SessionRevision || live.LatestSnapshotId!=result.SnapshotId)
+            throw new MatterWorkflowException("No-change evidence is stale; capture the current note again.",409);
+        var current=await CompareCurrentAsync(live,native,ct);
+        if(result.NoChanges!=current.NoChanges || result.Sha256!=current.Sha256)
+            throw new MatterWorkflowException("No-change evidence differs from current content.",409);
+        return current;
     }
 
     private async Task FailAsync(Guid sessionId, Guid id, string code, CancellationToken ct)
@@ -315,13 +367,21 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
     public async Task<MatterOfficePreview> PreviewAsync(Guid id, PreviewOfficeNoteCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct)
     {
         var session = await AuthorizeAsync(id, actor, false, ct);
+        byte[]? native=null;
+        if(cmd.NativeExportUrl is not null)
+        {
+            if(session.CompositionVersion!=ContinuousGreenEnvelope.Version) throw new MatterWorkflowException("Native preview capture requires V2.",422);
+            ValidateNativeExport(session,cmd.NativeExportUrl);native=await office.DownloadAsync(cmd.NativeExportUrl,OfficeNoteDocx.MaxBytes,ct);
+        }
         return await workflow.OfficeCommandAsync(session.MatterId, session.SourceDakId, actor, key, new { action = "OfficePreview", id, cmd, revision }, async c =>
         {
             var s = await AuthorizeAsync(id, actor, true, c);
-            if (s.Revision != revision) throw new MatterWorkflowException("Office session changed.", 409);
-            var r = await db.MatterOfficeSaveRequests.SingleOrDefaultAsync(x => x.Id == cmd.SaveRequestId && x.SessionId == id && x.ActorUserId == actor, c);
-            if (r?.State != "Committed" || r.SnapshotId != s.LatestSnapshotId) throw new MatterWorkflowException("An exact current correlated committed save is required before preview.", 409);
-            var snap = await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x => x.Id == r.SnapshotId, c);
+            if (s.Revision != revision || await db.MatterOfficeSaveRequests.AnyAsync(x=>x.SessionId==id && x.State=="Pending" && x.Deadline>Now,c)) throw new MatterWorkflowException("Office session changed or a save is still pending.", 409);
+            var snap = await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x=>x.Id==s.LatestSnapshotId && x.SessionId==id && x.ActorUserId==actor,c);
+            var r = cmd.SaveRequestId is { } save ? await db.MatterOfficeSaveRequests.SingleOrDefaultAsync(x => x.Id == save && x.SessionId == id && x.ActorUserId == actor, c) : null;
+            if(cmd.SaveRequestId is not null && (r?.State!="Committed" || r.SnapshotId!=snap.Id) ||
+                cmd.SaveRequestId is null && (s.CompositionVersion!=ContinuousGreenEnvelope.Version || snap.Version!=0 || snap.SaveRequestId is not null || native is null))
+                throw new MatterWorkflowException("An exact committed save or freshly matched server seed is required before preview.",409);
             await OfficeNotingSubmission.VerifyBytesAsync(storage, snap, c);
             await using var stream = await storage.OpenReadAsync(snap.StoragePath, c) ?? throw new MatterWorkflowException("Snapshot unavailable.", 409);
             ConvertedOfficeNote converted;
@@ -329,16 +389,42 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
             {
                 VerifyManifestSeal(s);
                 converted = ContinuousGreenEnvelope.Convert(stream, await ContinuousGreenEnvelope.AuthoritativeAsync(db, s, c));
-                await OfficeNativeCapture.VerifyAsync(storage, r, VerifyManifestSeal(s), c);
-                if (converted.CanonicalHash != r.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(converted) != r.NativeContentHash)
-                    throw new MatterWorkflowException("Preview differs from the quiesced native capture.", 409);
+                if(r is not null)
+                {
+                    await OfficeNativeCapture.VerifyAsync(storage, r, VerifyManifestSeal(s), c);
+                    if (converted.CanonicalHash != r.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(converted) != r.NativeContentHash)
+                        throw new MatterWorkflowException("Preview differs from the quiesced native capture.", 409);
+                }
             }
             else converted = OfficeNoteDocx.Convert(stream);
             var p = new MatterOfficePreview { MatterId = s.MatterId, SessionId = id, ActorUserId = actor, SnapshotId = snap.Id, SourceDakId = s.SourceDakId,
                 WorkingRevision = s.WorkingRevision, ConverterVersion = s.CompositionVersion, ContentJson = converted.ContentJson, CanonicalText = converted.CanonicalText, CanonicalHash = converted.CanonicalHash, CreatedAt = Now };
+            if(native is not null)
+            {
+                using var captureBytes=new MemoryStream(native);var target=ContinuousGreenEnvelope.Convert(captureBytes,VerifyManifestSeal(s));
+                if(target.CanonicalHash!=converted.CanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(target)!=ContinuousGreenEnvelope.ContentFingerprint(converted))
+                    throw new MatterWorkflowException("Native content changed before review; save the latest note first.",409);
+                captureBytes.Position=0;var capture=await storage.SaveAndHashAsync(captureBytes,"native-review-capture.docx",c);
+                p.NativeCaptureJson=JsonSerializer.Serialize(new OfficeCaptureEvidence(1,capture.StoragePath,capture.Sha256Hash.ToLowerInvariant(),capture.FileSize,target.CanonicalHash,ContinuousGreenEnvelope.ContentFingerprint(target)));
+            }
             db.MatterOfficePreviews.Add(p); s.State = "Frozen"; s.Revision++;
             return p;
         }, ct);
+    }
+
+    public async Task<object> FrozenPreviewAsync(Guid id,Guid actor,CancellationToken ct)
+    {
+        var s=await AuthorizeAsync(id,actor,false,ct);
+        if(s.State is not ("Frozen" or "Reviewed")) throw new MatterWorkflowException("There is no current frozen preview.",409);
+        var p=await db.MatterOfficePreviews.AsNoTracking().SingleAsync(x=>x.SessionId==id && x.ActorUserId==actor && x.SnapshotId==s.LatestSnapshotId,ct);
+        var snap=await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x=>x.Id==p.SnapshotId && x.SessionId==id,ct);
+        await OfficeNotingSubmission.VerifyBytesAsync(storage,snap,ct);
+        if(s.CompositionVersion==ContinuousGreenEnvelope.Version)
+        {
+            var manifest=VerifyManifestSeal(s);await ContinuousGreenEnvelope.AuthoritativeAsync(db,s,ct);
+            if(p.NativeCaptureJson is not null) await OfficeNativeCapture.VerifyAsync(storage,OfficeNativeCapture.Read(p.NativeCaptureJson),manifest,ct);
+        }
+        return new {session=Info(s),preview=p};
     }
 
     public Task<MatterWorkingNote> ConfirmAsync(Guid matter, ConfirmOfficeNoteCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct) =>

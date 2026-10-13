@@ -135,6 +135,15 @@ export interface OfficeSaveReceiptDto {
   failureCode: string | null;
 }
 
+export interface OfficeSaveResolutionDto {
+  noChanges: boolean;
+  snapshotId: string;
+  sha256: string;
+  snapshotVersion: number;
+  sessionRevision: number;
+  committedReceipt: OfficeSaveReceiptDto | null;
+}
+
 export interface MatterOfficePreviewDto {
   id: string;
   matterId: string;
@@ -148,6 +157,7 @@ export interface MatterOfficePreviewDto {
   canonicalText: string;
   canonicalHash: string;
   createdAt: string;
+  nativeCaptureJson?: string | null;
 }
 
 export interface ScreenOnlyGuideDto {

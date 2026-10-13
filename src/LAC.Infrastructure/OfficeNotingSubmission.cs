@@ -41,10 +41,22 @@ public static class OfficeNotingSubmission
             var canonical = ContinuousGreenEnvelope.Convert(bytes, manifest);
             if (canonical.ContentJson != preview.ContentJson || canonical.CanonicalText != preview.CanonicalText || canonical.CanonicalHash != preview.CanonicalHash)
                 throw new MatterWorkflowException("Envelope differs from officer-confirmed canonical content.", 409);
-            var request = await db.MatterOfficeSaveRequests.SingleAsync(x => x.Id == snapshot.SaveRequestId && x.SessionId == session.Id && x.SnapshotId == snapshot.Id && x.State == "Committed", ct);
-            await OfficeNativeCapture.VerifyAsync(storage, request, manifest, ct);
-            if (canonical.CanonicalHash != request.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(canonical) != request.NativeContentHash)
-                throw new MatterWorkflowException("Submission differs from quiesced native capture.", 409);
+            if(snapshot.SaveRequestId is { } save)
+            {
+                var request = await db.MatterOfficeSaveRequests.SingleAsync(x => x.Id == save && x.SessionId == session.Id && x.SnapshotId == snapshot.Id && x.State == "Committed", ct);
+                await OfficeNativeCapture.VerifyAsync(storage, request, manifest, ct);
+                if (canonical.CanonicalHash != request.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(canonical) != request.NativeContentHash)
+                    throw new MatterWorkflowException("Submission differs from quiesced native capture.", 409);
+            }
+            else if(snapshot.Version!=0 || preview.NativeCaptureJson is null)
+                throw new MatterWorkflowException("Unchanged seed review requires retained native capture evidence.",409);
+            if(preview.NativeCaptureJson is not null)
+            {
+                var proof=OfficeNativeCapture.Read(preview.NativeCaptureJson);
+                await OfficeNativeCapture.VerifyAsync(storage,proof,manifest,ct);
+                if(canonical.CanonicalHash!=proof.CanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(canonical)!=proof.ContentHash)
+                    throw new MatterWorkflowException("Submission differs from frozen native review capture.",409);
+            }
         }
         session.State = "Submitted"; session.Revision++;
         return new MatterOfficeNoteEvidence { PreviewId = preview.Id, SnapshotId = snapshot.Id, Sha256 = snapshot.Sha256, ConverterVersion = preview.ConverterVersion };

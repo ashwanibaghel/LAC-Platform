@@ -78,6 +78,9 @@ public static class ContinuousGreenEnvelope
         var m = Read(s.HistoryManifestJson!, s.HistoryManifestHash!);
         if (m.SessionId != s.Id || m.MatterId != s.MatterId || m.ActorId != s.ActorUserId || m.SourceDakId != s.SourceDakId)
             throw new MatterWorkflowException("Historical manifest lease identity mismatch.", 409);
+        var actor=await db.AppUsers.AsNoTracking().Include(x=>x.Designation).SingleAsync(x=>x.Id==s.ActorUserId,ct);
+        if(actor.DisplayName!=m.AuthorName || (actor.CustomDesignation ?? actor.Designation?.Name ?? "")!=m.Designation)
+            throw new MatterWorkflowException("Officer identity metadata changed; open a new authorized lease.",409);
         var live = await db.MatterOfficialNotes.AsNoTracking().Where(x => x.MatterId == s.MatterId).OrderBy(x => x.Number).ToListAsync(ct);
         if (JsonSerializer.Serialize(live.Select(History), Json) != JsonSerializer.Serialize(m.Notes, Json))
             throw new MatterWorkflowException("Official chain changed; recover current content into a new authorized lease.", 409);
@@ -148,6 +151,9 @@ public static class ContinuousGreenEnvelope
                 if (blocks.Length != manifest.Notes.Count + 3 || blocks[^1] is not SectionProperties || blocks.Take(blocks.Length - 1).Any(x => x is not SdtBlock))
                     throw Invalid("changed envelope structure or text outside controls");
                 var controls = blocks.OfType<SdtBlock>().ToArray();
+                if(controls.Any(c=>c.SdtProperties?.GetFirstChild<SdtId>()?.Val is null) ||
+                    controls.Select(c=>c.SdtProperties!.GetFirstChild<SdtId>()!.Val!.Value).Distinct().Count()!=controls.Length)
+                    throw Invalid("missing or duplicate native control identities");
                 for (var i = 0; i < manifest.Notes.Count; i++)
                 {
                     var n = manifest.Notes[i];
@@ -198,12 +204,15 @@ public static class ContinuousGreenEnvelope
         string[] names = ["[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml", "word/settings.xml", "word/webSettings.xml", "word/fontTable.xml", "word/numbering.xml", "word/footnotes.xml", "word/endnotes.xml", "word/theme/theme1.xml", "word/_rels/document.xml.rels", "word/_rels/footnotes.xml.rels", "word/_rels/endnotes.xml.rels", "word/_rels/comments.xml.rels", "docProps/app.xml", "docProps/core.xml", "customXml/item1.xml", "customXml/itemProps1.xml", "customXml/_rels/item1.xml.rels"];
         if (zip.Entries.Any(e => !names.Contains(e.FullName, StringComparer.Ordinal))) throw Invalid("unexpected package part");
     }
-    private static void CheckParts(OpenXmlPartContainer root)
+    private static void CheckParts(OpenXmlPartContainer root, HashSet<OpenXmlPart>? seen=null, int depth=0)
     {
+        seen ??= [];
+        if(depth>32) throw Invalid("oversized relationship graph");
         if (root.ExternalRelationships.Any() || root.HyperlinkRelationships.Any() || root.DataPartReferenceRelationships.Any()) throw Invalid("unexpected relationship");
         foreach (var pair in root.Parts.ToArray())
         {
             var part = pair.OpenXmlPart;
+            if(!seen.Add(part)) throw Invalid("duplicate or cyclic relationship graph");
             if (part is CustomXmlPart custom)
             {
                 // Docs 9.4 emits this empty bibliography record. No bindings/data allowed.
@@ -217,16 +226,16 @@ public static class ContinuousGreenEnvelope
                     xml.Attributes().Where(a => !a.IsNamespaceDeclaration).Any(a => a.Name.NamespaceName != "" || (a.Name.LocalName, a.Value) is not (("SelectedStyle", "/APA.XSL") or ("StyleName", "APA"))))
                     throw Invalid("custom XML other than empty native bibliography");
                 if (custom.Parts.Any(p => p.OpenXmlPart is not CustomXmlPropertiesPart)) throw Invalid("custom XML relationship");
-                CheckParts(custom); root.DeletePart(custom); continue;
+                CheckParts(custom,seen,depth+1); root.DeletePart(custom); continue;
             }
             if (part is not (MainDocumentPart or StyleDefinitionsPart or DocumentSettingsPart or WebSettingsPart or FontTablePart or NumberingDefinitionsPart or FootnotesPart or EndnotesPart or ThemePart or CoreFilePropertiesPart or ExtendedFilePropertiesPart or CustomXmlPropertiesPart))
                 throw Invalid("unexpected relationship part " + part.ContentType);
-            CheckParts(part);
+            CheckParts(part,seen,depth+1);
         }
     }
     private static void CheckControl(SdtBlock control, string tag, LockingValues locking)
     {
-        if (control.ChildElements.Any(x => x is not (SdtProperties or SdtContentBlock)) || control.Elements<SdtProperties>().Count() != 1 || control.Elements<SdtContentBlock>().Count() != 1)
+        if (control.HasAttributes || control.SdtContentBlock?.HasAttributes==true || control.ChildElements.Any(x => x is not (SdtProperties or SdtContentBlock)) || control.Elements<SdtProperties>().Count() != 1 || control.Elements<SdtContentBlock>().Count() != 1)
             throw Invalid("control structure");
         var properties = control.SdtProperties!;
         if (properties.HasAttributes || properties.ChildElements.GroupBy(x => x.LocalName).Any(g => g.Count() > 1)) throw Invalid("duplicate or unknown control metadata");
@@ -252,8 +261,21 @@ public static class ContinuousGreenEnvelope
         // gutterAtTop, printTwoOnOne, bookFoldPrinting or revision tracking fail closed.
         var settings = main.DocumentSettingsPart?.Settings ?? throw Invalid("missing settings");
         var defaults = main.StyleDefinitionsPart?.Styles?.GetFirstChild<DocDefaults>()?.GetFirstChild<RunPropertiesDefault>()?.GetFirstChild<RunPropertiesBaseStyle>();
-        var normal = main.StyleDefinitionsPart?.Styles?.Elements<Style>().FirstOrDefault(x => x.Type?.Value == StyleValues.Paragraph && x.Default?.Value == true);
+        var styles=main.StyleDefinitionsPart?.Styles?.Elements<Style>().ToArray() ?? [];
+        if(styles.GroupBy(x=>x.StyleId?.Value).Any(g=>g.Count()>1) || styles.Count(x=>x.Type?.Value==StyleValues.Paragraph && x.Default?.Value==true)>1)
+            throw Invalid("ambiguous native style identities");
+        var normal = styles.SingleOrDefault(x => x.Type?.Value == StyleValues.Paragraph && x.Default?.Value == true);
         CheckTextAttributes(defaults); CheckTextAttributes(normal?.StyleRunProperties);
+        var usedStyles=main.Document!.Body!.Descendants<ParagraphStyleId>().Select(x=>x.Val?.Value).ToHashSet(StringComparer.Ordinal);
+        foreach(var style in styles.Where(x=>x==normal || usedStyles.Contains(x.StyleId?.Value)))
+        {
+            CheckTextAttributes(style.StyleRunProperties);
+            foreach(var p in style.StyleParagraphProperties?.ChildElements ?? Enumerable.Empty<OpenXmlElement>())
+                if(p is not (ParagraphBorders or SpacingBetweenLines or Indentation) || p is ParagraphBorders border && border.HasChildren ||
+                    p is SpacingBetweenLines spacing && spacing.GetAttributes().Any(a=>a.NamespaceUri!=W || (a.LocalName,a.Value) is not (("before","0") or ("after","0") or ("line","360") or ("lineRule","auto"))) ||
+                    p is Indentation indent && indent.GetAttributes().Any(a=>a.NamespaceUri!=W || a.LocalName is not ("left" or "right") || a.Value!="0"))
+                    throw Invalid("inherited native paragraph style layout");
+        }
         foreach (var property in settings.ChildElements)
         {
             if (property.NamespaceUri != W && !(property.LocalName == "mathPr" && property.NamespaceUri == "http://schemas.openxmlformats.org/officeDocument/2006/math" && !property.HasChildren && !property.HasAttributes))

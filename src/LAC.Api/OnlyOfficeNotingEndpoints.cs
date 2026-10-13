@@ -66,6 +66,10 @@ public static class OnlyOfficeNotingEndpoints
             Run(user, response, async actor => await service.SaveAsync(session, cmd, Revision(request), actor, Key(request), ct)));
         api.MapGet("/noting-office/sessions/{session:guid}/saves/{save:guid}", (Guid session, Guid save, OnlyOfficeNotingService service, ICurrentUserContext user, HttpResponse response, CancellationToken ct) =>
             Run(user, response, async actor => await service.StatusAsync(session, save, actor, ct)));
+        api.MapPost("/noting-office/sessions/{session:guid}/save-check", (Guid session, CheckOfficeSaveCommand cmd, OnlyOfficeNotingService service, ICurrentUserContext user, HttpRequest request, HttpResponse response, CancellationToken ct) =>
+            Run(user,response,async actor=>await service.CheckSaveAsync(session,cmd,Revision(request),actor,Key(request),ct)));
+        api.MapGet("/noting-office/sessions/{session:guid}/preview", (Guid session, OnlyOfficeNotingService service, ICurrentUserContext user, HttpResponse response, CancellationToken ct) =>
+            Run(user,response,actor=>service.FrozenPreviewAsync(session,actor,ct)!));
         api.MapPost("/noting-office/sessions/{session:guid}/previews", (Guid session, PreviewOfficeNoteCommand cmd, OnlyOfficeNotingService service, ICurrentUserContext user, HttpRequest request, HttpResponse response, CancellationToken ct) =>
             Run(user, response, async actor => await service.PreviewAsync(session, cmd, Revision(request), actor, Key(request), ct)));
         api.MapPost("/noting-office/sessions/{session:guid}/revoke", (Guid session, OnlyOfficeNotingService service, ICurrentUserContext user, HttpRequest request, HttpResponse response, CancellationToken ct) =>

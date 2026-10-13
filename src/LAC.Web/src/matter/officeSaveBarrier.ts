@@ -1,4 +1,20 @@
-import type { OfficeSaveReceiptDto } from './notingTypes';
+import type { OfficeSaveReceiptDto, OfficeSaveResolutionDto } from './notingTypes';
+
+export function validateOfficeSaveResolution(result: OfficeSaveResolutionDto, sessionId: string, expectedRevision: number): OfficeSaveResolutionDto {
+  if (typeof result.noChanges !== 'boolean' || !result.snapshotId || !/^[a-f0-9]{64}$/i.test(result.sha256) ||
+      !Number.isInteger(result.snapshotVersion) || result.snapshotVersion < 0 || result.sessionRevision !== expectedRevision) {
+    throw new Error('Server content verification is missing valid current snapshot evidence.');
+  }
+  const receipt = result.committedReceipt;
+  if (receipt && (!result.noChanges || receipt.state !== 'Committed' || receipt.sessionId !== sessionId ||
+      receipt.snapshotId !== result.snapshotId || receipt.sha256 !== result.sha256 || receipt.version !== result.snapshotVersion ||
+      receipt.sessionRevision !== result.sessionRevision || !receipt.id || !Number.isInteger(receipt.version) || receipt.version! < 1 ||
+      !Number.isInteger(receipt.clientGeneration) || receipt.clientGeneration < 0)) {
+    throw new Error('No-change verification refers to a different or incomplete committed receipt.');
+  }
+  if (result.noChanges && !receipt && result.snapshotVersion !== 0) throw new Error('No-change content has no valid committed receipt or server seed.');
+  return result; // Preserve the original receipt's identity/generation; never fabricate a newer save.
+}
 
 /** A command acknowledgment is not a save. Keep the caller's operation pending
  * until the exact request has committed, failed, or exceeded its server deadline. */

@@ -64,6 +64,8 @@ public sealed class ContinuousGreenEnvelopeTests
     [InlineData("paragraphMarkFont")][InlineData("paragraphMarkBold")]
     [InlineData("bibliographyDtd")]
     [InlineData("inheritedThemeColor")][InlineData("settingsNamespace")]
+    [InlineData("inheritedParagraphShading")][InlineData("inheritedParagraphSpacing")]
+    [InlineData("controlAttributes")][InlineData("duplicateControlId")]
     public void Tampering_fails_closed_before_current_text_is_imported(string attack)
     {
         var m = Manifest(); using var bytes = ContinuousGreenEnvelope.Compose(m, MatterNotingTextTests.Text("Current private note"));
@@ -100,6 +102,10 @@ public sealed class ContinuousGreenEnvelopeTests
                 case "themeColor": current.Descendants<Run>().First().RunProperties!.Append(new Color { Val="000000",ThemeColor=ThemeColorValues.Accent1 }); break;
                 case "inheritedThemeColor": main.StyleDefinitionsPart!.Styles!.Descendants<RunPropertiesBaseStyle>().First().Append(new Color { Val="000000",ThemeColor=ThemeColorValues.Accent1 }); main.StyleDefinitionsPart.Styles.Save(); break;
                 case "settingsNamespace": main.DocumentSettingsPart!.Settings!.Append(new OpenXmlUnknownElement("x", "zoom", "urn:unapproved")); main.DocumentSettingsPart.Settings.Save(); break;
+                case "inheritedParagraphShading": main.StyleDefinitionsPart!.Styles!.Append(new Style(new StyleParagraphProperties(new Shading {Val=ShadingPatternValues.Clear,Fill="00FF00"})) {Type=StyleValues.Paragraph,Default=true,StyleId="Normal"});main.StyleDefinitionsPart.Styles.Save();break;
+                case "inheritedParagraphSpacing": main.StyleDefinitionsPart!.Styles!.Append(new Style(new StyleParagraphProperties(new SpacingBetweenLines {Before="720"})) {Type=StyleValues.Paragraph,Default=true,StyleId="Normal"});main.StyleDefinitionsPart.Styles.Save();break;
+                case "controlAttributes": current.SetAttribute(new OpenXmlAttribute("w","unsupported","http://schemas.openxmlformats.org/wordprocessingml/2006/main","true"));break;
+                case "duplicateControlId": current.SdtProperties!.GetFirstChild<SdtId>()!.Val=history.SdtProperties!.GetFirstChild<SdtId>()!.Val;break;
                 case "paragraphMarkFont": current.Descendants<Paragraph>().First().ParagraphProperties!.Append(new ParagraphMarkRunProperties(new FontSize {Val="32"})); break;
                 case "paragraphMarkBold": current.Descendants<Paragraph>().First().ParagraphProperties!.Append(new ParagraphMarkRunProperties(new Bold())); break;
             }
@@ -131,5 +137,19 @@ public sealed class ContinuousGreenEnvelopeTests
         using var bytes = ContinuousGreenEnvelope.Compose(m, MatterNotingTextTests.Text("Current"));
         var reordered = m with { Notes = m.Notes.Reverse().ToArray() };
         Assert.Throws<MatterWorkflowException>(() => ContinuousGreenEnvelope.Convert(bytes, reordered));
+    }
+    [Fact]
+    public void Duplicate_internal_part_relationships_are_rejected_before_recursive_traversal()
+    {
+        var m=Manifest();using var bytes=ContinuousGreenEnvelope.Compose(m,MatterNotingTextTests.Text("Current"));
+        using(var zip=new System.IO.Compression.ZipArchive(bytes,System.IO.Compression.ZipArchiveMode.Update,true))
+        {
+            var entry=zip.GetEntry("word/_rels/document.xml.rels")!;System.Xml.Linq.XElement xml;
+            using(var read=entry.Open())xml=System.Xml.Linq.XElement.Load(read);
+            var original=xml.Elements().Single(x=>x.Attribute("Type")!.Value.EndsWith("/styles",StringComparison.Ordinal));
+            var duplicate=new System.Xml.Linq.XElement(original);duplicate.SetAttributeValue("Id","rId_duplicate_styles");xml.Add(duplicate);
+            using var write=entry.Open();write.SetLength(0);xml.Save(write);
+        }
+        bytes.Position=0;Assert.Equal(422,Assert.Throws<MatterWorkflowException>(()=>ContinuousGreenEnvelope.Convert(bytes,m)).StatusCode);
     }
 }
