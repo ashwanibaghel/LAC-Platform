@@ -2,6 +2,7 @@ import type {
   MatterNotingWorkspaceData,
   MatterWorkingDraftDto,
   OfficeSessionInfo,
+  OfficeCompositionVersion,
   OfficeSessionConfigResponse,
   OfficeSaveReceiptDto,
   MatterOfficialNoteDto,
@@ -73,7 +74,8 @@ export const notingOfficeApi = {
     matterId: string,
     sourceDakId: string | null,
     resumeSnapshotId: string | null,
-    workingRevision: number
+    workingRevision: number,
+    compositionVersion?: OfficeCompositionVersion
   ): Promise<OfficeSessionInfo> {
     const res = await fetch(`/api/matters/${matterId}/noting/office/sessions`, {
       method: "POST",
@@ -85,7 +87,8 @@ export const notingOfficeApi = {
       },
       body: JSON.stringify({
         sourceDakId: sourceDakId || null,
-        resumeSnapshotId: resumeSnapshotId || null
+        resumeSnapshotId: resumeSnapshotId || null,
+        ...(compositionVersion === undefined ? {} : { compositionVersion })
       })
     });
     return handleResponse<OfficeSessionInfo>(res, "Failed to create ONLYOFFICE noting session");
@@ -103,7 +106,8 @@ export const notingOfficeApi = {
     sessionId: string,
     clientGeneration: number,
     sessionRevision: number,
-    idempotencyKey?: string
+    idempotencyKey?: string,
+    nativeExportUrl?: string
   ): Promise<OfficeSaveReceiptDto> {
     const res = await fetch(`/api/noting-office/sessions/${sessionId}/saves`, {
       method: "POST",
@@ -113,7 +117,7 @@ export const notingOfficeApi = {
         "Idempotency-Key": idempotencyKey || generateUuid(),
         "If-Match": `"${sessionRevision}"`
       },
-      body: JSON.stringify({ clientGeneration })
+      body: JSON.stringify({ clientGeneration, ...(nativeExportUrl === undefined ? {} : { nativeExportUrl }) })
     });
     return handleResponse<OfficeSaveReceiptDto>(res, "Failed to request ONLYOFFICE save");
   },

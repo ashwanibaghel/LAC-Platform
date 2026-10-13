@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { notingOfficeApi } from "./notingOfficeApi";
 import type { OfficeSessionConfigResponse } from "./notingTypes";
+import { NativeSynchronization } from "./nativeSynchronization";
 
-type OfficeInstance = { destroyEditor: () => void };
+type OfficeInstance = { destroyEditor: () => void; downloadAs: (format: string) => void };
 
 const loadedScripts = new Map<string, Promise<any>>();
 
@@ -51,6 +52,7 @@ interface OnlyOfficeNoteFrameProps {
   onDocumentReady?: () => void;
   onDocumentStateChange?: (isDirty: boolean) => void;
   onError?: (errorMessage: string) => void;
+  onNativeBridgeReady?: (bridge: NativeSynchronization | null) => void;
 }
 
 export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
@@ -59,10 +61,13 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
   isInputBlocked = false,
   onDocumentReady,
   onDocumentStateChange,
-  onError
+  onError,
+  onNativeBridgeReady
 }) => {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<OfficeInstance | null>(null);
+  const callbacks = useRef({ onDocumentReady, onDocumentStateChange, onError, onNativeBridgeReady });
+  callbacks.current = { onDocumentReady, onDocumentStateChange, onError, onNativeBridgeReady };
 
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +87,7 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
     setError(null);
 
     let readyTimeout: number | undefined;
+    let nativeBridge: NativeSynchronization | undefined;
 
     const initEditor = async () => {
       try {
@@ -94,12 +100,15 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
         const placeholder = document.createElement("div");
         placeholder.id = `office-note-host-${sessionId}-${Date.now()}`;
         container.replaceChildren(placeholder);
+        nativeBridge = new NativeSynchronization(new URL(configData.scriptUrl).origin,
+          () => { container.inert = true; }, () => editorRef.current!.downloadAs("docx"));
 
         readyTimeout = window.setTimeout(() => {
           if (!aborted) {
             setLoading(false);
             setError("Document Server did not open the note within timeout. Ensure Document Server is running.");
-            onError?.("Document Server timeout");
+            nativeBridge?.fail(new Error("Document Server timeout"));
+            callbacks.current.onError?.("Document Server timeout");
           }
         }, 45000);
 
@@ -113,12 +122,19 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
               if (!aborted) {
                 setLoading(false);
                 setError(null);
-                onDocumentReady?.();
+                callbacks.current.onDocumentReady?.();
+                callbacks.current.onNativeBridgeReady?.(nativeBridge!);
               }
             },
             onDocumentStateChange: (event: any) => {
               // event.data indicates document modification state
-              if (!aborted) onDocumentStateChange?.(Boolean(event?.data));
+              if (!aborted) {
+                nativeBridge?.documentState(Boolean(event?.data));
+                callbacks.current.onDocumentStateChange?.(Boolean(event?.data));
+              }
+            },
+            onDownloadAs: (event: any) => {
+              if (!aborted && typeof event?.data?.url === "string") nativeBridge?.exported(event.data.url);
             },
             onError: (event: any) => {
               clearTimeout(readyTimeout);
@@ -126,7 +142,8 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
               if (!aborted) {
                 setLoading(false);
                 setError(errMsg);
-                onError?.(errMsg);
+                nativeBridge?.fail(new Error(errMsg));
+                callbacks.current.onError?.(errMsg);
               }
             }
           }
@@ -137,7 +154,8 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
           setLoading(false);
           const msg = err.message || "Failed to initialize ONLYOFFICE Note Editor";
           setError(msg);
-          onError?.(msg);
+          nativeBridge?.fail(new Error(msg));
+          callbacks.current.onError?.(msg);
         }
       }
     };
@@ -146,6 +164,8 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
 
     return () => {
       aborted = true;
+      nativeBridge?.close();
+      callbacks.current.onNativeBridgeReady?.(null);
       clearTimeout(readyTimeout);
       try {
         editorRef.current?.destroyEditor();

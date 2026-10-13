@@ -101,6 +101,8 @@ export interface MatterNotingWorkspaceData {
 
 // ONLYOFFICE Noting API contracts
 
+export type OfficeCompositionVersion = "OfficeNoteV1" | "ContinuousGreenEnvelopeV2";
+
 export interface OfficeSessionInfo {
   id: string;
   matterId: string;
@@ -111,6 +113,7 @@ export interface OfficeSessionInfo {
   state: "Active" | "Frozen" | "Reviewed" | "Submitted" | "Revoked";
   expiresAt: string;
   latestSnapshotId: string | null;
+  compositionVersion?: OfficeCompositionVersion;
 }
 
 export interface OfficeSessionConfigResponse {
