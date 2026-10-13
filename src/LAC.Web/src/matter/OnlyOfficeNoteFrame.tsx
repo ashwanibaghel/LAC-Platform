@@ -73,6 +73,11 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
     const container = hostRef.current;
     if (!container || !sessionId) return;
 
+    if (isFrozen) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
@@ -113,7 +118,7 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
             },
             onDocumentStateChange: (event: any) => {
               // event.data indicates document modification state
-              onDocumentStateChange?.(Boolean(event?.data));
+              if (!aborted) onDocumentStateChange?.(Boolean(event?.data));
             },
             onError: (event: any) => {
               clearTimeout(readyTimeout);
@@ -126,7 +131,6 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
             }
           }
         });
-        (window as any).__lacEditor = editorRef.current;
       } catch (err: any) {
         if (!aborted) {
           clearTimeout(readyTimeout);
@@ -151,7 +155,7 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
         container.replaceChildren();
       }
     };
-  }, [sessionId, attempt]);
+  }, [sessionId, attempt, isFrozen]);
 
   return (
     <div className="onlyoffice-note-frame-root">
@@ -221,7 +225,7 @@ export const OnlyOfficeNoteFrame: React.FC<OnlyOfficeNoteFrameProps> = ({
         </div>
       )}
 
-      <div className="onlyoffice-host-container" ref={hostRef} />
+      <div className="onlyoffice-host-container" ref={hostRef} inert={isInputBlocked || isFrozen} />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import type { SendWorkingNoteCommand } from "./notingTypes";
 import { generateUuid } from "./notingOfficeApi";
+import { submittedNoteNumber } from "./officeSaveBarrier";
 
 interface DeskItem {
   id: string;
@@ -196,7 +197,7 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
       }
 
       const result = await res.json();
-      onSent(result);
+      onSent({ noteNumber: submittedNoteNumber(result) });
       onClose();
     } catch (err: any) {
       setError(err.message || "Failed to submit and forward note");

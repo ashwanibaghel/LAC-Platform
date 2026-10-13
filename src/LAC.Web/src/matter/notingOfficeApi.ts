@@ -4,6 +4,7 @@ import type {
   OfficeSessionInfo,
   OfficeSessionConfigResponse,
   OfficeSaveReceiptDto,
+  MatterOfficialNoteDto,
   MatterOfficePreviewDto,
   GreenSheetMetadataDto,
   SendWorkingNoteCommand
@@ -209,7 +210,7 @@ export const notingOfficeApi = {
     officePreviewId: string,
     canonicalHash: string,
     workingRevision: number
-  ): Promise<{ noteNumber: number; officialNoteId: string; newRevision: number }> {
+  ): Promise<MatterOfficialNoteDto> {
     const res = await fetch(`/api/matters/${matterId}/noting/submit`, {
       method: "POST",
       credentials: "include",
@@ -224,14 +225,14 @@ export const notingOfficeApi = {
         canonicalHash
       })
     });
-    return handleResponse<any>(res, "Failed to submit official note");
+    return handleResponse<MatterOfficialNoteDto>(res, "Failed to submit official note");
   },
 
   async sendOfficeNote(
     matterId: string,
     command: SendWorkingNoteCommand,
     workingRevision: number
-  ): Promise<{ success: boolean; noteNumber: number; transactionId?: string }> {
+  ): Promise<{ note: MatterOfficialNoteDto; dak: unknown }> {
     const res = await fetch(`/api/matters/${matterId}/noting/send`, {
       method: "POST",
       credentials: "include",
@@ -242,6 +243,6 @@ export const notingOfficeApi = {
       },
       body: JSON.stringify(command)
     });
-    return handleResponse<any>(res, "Failed to send matter note and dispatch Dak");
+    return handleResponse<{ note: MatterOfficialNoteDto; dak: unknown }>(res, "Failed to send matter note and dispatch Dak");
   }
 };

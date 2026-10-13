@@ -11,7 +11,7 @@
     "test:calculator": "node --test tests/calculator.test.mjs tests/bulk-revenue.test.mjs tests/compensation-calculator.test.mjs",
     "test:matter-contract": "node --test tests/matter-workspace-contract.test.mjs",
     "test:village-matters": "node --experimental-strip-types --test tests/village-matter-groups.test.mjs",
-    "test:green-noting": "node --experimental-strip-types --test tests/green-noting-workspace.test.mjs",
+    "test:green-noting": "node --experimental-strip-types --test tests/green-noting-workspace.test.mjs tests/office-save-barrier.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +27,7 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "lucide-react": "^1.54.0",
+    "pdfjs-dist": "6.4.299",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.3"

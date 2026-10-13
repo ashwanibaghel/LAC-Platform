@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { notingOfficeApi, generateUuid } from "./notingOfficeApi";
+import { awaitCommittedOfficeSave, submittedNoteNumber } from "./officeSaveBarrier";
 import type {
   MatterNotingWorkspaceData,
   MatterWorkingDraftDto,
@@ -77,8 +78,8 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "committed" | "failed">("idle");
   const [saveStatusText, setSaveStatusText] = useState<string>("Draft initialised");
   const [lastCommittedReceipt, setLastCommittedReceipt] = useState<OfficeSaveReceiptDto | null>(null);
-  const pollTimerRef = useRef<number | null>(null);
   const autoSaveTimerRef = useRef<number | null>(null);
+  const saveBlockedRef = useRef(false);
 
   // Continuous Green Sheet PDF State
   const [greenSheet, setGreenSheet] = useState<GreenSheetMetadataDto | null>(null);
@@ -88,6 +89,7 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   const [isQuiescing, setIsQuiescing] = useState<boolean>(false);
   const [isInputBlocked, setIsInputBlocked] = useState<boolean>(false);
   const [isFrozen, setIsFrozen] = useState<boolean>(false);
+  useEffect(() => { saveBlockedRef.current = isFrozen || isInputBlocked; }, [isFrozen, isInputBlocked]);
   const [preview, setPreview] = useState<MatterOfficePreviewDto | null>(null);
   const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
   const [isConfirmingPreview, setIsConfirmingPreview] = useState<boolean>(false);
@@ -142,7 +144,6 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   useEffect(() => {
     void loadNotesAndPdf(selectedDakId);
     return () => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
   }, [loadNotesAndPdf, selectedDakId]);
@@ -150,6 +151,7 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
   // 3. Start or Resume an Authorized ONLYOFFICE Session (Fix 4)
   const handleStartOrResumeSession = async (resumeSnapshotId?: string | null) => {
     if (!workspaceData?.capabilities.canEditDraft) return;
+    if (inFlightSavePromiseRef.current) { setSessionError("Wait for the pending save before replacing the editor session."); return; }
     setIsStartingSession(true);
     setSessionError(null);
 
@@ -164,6 +166,13 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
         workingRevision
       );
 
+      dirtyGenerationRef.current = 0;
+      lastRequestedGenerationRef.current = 0;
+      lastCommittedGenerationRef.current = 0;
+      setLastCommittedReceipt(null);
+      lastSaveCommandRef.current = null;
+      setPreview(null);
+      setIsConfirmed(false);
       setSessionInfo(session);
       sessionRevisionRef.current = session.revision;
       setSessionRevision(session.revision);
@@ -178,142 +187,53 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     }
   };
 
-  // 4. Poll Save Receipt until Committed or Failed (Fix 2 - correlated revision and generation)
-  const pollSaveReceipt = useCallback(
-    async (sessionId: string, saveId: string, requestedGeneration: number) => {
-      try {
-        const receipt = await notingOfficeApi.getSaveStatus(sessionId, saveId);
-        if (receipt.state === "Pending") {
-          pollTimerRef.current = window.setTimeout(() => {
-            void pollSaveReceipt(sessionId, saveId, requestedGeneration);
-          }, 500);
-        } else if (receipt.state === "Committed") {
-          lastCommittedGenerationRef.current = receipt.clientGeneration;
-          setLastCommittedReceipt(receipt);
-          if (receipt.sessionRevision) {
-            sessionRevisionRef.current = receipt.sessionRevision;
-            setSessionRevision(receipt.sessionRevision);
-          }
-
-          // If edits occurred while save was in flight, do NOT mark as fully saved
-          if (dirtyGenerationRef.current > receipt.clientGeneration) {
-            setSaveStatus("saving");
-            setSaveStatusText(`Edits pending save (newer than v${receipt.version || 1})`);
-          } else {
-            setSaveStatus("committed");
-            const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
-            setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
-          }
-        } else if (receipt.state === "Failed") {
-          setSaveStatus("failed");
-          const failMsg = receipt.failureCode || "Save failed";
-          setSaveStatusText(`Save failed: ${failMsg}. Last committed bytes retained.`);
-        }
-      } catch (err: any) {
-        setSaveStatus("failed");
-        setSaveStatusText(`Save status check failed: ${err.message}`);
-      }
-    },
-    []
-  );
-
-  // 5. Serialized Force-Save Execution (Fix 2 - prevents races and stale generations)
+  // Serialize the entire request/callback barrier, not just the command response.
   const triggerSave = useCallback(
     async (_isManual: boolean = false): Promise<OfficeSaveReceiptDto | null> => {
       if (!sessionInfo || sessionInfo.state !== "Active" || isFrozen) return null;
-
-      // If a save request is already in-flight, return the active promise
-      if (inFlightSavePromiseRef.current) {
-        return inFlightSavePromiseRef.current;
-      }
-
+      if (inFlightSavePromiseRef.current) return inFlightSavePromiseRef.current;
       const runSave = async (): Promise<OfficeSaveReceiptDto | null> => {
         setSaveStatus("saving");
         setSaveStatusText("Saving to server…");
-
-        const nextGen = Math.max(dirtyGenerationRef.current, lastRequestedGenerationRef.current + 1);
-        lastRequestedGenerationRef.current = nextGen;
-
-        const cmd = {
+        const retry = _isManual && saveStatus === "failed" ? lastSaveCommandRef.current : null;
+        const command = retry || {
           key: generateUuid(),
-          gen: nextGen,
-          rev: sessionRevisionRef.current
+          gen: Math.max(dirtyGenerationRef.current, lastRequestedGenerationRef.current + 1),
+          rev: sessionRevisionRef.current,
         };
-        lastSaveCommandRef.current = cmd;
-
+        const generation = command.gen;
+        lastRequestedGenerationRef.current = generation;
+        lastSaveCommandRef.current = command;
         try {
-          const receipt = await notingOfficeApi.requestSave(
-            sessionInfo.id,
-            nextGen,
-            sessionRevisionRef.current,
-            cmd.key
-          );
-
-          if (receipt.state === "Committed") {
-            lastCommittedGenerationRef.current = receipt.clientGeneration;
+          const initial = await notingOfficeApi.requestSave(sessionInfo.id, generation, command.rev, command.key);
+          const receipt = await awaitCommittedOfficeSave(initial,
+            () => notingOfficeApi.getSaveStatus(sessionInfo.id, initial.id),
+            current => {
+              sessionRevisionRef.current = current.sessionRevision;
+              setSessionRevision(current.sessionRevision);
+            });
+          lastCommittedGenerationRef.current = receipt.clientGeneration;
+          setLastCommittedReceipt(receipt);
+          if (dirtyGenerationRef.current > receipt.clientGeneration) {
+            setSaveStatus("idle");
+            setSaveStatusText("Unsaved edits newer than the last server commit");
+          } else {
             setSaveStatus("committed");
-            setLastCommittedReceipt(receipt);
-            if (receipt.sessionRevision) {
-              sessionRevisionRef.current = receipt.sessionRevision;
-              setSessionRevision(receipt.sessionRevision);
-            }
-            const shortHash = receipt.sha256 ? receipt.sha256.substring(0, 8) : "";
-            setSaveStatusText(`Saved to server: v${receipt.version || 1} (${shortHash})`);
-            return receipt;
+            setSaveStatusText(`Saved to server: v${receipt.version} (${receipt.sha256!.substring(0, 8)})`);
           }
-
-          // State is Pending: poll until committed or failed
-          void pollSaveReceipt(sessionInfo.id, receipt.id, nextGen);
           return receipt;
         } catch (err: any) {
-          // If 409 conflict: session revision changed. Query current revision and retry once.
-          if (err.status === 409) {
-            try {
-              const cfg = await notingOfficeApi.getSessionConfig(sessionInfo.id);
-              const latestRev = cfg?.session?.revision;
-              if (latestRev && latestRev !== sessionRevisionRef.current) {
-                sessionRevisionRef.current = latestRev;
-                setSessionRevision(latestRev);
-                const retryReceipt = await notingOfficeApi.requestSave(
-                  sessionInfo.id,
-                  nextGen,
-                  latestRev,
-                  cmd.key
-                );
-                if (retryReceipt.state === "Committed") {
-                  lastCommittedGenerationRef.current = retryReceipt.clientGeneration;
-                  setSaveStatus("committed");
-                  setLastCommittedReceipt(retryReceipt);
-                  if (retryReceipt.sessionRevision) {
-                    sessionRevisionRef.current = retryReceipt.sessionRevision;
-                    setSessionRevision(retryReceipt.sessionRevision);
-                  }
-                  const shortHash = retryReceipt.sha256 ? retryReceipt.sha256.substring(0, 8) : "";
-                  setSaveStatusText(`Saved to server: v${retryReceipt.version || 1} (${shortHash})`);
-                  return retryReceipt;
-                }
-                void pollSaveReceipt(sessionInfo.id, retryReceipt.id, nextGen);
-                return retryReceipt;
-              }
-            } catch (retryErr: any) {
-              setSaveStatus("failed");
-              setSaveStatusText(`Save request failed: ${retryErr.message}`);
-              return null;
-            }
-          }
           setSaveStatus("failed");
-          setSaveStatusText(`Save request failed: ${err.message}`);
+          setSaveStatusText(err.message || "Save failed. Last committed bytes retained.");
           return null;
         } finally {
           inFlightSavePromiseRef.current = null;
         }
       };
-
       const promise = runSave();
       inFlightSavePromiseRef.current = promise;
       return promise;
-    },
-    [sessionInfo, isFrozen, pollSaveReceipt]
+    }, [sessionInfo, isFrozen, saveStatus]
   );
 
   // 6. Handle Document State Change (Debounced Autosave Trigger)
@@ -321,11 +241,19 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     (isDirty: boolean) => {
       if (!isDirty || isFrozen || isInputBlocked) return;
       dirtyGenerationRef.current = Math.max(dirtyGenerationRef.current, lastRequestedGenerationRef.current) + 1;
+      setSaveStatus("idle");
+      setSaveStatusText("Unsaved changes — waiting for server commit");
 
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = window.setTimeout(() => {
-        void triggerSave(false);
-      }, 2000);
+      const saveLatest = async () => {
+        if (saveBlockedRef.current) return;
+        const receipt = await triggerSave(false);
+        if (receipt && !saveBlockedRef.current && dirtyGenerationRef.current > lastCommittedGenerationRef.current) {
+          if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = window.setTimeout(() => void saveLatest(), 2000);
+        }
+      };
+      autoSaveTimerRef.current = window.setTimeout(() => void saveLatest(), 2000);
     },
     [isFrozen, isInputBlocked, triggerSave]
   );
@@ -335,47 +263,22 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
     if (!sessionInfo || sessionInfo.state !== "Active") return;
 
     // Block typing immediately
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    saveBlockedRef.current = true;
     setIsInputBlocked(true);
     setIsQuiescing(true);
     setSaveStatusText("Quiescing editor & saving latest content…");
 
     try {
-      // 1. Ensure latest keystrokes are saved and committed
-      if (dirtyGenerationRef.current > lastCommittedGenerationRef.current || !lastCommittedReceipt) {
-        const receipt = await triggerSave(true);
-        if (!receipt) {
-          throw new Error("Unable to save latest note edits. Please retry.");
-        }
-
-        // Wait up to 10 seconds for commit
-        let retries = 20;
-        let activeReceipt = receipt;
-        while (retries > 0 && activeReceipt.state !== "Committed") {
-          await new Promise((r) => setTimeout(r, 500));
-          activeReceipt = await notingOfficeApi.getSaveStatus(sessionInfo.id, activeReceipt.id);
-          if (activeReceipt.state === "Committed") {
-            lastCommittedGenerationRef.current = activeReceipt.clientGeneration;
-            setLastCommittedReceipt(activeReceipt);
-            if (activeReceipt.sessionRevision) {
-              setSessionRevision(activeReceipt.sessionRevision);
-            }
-            break;
-          }
-          if (activeReceipt.state === "Failed") {
-            throw new Error(`Save failed: ${activeReceipt.failureCode || "rejected by server"}.`);
-          }
-          retries--;
-        }
-
-        if (activeReceipt.state !== "Committed") {
-          throw new Error("Save timed out before server commit was confirmed.");
-        }
+      // Use the returned committed receipt, never React state from before this await.
+      let receipt = lastCommittedReceipt;
+      if (inFlightSavePromiseRef.current || dirtyGenerationRef.current > lastCommittedGenerationRef.current || !receipt) {
+        receipt = await triggerSave(true);
       }
-
-      const committedSaveId = lastCommittedReceipt?.id;
-      if (!committedSaveId) {
-        throw new Error("Cannot review note: No committed snapshot found.");
+      if (!receipt || receipt.state !== "Committed" || dirtyGenerationRef.current > receipt.clientGeneration) {
+        throw new Error("Cannot review until the latest note edits have a verified server commit.");
       }
+      const committedSaveId = receipt.id;
 
       // 2. Generate immutable canonical preview (freezes lease on backend)
       setSaveStatusText("Converting DOCX to verified canonical text…");
@@ -392,6 +295,7 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
       setSessionInfo((prevInfo) => (prevInfo ? { ...prevInfo, state: "Frozen" } : null));
     } catch (err: any) {
       alert(err.message || "Failed to generate canonical preview");
+      saveBlockedRef.current = false;
       setIsInputBlocked(false);
     } finally {
       setIsQuiescing(false);
@@ -448,7 +352,7 @@ export const GreenNotingWorkspace: React.FC<GreenNotingWorkspaceProps> = ({
       );
 
       setShowReviewModal(false);
-      setSubmitSuccessNotice(`Official Note #${res.noteNumber} submitted successfully.`);
+      setSubmitSuccessNotice(`Official Note #${submittedNoteNumber(res)} submitted successfully.`);
 
       // Reset editor session and reload notes/PDF
       setSessionInfo(null);
