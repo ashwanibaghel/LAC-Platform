@@ -89,6 +89,15 @@ theme. No decorative green background or red guide was added to the DOCX.
    The strict verifier returns failure. Page 2 passes. This must be corrected under
    a documented composition/font policy and reverified; the gate was not loosened.
    No verified official Green Sheet was published from this experiment.
+4. **Native flush and immediate-review races remain uncertified.** The inherited
+   document-state event is a modified/not-modified boolean, not a per-keystroke
+   sequence. A client generation and a correlated committed callback do not by
+   themselves prove that the last local keystroke reached Docs before a force-save.
+   The receipt/React-state fixes below do not certify that transport boundary.
+   An actual LAC + Docs test must type a final marker and immediately review while
+   native autosave is pending/delayed, establish the native synchronization barrier,
+   and verify the marker in the frozen canonical snapshot. That V4 test is blocked,
+   not passed by the diagnostic save-after-typing experiment.
 
 The owner explicitly required stopping if the embedded editor cannot reliably meet
 the inline contract. Accordingly, major shared-editor reconstruction and V4 official
@@ -139,6 +148,9 @@ with existing PrivateCurrentNote/OfficeNoteV1 behavior preserved by default:
   submit/send with existing immutable evidence and idempotency receipts. Validate
   the envelope again before submission. A newer official chain invalidates the
   captured lease; recover current committed content into a fresh authorized envelope.
+  Establish and test native synchronization after quiescing input and before the
+  final force-save. Native save-state events must not be labelled committed LAC
+  receipts or treated as proof of every keystroke without that test.
 - Keep official printing in the existing verified `GreenSheetService` composition
   pipeline. Independently solve glyph/ink clearance without modifying Legal margins
   or weakening checks. Certification must cover the supported scripts/fonts/marks.
