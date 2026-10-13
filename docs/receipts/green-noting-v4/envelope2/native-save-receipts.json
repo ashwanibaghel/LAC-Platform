@@ -1,0 +1,36 @@
+[
+  {
+    "officer": "A",
+    "noteId": "7bb7f1c7-9612-4d9c-b4ac-9ef078966f19",
+    "number": 1,
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "previewId": "c9b3f487-41e2-4de2-aa71-52285004e4e7",
+    "snapshotId": "9b7bf9b2-83db-4dd4-9c3c-5079f98c0869",
+    "snapshotSha256": "eeebcea199e7fe4f7f1d63a2fea8b6bc8fd39c8fcf48006c4795cb9e8bc19e20",
+    "snapshotVersion": 1,
+    "size": 25709,
+    "saveRequestId": "7c36fb31-2eae-44af-9dcb-43bd25622f72",
+    "nativeCaptureSha256": "ecd5f4e7b300bd894e1e064908e3f0a1b20808de92a0e64cf0123116c111ca16",
+    "canonicalHash": "888651C1008E03C7AD755796AFADB4B068851B789256C027243D41C9538BC0F4",
+    "canonicalContentHash": "02D12AEC5512D142F4B4E2FEBCFB4BE5D7592E9768D1D05B16E416C21B35FD36",
+    "exactSubmittedCurrentTextEqualsNativeBytes": true,
+    "finalMarkerPresent": true
+  },
+  {
+    "officer": "B",
+    "noteId": "a0352bfe-58cc-4472-ba63-cb5cf00afec3",
+    "number": 2,
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "previewId": "5f7fcdf0-2353-49ce-ba81-51411f5651ee",
+    "snapshotId": "58c4f920-3e82-4e8c-af2a-15dc3b3991a2",
+    "snapshotSha256": "10bed983e6938811de0bc8752e888c88843994ce228ae2b51a7378aa9601997a",
+    "snapshotVersion": 1,
+    "size": 26241,
+    "saveRequestId": "0b406951-eaa2-465c-8b17-747b8fb91dff",
+    "nativeCaptureSha256": "c67dbf1bb8a8eab5f9cc2d17d5e21fe30ef79b204b808d8ae45dd1026b587871",
+    "canonicalHash": "075ECE3427F9FA3C83A9901DFC8E3778A55B9042286845397363A1D0B70998FB",
+    "canonicalContentHash": "9657F9F4CCB1B4110B9EDF0D3B7C458262A27B543B712D0AA0FCE0BF2034E6BC",
+    "exactSubmittedCurrentTextEqualsNativeBytes": true,
+    "finalMarkerPresent": true
+  }
+]

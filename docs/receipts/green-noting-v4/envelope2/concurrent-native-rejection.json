@@ -1,0 +1,27 @@
+{
+  "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+  "requestId": "666f5e40-60db-44aa-82e5-611c0371e6f8",
+  "deadline": "2026-10-13T22:33:44.219749+05:30",
+  "leaseExpiry": "2026-10-13T23:00:20.126682+05:30",
+  "capturedCanonicalHash": "4BA12DBBDE19B42FD42A6706839DF764311CBCDA901D654D24BBC46BCD3DE08C",
+  "callbackCanonicalHash": "B9BC3D2F5D4A57167325CEF704BF773710FE9BC124490D0F93293C4D6D5745A2",
+  "capturedDocxSha256": "6f616690527bb7034d11dd13a1ab944b7178371d65de27eda91c23dbf742d0c2",
+  "callbackDocxSha256": "adca385988c1639d0aa4943323826a06af5a89e1714d2623c9db3bbab5664f55",
+  "bothEnvelopesPassCurrentStrictConverter": true,
+  "actualApiResponse": {
+    "kind": "actual-lac-callback-response",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 6,
+    "userdata": "666f5e40-60db-44aa-82e5-611c0371e6f8",
+    "httpStatus": 200,
+    "error": 1,
+    "at": "2026-10-13T17:02:49.675Z"
+  },
+  "requestSnapshotId": null,
+  "latestCommittedSnapshotVersion": 0,
+  "apiFinalStatus": "Failed/Timeout",
+  "databaseRequestStateAtEvidenceRead": "Pending",
+  "timeoutProjection": "Expired Pending is projected as Failed/Timeout; stored Pending is retained until the next save/recovery transition.",
+  "otherTabEditRejected": true,
+  "noOfficialThirdNote": true
+}

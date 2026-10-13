@@ -1,0 +1,1920 @@
+[
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T14:51:44.269Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T14:51:44.704Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "mode",
+    "at": "2026-10-13T14:53:03.779Z",
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T14:53:31.848Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T14:53:32.471Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T14:53:33.284Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T14:53:33.596Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T14:53:33.598Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T14:53:37.809Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 6,
+    "userdata": "0da40abb-f9b5-4032-a713-c057415d660d",
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T14:53:43.781Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 6,
+    "userdata": "0da40abb-f9b5-4032-a713-c057415d660d",
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "committed",
+    "at": "2026-10-13T14:53:43.974Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "sha256": "d13af67c43ca035225a5043ce2ac16426dcd240e0035960e3fb9b60ba2ce899a",
+    "requestId": "0da40abb-f9b5-4032-a713-c057415d660d",
+    "snapshotId": "0202add8-e49f-4fb0-b1af-6c59e61879c0",
+    "version": 1
+  },
+  {
+    "kind": "client",
+    "type": "frozen",
+    "at": "2026-10-13T14:53:44.562Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "snapshotId": "0202add8-e49f-4fb0-b1af-6c59e61879c0",
+    "previewId": "ae019d94-e624-4d86-a26f-de94eb744a7f",
+    "canonicalHash": "2E2150C8C502BE37F840695CD3CF2BAC19119FA03626F9C57C819338CECA0ABA"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T14:57:27.893Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T14:57:27.962Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T14:57:32.319Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T14:57:32.416Z",
+    "sessionId": "433e3238-7e0d-4c00-8c16-bc4a91a2d058",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T14:57:57.503Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T14:57:57.877Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T14:57:58.066Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T14:57:58.748Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T14:57:58.750Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T14:58:02.275Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 6,
+    "userdata": "7c36fb31-2eae-44af-9dcb-43bd25622f72",
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T14:58:07.676Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 6,
+    "userdata": "7c36fb31-2eae-44af-9dcb-43bd25622f72",
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "committed",
+    "at": "2026-10-13T14:58:07.873Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "sha256": "eeebcea199e7fe4f7f1d63a2fea8b6bc8fd39c8fcf48006c4795cb9e8bc19e20",
+    "requestId": "7c36fb31-2eae-44af-9dcb-43bd25622f72",
+    "snapshotId": "9b7bf9b2-83db-4dd4-9c3c-5079f98c0869",
+    "version": 1
+  },
+  {
+    "kind": "client",
+    "type": "frozen",
+    "at": "2026-10-13T14:58:08.184Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "snapshotId": "9b7bf9b2-83db-4dd4-9c3c-5079f98c0869",
+    "previewId": "c9b3f487-41e2-4de2-aa71-52285004e4e7",
+    "canonicalHash": "888651C1008E03C7AD755796AFADB4B068851B789256C027243D41C9538BC0F4"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:01:25.434Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 5000
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:01:25.473Z",
+    "sessionId": "be3da958-8211-4539-a3a3-5cc7ec0d80ac",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "mode",
+    "at": "2026-10-13T15:01:29.001Z",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T15:02:09.604Z",
+    "message": "Only the authorized confirmed received holder can work from this active Dak. (403)"
+  },
+  {
+    "kind": "client",
+    "type": "received",
+    "at": "2026-10-13T15:02:18.861Z"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:02:50.073Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:02:50.128Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:04:00.720Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T15:04:01.108Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T15:04:03.079Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:04:04.534Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T15:04:04.537Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:04:07.951Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 6,
+    "userdata": "d6f54446-e31a-413a-81fe-d16dd081abf3",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:04:08.429Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 6,
+    "userdata": "d6f54446-e31a-413a-81fe-d16dd081abf3",
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "committed",
+    "at": "2026-10-13T15:04:08.631Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "sha256": "a2aeaef32caddccee4c723067ed460f74bc67aaf3db35446d089346803e298d3",
+    "requestId": "d6f54446-e31a-413a-81fe-d16dd081abf3",
+    "snapshotId": "89c09380-7376-4cef-a127-b53a024d071b",
+    "version": 1
+  },
+  {
+    "kind": "client",
+    "type": "committed",
+    "at": "2026-10-13T15:04:42.678Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "sha256": "a2aeaef32caddccee4c723067ed460f74bc67aaf3db35446d089346803e298d3",
+    "requestId": "d6f54446-e31a-413a-81fe-d16dd081abf3",
+    "snapshotId": "89c09380-7376-4cef-a127-b53a024d071b",
+    "version": 1
+  },
+  {
+    "kind": "client",
+    "type": "same-save-replay",
+    "at": "2026-10-13T15:04:42.680Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "sha256": "a2aeaef32caddccee4c723067ed460f74bc67aaf3db35446d089346803e298d3",
+    "requestId": "d6f54446-e31a-413a-81fe-d16dd081abf3",
+    "snapshotId": "89c09380-7376-4cef-a127-b53a024d071b"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:04:52.362Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:04:52.417Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:04:57.357Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:04:57.405Z",
+    "sessionId": "8bd194a0-c5c7-4bd1-b30f-d4467bc181f2",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "mode",
+    "at": "2026-10-13T15:06:28.907Z",
+    "mode": "corrupt-signature",
+    "delayMs": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:06:39.570Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T15:06:40.083Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T15:06:41.660Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:06:42.626Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T15:06:42.628Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:06:45.844Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 6,
+    "userdata": "b2df7d12-5bd7-495c-9b99-adaaf309d429",
+    "mode": "corrupt-signature",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:06:45.871Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 6,
+    "userdata": "b2df7d12-5bd7-495c-9b99-adaaf309d429",
+    "httpStatus": 401,
+    "error": 1
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T15:06:57.017Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "message": "Save Failed / Timeout"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:08:13.964Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 1,
+    "mode": "corrupt-signature",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:08:14.123Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:08:19.482Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 2,
+    "mode": "corrupt-signature",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:08:19.567Z",
+    "sessionId": "291d45b2-ba4f-4889-8fcd-910c85d89142",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "mode",
+    "at": "2026-10-13T15:10:40.255Z",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:11:30.913Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:11:32.244Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:12:47.541Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:12:49.175Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:13:20.714Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T15:13:21.151Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T15:13:23.302Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T15:13:23.737Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T15:13:23.740Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T15:13:26.400Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "message": "ContinuousGreenEnvelopeV2: paragraph-mark formatting; no returned content was accepted. (422)"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:24:44.790Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:24:45.074Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "review-click",
+    "at": "2026-10-13T15:25:11.744Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T15:25:12.845Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "client",
+    "type": "synchronized-capture",
+    "at": "2026-10-13T15:25:12.850Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:25:18.004Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 6,
+    "userdata": "0b406951-eaa2-465c-8b17-747b8fb91dff",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:25:19.107Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 6,
+    "userdata": "0b406951-eaa2-465c-8b17-747b8fb91dff",
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "committed",
+    "at": "2026-10-13T15:25:19.359Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "sha256": "10bed983e6938811de0bc8752e888c88843994ce228ae2b51a7378aa9601997a",
+    "requestId": "0b406951-eaa2-465c-8b17-747b8fb91dff",
+    "snapshotId": "58c4f920-3e82-4e8c-af2a-15dc3b3991a2",
+    "version": 1
+  },
+  {
+    "kind": "client",
+    "type": "frozen",
+    "at": "2026-10-13T15:25:20.278Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "snapshotId": "58c4f920-3e82-4e8c-af2a-15dc3b3991a2",
+    "previewId": "5f7fcdf0-2353-49ce-ba81-51411f5651ee",
+    "canonicalHash": "075ECE3427F9FA3C83A9901DFC8E3778A55B9042286845397363A1D0B70998FB"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T15:26:48.968Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T15:26:49.032Z",
+    "sessionId": "3c6bd5cb-f580-435a-bdb9-38dfe92a9efc",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T16:55:51.911Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T16:55:52.483Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:01.054Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T16:57:17.513Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:17.563Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T16:57:17.684Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T16:57:19.034Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:19.559Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:20.311Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:20.317Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "held-native-target",
+    "at": "2026-10-13T16:57:20.324Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "generation": 4
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.096Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.098Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.143Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.146Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.264Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.267Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.273Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.275Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.278Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.280Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.306Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.312Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.321Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.325Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.327Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.329Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.366Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.375Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.378Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.380Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.382Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.506Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.508Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.515Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.517Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.520Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.523Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.546Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.549Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.551Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.558Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.562Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.563Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.589Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.591Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.594Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.598Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.601Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.607Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.634Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.637Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.641Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.643Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.646Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.649Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.680Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.682Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.685Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.690Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.692Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.694Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.707Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.710Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.712Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.716Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.737Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.740Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.744Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.749Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.751Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.757Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.759Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.768Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.776Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.801Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.803Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.805Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.809Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.836Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.839Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.841Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.843Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.863Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.872Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.875Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.961Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T16:57:58.963Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T16:57:59.602Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d"
+  },
+  {
+    "kind": "client",
+    "type": "held-native-target",
+    "at": "2026-10-13T16:57:59.604Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "generation": 76
+  },
+  {
+    "kind": "client",
+    "type": "dispatch-held-target",
+    "at": "2026-10-13T16:58:06.860Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "requestId": "fc7f17c7-c91c-4a9b-96cc-5fac6016f24b"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T16:58:18.321Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 6,
+    "userdata": "cb701850-b527-4326-850d-666ff2d56722",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T16:58:20.619Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 6,
+    "userdata": "cb701850-b527-4326-850d-666ff2d56722",
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T16:58:22.172Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "message": "Save Failed / Timeout"
+  },
+  {
+    "kind": "client",
+    "type": "dispatch-held-target",
+    "at": "2026-10-13T16:59:01.911Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "requestId": "babcc0c7-4d08-4612-af22-69c46e0e914a"
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T16:59:02.162Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "message": "Office session is expired, revoked, frozen or stale; recover the last committed note. (409)"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:00:14.076Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:00:19.392Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:00:23.165Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:00:23.236Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:00:31.241Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:00:31.340Z",
+    "sessionId": "f00b1525-9005-4dd6-bb68-cb23fea0e01d",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:01:00.688Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T17:01:01.820Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0"
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:01:03.688Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "held-native-target",
+    "at": "2026-10-13T17:01:03.691Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "generation": 1
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:01:39.975Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:01:40.076Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.820Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.823Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.826Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.831Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.985Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.989Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.992Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:09.998Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.001Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.003Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.030Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.033Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.036Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.038Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.041Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.043Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.073Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.075Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.078Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.081Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.084Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.086Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.092Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.093Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.105Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.107Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.108Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.155Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.157Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.159Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.161Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.306Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.311Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.316Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.320Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.322Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.324Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.354Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.356Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.363Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.367Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.368Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.370Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.395Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.401Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.404Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.407Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.409Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.411Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.437Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.440Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.442Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.449Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.452Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.454Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.457Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.466Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.537Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.540Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.542Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.550Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.554Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": true
+  },
+  {
+    "kind": "client",
+    "type": "native-state",
+    "at": "2026-10-13T17:02:10.557Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "dirty": false
+  },
+  {
+    "kind": "client",
+    "type": "native-export-returned",
+    "at": "2026-10-13T17:02:11.212Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0"
+  },
+  {
+    "kind": "client",
+    "type": "held-native-target",
+    "at": "2026-10-13T17:02:11.214Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "generation": 62
+  },
+  {
+    "kind": "client",
+    "type": "dispatch-held-target",
+    "at": "2026-10-13T17:02:41.711Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "requestId": "7b852365-3602-42af-9938-8319cc2e4386"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:02:47.835Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 6,
+    "userdata": "666f5e40-60db-44aa-82e5-611c0371e6f8",
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "native-callback-byte-evidence",
+    "at": "2026-10-13T17:02:47.869Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "userdata": "666f5e40-60db-44aa-82e5-611c0371e6f8",
+    "sha256": "adca385988c1639d0aa4943323826a06af5a89e1714d2623c9db3bbab5664f55",
+    "size": 26238
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:02:49.675Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 6,
+    "userdata": "666f5e40-60db-44aa-82e5-611c0371e6f8",
+    "httpStatus": 200,
+    "error": 1
+  },
+  {
+    "kind": "client",
+    "type": "failure",
+    "at": "2026-10-13T17:03:44.370Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "message": "Save Failed / Timeout"
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:05:37.059Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:05:37.257Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:05:38.745Z",
+    "sessionId": "8fde2182-b7e5-4500-8262-84dd71765a4d",
+    "status": 1,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:05:38.802Z",
+    "sessionId": "8fde2182-b7e5-4500-8262-84dd71765a4d",
+    "status": 1,
+    "httpStatus": 200,
+    "error": 0
+  },
+  {
+    "kind": "native-callback-arrived",
+    "at": "2026-10-13T17:05:43.763Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 2,
+    "mode": "normal",
+    "delayMs": 0
+  },
+  {
+    "kind": "actual-lac-callback-response",
+    "at": "2026-10-13T17:05:43.852Z",
+    "sessionId": "b389496f-587b-4525-b5ef-0472281e12a0",
+    "status": 2,
+    "httpStatus": 200,
+    "error": 1
+  }
+]

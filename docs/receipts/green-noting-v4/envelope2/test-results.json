@@ -1,0 +1,388 @@
+{
+  "backend": [
+    {
+      "receipt": "v4-final-security.trx",
+      "counters": {
+        "total": "62",
+        "executed": "61",
+        "passed": "61",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"font\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"outside\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"field\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Server_manifest_hash_metadata_and_order_are_not_inferred_from_document",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"customXml\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"layout\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.V2_live_chain_change_blocks_writes_and_recovery_rewraps_only_current_content",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"currentLock\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.V1_open_fingerprint_and_default_replay_remain_compatible",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Actual_Docs94_export_with_reserved_separators_and_empty_borders_converts_exactly",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.PostgreSQL_HTTP_headers_actor_binding_and_signed_callback_body",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"historyMark\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Exact_text_marks_repeated_quotes_and_UTF16_survive_conversion",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"settings\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"header\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"image\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Composition_bytes_are_deterministic_for_the_same_immutable_input",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Current_note_converter_rejects_a_shared_content_control_envelope_without_importing_history",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"extra\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Run_splitting_and_cached_page_breaks_do_not_change_historical_authority",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"order\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"missing\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"pageBreak\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Exact_repeated_text_citations_survive_unchanged_conversion_and_changed_text_requires_explicit_reset",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"font\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"spacing\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"pageBreak\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"paragraphMarkBold\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"themeColor\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"currentSpacing\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"lock\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Prepare_fresh_synthetic_Matter_for_the_real_authenticated_native_checkpoint",
+          "outcome": "NotExecuted"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.One_global_legal_section_unsplit_signature_and_no_officer_page_breaks",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"field\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"table\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"layout\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"header\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Native_content_fingerprint_covers_marks_and_normalizes_only_run_splitting",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"signature\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"metadata\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"nested\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"indent\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Concurrent_same_save_UUID_has_one_request_and_stale_revisions_fail",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Expired_lease_rejects_writes_review_download_and_config_and_recovers_only_committed_bytes",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"tag\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"historyText\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Failure_retry_same_UUID_retains_snapshot_and_changed_payload_conflicts",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"bibliographyDtd\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"tracked\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"relationship\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"settingsNamespace\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Live_permission_and_login_revocation_reject_callbacks_without_losing_committed_bytes",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Current_only_UTF16_and_repeated_quote_marks_are_extracted_without_history",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.Correlated_snapshot_review_atomic_numbered_submit_and_database_immutability",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"inheritedThemeColor\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Actual_Docs94_continuous_export_validates_and_extracts_only_the_native_current_control",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.JWT_and_download_origin_fail_closed",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficialOfficeNotingTests.V2_tamper_callback_never_commits_and_manifest_is_database_immutable",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsubmitted_preview_is_visibly_unsubmitted_and_never_claims_an_official_number",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Glyph_clearance_insets_ink_without_changing_official_mirrored_margins_or_pagination_policy",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.ContinuousGreenEnvelopeTests.Tampering_fails_closed_before_current_text_is_imported(attack: \"paragraphMarkFont\")",
+          "outcome": "Passed"
+        },
+        {
+          "name": "LAC.Tests.OfficeNoteDocxTests.Unsupported_content_fails_closed_without_a_partial_import(kind: \"hyperlink\")",
+          "outcome": "Passed"
+        }
+      ]
+    },
+    {
+      "receipt": "real-lac-native-A.trx",
+      "counters": {
+        "total": "1",
+        "executed": "1",
+        "passed": "1",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "LAC.Tests.ContinuousGreenNativeFixtureTests.Validate_actual_native_saved_bytes_when_explicitly_supplied",
+          "outcome": "Passed"
+        }
+      ]
+    },
+    {
+      "receipt": "real-lac-native-B-exact-timestamps.trx",
+      "counters": {
+        "total": "1",
+        "executed": "1",
+        "passed": "1",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "LAC.Tests.ContinuousGreenNativeFixtureTests.Validate_actual_native_saved_bytes_when_explicitly_supplied",
+          "outcome": "Passed"
+        }
+      ]
+    },
+    {
+      "receipt": "real-native-race-capture.trx",
+      "counters": {
+        "total": "1",
+        "executed": "1",
+        "passed": "1",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "LAC.Tests.ContinuousGreenNativeFixtureTests.Validate_actual_native_saved_bytes_when_explicitly_supplied",
+          "outcome": "Passed"
+        }
+      ]
+    },
+    {
+      "receipt": "real-native-race-callback.trx",
+      "counters": {
+        "total": "1",
+        "executed": "1",
+        "passed": "1",
+        "failed": "0",
+        "error": "0",
+        "timeout": "0",
+        "aborted": "0",
+        "inconclusive": "0",
+        "passedButRunAborted": "0",
+        "notRunnable": "0",
+        "notExecuted": "0",
+        "disconnected": "0",
+        "warning": "0",
+        "completed": "0",
+        "inProgress": "0",
+        "pending": "0"
+      },
+      "cases": [
+        {
+          "name": "LAC.Tests.ContinuousGreenNativeFixtureTests.Validate_actual_native_saved_bytes_when_explicitly_supplied",
+          "outcome": "Passed"
+        }
+      ]
+    }
+  ],
+  "frontendFocusedTests": 27,
+  "frontendFailed": 0,
+  "finalAppTypeCheck": "tsc -p tsconfig.app.json --noEmit: PASS",
+  "nativeTransportInPostgresUnitTests": "controlled fixtures; separate actual native DOCX/browser evidence above",
+  "skipped": "Explicit fresh-fixture preparation was intentionally not run again; no new account/environment was created."
+}

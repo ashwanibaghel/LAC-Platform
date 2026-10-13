@@ -1,0 +1,73 @@
+{
+  "syntheticOnly": true,
+  "matterId": "2a7affc3-4885-446d-8d1a-ffeea85d8ed2",
+  "dakId": "d9c1133a-907b-430d-ae86-8b6b17072faa",
+  "schema": "lac_office_test_93b2807ee5504e3f948e60bc8ca94634",
+  "notes": [
+    {
+      "Id": "7bb7f1c7-9612-4d9c-b4ac-9ef078966f19",
+      "Number": 1,
+      "Version": 1,
+      "AuthorUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "AuthorName": "Synthetic ONLYOFFICE Editor",
+      "Designation": "Kanungo",
+      "SubmittedAt": "2026-10-13T20:31:17.210953+05:30",
+      "CanonicalText": "Synthetic current note for Officer A. Source reference 17/2026. Rapid edit one. Same \ud83d\ude00 Same. A-FINAL-NATIVE-20261013.\n",
+      "TextHash": "888651C1008E03C7AD755796AFADB4B068851B789256C027243D41C9538BC0F4",
+      "SourceDakId": "d9c1133a-907b-430d-ae86-8b6b17072faa"
+    },
+    {
+      "Id": "a0352bfe-58cc-4472-ba63-cb5cf00afec3",
+      "Number": 2,
+      "Version": 1,
+      "AuthorUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "AuthorName": "Synthetic ONLYOFFICE Viewer",
+      "Designation": "Tehsildar",
+      "SubmittedAt": "2026-10-13T20:56:42.217461+05:30",
+      "CanonicalText": "Synthetic current note for Officer B. Source reference 17/2026. B-SAVE-REOPEN-20261013.\nContinuation 1. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 2. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 3. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 4. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 5. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 6. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 7. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 8. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 9. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.\nContinuation 10. Synthetic inspection of reference 17/2026. The original receipt remains available separately. Kanungo observations are unchanged; Tehsildar continuation follows the reserved signature area. This sample contains no government record.B-FINAL-NATIVE-20261013.\n",
+      "TextHash": "075ECE3427F9FA3C83A9901DFC8E3778A55B9042286845397363A1D0B70998FB",
+      "SourceDakId": "d9c1133a-907b-430d-ae86-8b6b17072faa"
+    }
+  ],
+  "transfers": [
+    {
+      "Id": "40fdc062-bc8d-4fe9-9053-18d560aa46ac",
+      "SenderUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "ToUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "Purpose": "Marked",
+      "State": "Received",
+      "SentAt": "2026-10-13T19:27:20.010597+05:30",
+      "ReceivedAt": "2026-10-13T19:27:20.78783+05:30"
+    },
+    {
+      "Id": "21e7f109-7899-4e43-b193-ab0353d6f767",
+      "SenderUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "ToUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "Purpose": "Forwarded",
+      "State": "Received",
+      "SentAt": "2026-10-13T20:31:17.661883+05:30",
+      "ReceivedAt": "2026-10-13T20:32:18.763438+05:30"
+    }
+  ],
+  "immutableNoteEvidence": [
+    {
+      "Id": "8665ad98-51dc-440a-ba96-dff2309db275",
+      "NoteId": "7bb7f1c7-9612-4d9c-b4ac-9ef078966f19",
+      "PreviewId": "c9b3f487-41e2-4de2-aa71-52285004e4e7",
+      "SnapshotId": "9b7bf9b2-83db-4dd4-9c3c-5079f98c0869",
+      "Sha256": "eeebcea199e7fe4f7f1d63a2fea8b6bc8fd39c8fcf48006c4795cb9e8bc19e20",
+      "ConverterVersion": "ContinuousGreenEnvelopeV2",
+      "LayoutPolicy": "GreenLegalV2"
+    },
+    {
+      "Id": "b010a156-e1fd-49cd-a20f-8285d35e8d86",
+      "NoteId": "a0352bfe-58cc-4472-ba63-cb5cf00afec3",
+      "PreviewId": "5f7fcdf0-2353-49ce-ba81-51411f5651ee",
+      "SnapshotId": "58c4f920-3e82-4e8c-af2a-15dc3b3991a2",
+      "Sha256": "10bed983e6938811de0bc8752e888c88843994ce228ae2b51a7378aa9601997a",
+      "ConverterVersion": "ContinuousGreenEnvelopeV2",
+      "LayoutPolicy": "GreenLegalV2"
+    }
+  ],
+  "finalOfficialNoteCount": 2
+}
