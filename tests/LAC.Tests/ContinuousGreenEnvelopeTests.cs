@@ -152,4 +152,12 @@ public sealed class ContinuousGreenEnvelopeTests
         }
         bytes.Position=0;Assert.Equal(422,Assert.Throws<MatterWorkflowException>(()=>ContinuousGreenEnvelope.Convert(bytes,m)).StatusCode);
     }
+    [Fact]
+    public void Preview_wire_response_does_not_expose_internal_native_capture_storage()
+    {
+        var preview=new MatterOfficePreview {NativeCaptureJson="private/storage/evidence",CanonicalText="Reviewed text"};
+        var json=System.Text.Json.JsonSerializer.Serialize(preview);
+        Assert.DoesNotContain("NativeCapture",json);Assert.DoesNotContain("private/storage",json);
+        Assert.Contains("Reviewed text",json);Assert.Equal("private/storage/evidence",preview.NativeCaptureJson);
+    }
 }

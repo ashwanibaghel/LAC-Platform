@@ -157,7 +157,6 @@ export interface MatterOfficePreviewDto {
   canonicalText: string;
   canonicalHash: string;
   createdAt: string;
-  nativeCaptureJson?: string | null;
 }
 
 export interface ScreenOnlyGuideDto {

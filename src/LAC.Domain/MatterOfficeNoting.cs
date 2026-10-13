@@ -65,6 +65,7 @@ public sealed class MatterOfficePreview
     public string ContentJson { get; set; } = "";
     public string CanonicalText { get; set; } = "";
     public string CanonicalHash { get; set; } = "";
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? NativeCaptureJson { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 }
