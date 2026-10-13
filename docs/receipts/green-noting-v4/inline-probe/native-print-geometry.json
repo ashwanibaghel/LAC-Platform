@@ -1,0 +1,58 @@
+{
+  "pdfSha256": "0eda4ae71e16a59ec97f1f21a18a5787405b5229a0bb0564dd826626eeab9b0b",
+  "pages": [
+    {
+      "page": 1,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        1062,
+        614,
+        4732,
+        7770
+      ],
+      "inkClearanceMm": {
+        "left": 44.958,
+        "top": 25.99266666666667,
+        "right": 15.578666666666667,
+        "bottom": 26.67
+      },
+      "fontBoxBottomMm": 25.718466611111147,
+      "failures": [
+        "left ink clearance is below 45 mm"
+      ],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    },
+    {
+      "page": 2,
+      "widthPt": 612,
+      "heightPt": 1008,
+      "rasterDpi": 600,
+      "inkPixelBounds": [
+        354,
+        613,
+        3867,
+        7515
+      ],
+      "inkClearanceMm": {
+        "left": 14.986,
+        "top": 25.950333333333333,
+        "right": 52.197,
+        "bottom": 37.465
+      },
+      "fontBoxBottomMm": 36.51470838888897,
+      "failures": [],
+      "nonNeutralPaintObjects": 0,
+      "images": 0
+    }
+  ],
+  "passed": false,
+  "failures": [
+    "page 1: left ink clearance is below 45 mm"
+  ],
+  "scope": "Printed fixture geometry only; no official-noting or editor-session certification",
+  "metric": "Rasterized visible ink; font boxes reported separately, never treated as ink",
+  "textCoveragePassed": true
+}
