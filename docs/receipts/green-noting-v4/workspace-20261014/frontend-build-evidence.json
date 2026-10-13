@@ -1,0 +1,29 @@
+{
+  "TypeScript": "passed",
+  "ViteBuild": "passed",
+  "NodeHeapLimitMiB": 512,
+  "FrontendFocusedTests": 43,
+  "Assets": [
+    {
+      "Name": "index.html",
+      "Sha256": "d1cdb618d42b6dff26b2d915a2e014a2e3a9ad8a0aa34fe45352302729c66b3f",
+      "Bytes": 470
+    },
+    {
+      "Name": "assets\\index-CnRuddaW.css",
+      "Sha256": "1ca87aa6e1e1704fcbf08075f54d2592433c48de3a58473df5a92f0c163f98f9",
+      "Bytes": 368304
+    },
+    {
+      "Name": "assets\\index-ev_CqSFK.js",
+      "Sha256": "e4bc4aa9418d46967b402311c95dac4d43cf1bb12dad432ed2386e70b4f470f9",
+      "Bytes": 2341669
+    },
+    {
+      "Name": "assets\\pdf.worker-PhvoOpM7.mjs",
+      "Sha256": "07ceb740d746e5d9012fcf9f27d5c7dea09f7d2f5e74f5c8109e5787551a2333",
+      "Bytes": 2229713
+    }
+  ],
+  "SharedWwwrootUntouched": true
+}

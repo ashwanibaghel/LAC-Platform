@@ -1,0 +1,145 @@
+{
+  "Database": "lac_onlyoffice_real_9b0459_20261012",
+  "Schema": "lac_office_test_93b2807ee5504e3f948e60bc8ca94634",
+  "MatterId": "845f2f84-0c53-456d-b8b1-d70d7c0c5415",
+  "DakId": "d2957387-b76e-4541-98eb-ba620133d8fd",
+  "Sessions": [
+    {
+      "Id": "90839d63-246d-4e7b-9f39-9acf1e195e87",
+      "ActorUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "State": "Submitted",
+      "Revision": 4,
+      "Sha256": "4f5d303ffd8504a8f1d1888edd7c21373ece2a10289d3ebd16c0190852ef42a0",
+      "Version": 0
+    },
+    {
+      "Id": "581ac51b-721f-4f7b-b9f3-46541580c99e",
+      "ActorUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "State": "Revoked",
+      "Revision": 6,
+      "Sha256": "dc41973b74d12cf86c3bb3ab1e164cc330097f261694babe9479d0dcb4cb4e86",
+      "Version": 2
+    },
+    {
+      "Id": "48c80f76-7611-4f45-904c-6f80e13b4e2f",
+      "ActorUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "State": "Submitted",
+      "Revision": 4,
+      "Sha256": "1e1fe5ed81ccff7547a2601e6e59d5921791b307023e9433b2479ffb15af72bd",
+      "Version": 0
+    },
+    {
+      "Id": "391a5a55-7c98-425e-8df6-1d019b3939e9",
+      "ActorUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "State": "Revoked",
+      "Revision": 6,
+      "Sha256": "588918f54d397ab131f882c49c71bad73d491bcdb0bd136a7f94b102543a3d53",
+      "Version": 1
+    }
+  ],
+  "CommittedSaves": [
+    {
+      "Id": "d9c9e1b0-f9b1-436b-9b78-6bb3466083ca",
+      "SessionId": "391a5a55-7c98-425e-8df6-1d019b3939e9",
+      "ClientGeneration": 1,
+      "State": "Committed",
+      "SessionRevision": 2,
+      "NativeCanonicalHash": "0F03FA4400A544C0809F33A1DFD59E77106CD7C77482D436CF1D99A0412C4B2B",
+      "NativeContentHash": "D440CD605CF7352DCE608CD03F12600CC773040BD084F688865089C78509958B",
+      "NativeCaptureSha256": "90e1eeb83403e206f6f8f77aeca0f267610d2d9a4a1ecf7a5e178f57c5d3df79",
+      "SnapshotId": "9ffe7f2a-0c68-4726-ad47-bbe5c0fec04b",
+      "Sha256": "588918f54d397ab131f882c49c71bad73d491bcdb0bd136a7f94b102543a3d53",
+      "Version": 1
+    },
+    {
+      "Id": "7bd6b153-0ed2-4342-a55c-e70f260145e5",
+      "SessionId": "581ac51b-721f-4f7b-b9f3-46541580c99e",
+      "ClientGeneration": 1,
+      "State": "Committed",
+      "SessionRevision": 2,
+      "NativeCanonicalHash": "98A6A96D89296F5AAEFC5CD89EA15628800AB8BCFCD120C34BB4A65C59C2FFA8",
+      "NativeContentHash": "1DE0EF53575D723B0FD7FE481BAA378C057D01CC537985BBBEE6EE696FCB8240",
+      "NativeCaptureSha256": "eb22891ab03e511fd5480c2ff3cae4f6dc672cadc0dce1b07bc326c06b271d87",
+      "SnapshotId": "5c19ee12-3ceb-4715-99d7-ff454d9f1232",
+      "Sha256": "13cad909913430ed90dc18533fe78525b2c7ebef16811640a8431d405d1c75f6",
+      "Version": 1
+    },
+    {
+      "Id": "6674f629-28e6-4d81-94c2-dc43cb6e69eb",
+      "SessionId": "581ac51b-721f-4f7b-b9f3-46541580c99e",
+      "ClientGeneration": 2,
+      "State": "Committed",
+      "SessionRevision": 4,
+      "NativeCanonicalHash": "1593650601FC256C9C32879C51CA7DAB92F44EE3CBDB188BAF6807F02A068369",
+      "NativeContentHash": "CF41A990D8D91D447C9886DA4511C3606C00730B56B7EAA75ADB9F94308CB08C",
+      "NativeCaptureSha256": "8bbb43d091f80b7a93062dc27b247713b21074f7800aa803458da0c8f08a8a63",
+      "SnapshotId": "c10361cb-6d11-4ea8-838b-028c65db4fb1",
+      "Sha256": "dc41973b74d12cf86c3bb3ab1e164cc330097f261694babe9479d0dcb4cb4e86",
+      "Version": 2
+    }
+  ],
+  "OfficialNotes": [
+    {
+      "Id": "c1fc5a5a-5ec3-431a-9bf0-6251dee96fdc",
+      "Number": 1,
+      "CanonicalText": "A-V4-FINAL-20261014. Synthetic inspection of  the original receipt is complete. The fictional boundary markers match the enclosed sample.\n",
+      "TextHash": "1593650601FC256C9C32879C51CA7DAB92F44EE3CBDB188BAF6807F02A068369",
+      "AuthorUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "AuthorName": "Synthetic ONLYOFFICE Editor",
+      "Designation": "Kanungo",
+      "SubmittedAt": "2026-10-14T02:21:42.713826+05:30"
+    },
+    {
+      "Id": "99045101-72ad-4b47-9b9b-1d3df7e88fe5",
+      "Number": 2,
+      "CanonicalText": "B-V4-FINAL-20261014. Note 1 and the original synthetic receipt have been examined. The sample observations are accepted for this disposable acceptance exercise.\n",
+      "TextHash": "0F03FA4400A544C0809F33A1DFD59E77106CD7C77482D436CF1D99A0412C4B2B",
+      "AuthorUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "AuthorName": "Synthetic ONLYOFFICE Viewer",
+      "Designation": "Tehsildar",
+      "SubmittedAt": "2026-10-14T02:33:18.224154+05:30"
+    }
+  ],
+  "Transfers": [
+    {
+      "Id": "6726e304-ee29-4cf4-9d83-a2619954b1a5",
+      "FromHolderUserId": null,
+      "ToUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "State": "Received",
+      "SentAt": "2026-10-14T02:13:36.367401+05:30",
+      "ReceivedAt": "2026-10-14T02:13:36.96782+05:30"
+    },
+    {
+      "Id": "bd6de8df-8291-4186-bde4-f18868303eeb",
+      "FromHolderUserId": "40d1fe67-dc46-4e66-958e-eb2236e5577f",
+      "ToUserId": "57b05040-e597-4d3f-97c7-86d2884c7915",
+      "State": "Received",
+      "SentAt": "2026-10-14T02:21:42.893522+05:30",
+      "ReceivedAt": "2026-10-14T02:25:45.862707+05:30"
+    }
+  ],
+  "PriorCheckpointNotes": [
+    {
+      "Id": "7bb7f1c7-9612-4d9c-b4ac-9ef078966f19",
+      "Number": 1,
+      "TextHash": "888651C1008E03C7AD755796AFADB4B068851B789256C027243D41C9538BC0F4"
+    },
+    {
+      "Id": "a0352bfe-58cc-4472-ba63-cb5cf00afec3",
+      "Number": 2,
+      "TextHash": "075ECE3427F9FA3C83A9901DFC8E3778A55B9042286845397363A1D0B70998FB"
+    }
+  ],
+  "PriorCheckpointUnchanged": true,
+  "Sheet": {
+    "Id": "ebf769cb-2d16-4e30-8679-e7df59325960",
+    "PageCount": 1,
+    "PdfSha256": "1ce6c16c25549f0af048c9d8ff784361680e61f1796f6331a542c184876264f8",
+    "RendererVersion": "9.4.0.129",
+    "FontManifestSha256": "a0b7f848c9af41fc6716cbeaefa0865c5deaf84dbbef847f65441e65dacc43f8",
+    "SourceSha256": "bfc7cca7ae5bc5e99cdaaa34632e9494a9b8fe97d1a5d05baa57f5cd87b89059",
+    "ManifestJson": "{\"policy\":\"GreenLegalV2\",\"composerVersion\":\"GreenSheetComposerV2.2\",\"fontPolicy\":\"LiberationSerif12-v1\",\"glyphClearancePolicy\":\"LiberationSerif12-inset57twips-v1\",\"matterRevision\":4,\"notes\":[{\"id\":\"c1fc5a5a-5ec3-431a-9bf0-6251dee96fdc\",\"number\":1,\"textHash\":\"1593650601FC256C9C32879C51CA7DAB92F44EE3CBDB188BAF6807F02A068369\",\"authorUserId\":\"40d1fe67-dc46-4e66-958e-eb2236e5577f\",\"submittedAt\":\"2026-10-13T20:51:42.713826+00:00\"},{\"id\":\"99045101-72ad-4b47-9b9b-1d3df7e88fe5\",\"number\":2,\"textHash\":\"0F03FA4400A544C0809F33A1DFD59E77106CD7C77482D436CF1D99A0412C4B2B\",\"authorUserId\":\"57b05040-e597-4d3f-97c7-86d2884c7915\",\"submittedAt\":\"2026-10-13T21:03:18.224154+00:00\"}],\"working\":null}"
+  },
+  "NewAccountsCreated": false,
+  "NewDatabaseOrSchemaCreated": false
+}

@@ -1,0 +1,38 @@
+{
+  "scope": "Owned read-only PDF viewport; no native ONLYOFFICE guide implemented",
+  "odd75": {
+    "guideFromLeftPx": 95.66667175292967,
+    "guideHeightPx": 756,
+    "heightPx": 756,
+    "page": 1,
+    "sourceScrollTop": 0,
+    "widthPx": 459
+  },
+  "even75": {
+    "guideFromLeftPx": 363.3229370117187,
+    "guideFromRightPx": 95.67706298828124,
+    "heightPx": 756,
+    "page": 2,
+    "widthPx": 459
+  },
+  "even100": {
+    "guideFromLeftPx": 484.4375,
+    "guideFromRightPx": 127.5625,
+    "heightPx": 1008,
+    "page": 2,
+    "sourceScrollTop": 0,
+    "widthPx": 612
+  },
+  "even50": {
+    "guideFromLeftPx": 242.21875,
+    "guideFromRightPx": 63.78125,
+    "heightPx": 504,
+    "page": 2,
+    "widthPx": 306
+  },
+  "independentScroll": {
+    "leftScrollTop": 550,
+    "rightScrollTop": 0
+  },
+  "excludedCapture": "legal-guide-even-fit-page-1366x768.jpg was page 1 following HMR; retained privately and excluded from even-page acceptance"
+}

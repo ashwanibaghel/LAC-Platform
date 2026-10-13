@@ -1,0 +1,12 @@
+{
+  "AnonymousSource": 401,
+  "OfficerBBeforeReceiptEdit": 403,
+  "OfficerBOtherSessionConfig": 404,
+  "OfficerBAdminDeskAccess": 403,
+  "AuthorizedSourceStatus": 200,
+  "AuthorizedSourceHash": "22e003f244bfa3836f5f3636fdd2e3b46c5e091b595308b31b8f1213a5d6f7e5",
+  "UnsignedCallback": 401,
+  "InvalidJwtCallback": 401,
+  "OperationalPermissionsExpanded": false,
+  "CheckedAt": "2026-10-13T20:54:30.674299+00:00"
+}

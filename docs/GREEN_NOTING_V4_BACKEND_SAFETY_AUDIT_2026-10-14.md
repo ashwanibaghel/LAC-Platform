@@ -1,5 +1,9 @@
 # V4 backend safety gate
 
+This records the audit before final UI wiring. Subsequent real browser acceptance,
+final package/privacy checks and remaining boundaries are recorded in the
+[final workspace checkpoint](GREEN_NOTING_V4_FINAL_WORKSPACE_ACCEPTANCE_2026-10-14.md).
+
 Reviewed the existing V2 architecture against base
 `5bbd843dc4e5de9fc0d38bf8451b6072d8b31a97`, independently of the proposed React
 route. This is an implementation audit by the same agent, not an external security
