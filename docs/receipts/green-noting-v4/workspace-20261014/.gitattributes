@@ -1,0 +1,5 @@
+# Checksum-bound evidence keeps identical bytes on Windows checkouts.
+* text eol=lf
+*.jpg binary
+*.pdf binary
+*.docx binary
