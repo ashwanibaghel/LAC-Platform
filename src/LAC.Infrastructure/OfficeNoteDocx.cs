@@ -117,7 +117,7 @@ public static class OfficeNoteDocx
         }
     }
 
-    private static void CheckInherited(OpenXmlElement? properties)
+    internal static void CheckInherited(OpenXmlElement? properties)
     {
         if (properties is null) return;
         var inherited = new RunProperties(properties.ChildElements.Select(x => x.CloneNode(true)));
@@ -147,7 +147,7 @@ public static class OfficeNoteDocx
 
     public static MemoryStream Create(string contentJson) => Compose([new GreenNoteInput(null, null, null, null, contentJson)]);
 
-    public static MemoryStream Compose(IReadOnlyList<GreenNoteInput> notes)
+    public static MemoryStream Compose(IReadOnlyList<GreenNoteInput> notes, bool glyphClearance = false)
     {
         var output = new MemoryStream();
         using (var package = WordprocessingDocument.Create(output, WordprocessingDocumentType.Document, true))
@@ -171,11 +171,26 @@ public static class OfficeNoteDocx
                 }
             }
             if (!body.HasChildren) body.Append(new Paragraph(Run("", [])));
+            if (glyphClearance)
+                foreach (var paragraph in body.Elements<Paragraph>())
+                {
+                    paragraph.ParagraphProperties ??= new ParagraphProperties();
+                    var indent = paragraph.ParagraphProperties.GetFirstChild<Indentation>();
+                    if (indent is null) { indent = new Indentation(); paragraph.ParagraphProperties.Append(indent); }
+                    indent.Left = ((int.TryParse(indent.Left?.Value, out var left) ? left : 0) + ContinuousGreenEnvelope.GlyphInsetTwips).ToString();
+                    indent.Right = ((int.TryParse(indent.Right?.Value, out var right) ? right : 0) + ContinuousGreenEnvelope.GlyphInsetTwips).ToString();
+                }
             body.Append(new SectionProperties(new PageSize { Width = 12240U, Height = 20160U, Orient = PageOrientationValues.Portrait },
                 new PageMargin { Left = 2551U, Right = 850U, Top = 1417, Bottom = 1417, Gutter = 0U, Header = 0U, Footer = 0U }));
             main.Document = new WDocument(body);
             var settings = main.AddNewPart<DocumentSettingsPart>("rId2");
             settings.Settings = new Settings(new MirrorMargins()); settings.Settings.Save();
+            if (glyphClearance)
+            {
+                settings.Settings.Append(new DefaultTabStop { Val = 720 }, new Compatibility(new CompatibilitySetting {
+                    Name = CompatSettingNameValues.CompatibilityMode, Uri = "http://schemas.microsoft.com/office/word", Val = "14" }));
+                settings.Settings.Save();
+            }
             var styles = main.AddNewPart<StyleDefinitionsPart>("rId3");
             styles.Styles = new Styles(new DocDefaults(new RunPropertiesDefault(new RunPropertiesBaseStyle(
                 new RunFonts { Ascii = "Liberation Serif", HighAnsi = "Liberation Serif", EastAsia = "Liberation Serif", ComplexScript = "Liberation Serif" },

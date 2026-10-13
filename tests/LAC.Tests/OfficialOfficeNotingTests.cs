@@ -145,6 +145,140 @@ public sealed class OfficialOfficeNotingTests
         foreach(var url in new[]{"http://evil.invalid/cache.docx","http://localhost:8083/cache.docx","http://user@localhost:8082/cache.docx","http://localhost:8082/cache.docx#fragment","file:///C:/secret"}) Assert.Throws<MatterWorkflowException>(()=>office.ValidateOrigin(url));
     }
     [OfficeSchemaFact]
+    public async Task V2_tamper_callback_never_commits_and_manifest_is_database_immutable()
+    {
+        var f = await Setup(); await using var db = f.Schema.Context(); var service = f.Service(db);
+        var historicalJson = MatterNotingTextTests.Text("Historical same same"); var historicalText = NotingText.Canonicalize(historicalJson);
+        db.MatterOfficialNotes.Add(new MatterOfficialNote { MatterId = f.Matter, Number = 1, AuthorUserId = f.Actor, AuthorName = "Synthetic historical officer",
+            Designation = "Kanungo", ContentJson = historicalJson, CanonicalText = historicalText, TextHash = NotingText.Hash(historicalText), SubmittedAt = DateTimeOffset.UnixEpoch });
+        await db.SaveChangesAsync();
+        var session = await service.OpenAsync(f.Matter, new(f.Dak, null, ContinuousGreenEnvelope.Version), 0, f.Actor, Guid.NewGuid(), default);
+        var row = await db.MatterOfficeSessions.SingleAsync(x => x.Id == session.Id);
+        var manifest = ContinuousGreenEnvelope.Read(row.HistoryManifestJson!, row.HistoryManifestHash!);
+        Assert.Equal(ContinuousGreenEnvelope.Version, session.CompositionVersion); Assert.Single(manifest.Notes);
+        Assert.NotNull(row.HistoryManifestSeal);
+        using var bytes = ContinuousGreenEnvelope.Compose(manifest, MatterNotingTextTests.Text("Current 😀 same same"));
+        f.Docs.Bytes = bytes.ToArray();
+        Assert.Equal(428, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.SaveAsync(session.Id, new(1), 1, f.Actor, Guid.NewGuid(), default))).StatusCode);
+        var nativeUrl = "http://localhost:8082/cache/files/lac-note-"+session.Id.ToString("N")+"_1/output.docx/Continuous%20Green%20Noting.docx";
+        Assert.Equal(422,(await Assert.ThrowsAsync<MatterWorkflowException>(()=>service.SaveAsync(session.Id,new(1,"http://localhost:8082/healthcheck"),1,f.Actor,Guid.NewGuid(),default))).StatusCode);
+        var save = await service.SaveAsync(session.Id, new(1, nativeUrl), 1, f.Actor, Guid.NewGuid(), default);
+        using (var corrupt = new MemoryStream())
+        {
+            bytes.Position = 0; bytes.CopyTo(corrupt); corrupt.Position = 0;
+            using (var package = DocumentFormat.OpenXml.Packaging.WordprocessingDocument.Open(corrupt, true))
+            { package.MainDocumentPart!.Document!.Descendants<DocumentFormat.OpenXml.Wordprocessing.Text>().First().Text = "Tampered officer"; package.MainDocumentPart.Document.Save(); }
+            f.Docs.Bytes = corrupt.ToArray();
+        }
+        var callback = JsonSerializer.SerializeToElement(new { key = "lac-note-" + session.Id.ToString("N"), status = 6, users = new[] { f.Actor.ToString() }, userdata = save.Id.ToString(), url = "http://localhost:8082/cache/test.docx" });
+        var stored = f.Storage.Files.Count;
+        Assert.Equal(422, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.CallbackAsync(session.Id, callback, default))).StatusCode);
+        db.ChangeTracker.Clear();
+        Assert.Equal(stored, f.Storage.Files.Count); Assert.Single(await db.MatterOfficeSnapshots.ToListAsync());
+        Assert.Equal("Pending", (await service.StatusAsync(session.Id, save.Id, f.Actor, default)).State);
+        using (var stale = ContinuousGreenEnvelope.Compose(manifest, MatterNotingTextTests.Text("Missing final marker")))
+        { f.Docs.Bytes = stale.ToArray(); Assert.Equal(422, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.CallbackAsync(session.Id, callback, default))).StatusCode); }
+        const string changedMarks = """{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Current 😀 same same","marks":[{"type":"bold"}]}]}]}""";
+        using (var stale = ContinuousGreenEnvelope.Compose(manifest, changedMarks))
+        { f.Docs.Bytes = stale.ToArray(); Assert.Equal(422, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.CallbackAsync(session.Id, callback, default))).StatusCode); }
+        db.ChangeTracker.Clear(); Assert.Single(await db.MatterOfficeSnapshots.ToListAsync());
+        f.Docs.Bytes = bytes.ToArray(); Assert.Equal(0, await service.CallbackAsync(session.Id, callback, default));
+        var receipt = await service.StatusAsync(session.Id, save.Id, f.Actor, default);
+        var preview = await service.PreviewAsync(session.Id, new(save.Id), receipt.SessionRevision, f.Actor, Guid.NewGuid(), default);
+        Assert.Equal("Current 😀 same same\n", preview.CanonicalText); Assert.Equal(ContinuousGreenEnvelope.Version, preview.ConverterVersion);
+        Assert.Single(await db.MatterOfficialNotes.ToListAsync());
+        await using var conn = new NpgsqlConnection(f.Schema.Connection); await conn.OpenAsync();
+        await using var tamper = new NpgsqlCommand("UPDATE \"MatterOfficeSessions\" SET \"HistoryManifestJson\"='{}', \"Revision\"=\"Revision\"+1", conn);
+        await Assert.ThrowsAsync<PostgresException>(() => tamper.ExecuteNonQueryAsync());
+        await using var changeCapture = new NpgsqlCommand("UPDATE \"MatterOfficeSaveRequests\" SET \"NativeContentHash\"=repeat('A',64)", conn);
+        await Assert.ThrowsAsync<PostgresException>(() => changeCapture.ExecuteNonQueryAsync());
+    }
+    [OfficeSchemaFact]
+    public async Task V2_live_chain_change_blocks_writes_and_recovery_rewraps_only_current_content()
+    {
+        var f = await Setup(); await using var db = f.Schema.Context(); var service = f.Service(db);
+        var session = await service.OpenAsync(f.Matter, new(f.Dak, null, ContinuousGreenEnvelope.Version), 0, f.Actor, Guid.NewGuid(), default);
+        var lease = await db.MatterOfficeSessions.SingleAsync(x => x.Id == session.Id);
+        var manifest = ContinuousGreenEnvelope.Read(lease.HistoryManifestJson!, lease.HistoryManifestHash!);
+        using var bytes = ContinuousGreenEnvelope.Compose(manifest, MatterNotingTextTests.Text("Committed current survives")); f.Docs.Bytes = bytes.ToArray();
+        var save = await service.SaveAsync(session.Id, new(1, "http://localhost:8082/cache/files/lac-note-"+session.Id.ToString("N")+"_1/output.docx/Continuous%20Green%20Noting.docx"), 1, f.Actor, Guid.NewGuid(), default);
+        var callback = JsonSerializer.SerializeToElement(new { key = "lac-note-" + session.Id.ToString("N"), status = 6, users = new[] { f.Actor.ToString() }, userdata = save.Id.ToString(), url = "http://localhost:8082/cache/test.docx" });
+        await service.CallbackAsync(session.Id, callback, default);
+        var receipt = await service.StatusAsync(session.Id, save.Id, f.Actor, default);
+        var json = MatterNotingTextTests.Text("New synthetic fixture chain entry"); var text = NotingText.Canonicalize(json);
+        db.MatterOfficialNotes.Add(new MatterOfficialNote { MatterId = f.Matter, Number = 1, AuthorUserId = f.Actor, AuthorName = "Synthetic fixture",
+            Designation = "Kanungo", ContentJson = json, CanonicalText = text, TextHash = NotingText.Hash(text), SubmittedAt = DateTimeOffset.UnixEpoch }); await db.SaveChangesAsync();
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.SaveAsync(session.Id, new(2), receipt.SessionRevision, f.Actor, Guid.NewGuid(), default))).StatusCode);
+        var fresh = await service.OpenAsync(f.Matter, new(f.Dak, null, ContinuousGreenEnvelope.Version), 0, f.Actor, Guid.NewGuid(), default);
+        var freshRow = await db.MatterOfficeSessions.SingleAsync(x => x.Id == fresh.Id); var snap = await db.MatterOfficeSnapshots.SingleAsync(x => x.Id == fresh.LatestSnapshotId);
+        var freshManifest = ContinuousGreenEnvelope.Read(freshRow.HistoryManifestJson!, freshRow.HistoryManifestHash!); Assert.Single(freshManifest.Notes);
+        using var recovered = await f.Storage.OpenReadAsync(snap.StoragePath, default);
+        Assert.Equal("Committed current survives\n", ContinuousGreenEnvelope.Convert(recovered!, freshManifest).CanonicalText);
+        Assert.Equal("Revoked", (await db.MatterOfficeSessions.SingleAsync(x => x.Id == session.Id)).State);
+    }
+    [OfficeSchemaFact]
+    public async Task V1_open_fingerprint_and_default_replay_remain_compatible()
+    {
+        var f = await Setup(); await using var db = f.Schema.Context(); var key = Guid.NewGuid(); var service = f.Service(db);
+        var session = await service.OpenAsync(f.Matter, new(f.Dak), 0, f.Actor, key, default);
+        var originalShape = new { action = "OfficeOpen", matter = f.Matter, cmd = new { SourceDakId = (Guid?)f.Dak, ResumeSnapshotId = (Guid?)null }, workingRevision = 0 };
+        var expected = NotingText.Hash(JsonSerializer.Serialize(originalShape, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        Assert.Equal(expected, (await db.MatterWorkflowReceipts.SingleAsync(x => x.RequestId == key)).PayloadHash);
+        Assert.Equal(session.Id, (await service.OpenAsync(f.Matter, new(f.Dak, null, OfficeNoteDocx.ConverterVersion), 0, f.Actor, key, default)).Id);
+        Assert.Equal(422, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.OpenAsync(f.Matter, new(f.Dak, null, "Unknown"), 0, f.Actor, Guid.NewGuid(), default))).StatusCode);
+        var saveKey = Guid.NewGuid(); await service.SaveAsync(session.Id,new(1),1,f.Actor,saveKey,default);
+        var oldSave = new { action="OfficeSave", id=session.Id, cmd=new { ClientGeneration=1 }, revision=1 };
+        Assert.Equal(NotingText.Hash(JsonSerializer.Serialize(oldSave,new JsonSerializerOptions(JsonSerializerDefaults.Web))),
+            (await db.MatterWorkflowReceipts.SingleAsync(x=>x.RequestId==saveKey)).PayloadHash);
+    }
+    private sealed class V4PreparationFactAttribute : FactAttribute
+    {
+        public V4PreparationFactAttribute()
+        {
+            if (Environment.GetEnvironmentVariable("LAC_V4_PREPARE_ROOT") is null || Environment.GetEnvironmentVariable("LAC_OFFICE_TEST_CONNECTION") is null || Environment.GetEnvironmentVariable("LAC_OFFICE_TEST_BASELINE") is null)
+                Skip = "Requires explicit isolated synthetic preparation; never creates/replaces operational accounts.";
+        }
+    }
+    [V4PreparationFact]
+    public async Task Prepare_fresh_synthetic_Matter_for_the_real_authenticated_native_checkpoint()
+    {
+        var root = Path.GetFullPath(Environment.GetEnvironmentVariable("LAC_V4_PREPARE_ROOT")!);
+        var allowed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex","artifacts") + Path.DirectorySeparatorChar;
+        if (!root.StartsWith(allowed,StringComparison.OrdinalIgnoreCase) || File.Exists(Path.Combine(root,"fresh-host-manifest.json"))) throw new InvalidOperationException("Use a fresh private task root; preserve prior acceptance evidence.");
+        var f=await Setup(); await using var db=f.Schema.Context();
+        var template=await db.Matters.AsNoTracking().SingleAsync(x=>x.Id==f.Matter);
+        var deskA=await db.UserDeskMemberships.Where(x=>x.UserId==f.Actor && x.IsActive).Select(x=>x.OfficeDeskId).SingleAsync();
+        var deskB=await db.UserDeskMemberships.Where(x=>x.UserId==f.Other && x.IsActive).Select(x=>x.OfficeDeskId).SingleAsync();
+        var matter=new Matter {VillageId=template.VillageId,WorkstreamId=template.WorkstreamId,NativeOwnerUserId=f.Actor,Title="SYNTHETIC V4 CONTINUOUS ACCEPTANCE " + Guid.NewGuid().ToString("N"),MatterType="General"};
+        var document=await db.MatterDocuments.Where(x=>x.MatterId==f.Matter && x.Document.MimeType=="application/pdf").Select(x=>x.Document).FirstAsync();
+        var role=await db.UserRoles.Where(x=>x.UserId==f.Other).Select(x=>x.RoleId).SingleAsync();
+        string[] codes=[PermissionCodes.MatterView,PermissionCodes.MatterEdit,PermissionCodes.MatterDocumentManage,PermissionCodes.DraftView,PermissionCodes.DraftCreate,PermissionCodes.DraftEdit,PermissionCodes.DakView,PermissionCodes.DakReceive,PermissionCodes.DakMove];
+        foreach(var p in await db.Permissions.Where(x=>codes.Contains(x.Code)).ToListAsync())
+            if(!await db.RolePermissions.AnyAsync(x=>x.RoleId==role && x.PermissionId==p.Id)) db.RolePermissions.Add(new RolePermission {RoleId=role,PermissionId=p.Id,ScopeMode=ScopeMode.All});
+        await db.SaveChangesAsync();
+        var roleA=await db.UserRoles.Where(x=>x.UserId==f.Actor).Select(x=>x.RoleId).SingleAsync();
+        string[] fixtureCodes=[PermissionCodes.DakRegister,PermissionCodes.DakMark,PermissionCodes.DakReceive,PermissionCodes.DakEdit];
+        foreach(var p in await db.Permissions.Where(x=>fixtureCodes.Contains(x.Code)).ToListAsync())
+            if(!await db.RolePermissions.AnyAsync(x=>x.RoleId==roleA && x.PermissionId==p.Id)) db.RolePermissions.Add(new RolePermission {RoleId=roleA,PermissionId=p.Id,ScopeMode=ScopeMode.All});
+        await db.SaveChangesAsync();
+        // Use real custody transitions; the database forbids fabricated confirmed assignments.
+        var custody=new DakWorkflowService(db,f.Storage);
+        using var input=new MemoryStream(f.Storage.Files[document.StoragePath]);
+        var dak=await custody.RegisterAsync(new("SYN-V4-"+Guid.NewGuid().ToString("N"),DateOnly.FromDateTime(DateTime.UtcNow),matter.Title,"Synthetic office sample",null,null,null,null,null,"Email",DakPriority.Routine,null,null,template.WorkstreamId,input,"synthetic-receipt.pdf","application/pdf",Guid.NewGuid()),f.Actor);
+        var marked=await custody.SendAsync(dak.Id,new(DakMovementAction.Marked,deskA,f.Actor,DakDestinationKind.Officer,false,null,null,dak.Revision,Guid.NewGuid()),f.Actor);
+        var received=await custody.ReceiveAsync(dak.Id,marked.TransferId!.Value,new(marked.Revision,Guid.NewGuid()),f.Actor);
+        await f.Workflow(db).ClassifyAsync(dak.Id,new("VillageSpecific",[template.VillageId],received.Revision),f.Actor,Guid.NewGuid(),default);
+        db.Matters.Add(matter);db.DakMatterLinks.Add(new DakMatterLink {DakId=dak.Id,MatterId=matter.Id});
+        db.MatterDocuments.Add(new MatterDocument {MatterId=matter.Id,DocumentId=document.Id,DocumentRole="Evidence",DisplayName="Original synthetic receipt PDF"});
+        await db.SaveChangesAsync();
+        Directory.CreateDirectory(Path.Combine(root,"api-host","documents"));
+        foreach(var file in f.Storage.Files) File.WriteAllBytes(Path.Combine(root,"api-host","documents",file.Key),file.Value);
+        var dakRevision=await db.Daks.Where(x=>x.Id==dak.Id).Select(x=>x.Revision).SingleAsync();
+        File.WriteAllText(Path.Combine(root,"fresh-host-manifest.json"),JsonSerializer.Serialize(new {Schema=f.Schema.Name,Database="lac_onlyoffice_real_9b0459_20261012",DatabasePort=56683,MatterId=matter.Id,DakId=dak.Id,DakRevision=dakRevision,ActorA=f.Actor,ActorB=f.Other,DeskA=deskA,DeskB=deskB,DocumentId=document.Id,DocumentSha256=document.Sha256Hash,PreparedAt=DateTimeOffset.UtcNow,ExistingIdentitiesCloned=true,PublicSchemaUnchanged=true,ConfirmedViaRealReceipt=true},new JsonSerializerOptions {WriteIndented=true}));
+        Assert.Empty(await db.MatterOfficialNotes.Where(x=>x.MatterId==matter.Id).ToListAsync());
+        Assert.Equal(3,dakRevision);
+    }
+    [OfficeSchemaFact]
     public async Task Expired_lease_rejects_writes_review_download_and_config_and_recovers_only_committed_bytes()
     {
         var f = await Setup(); await using var db = f.Schema.Context();

@@ -43,10 +43,10 @@ public sealed class GreenSheetService(LacDbContext db, MatterNotingWorkflow work
                 input.Add(new((notes.LastOrDefault()?.Number ?? 0) + 1, user.DisplayName, user.CustomDesignation ?? user.Designation?.Name ?? "", clock.GetUtcNow(), preview.ContentJson, true));
             }
             if (input.Count == 0) throw new MatterWorkflowException("There are no submitted notes or committed reviewed working preview to print.", 409);
-            using var docx = OfficeNoteDocx.Compose(input);
+            using var docx = OfficeNoteDocx.Compose(input, glyphClearance: true);
             var saved = await storage.SaveAndHashAsync(docx, "green-sheet-source.docx", c);
             var source = new MatterGreenSheetSource { MatterId = matter, ActorUserId = actor, WorkingPreviewId = cmd.PreviewId,
-                ManifestJson = JsonSerializer.Serialize(new { policy = "GreenLegalV2", composerVersion = "GreenSheetComposerV2.1", fontPolicy = OfficeNoteDocx.FontPolicy,
+                ManifestJson = JsonSerializer.Serialize(new { policy = "GreenLegalV2", composerVersion = "GreenSheetComposerV2.2", fontPolicy = OfficeNoteDocx.FontPolicy, glyphClearancePolicy = ContinuousGreenEnvelope.GlyphPolicy,
                     matterRevision = m.Revision, notes = notes.Select(n => new { n.Id, n.Number, n.TextHash, n.AuthorUserId, n.SubmittedAt }),
                     working = preview is null ? null : new { preview.Id, preview.CanonicalHash, preview.SnapshotId, label = "UNSUBMITTED WORKING PREVIEW" } }, Json),
                 StoragePath = saved.StoragePath, Sha256 = saved.Sha256Hash.ToLowerInvariant(), CreatedAt = clock.GetUtcNow() };

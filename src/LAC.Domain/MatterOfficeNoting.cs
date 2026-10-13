@@ -13,6 +13,10 @@ public sealed class MatterOfficeSession
     public DateTimeOffset ExpiresAt { get; set; }
     public string DocumentKey { get; set; } = "";
     public Guid? LatestSnapshotId { get; set; }
+    public string CompositionVersion { get; set; } = "OfficeNoteV1";
+    public string? HistoryManifestJson { get; set; }
+    public string? HistoryManifestHash { get; set; }
+    public string? HistoryManifestSeal { get; set; }
 }
 
 public sealed class MatterOfficeSaveRequest
@@ -28,6 +32,11 @@ public sealed class MatterOfficeSaveRequest
     public DateTimeOffset Deadline { get; set; }
     public Guid? SnapshotId { get; set; }
     public string? FailureCode { get; set; }
+    public string? NativeCaptureStoragePath { get; set; }
+    public string? NativeCaptureSha256 { get; set; }
+    public long? NativeCaptureSize { get; set; }
+    public string? NativeCanonicalHash { get; set; }
+    public string? NativeContentHash { get; set; }
 }
 
 public sealed class MatterOfficeSnapshot

@@ -10,10 +10,17 @@ public static class MatterOfficeNotingConfiguration
         b.Entity<MatterOfficeSession>().HasIndex(x => x.DocumentKey).IsUnique();
         b.Entity<MatterOfficeSession>().HasIndex(x => new { x.MatterId, x.ActorUserId }).IsUnique().HasFilter("\"State\" IN ('Active','Frozen','Reviewed')");
         b.Entity<MatterOfficeSession>().Property(x => x.Revision).IsConcurrencyToken();
+        b.Entity<MatterOfficeSession>().Property(x => x.CompositionVersion).HasDefaultValue("OfficeNoteV1");
+        b.Entity<MatterOfficeSession>().ToTable("MatterOfficeSessions", t => t.HasCheckConstraint("CK_Office_Composition",
+            "(\"CompositionVersion\" = 'OfficeNoteV1' AND \"HistoryManifestJson\" IS NULL AND \"HistoryManifestHash\" IS NULL AND \"HistoryManifestSeal\" IS NULL) OR " +
+            "(\"CompositionVersion\" = 'ContinuousGreenEnvelopeV2' AND \"HistoryManifestJson\" IS NOT NULL AND \"HistoryManifestHash\" IS NOT NULL AND \"HistoryManifestHash\" ~ '^[0-9A-F]{64}$' AND \"HistoryManifestSeal\" IS NOT NULL)"));
         b.Entity<MatterOfficeSession>().HasOne<Matter>().WithMany().HasForeignKey(x => x.MatterId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MatterOfficeSession>().HasOne<AppUser>().WithMany().HasForeignKey(x => x.ActorUserId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MatterOfficeSession>().HasOne<Dak>().WithMany().HasForeignKey(x => x.SourceDakId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MatterOfficeSaveRequest>().HasIndex(x => new { x.ActorUserId, x.RequestId }).IsUnique();
+        b.Entity<MatterOfficeSaveRequest>().ToTable("MatterOfficeSaveRequests", t => t.HasCheckConstraint("CK_Office_NativeCapture",
+            "(\"NativeCaptureStoragePath\" IS NULL AND \"NativeCaptureSha256\" IS NULL AND \"NativeCaptureSize\" IS NULL AND \"NativeCanonicalHash\" IS NULL AND \"NativeContentHash\" IS NULL) OR " +
+            "(\"NativeCaptureStoragePath\" IS NOT NULL AND \"NativeCaptureStoragePath\" <> '' AND \"NativeCaptureSha256\" IS NOT NULL AND \"NativeCaptureSha256\" ~ '^[0-9a-f]{64}$' AND \"NativeCaptureSize\" IS NOT NULL AND \"NativeCaptureSize\" BETWEEN 1 AND 5242880 AND \"NativeCanonicalHash\" IS NOT NULL AND \"NativeCanonicalHash\" ~ '^[0-9A-F]{64}$' AND \"NativeContentHash\" IS NOT NULL AND \"NativeContentHash\" ~ '^[0-9A-F]{64}$')"));
         b.Entity<MatterOfficeSaveRequest>().HasIndex(x => x.SessionId).IsUnique().HasFilter("\"State\" = 'Pending'");
         b.Entity<MatterOfficeSaveRequest>().HasOne<MatterOfficeSession>().WithMany().HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Restrict);
         b.Entity<MatterOfficeSaveRequest>().HasOne<MatterOfficeSnapshot>().WithMany().HasForeignKey(x => x.SnapshotId).OnDelete(DeleteBehavior.Restrict);

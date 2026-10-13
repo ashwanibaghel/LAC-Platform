@@ -5178,6 +5178,21 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<string>("FailureCode")
                         .HasColumnType("text");
 
+                    b.Property<string>("NativeCanonicalHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NativeCaptureSha256")
+                        .HasColumnType("text");
+
+                    b.Property<long?>("NativeCaptureSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("NativeCaptureStoragePath")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NativeContentHash")
+                        .HasColumnType("text");
+
                     b.Property<string>("PayloadHash")
                         .IsRequired()
                         .HasColumnType("text");
@@ -5212,6 +5227,8 @@ namespace LAC.Infrastructure.Migrations
                     b.ToTable("MatterOfficeSaveRequests", null, t =>
                         {
                             t.HasCheckConstraint("CK_MatterOfficeSaveRequest_State", "\"State\" IN ('Pending','Failed','Committed')");
+
+                            t.HasCheckConstraint("CK_Office_NativeCapture", "(\"NativeCaptureStoragePath\" IS NULL AND \"NativeCaptureSha256\" IS NULL AND \"NativeCaptureSize\" IS NULL AND \"NativeCanonicalHash\" IS NULL AND \"NativeContentHash\" IS NULL) OR (\"NativeCaptureStoragePath\" IS NOT NULL AND \"NativeCaptureStoragePath\" <> '' AND \"NativeCaptureSha256\" IS NOT NULL AND \"NativeCaptureSha256\" ~ '^[0-9a-f]{64}$' AND \"NativeCaptureSize\" IS NOT NULL AND \"NativeCaptureSize\" BETWEEN 1 AND 5242880 AND \"NativeCanonicalHash\" IS NOT NULL AND \"NativeCanonicalHash\" ~ '^[0-9A-F]{64}$' AND \"NativeContentHash\" IS NOT NULL AND \"NativeContentHash\" ~ '^[0-9A-F]{64}$')");
                         });
                 });
 
@@ -5227,12 +5244,27 @@ namespace LAC.Infrastructure.Migrations
                     b.Property<Guid>("ActorUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("CompositionVersion")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("OfficeNoteV1");
+
                     b.Property<string>("DocumentKey")
                         .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<DateTimeOffset>("ExpiresAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HistoryManifestHash")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HistoryManifestJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HistoryManifestSeal")
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("LatestSnapshotId")
                         .HasColumnType("uuid");
@@ -5270,6 +5302,8 @@ namespace LAC.Infrastructure.Migrations
                     b.ToTable("MatterOfficeSessions", null, t =>
                         {
                             t.HasCheckConstraint("CK_MatterOfficeSession_State", "\"State\" IN ('Active','Frozen','Reviewed','Revoked','Submitted')");
+
+                            t.HasCheckConstraint("CK_Office_Composition", "(\"CompositionVersion\" = 'OfficeNoteV1' AND \"HistoryManifestJson\" IS NULL AND \"HistoryManifestHash\" IS NULL AND \"HistoryManifestSeal\" IS NULL) OR (\"CompositionVersion\" = 'ContinuousGreenEnvelopeV2' AND \"HistoryManifestJson\" IS NOT NULL AND \"HistoryManifestHash\" IS NOT NULL AND \"HistoryManifestHash\" ~ '^[0-9A-F]{64}$' AND \"HistoryManifestSeal\" IS NOT NULL)");
                         });
                 });
 

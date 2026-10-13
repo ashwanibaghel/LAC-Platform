@@ -29,11 +29,23 @@ public static class OfficeNotingSubmission
         if (preview is null || preview.SessionId != session.Id || session.State != "Reviewed" || session.ExpiresAt <= DateTimeOffset.UtcNow ||
             actor.SessionVersion != session.ActorSessionVersion || session.WorkingRevision != draft.Revision || session.SourceDakId != draft.SourceDakId ||
             preview.SourceDakId != draft.SourceDakId || preview.SnapshotId != session.LatestSnapshotId ||
-            preview.ConverterVersion != OfficeNoteDocx.ConverterVersion || preview.CanonicalHash != hash || preview.CanonicalText != draft.CanonicalText ||
+            preview.ConverterVersion != session.CompositionVersion || session.CompositionVersion is not (OfficeNoteDocx.ConverterVersion or ContinuousGreenEnvelope.Version) || preview.CanonicalHash != hash || preview.CanonicalText != draft.CanonicalText ||
             preview.ContentJson != draft.ContentJson || NotingText.Canonicalize(draft.ContentJson) != draft.CanonicalText)
             throw new MatterWorkflowException("Office review is stale, expired or differs from the saved canonical note.", 409);
         var snapshot = await db.MatterOfficeSnapshots.SingleAsync(x => x.Id == preview.SnapshotId && x.SessionId == session.Id, ct);
         await VerifyBytesAsync(storage, snapshot, ct);
+        if (session.CompositionVersion == ContinuousGreenEnvelope.Version)
+        {
+            var manifest = await ContinuousGreenEnvelope.AuthoritativeAsync(db, session, ct);
+            await using var bytes = await storage.OpenReadAsync(snapshot.StoragePath, ct) ?? throw new MatterWorkflowException("Snapshot unavailable.", 409);
+            var canonical = ContinuousGreenEnvelope.Convert(bytes, manifest);
+            if (canonical.ContentJson != preview.ContentJson || canonical.CanonicalText != preview.CanonicalText || canonical.CanonicalHash != preview.CanonicalHash)
+                throw new MatterWorkflowException("Envelope differs from officer-confirmed canonical content.", 409);
+            var request = await db.MatterOfficeSaveRequests.SingleAsync(x => x.Id == snapshot.SaveRequestId && x.SessionId == session.Id && x.SnapshotId == snapshot.Id && x.State == "Committed", ct);
+            await OfficeNativeCapture.VerifyAsync(storage, request, manifest, ct);
+            if (canonical.CanonicalHash != request.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(canonical) != request.NativeContentHash)
+                throw new MatterWorkflowException("Submission differs from quiesced native capture.", 409);
+        }
         session.State = "Submitted"; session.Revision++;
         return new MatterOfficeNoteEvidence { PreviewId = preview.Id, SnapshotId = snapshot.Id, Sha256 = snapshot.Sha256, ConverterVersion = preview.ConverterVersion };
     }

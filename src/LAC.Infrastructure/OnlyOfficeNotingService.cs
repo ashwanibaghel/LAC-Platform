@@ -5,11 +5,12 @@ using System.Text.Json;
 using LAC.Domain;
 using Microsoft.EntityFrameworkCore;
 
-public sealed record OpenOfficeNoteCommand(Guid? SourceDakId, Guid? ResumeSnapshotId = null);
-public sealed record SaveOfficeNoteCommand([property: System.Text.Json.Serialization.JsonRequired] int ClientGeneration);
+public sealed record OpenOfficeNoteCommand(Guid? SourceDakId, Guid? ResumeSnapshotId = null, string? CompositionVersion = null);
+public sealed record SaveOfficeNoteCommand([property: System.Text.Json.Serialization.JsonRequired] int ClientGeneration,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? NativeExportUrl = null);
 public sealed record PreviewOfficeNoteCommand(Guid SaveRequestId);
 public sealed record ConfirmOfficeNoteCommand(Guid PreviewId, string CanonicalHash, bool ResetCitations = false);
-public sealed record OfficeSessionInfo(Guid Id, Guid MatterId, Guid ActorUserId, Guid? SourceDakId, int WorkingRevision, int Revision, string State, DateTimeOffset ExpiresAt, Guid? LatestSnapshotId);
+public sealed record OfficeSessionInfo(Guid Id, Guid MatterId, Guid ActorUserId, Guid? SourceDakId, int WorkingRevision, int Revision, string State, DateTimeOffset ExpiresAt, Guid? LatestSnapshotId, string CompositionVersion = "OfficeNoteV1");
 public sealed record OfficeSaveInfo(Guid Id, Guid SessionId, int ClientGeneration, int SessionRevision, string State, DateTimeOffset Deadline, Guid? SnapshotId, string? Sha256, int? Version, string? FailureCode);
 
 public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflow workflow, IDocumentStorage storage,
@@ -17,7 +18,7 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private DateTimeOffset Now => clock.GetUtcNow();
-    private static OfficeSessionInfo Info(MatterOfficeSession s) => new(s.Id, s.MatterId, s.ActorUserId, s.SourceDakId, s.WorkingRevision, s.Revision, s.State, s.ExpiresAt, s.LatestSnapshotId);
+    private static OfficeSessionInfo Info(MatterOfficeSession s) => new(s.Id, s.MatterId, s.ActorUserId, s.SourceDakId, s.WorkingRevision, s.Revision, s.State, s.ExpiresAt, s.LatestSnapshotId, s.CompositionVersion);
     private static string Hash(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 
     public async Task<MatterOfficeSession> AuthorizeAsync(Guid id, Guid actor, bool active, CancellationToken ct)
@@ -31,13 +32,24 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
         if (s.ExpiresAt <= Now || s.ActorSessionVersion != user.SessionVersion || draft?.OfficeSessionId != s.Id || draft.Revision != s.WorkingRevision ||
             draft.SourceDakId != s.SourceDakId || (active ? s.State != "Active" : s.State is not ("Active" or "Frozen" or "Reviewed")))
             throw new MatterWorkflowException("Office session is expired, revoked, frozen or stale; recover the last committed note.", 409);
+        if (s.CompositionVersion == ContinuousGreenEnvelope.Version)
+        {
+            VerifyManifestSeal(s);
+            await ContinuousGreenEnvelope.AuthoritativeAsync(db, s, ct);
+        }
         return s;
     }
 
     public Task<OfficeSessionInfo> OpenAsync(Guid matter, OpenOfficeNoteCommand cmd, int workingRevision, Guid actor, Guid key, CancellationToken ct)
     {
         office.Enabled();
-        return workflow.OfficeCommandAsync(matter, cmd.SourceDakId, actor, key, new { action = "OfficeOpen", matter, cmd, workingRevision }, async c =>
+        var version = cmd.CompositionVersion ?? OfficeNoteDocx.ConverterVersion;
+        if (version is not (OfficeNoteDocx.ConverterVersion or ContinuousGreenEnvelope.Version)) throw new MatterWorkflowException("Unknown Office composition version.", 422);
+        // Preserve old idempotency fingerprints exactly when the additive field is omitted.
+        object commandPayload = version == OfficeNoteDocx.ConverterVersion
+            ? new { action = "OfficeOpen", matter, cmd = new { cmd.SourceDakId, cmd.ResumeSnapshotId }, workingRevision }
+            : new { action = "OfficeOpen", matter, cmd, workingRevision };
+        return workflow.OfficeCommandAsync(matter, cmd.SourceDakId, actor, key, commandPayload, async c =>
         {
             var draft = await db.MatterWorkingNotes.SingleOrDefaultAsync(x => x.MatterId == matter && x.AuthorUserId == actor, c);
             if ((draft?.Revision ?? 0) != workingRevision) throw new MatterWorkflowException("Working note revision changed.", 409);
@@ -46,8 +58,16 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
             await db.SaveChangesAsync(c); // Release the unique live lease before inserting its replacement, in this transaction.
             var user = await db.AppUsers.AsNoTracking().SingleAsync(x => x.Id == actor, c);
             var session = new MatterOfficeSession { MatterId = matter, ActorUserId = actor, SourceDakId = cmd.SourceDakId, WorkingRevision = workingRevision,
-                ActorSessionVersion = user.SessionVersion, ExpiresAt = Now.AddMinutes(Math.Clamp(office.NotingOptions.LeaseMinutes, 1, 60)) };
+                ActorSessionVersion = user.SessionVersion, ExpiresAt = Now.AddMinutes(Math.Clamp(office.NotingOptions.LeaseMinutes, 1, 60)), CompositionVersion = version };
             session.DocumentKey = "lac-note-" + session.Id.ToString("N");
+            GreenEnvelopeManifest? manifest = null;
+            if (version == ContinuousGreenEnvelope.Version)
+            {
+                manifest = await ContinuousGreenEnvelope.CaptureAsync(db, session, c);
+                session.HistoryManifestJson = ContinuousGreenEnvelope.Serialize(manifest);
+                session.HistoryManifestHash = NotingText.Hash(session.HistoryManifestJson);
+                session.HistoryManifestSeal = tokens.Sign(new { purpose = "green-envelope-manifest", sessionId = session.Id, actor, matter, hash = session.HistoryManifestHash });
+            }
             DocumentStorageWriteResult saved;
             var resumeId = cmd.ResumeSnapshotId;
             if (resumeId is null && draft?.OfficeSessionId is { } priorId)
@@ -60,11 +80,23 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
                 var prior = await db.MatterOfficeSessions.AsNoTracking().SingleAsync(x => x.Id == original.SessionId, c);
                 if (prior.MatterId != matter || prior.SourceDakId != cmd.SourceDakId) throw new MatterWorkflowException("Recovery snapshot belongs to a different working context.", 409);
                 await OfficeNotingSubmission.VerifyBytesAsync(storage, original, c);
-                saved = new(original.StoragePath, original.Sha256, original.FileSize);
+                if (version == OfficeNoteDocx.ConverterVersion && prior.CompositionVersion == OfficeNoteDocx.ConverterVersion)
+                    saved = new(original.StoragePath, original.Sha256, original.FileSize);
+                else
+                {
+                    await using var priorBytes = await storage.OpenReadAsync(original.StoragePath, c) ?? throw new MatterWorkflowException("Recovery snapshot unavailable.", 409);
+                    // Recovery uses the old captured manifest (not the new live history).
+                    // Rewrap only validated current content; historical bytes never leak into it.
+                    var current = prior.CompositionVersion == ContinuousGreenEnvelope.Version
+                        ? ContinuousGreenEnvelope.Convert(priorBytes, VerifyManifestSeal(prior)) : OfficeNoteDocx.Convert(priorBytes);
+                    using var fresh = manifest is null ? OfficeNoteDocx.Create(current.ContentJson) : ContinuousGreenEnvelope.Compose(manifest, current.ContentJson);
+                    saved = await storage.SaveAndHashAsync(fresh, "green-working-note.docx", c);
+                }
             }
             else
             {
-                using var bytes = OfficeNoteDocx.Create(string.IsNullOrEmpty(draft?.ContentJson) ? "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[]}]}" : draft.ContentJson);
+                var current = string.IsNullOrEmpty(draft?.ContentJson) ? "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[]}]}" : draft.ContentJson;
+                using var bytes = manifest is null ? OfficeNoteDocx.Create(current) : ContinuousGreenEnvelope.Compose(manifest, current);
                 saved = await storage.SaveAndHashAsync(bytes, "green-working-note.docx", c);
             }
             var snapshot = new MatterOfficeSnapshot { SessionId = session.Id, ActorUserId = actor, Version = 0,
@@ -83,15 +115,18 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
         var snap = await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x => x.Id == s.LatestSnapshotId && x.SessionId == s.Id, ct);
         var fileToken = tokens.Sign(new { purpose = "noting-office-file", sessionId = id, actor, snapshotId = snap.Id, exp = s.ExpiresAt.ToUnixTimeSeconds() });
         var user = await db.AppUsers.AsNoTracking().SingleAsync(x => x.Id == actor, ct);
+        var customization = new Dictionary<string, object?> { ["autosave"] = true, ["forcesave"] = false,
+            ["compactHeader"] = true, ["compactToolbar"] = true, ["zoom"] = 85 };
+        if (s.CompositionVersion == ContinuousGreenEnvelope.Version) customization["uiTheme"] = "theme-light";
         var config = new Dictionary<string, object?>
         {
             ["documentType"] = "word",
-            ["document"] = new { fileType = "docx", key = s.DocumentKey, title = "Current private Green Note.docx",
+            ["document"] = new { fileType = "docx", key = s.DocumentKey, title = s.CompositionVersion == ContinuousGreenEnvelope.Version ? "Continuous Green Noting.docx" : "Current private Green Note.docx",
                 url = office.Options.AppExternalUrl.TrimEnd('/') + $"/api/noting-office/sessions/{id}/file?token=" + Uri.EscapeDataString(fileToken),
-                permissions = new { edit = true, download = false, print = false, review = false, comment = false } },
+                permissions = new { edit = true, download = s.CompositionVersion == ContinuousGreenEnvelope.Version, print = false, review = false, comment = false, modifyContentControl = false } },
             ["editorConfig"] = new { mode = "edit", user = new { id = actor.ToString(), name = user.DisplayName },
                 callbackUrl = office.Options.AppExternalUrl.TrimEnd('/') + $"/api/noting-office/sessions/{id}/callback",
-                customization = new { autosave = true, forcesave = false, compactHeader = true, compactToolbar = true, zoom = 85 } },
+                customization },
             ["exp"] = s.ExpiresAt.ToUnixTimeSeconds()
         };
         config["token"] = tokens.Sign(config);
@@ -126,7 +161,21 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
     public async Task<OfficeSaveInfo> SaveAsync(Guid id, SaveOfficeNoteCommand cmd, int revision, Guid actor, Guid key, CancellationToken ct)
     {
         var session = await AuthorizeAsync(id, actor, true, ct);
+        if (key == Guid.Empty) throw new MatterWorkflowException("A UUID Idempotency-Key is required.", 428);
         if (cmd.ClientGeneration < 0) throw new MatterWorkflowException("A nonnegative editor generation is required.");
+        byte[]? nativeBytes = null;
+        if (session.CompositionVersion == ContinuousGreenEnvelope.Version)
+        {
+            if (string.IsNullOrWhiteSpace(cmd.NativeExportUrl)) throw new MatterWorkflowException("V2 requires a native DOCX export after input quiescence and synchronization; no save was started.", 428);
+            var exportUri = office.ValidateOrigin(cmd.NativeExportUrl);
+            var path = Uri.UnescapeDataString(exportUri.AbsolutePath);
+            var acceptedPath = "^/cache/files/(?:data/)?" + System.Text.RegularExpressions.Regex.Escape(session.DocumentKey) + "(?:_[A-Za-z0-9-]+)?/output[.]docx/[A-Za-z0-9._ -]+[.]docx$";
+            if (cmd.NativeExportUrl.Length > 8192 || !System.Text.RegularExpressions.Regex.IsMatch(path, acceptedPath) || path.Split('/').Any(x => x is "." or ".."))
+                throw new MatterWorkflowException("Unexpected native DOCX export path.", 422);
+            if (!await db.MatterOfficeSaveRequests.AnyAsync(x => x.SessionId == id && x.ActorUserId == actor && x.RequestId == key, ct))
+                nativeBytes = await office.DownloadAsync(cmd.NativeExportUrl, OfficeNoteDocx.MaxBytes, ct);
+        }
+        else if (cmd.NativeExportUrl is not null) throw new MatterWorkflowException("Native capture is supported only by ContinuousGreenEnvelopeV2.", 422);
         var requestId = await workflow.OfficeCommandAsync(session.MatterId, session.SourceDakId, actor, key,
             new { action = "OfficeSave", id, cmd, revision }, async c =>
             {
@@ -141,6 +190,15 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
                 var r = new MatterOfficeSaveRequest { SessionId = id, ActorUserId = actor, RequestId = key, ClientGeneration = cmd.ClientGeneration,
                     SessionRevision = s.Revision + 1, Deadline = Now.AddSeconds(Math.Clamp(office.NotingOptions.SaveTimeoutSeconds, 5, 120)),
                     PayloadHash = NotingText.Hash(JsonSerializer.Serialize(new { id, cmd, revision }, Json)) };
+                if (s.CompositionVersion == ContinuousGreenEnvelope.Version)
+                {
+                    var manifest = await ContinuousGreenEnvelope.AuthoritativeAsync(db, s, c);
+                    using var bytes = new MemoryStream(nativeBytes ?? throw new MatterWorkflowException("Native capture is unavailable.", 409));
+                    var target = ContinuousGreenEnvelope.Convert(bytes, manifest); bytes.Position = 0;
+                    var capture = await storage.SaveAndHashAsync(bytes, "native-quiesced-capture.docx", c);
+                    r.NativeCaptureStoragePath = capture.StoragePath; r.NativeCaptureSha256 = capture.Sha256Hash.ToLowerInvariant(); r.NativeCaptureSize = capture.FileSize;
+                    r.NativeCanonicalHash = target.CanonicalHash; r.NativeContentHash = ContinuousGreenEnvelope.ContentFingerprint(target);
+                }
                 db.MatterOfficeSaveRequests.Add(r); s.Revision++;
                 return r.Id;
             }, ct);
@@ -227,6 +285,19 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
                     if (r.State != "Pending" || r.Deadline <= Now || r.SessionRevision != s.Revision) throw new MatterWorkflowException("Stale save callback.", 409);
                 }
                 else if (await db.MatterOfficeSaveRequests.AnyAsync(x => x.SessionId == id && x.State == "Pending", c)) throw new MatterWorkflowException("Final save cannot satisfy a pending force-save request.", 409);
+                if (s.CompositionVersion == ContinuousGreenEnvelope.Version)
+                {
+                    VerifyManifestSeal(s);
+                    var captured = await ContinuousGreenEnvelope.AuthoritativeAsync(db, s, c);
+                    using var validate = new MemoryStream(bytes);
+                    var target = ContinuousGreenEnvelope.Convert(validate, captured);
+                    if (r is not null)
+                    {
+                        await OfficeNativeCapture.VerifyAsync(storage, r, captured, c);
+                        if (target.CanonicalHash != r.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(target) != r.NativeContentHash)
+                            throw new MatterWorkflowException("Native synchronization capture differs from callback content; last committed bytes were preserved.", 422);
+                    }
+                }
                 var previous = await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x => x.Id == s.LatestSnapshotId, c);
                 if (r is null && previous.Sha256 == hash) return 0;
                 using var content = new MemoryStream(bytes);
@@ -253,9 +324,18 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
             var snap = await db.MatterOfficeSnapshots.AsNoTracking().SingleAsync(x => x.Id == r.SnapshotId, c);
             await OfficeNotingSubmission.VerifyBytesAsync(storage, snap, c);
             await using var stream = await storage.OpenReadAsync(snap.StoragePath, c) ?? throw new MatterWorkflowException("Snapshot unavailable.", 409);
-            var converted = OfficeNoteDocx.Convert(stream);
+            ConvertedOfficeNote converted;
+            if (s.CompositionVersion == ContinuousGreenEnvelope.Version)
+            {
+                VerifyManifestSeal(s);
+                converted = ContinuousGreenEnvelope.Convert(stream, await ContinuousGreenEnvelope.AuthoritativeAsync(db, s, c));
+                await OfficeNativeCapture.VerifyAsync(storage, r, VerifyManifestSeal(s), c);
+                if (converted.CanonicalHash != r.NativeCanonicalHash || ContinuousGreenEnvelope.ContentFingerprint(converted) != r.NativeContentHash)
+                    throw new MatterWorkflowException("Preview differs from the quiesced native capture.", 409);
+            }
+            else converted = OfficeNoteDocx.Convert(stream);
             var p = new MatterOfficePreview { MatterId = s.MatterId, SessionId = id, ActorUserId = actor, SnapshotId = snap.Id, SourceDakId = s.SourceDakId,
-                WorkingRevision = s.WorkingRevision, ContentJson = converted.ContentJson, CanonicalText = converted.CanonicalText, CanonicalHash = converted.CanonicalHash, CreatedAt = Now };
+                WorkingRevision = s.WorkingRevision, ConverterVersion = s.CompositionVersion, ContentJson = converted.ContentJson, CanonicalText = converted.CanonicalText, CanonicalHash = converted.CanonicalHash, CreatedAt = Now };
             db.MatterOfficePreviews.Add(p); s.State = "Frozen"; s.Revision++;
             return p;
         }, ct);
@@ -283,6 +363,15 @@ public sealed class OnlyOfficeNotingService(LacDbContext db, MatterNotingWorkflo
             s.State = "Reviewed"; s.WorkingRevision = draft.Revision; s.Revision++;
             return draft;
         }, ct);
+    }
+
+    private GreenEnvelopeManifest VerifyManifestSeal(MatterOfficeSession session)
+    {
+        var seal = tokens.Verify(session.HistoryManifestSeal ?? "");
+        if (seal.GetProperty("purpose").GetString() != "green-envelope-manifest" || seal.GetProperty("sessionId").GetGuid() != session.Id ||
+            seal.GetProperty("actor").GetGuid() != session.ActorUserId || seal.GetProperty("matter").GetGuid() != session.MatterId || seal.GetProperty("hash").GetString() != session.HistoryManifestHash)
+            throw new MatterWorkflowException("Historical manifest seal mismatch.", 409);
+        return ContinuousGreenEnvelope.Read(session.HistoryManifestJson!, session.HistoryManifestHash!);
     }
 
     public async Task<OfficeSessionInfo> RevokeAsync(Guid id, int revision, Guid actor, Guid key, CancellationToken ct)

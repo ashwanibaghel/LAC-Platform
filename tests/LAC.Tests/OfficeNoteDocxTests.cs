@@ -9,6 +9,16 @@ using Xunit;
 
 public sealed class OfficeNoteDocxTests
 {
+    [Fact] public void Glyph_clearance_insets_ink_without_changing_official_mirrored_margins_or_pagination_policy()
+    {
+        using var bytes = OfficeNoteDocx.Compose([new(1,"Synthetic","Kanungo",DateTimeOffset.UnixEpoch,MatterNotingTextTests.Text("Tj fj 0123456789"))], glyphClearance:true);
+        using var package = WordprocessingDocument.Open(bytes,false); var body = package.MainDocumentPart!.Document!.Body!;
+        Assert.All(body.Elements<Paragraph>(), p => Assert.Equal("57",p.ParagraphProperties!.GetFirstChild<Indentation>()!.Left!.Value));
+        var margin=body.GetFirstChild<SectionProperties>()!.GetFirstChild<PageMargin>()!;
+        Assert.Equal(2551U,margin.Left!.Value); Assert.Equal(850U,margin.Right!.Value); Assert.Equal(1417,margin.Top!.Value); Assert.Equal(1417,margin.Bottom!.Value);
+        Assert.DoesNotContain(body.Descendants<Break>(), b=>b.Type?.Value==BreakValues.Page);
+        Assert.Single(body.Elements<SectionProperties>()); Assert.NotNull(package.MainDocumentPart.DocumentSettingsPart!.Settings!.GetFirstChild<MirrorMargins>());
+    }
     [Fact] public void Current_note_converter_rejects_a_shared_content_control_envelope_without_importing_history()
     {
         using var stream = OfficeNoteDocx.Create(MatterNotingTextTests.Text("Synthetic current text"));
