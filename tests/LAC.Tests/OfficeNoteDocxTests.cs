@@ -9,6 +9,25 @@ using Xunit;
 
 public sealed class OfficeNoteDocxTests
 {
+    [Fact] public void Current_note_converter_rejects_a_shared_content_control_envelope_without_importing_history()
+    {
+        using var stream = OfficeNoteDocx.Create(MatterNotingTextTests.Text("Synthetic current text"));
+        using (var package = WordprocessingDocument.Open(stream, true))
+        {
+            var body = package.MainDocumentPart!.Document!.Body!;
+            var paragraph = body.GetFirstChild<Paragraph>()!;
+            paragraph.Remove();
+            body.InsertBefore(new SdtBlock(
+                new SdtProperties(new Tag { Val = "synthetic-history" }, new Lock { Val = LockingValues.SdtContentLocked }),
+                new SdtContentBlock(paragraph)), body.LastChild);
+            package.MainDocumentPart.Document.Save();
+        }
+        stream.Position = 0;
+        var error = Assert.Throws<MatterWorkflowException>(() => OfficeNoteDocx.Convert(stream));
+        Assert.Equal(422, error.StatusCode);
+        Assert.Contains("sdt", error.Message);
+    }
+
     [Fact] public void Actual_Docs94_export_with_reserved_separators_and_empty_borders_converts_exactly()
     {
         using var stream=File.OpenRead(Path.Combine(AppContext.BaseDirectory,"fixtures","office94-synthetic-note.docx"));

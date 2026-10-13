@@ -1,3 +1,9 @@
+function requiredTestSecret(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Set ${name} privately before running this synthetic acceptance test.`);
+  return value;
+}
+
 /**
  * GREEN LEGAL NOTING — REAL FULL E2E ACCEPTANCE TEST
  * Branch: anti/green-legal-onlyoffice-workspace-20261012
@@ -54,14 +60,14 @@ const DB = "lac_onlyoffice_real_9b0459_20261012";
 
 const OfficerA = {
   username: process.env.OFFICER_A_USER || "office.feasibility.editor",
-  password: process.env.OFFICER_A_PASSWORD || "OfficeFeasibility@2026!Edit",
+  password: requiredTestSecret("OFFICER_A_PASSWORD"),
   userId: process.env.OFFICER_A_USER_ID || "40d1fe67-dc46-4e66-958e-eb2236e5577f",
   deskId: process.env.OFFICER_A_DESK_ID || "34150a85-7b0f-402c-bdef-e657fea3763a"
 };
 
 const OfficerB = {
   username: process.env.OFFICER_B_USER || "office.feasibility.viewer",
-  password: process.env.OFFICER_B_PASSWORD || "OfficeFeasibility@2026!View",
+  password: requiredTestSecret("OFFICER_B_PASSWORD"),
   userId: process.env.OFFICER_B_USER_ID || "57b05040-e597-4d3f-97c7-86d2884c7915",
   deskId: process.env.OFFICER_B_DESK_ID || "f367a675-1958-41f8-ac81-13a8932db866"
 };

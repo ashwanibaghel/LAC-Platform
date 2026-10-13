@@ -15,6 +15,12 @@ using Xunit;
 
 public sealed class OfficialOfficeNotingTests
 {
+    private sealed class MutableClock(DateTimeOffset initial) : TimeProvider
+    {
+        private DateTimeOffset now = initial;
+        public override DateTimeOffset GetUtcNow() => now;
+        internal void Advance(TimeSpan duration) => now += duration;
+    }
     private sealed class DocsStub : HttpMessageHandler, IHttpClientFactory
     {
         internal byte[] Bytes = [];
@@ -25,12 +31,12 @@ public sealed class OfficialOfficeNotingTests
     }
     private sealed record Fixture(OfficeNotingSchema Schema,Guid Actor,Guid Other,Guid Matter,Guid Dak,NotingTestStorage Storage,DocsStub Docs)
     {
-        internal OnlyOfficeNotingService Service(LacDbContext db)
+        internal OnlyOfficeNotingService Service(LacDbContext db, TimeProvider? clock = null)
         {
             var options=Options.Create(new OnlyOfficeOptions { Enabled=true,BrowserUrl="http://localhost:8082",AppExternalUrl="http://localhost:5922",JwtSecret=new string('x',32) });
-            var tokens=new OnlyOfficeTokens(options,TimeProvider.System);
+            var tokens=new OnlyOfficeTokens(options,clock ?? TimeProvider.System);
             var workflow=new MatterNotingWorkflow(db,new MatterAuthorizationService(db),new DakWorkflowService(db,Storage),Storage,NotingFixture.VillageAuth(db));
-            return new(db,workflow,Storage,tokens,new(Docs,tokens,options,Options.Create(new OnlyOfficeNotingOptions { Enabled=true })),TimeProvider.System);
+            return new(db,workflow,Storage,tokens,new(Docs,tokens,options,Options.Create(new OnlyOfficeNotingOptions { Enabled=true })),clock ?? TimeProvider.System);
         }
         internal MatterNotingWorkflow Workflow(LacDbContext db) => new(db,new MatterAuthorizationService(db),new DakWorkflowService(db,Storage),Storage,NotingFixture.VillageAuth(db));
         internal async Task<int> Callback(LacDbContext db,OfficeSessionInfo session,OfficeSaveInfo request,string text)
@@ -137,6 +143,39 @@ public sealed class OfficialOfficeNotingTests
         var token=tokens.Sign(new { key="valid" }); Assert.Throws<UnauthorizedAccessException>(()=>tokens.Verify(token[..^1]+(token[^1]=='a'?'b':'a')));
         var office=new NotingOfficeClient(new DocsStub(),tokens,options,Options.Create(new OnlyOfficeNotingOptions{Enabled=true}));
         foreach(var url in new[]{"http://evil.invalid/cache.docx","http://localhost:8083/cache.docx","http://user@localhost:8082/cache.docx","http://localhost:8082/cache.docx#fragment","file:///C:/secret"}) Assert.Throws<MatterWorkflowException>(()=>office.ValidateOrigin(url));
+    }
+    [OfficeSchemaFact]
+    public async Task Expired_lease_rejects_writes_review_download_and_config_and_recovers_only_committed_bytes()
+    {
+        var f = await Setup(); await using var db = f.Schema.Context();
+        var clock = new MutableClock(DateTimeOffset.UtcNow); var service = f.Service(db, clock);
+        var session = await service.OpenAsync(f.Matter, new(f.Dak), 0, f.Actor, Guid.NewGuid(), default);
+        var config = JsonSerializer.SerializeToElement(await service.ConfigAsync(session.Id, f.Actor, default));
+        var url = new Uri(config.GetProperty("config").GetProperty("document").GetProperty("url").GetString()!);
+        var token = Uri.UnescapeDataString(url.Query["?token=".Length..]);
+        var save = await service.SaveAsync(session.Id, new(1), 1, f.Actor, Guid.NewGuid(), default);
+        using var doc = OfficeNoteDocx.Create(MatterNotingTextTests.Text("Synthetic committed expiry recovery")); f.Docs.Bytes = doc.ToArray();
+        var callback = JsonSerializer.SerializeToElement(new { key = "lac-note-" + session.Id.ToString("N"), status = 6,
+            users = new[] { f.Actor.ToString() }, userdata = save.Id.ToString(), url = "http://localhost:8082/cache/test.docx" });
+        Assert.Equal(0, await service.CallbackAsync(session.Id, callback, default));
+        var receipt = await service.StatusAsync(session.Id, save.Id, f.Actor, default);
+        config = JsonSerializer.SerializeToElement(await service.ConfigAsync(session.Id, f.Actor, default));
+        url = new Uri(config.GetProperty("config").GetProperty("document").GetProperty("url").GetString()!);
+        token = Uri.UnescapeDataString(url.Query["?token=".Length..]);
+        await using (var authorizedDownload = await service.FileAsync(session.Id, token, default))
+            Assert.Equal(doc.Length, authorizedDownload.Length);
+        clock.Advance(TimeSpan.FromMinutes(31));
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.ConfigAsync(session.Id, f.Actor, default))).StatusCode);
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.SaveAsync(session.Id, new(2), receipt.SessionRevision, f.Actor, Guid.NewGuid(), default))).StatusCode);
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.StatusAsync(session.Id, save.Id, f.Actor, default))).StatusCode);
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.PreviewAsync(session.Id, new(save.Id), receipt.SessionRevision, f.Actor, Guid.NewGuid(), default))).StatusCode);
+        Assert.Equal(409, (await Assert.ThrowsAsync<MatterWorkflowException>(() => service.CallbackAsync(session.Id, callback, default))).StatusCode);
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => service.FileAsync(session.Id, token, default));
+        Assert.Equal(2, await db.MatterOfficeSnapshots.CountAsync()); Assert.Empty(await db.MatterOfficialNotes.ToListAsync());
+        var recovery = await service.OpenAsync(f.Matter, new(f.Dak), 0, f.Actor, Guid.NewGuid(), default);
+        Assert.NotEqual(session.Id, recovery.Id);
+        Assert.Equal(receipt.Sha256, (await db.MatterOfficeSnapshots.SingleAsync(x => x.Id == recovery.LatestSnapshotId)).Sha256);
+        Assert.Equal("Revoked", (await db.MatterOfficeSessions.SingleAsync(x => x.Id == session.Id)).State);
     }
     [OfficeSchemaFact]
     public async Task Exact_repeated_text_citations_survive_unchanged_conversion_and_changed_text_requires_explicit_reset()

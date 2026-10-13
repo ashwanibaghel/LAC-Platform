@@ -1,3 +1,9 @@
+function requiredTestSecret(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Set ${name} privately before running this synthetic acceptance test.`);
+  return value;
+}
+
 import fs from "fs";
 import path from "path";
 import { execFileSync } from "child_process";
@@ -10,7 +16,7 @@ const REMARK_ID = process.env.REMARK_ID || "152f27f0-8a10-43af-afd4-4349174e3e4a
 
 const OfficerB = {
   username: process.env.OFFICER_B_USER || "office.feasibility.viewer",
-  password: process.env.OFFICER_B_PASSWORD || "OfficeFeasibility@2026!View"
+  password: requiredTestSecret("OFFICER_B_PASSWORD")
 };
 
 const PSQL = "C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe";
