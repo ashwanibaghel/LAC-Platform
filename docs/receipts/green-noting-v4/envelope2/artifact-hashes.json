@@ -46,8 +46,8 @@
   },
   {
     "file": "actual-official-two-note-geometry.json",
-    "sha256": "d4cbe894e3df7cd893e971a0100c7be775164f95addffc30db0e9716a21b3012",
-    "size": 1370
+    "sha256": "011fb15e47bc4ad67ad77e3b8f920d0ec1e0f2474fa852efc0a3b5843d03eb3f",
+    "size": 1317
   },
   {
     "file": "actual-official-two-note-green-sheet.pdf",
@@ -91,8 +91,8 @@
   },
   {
     "file": "changed-files.json",
-    "sha256": "c57d6d9a530731a35d0f2c98a60e5b8edc95671d1cc99dec4e79ad684432b5d0",
-    "size": 4163
+    "sha256": "917684a461b07522316ee6c4abe6b21195bcf1f5ba25f648853c5d332383da41",
+    "size": 4102
   },
   {
     "file": "concurrent-native-edit-rejected-1366x768.jpg",
@@ -101,8 +101,8 @@
   },
   {
     "file": "concurrent-native-rejection.json",
-    "sha256": "7d4f2508d406fa572f492856c2eb398332e9317e0e907e91f2bbc6d5a49b91a6",
-    "size": 1310
+    "sha256": "0117df3be47fada09b21aeae5b6505b10452497014d8f73a2590ddabbac2c2f4",
+    "size": 1283
   },
   {
     "file": "expired-native-save-denied-1366x768.jpg",
@@ -116,13 +116,13 @@
   },
   {
     "file": "native-five-page-geometry.json",
-    "sha256": "08a6d0430d546f1ea8b6628acc3f7f6011cb82337bf8ae1d8c634582ff011b68",
-    "size": 2898
+    "sha256": "1a9cd8fcf96c74fa29aa4f0ab8ef786486f4247b607f6db2db36d55028eb7871",
+    "size": 2779
   },
   {
     "file": "native-save-receipts.json",
-    "sha256": "6c0381b8f99ad8cc4c88e568b08d3830d46bdb004d1925b3251708072bf01e30",
-    "size": 1709
+    "sha256": "fe8edcb21d7c4097e5597bcf78d76b715addd69dcbbf2ac0209635a3ddb5fe0d",
+    "size": 1673
   },
   {
     "file": "official-pdf-page1-1366x768.jpg",
@@ -136,8 +136,8 @@
   },
   {
     "file": "official-workflow.json",
-    "sha256": "15cfdb96263b650eab35a29b7f5c7a827ca727c9d93050b17a776fc59e7ce44d",
-    "size": 5602
+    "sha256": "7fc25180b6ad21a385641f53161daa7670fc432ae928a28c0540dda99c59e76d",
+    "size": 5529
   },
   {
     "file": "preserved-native-official-chain-source-1366x768.jpg",
@@ -146,12 +146,12 @@
   },
   {
     "file": "sanitized-real-callback-events.json",
-    "sha256": "cf1a9a96e87c65285953acbfd2f02657b4264ff2a672cde08353437426cce1d8",
-    "size": 51543
+    "sha256": "f9705e6ef242bafccf922eb91eb18886851cb0e164980c62cda60ac81db42681",
+    "size": 49623
   },
   {
     "file": "test-results.json",
-    "sha256": "f8351639c0b3982d9a56c07cead209eaf88d8e12fb4c92f19c44ca8b05a58115",
-    "size": 15557
+    "sha256": "a730d15f3043f05565269bfd777c160078d7336caf32a5f17b7ca7addba8ca4c",
+    "size": 15169
   }
 ]
