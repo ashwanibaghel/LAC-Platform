@@ -1,0 +1,319 @@
+.v4-workspace{
+  position:fixed;
+  inset:0;
+  z-index:90;
+  background:#eef2f5;
+  color:#203046;
+  display:flex;
+  flex-direction:column;
+  font:13px/1.4 system-ui,sans-serif;
+  padding:0!important;
+  margin:0!important;
+  width:100vw;
+  max-width:none!important;
+  box-sizing:border-box}
+
+.v4-workspace button,.v4-workspace select,.v4-workspace input{
+  font:inherit}
+.v4-workspace button{
+  padding:5px 10px;
+  border:1px solid #b8c6cf;
+  background:white;
+  color:#203046;
+  border-radius:4px;
+  cursor:pointer}
+.v4-workspace button:disabled{
+  opacity:.5;
+  cursor:default}
+.v4-workspace button[aria-pressed=true]{
+  background:#145b43;
+  color:white;
+  border-color:#145b43}
+.v4-workspace a{
+  color:#185b7c}
+.v4-header{
+  display:flex;
+  align-items:center;
+  gap:18px;
+  padding:8px 14px;
+  border-bottom:1px solid #c6d2dc;
+  background:#fff}
+.v4-header h1{
+  font-size:17px;
+  margin:0}
+.v4-header span,.v4-officer small{
+  font-size:11px;
+  color:#63768a}
+.v4-officer{
+  margin-left:auto;
+  text-align:right;
+  font-weight:600}
+.v4-officer small{
+  display:block}
+.v4-command-bar{
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:7px 12px;
+  background:#f8fafb;
+  border-bottom:1px solid #c6d2dc;
+  flex-wrap:wrap}
+.v4-command-bar [role=group]{
+  display:flex;
+  gap:3px;
+  margin-right:auto}
+.v4-save-line{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:5px 12px;
+  background:#e7f2ec;
+  color:#165039;
+  min-height:29px;
+  box-sizing:border-box}
+.v4-save-line small{
+  font-size:10px;
+  color:#506b62}
+.v4-panels{
+  flex:1;
+  min-height:0;
+  display:grid;
+  gap:0}
+.v4-native-panel,.v4-source-panel{
+  min-width:0;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  background:#f8fafb}
+.v4-panel-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:35px;
+  padding:4px 10px;
+  box-sizing:border-box;
+  border-bottom:1px solid #c6d2dc;
+  background:white}
+.v4-panel-title span{
+  font-size:10px;
+  color:#6c7c86}
+.v4-panel-title select{
+  max-width:330px;
+  padding:3px;
+  border:1px solid #c6d2dc}
+.v4-divider{
+  background:#c8d2da;
+  cursor:col-resize;
+  touch-action:none}
+.v4-divider:focus{
+  outline:2px solid #166a4b;
+  outline-offset:-2px}
+.v4-mode-noting,.v4-mode-document{
+  grid-template-columns:1fr}
+.v4-mode-noting .v4-source-panel,.v4-mode-noting .v4-divider,.v4-mode-document .v4-native-panel,.v4-mode-document .v4-divider{
+  display:none}
+.v4-workspace .onlyoffice-note-frame-root{
+  flex:1;
+  min-height:0;
+  position:relative;
+  height:auto}
+.v4-workspace .onlyoffice-host-container{
+  height:100%;
+  width:100%}
+.v4-workspace .onlyoffice-host-container iframe{
+  height:100%;
+  width:100%;
+  border:0}
+.v4-empty{
+  padding:30px;
+  max-width:540px;
+  color:#5d7080;
+  margin:auto}
+.v4-empty h2{
+  font-size:18px;
+  color:#214c3f}
+.v4-pdf-panel{
+  display:flex;
+  flex-direction:column;
+  flex:1;
+  min-height:0;
+  overflow:hidden}
+.v4-pdf-tools{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 8px;
+  background:#e9eef2;
+  flex-wrap:wrap;
+  border-bottom:1px solid #c6d2dc;
+  font-size:11px}
+.v4-pdf-tools strong{
+  max-width:220px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  margin-right:auto}
+.v4-pdf-tools input{
+  width:36px}
+.v4-pdf-scroll{
+  flex:1;
+  min-height:0;
+  overflow:auto;
+  padding:16px;
+  box-sizing:border-box}
+.v4-pdf-paper{
+  position:relative;
+  background:white;
+  margin:0 auto;
+  box-shadow:0 2px 7px #20304633}
+.v4-pdf-paper canvas{
+  display:block}
+.v4-guided-paper{
+  background:#e7f2df}
+.v4-guided-paper canvas{
+  mix-blend-mode:multiply}
+.v4-screen-guide{
+  position:absolute;
+  top:0;
+  bottom:0;
+  border-left:1px solid #be2929;
+  pointer-events:none}
+.v4-overlay{
+  position:fixed;
+  inset:0;
+  background:#162a3b77;
+  z-index:120;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px}
+.v4-dialog{
+  background:white;
+  border-radius:7px;
+  box-shadow:0 15px 50px #0004;
+  max-width:780px;
+  width:100%;
+  max-height:85vh;
+  padding:22px;
+  overflow:auto}
+.v4-dialog h2{
+  font-size:19px;
+  margin-top:0}
+.v4-dialog pre{
+  font:14px/1.65 Georgia,serif;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  background:#f2f7ef;
+  border:1px solid #d5e0d3;
+  padding:14px;
+  max-height:42vh;
+  overflow:auto}
+.v4-dialog small{
+  font-size:10px;
+  overflow-wrap:anywhere;
+  display:block}
+.v4-dialog label{
+  display:block;
+  margin:12px 0}
+.v4-dialog-actions{
+  display:flex;
+  gap:8px;
+  justify-content:flex-end}
+.v4-error,.v4-notice{
+  padding:7px 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between}
+.v4-error{
+  background:#fff0ed;
+  color:#8e2517}
+.v4-notice{
+  background:#e7eefb;
+  color:#224a7a}
+.v4-workspace .noting-modal-overlay{
+  z-index:140}
+.v4-dialog article{
+  border-bottom:1px solid #ddd;
+  padding-bottom:12px}
+.v4-dialog h3{
+  font-size:14px}
+
+@media print{
+  .v4-screen-guide{
+  display:none!important}
+.v4-guided-paper{
+  background:white!important}
+.v4-guided-paper canvas{
+  mix-blend-mode:normal!important}
+}
+
+.v4-native-surface{
+  position:relative;
+  flex:1;
+  min-height:0;
+  display:flex;
+  flex-direction:column}
+.v4-sheet-surface{
+  position:absolute;
+  inset:0;
+  background:#eef2f5;
+  z-index:15;
+  display:flex;
+  flex-direction:column}
+
+.v4-review-surface{
+  position:absolute;
+  inset:0;
+  z-index:20;
+  background:#f8fbf7;
+  display:flex}
+.v4-review-card{
+  box-sizing:border-box;
+  padding:18px;
+  width:100%;
+  overflow:auto;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  min-height:0}
+.v4-review-card h2{
+  font-size:18px;
+  margin:0}
+.v4-review-card p{
+  margin:0;
+  color:#5d7080}
+.v4-review-card pre{
+  flex:1;
+  min-height:110px;
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  overflow:auto;
+  background:white;
+  border:1px solid #d5e0d3;
+  padding:14px;
+  font:14px/1.65 Georgia,serif;
+  margin:0}
+.v4-review-card small{
+  font-size:10px;
+  overflow-wrap:anywhere}
+.v4-review-card .v4-dialog-actions{
+  flex-wrap:wrap}
+
+.v4-print-note{
+  padding:4px 8px;
+  font-size:10px;
+  background:white;
+  color:#546572;
+  border-bottom:1px solid #c6d2dc}
+.v4-header>div:nth-child(2){
+  min-width:0;
+  flex:1}
+.v4-header h1{
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis}
+.v4-officer{
+  flex:none}
+

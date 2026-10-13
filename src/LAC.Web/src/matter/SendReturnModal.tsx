@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { SendWorkingNoteCommand } from "./notingTypes";
 import { generateUuid } from "./notingOfficeApi";
 import { submittedNoteNumber } from "./officeSaveBarrier";
@@ -7,6 +7,7 @@ interface DeskItem {
   id: string;
   name: string;
   code: string;
+  members: DeskMemberItem[];
 }
 
 interface DeskMemberItem {
@@ -59,6 +60,8 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
   const [loadingTargets, setLoadingTargets] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const requestRef = useRef<{signature: string; key: string; command: SendWorkingNoteCommand} | null>(null);
+  const submittingRef=useRef(false);
 
   // Load Desks and Linked Daks
   useEffect(() => {
@@ -67,16 +70,10 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
     setError(null);
 
     Promise.all([
-      fetch("/api/admin/desks", { credentials: "include" }),
       fetch(`/api/matters/${matterId}/context`, { credentials: "include" })
     ])
-      .then(async ([resDesks, resContext]) => {
-        let deskList: DeskItem[] = [];
-        if (resDesks.ok) {
-          const dData = await resDesks.json();
-          deskList = Array.isArray(dData) ? dData : dData?.items || [];
-        }
-
+      .then(async ([resContext]) => {
+        if (!resContext.ok) throw new Error(`Unable to load authorized Matter context (${resContext.status}).`);
         let daksList: LinkedDakItem[] = [];
         if (resContext.ok) {
           const ctxData = await resContext.json();
@@ -88,10 +85,6 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
         }
 
         if (active) {
-          setDesks(deskList);
-          if (deskList.length > 0) {
-            setSelectedDeskId(deskList[0].id);
-          }
           setLinkedDaks(daksList);
           if (!selectedDakId && daksList.length > 0) {
             setSelectedDakId(daksList[0].dakId);
@@ -110,42 +103,35 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
     };
   }, [matterId]);
 
-  // Load Members when selectedDeskId changes
+  // The operational endpoint applies Dak.Move and recipient receipt bounds.
   useEffect(() => {
-    if (!selectedDeskId) {
-      setMembers([]);
-      setSelectedUserId("");
-      return;
-    }
-
+    setDesks([]); setSelectedDeskId(""); setMembers([]); setSelectedUserId("");
+    if (!selectedDakId) return;
     let active = true;
-    fetch(`/api/admin/desks/${selectedDeskId}/members`, { credentials: "include" })
-      .then(async (res) => (res.ok ? res.json() : []))
-      .then((data: DeskMemberItem[]) => {
+    setLoadingTargets(true);
+    fetch(`/api/dak/${selectedDakId}/movement-targets`, { credentials: "include" })
+      .then(async (res) => { if (!res.ok) throw new Error(`Forwarding destinations unavailable (${res.status}).`); return res.json(); })
+      .then((data) => {
+        if (!Array.isArray(data.desks) || data.desks.some((d: DeskItem) => !Array.isArray(d.members))) throw new Error("Invalid destination response.");
         if (active) {
-          const list = Array.isArray(data) ? data : [];
-          setMembers(list);
-          const primary = list.find((m) => m.isPrimary) || list[0];
-          setSelectedUserId(primary ? primary.userId : "");
+          setDesks(data.desks.filter((d: DeskItem & {isActive: boolean}) => d.isActive && d.members.length > 0));
         }
       })
-      .catch(() => {
-        if (active) {
-          setMembers([]);
-          setSelectedUserId("");
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedDeskId]);
+      .catch(err => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoadingTargets(false); });
+    return () => { active = false; };
+  }, [selectedDakId]);
+  useEffect(() => {
+    setMembers(desks.find(d => d.id === selectedDeskId)?.members || []);
+    setSelectedUserId("");
+  }, [desks, selectedDeskId]);
 
   const selectedDak = linkedDaks.find((d) => d.dakId === selectedDakId);
   const dakHasPhysical = Boolean(selectedDak?.hasPhysicalOriginal);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if(submittingRef.current) return;
     if (!selectedDeskId) {
       setError("Please select a target desk.");
       return;
@@ -159,13 +145,24 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
       return;
     }
 
-    setSubmitting(true);
+    submittingRef.current=true;setSubmitting(true);
     setError(null);
 
     try {
-      const command: SendWorkingNoteCommand = {
+      if (!desks.find(d => d.id === selectedDeskId)?.members.some(m => m.userId === selectedUserId)) throw new Error("Choose an authorized destination officer.");
+      // Hold revision and payload through uncertain-response retries. Never invent revision 1.
+      const signature = JSON.stringify({selectedDakId, selectedDeskId, selectedUserId, action, includesPhysical, instructions, remarks, officePreviewId, canonicalHash, workingRevision});
+      const previous = requestRef.current;
+      let command: SendWorkingNoteCommand;
+      if (previous?.signature === signature && previous.command) command = previous.command;
+      else {
+      const dakResponse = await fetch(`/api/dak/${selectedDakId}`, {credentials:"include", cache:"no-store"});
+      if (!dakResponse.ok) throw new Error("Current Dak revision is unavailable. Refresh before sending.");
+      const dak = await dakResponse.json();
+      if (!Number.isInteger(dak.revision)) throw new Error("Dak response has no authoritative revision.");
+      command = {
         sourceDakId: selectedDakId,
-        expectedDakRevision: selectedDak ? selectedDak.revision : 1,
+        expectedDakRevision: dak.revision,
         toDeskId: selectedDeskId,
         toUserId: selectedUserId,
         action,
@@ -175,13 +172,15 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
         officePreviewId,
         canonicalHash
       };
+      requestRef.current = {signature, key:generateUuid(), command};
+      }
 
       const res = await fetch(`/api/matters/${matterId}/noting/send`, {
         method: "POST",
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": generateUuid(),
+          "Idempotency-Key": requestRef.current!.key,
           "If-Match": `"${workingRevision}"`
         },
         body: JSON.stringify(command)
@@ -202,19 +201,19 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
     } catch (err: any) {
       setError(err.message || "Failed to submit and forward note");
     } finally {
-      setSubmitting(false);
+      submittingRef.current=false;setSubmitting(false);
     }
   };
 
   return (
-    <div className="noting-modal-overlay" onClick={onClose}>
-      <div className="noting-modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
+    <div className="noting-modal-overlay" onClick={()=>{if(!submitting)onClose();}}>
+      <div className="noting-modal-card" role="dialog" aria-modal="true" aria-label="Submit note and dispatch Dak" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
         <div className="noting-modal-header">
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ fontSize: "16px" }}>📤</span>
             <h3>Submit Note & Forward File</h3>
           </div>
-          <button className="noting-btn-close" onClick={onClose} type="button">✕</button>
+          <button className="noting-btn-close" onClick={onClose} disabled={submitting} type="button">✕</button>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -285,11 +284,13 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
                   Target Desk <span style={{ color: "#b91c1c" }}>*</span>
                 </label>
                 <select
+                  aria-label="Target Desk"
                   value={selectedDeskId}
                   onChange={(e) => setSelectedDeskId(e.target.value)}
                   disabled={loadingTargets || desks.length === 0}
                   style={{ width: "100%", padding: "7px 10px", fontSize: "13px", border: "1px solid #cbd5e1", borderRadius: "4px", background: "#ffffff" }}
                 >
+                  <option value="">Choose a desk</option>
                   {desks.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name} ({d.code})
@@ -303,11 +304,13 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
                   Target Officer <span style={{ color: "#b91c1c" }}>*</span>
                 </label>
                 <select
+                  aria-label="Target Officer"
                   value={selectedUserId}
                   onChange={(e) => setSelectedUserId(e.target.value)}
                   disabled={loadingTargets || members.length === 0}
                   style={{ width: "100%", padding: "7px 10px", fontSize: "13px", border: "1px solid #cbd5e1", borderRadius: "4px", background: "#ffffff" }}
                 >
+                  <option value="">Choose an officer</option>
                   {members.map((m) => (
                     <option key={m.userId} value={m.userId}>
                       {m.displayName} {m.designation ? `(${m.designation})` : ""} {m.isPrimary ? "★ Primary" : ""}
@@ -358,7 +361,7 @@ export const SendReturnModal: React.FC<SendReturnModalProps> = ({
               </div>
             ) : (
               <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "6px 10px", borderRadius: "4px", fontSize: "12px", color: "#64748b" }}>
-                ℹ Digital-only file movement. No physical paper original is attached to this Dak.
+                Digital dispatch retains the recorded physical-original location. Manage any physical handover in the Dak workspace.
               </div>
             )}
 

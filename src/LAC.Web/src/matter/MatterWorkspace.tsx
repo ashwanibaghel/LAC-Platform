@@ -18,7 +18,6 @@ import {
 } from "../components/Icons";
 import "./matter.css";
 import "./noting.css";
-import { GreenNotingWorkspace } from "./GreenNotingWorkspace";
 
 interface MatterDocumentExtractProvenance {
   sourceDocumentId: string;
@@ -172,7 +171,7 @@ interface WorkstreamOption {
   code: string;
 }
 
-type WorkspaceTab = "noting" | "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
+type WorkspaceTab = "overview" | "work" | "documents" | "drafts" | "outward" | "activity";
 
 export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentType<{ matterId: string }> }> = ({
   MatterOutwardSection
@@ -191,7 +190,7 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
   const [refresh, setRefresh] = useState(0);
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("noting");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("overview");
 
   // Overflow Menu State
   const [showOverflow, setShowOverflow] = useState(false);
@@ -943,21 +942,13 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
       {/* Internal Workspace Tabs Bar */}
       <div>
         <nav className="matter-tabs-nav" aria-label="Matter Work Surfaces">
-          <button
-            type="button"
-            className={`matter-tab-btn tab-green-noting ${activeTab === "noting" ? "active" : ""}`}
-            onClick={() => setActiveTab("noting")}
-          >
-            <span className="tab-green-dot" />
-            Green Noting
-          </button>
           <Link
-            to={`/matters/${id}/noting-v3`}
+            to={`/matters/${id}/noting-v4`}
             className="matter-tab-btn"
             style={{ color: "#166534", fontWeight: 700, background: "#f0fdf4", border: "1px solid #bbf7d0", textDecoration: "none" }}
-            title="Open Single Continuous Official Noting File Workspace Prototype"
+            title="Open continuous native Green Noting with authorized source PDF"
           >
-            ★ Noting V3 (Single Sheet)
+            <span className="tab-green-dot" /> Green Noting
           </Link>
           <button
             type="button"
@@ -1010,22 +1001,6 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
 
         {/* Tab Body Surfaces */}
         <div className="matter-tab-body">
-          {/* TAB 0: GREEN NOTING */}
-          {activeTab === "noting" && (
-            <GreenNotingWorkspace
-              matterId={id!}
-              villageName={contextData.village?.name}
-              controllingDakNumber={contextData.daks?.[0]?.diaryNumber}
-              initialControllingDakId={contextData.daks?.[0]?.dakId}
-              linkedDaks={(contextData.daks || []).map((d) => ({
-                id: d.dakId,
-                diaryNumber: d.diaryNumber,
-                subject: d.subject,
-                status: d.status
-              }))}
-            />
-          )}
-
           {/* TAB 1: OVERVIEW */}
           {activeTab === "overview" && (
             <div className="matter-overview-grid">

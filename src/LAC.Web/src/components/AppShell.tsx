@@ -35,6 +35,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const navigate = useNavigate();
   const { user, logout, hasPermission } = useAuth();
   const { openCalculator } = useCalculator();
+  const isNativeNotingWorkspace = /^\/matters\/[^/]+\/noting-v4\/?$/.test(location.pathname);
 
   // State
   const [launcherOpen, setLauncherOpen] = useState(false);
@@ -49,6 +50,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   // Handle Ctrl+K / Cmd+K and Escape
   useEffect(() => {
+    if (isNativeNotingWorkspace) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -63,7 +65,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [isNativeNotingWorkspace]);
 
   // Close user menu on outside click
   useEffect(() => {
@@ -380,6 +382,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     };
   }
 
+  // The full-screen officer workspace owns its header and focusable controls.
+  if (isNativeNotingWorkspace) return <>{children}</>;
   return (
     <div className="lac-shell-root">
       {/* Topbar Header (~54px) */}

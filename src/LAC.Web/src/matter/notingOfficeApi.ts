@@ -169,14 +169,15 @@ export const notingOfficeApi = {
     previewId: string,
     canonicalHash: string,
     resetCitations: boolean,
-    workingRevision: number
+    workingRevision: number,
+    idempotencyKey?: string
   ): Promise<MatterWorkingDraftDto> {
     const res = await fetch(`/api/matters/${matterId}/noting/office/confirm`, {
       method: "POST",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        "Idempotency-Key": generateUuid(),
+        "Idempotency-Key": idempotencyKey || generateUuid(),
         "If-Match": `"${workingRevision}"`
       },
       body: JSON.stringify({
