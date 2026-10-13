@@ -302,8 +302,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       ]
     };
   } else if (path.startsWith("/matters") || path.startsWith("/my-work")) {
-    // Suppress redundant Matters Directory sub-bar when viewing a specific matter workspace (/matters/:id)
-    if (!path.match(/^\/matters\/[^/]+$/)) {
+    // Suppress redundant Matters Directory sub-bar when viewing a specific matter workspace (/matters/:id or /matters/:id/noting-v3)
+    if (!path.match(/^\/matters\/[^/]+(\/noting-v3)?$/)) {
       contextualNav = {
         categoryTitle: "Matters & Work",
         links: [

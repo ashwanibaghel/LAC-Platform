@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1366, height=768, initial-scale=1.0">
+<title>LAC Platform — Premium Matter Workspace Redesign (1366×768 Viewport)</title>
+<style>
+  :root {
+    --primary-green: #15803d;
+    --primary-green-dark: #166534;
+    --accent-teal: #0d9488;
+    --paper-green: #edf7f0;
+    --paper-green-rule: #a7f3d0;
+    --paper-gutter: #86efac;
+    --ink-dark: #0f172a;
+    --ink-note: #064e3b;
+    --ink-muted: #475569;
+    --border-light: #cbd5e1;
+    --border-subtle: #e2e8f0;
+    --bg-workbench: #f1f5f9;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body, html {
+    width: 1366px;
+    height: 768px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg-workbench);
+    color: var(--ink-dark);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* =========================================================================
+     LAYER 1: MAIN LAC PLATFORM TOP SHELL HEADER (Height: exactly 48px)
+     ========================================================================= */
+  .lac-platform-header {
+    height: 48px;
+    background: #0f172a;
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    flex-shrink: 0;
+    z-index: 50;
+    border-bottom: 1px solid #1e293b;
+  }
+
+  .lac-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .lac-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    color: #ffffff;
+  }
+
+  .lac-brand-badge {
+    background: #15803d;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .lac-brand-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .lac-nav-link {
+    color: #94a3b8;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .lac-nav-link.active { color: #ffffff; background: #1e293b; }
+
+  .lac-launcher-btn {
+    background: #1e293b;
+    border: 1px solid #334155;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .lac-header-center {
+    flex: 1;
+    max-width: 440px;
+    margin: 0 20px;
+  }
+
+  .lac-search-box {
+    display: flex;
+    align-items: center;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 4px 10px;
+    gap: 8px;
+  }
+
+  .lac-search-box input {
+    background: transparent;
+    border: none;
+    color: #f8fafc;
+    font-size: 12px;
+    width: 100%;
+    outline: none;
+  }
+  .lac-search-box input::placeholder { color: #64748b; }
+
+  .lac-search-shortcut {
+    font-size: 10px;
+    color: #64748b;
+    background: #0f172a;
+    border: 1px solid #334155;
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .lac-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .user-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #1e293b;
+    padding: 3px 8px 3px 4px;
+    border-radius: 20px;
+    border: 1px solid #334155;
+  }
+
+  .user-avatar {
+    width: 24px;
+    height: 24px;
+    background: #15803d;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .user-details {
+    display: flex;
+    flex-direction: column;
+    text-align: left;
+    line-height: 1.1;
+  }
+  .user-name { font-size: 11px; font-weight: 600; color: #f8fafc; }
+  .user-role { font-size: 9.5px; color: #94a3b8; }
+
+  /* =========================================================================
+     LAYER 2: COMPACT MATTER IDENTITY STRIP (Height: exactly 58px)
+     ========================================================================= */
+  .matter-identity-strip {
+    height: 58px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    flex-shrink: 0;
+    z-index: 40;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  }
+
+  .identity-left {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .identity-top-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .breadcrumb-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #475569;
+    text-decoration: none;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 1px 6px;
+    background: #f1f5f9;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    transition: background 120ms;
+  }
+  .breadcrumb-back-btn:hover { background: #e2e8f0; color: #0f172a; }
+
+  .matter-code-tag {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: 700;
+    font-size: 12px;
+    color: #1e293b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  .badge-village {
+    background: #e0f2fe;
+    color: #0369a1;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1.5px 7px;
+    border-radius: 4px;
+    border: 1px solid #bae6fd;
+    text-transform: uppercase;
+  }
+
+  .badge-status-open {
+    background: #dcfce7;
+    color: #15803d;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid #bbf7d0;
+  }
+
+  .revision-pill {
+    font-size: 10.5px;
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  .identity-bottom-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .matter-title-main {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 540px;
+  }
+
+  .controlling-dak-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fef3c7;
+    border: 1px solid #fde68a;
+    color: #92400e;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .identity-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .btn-more-menu {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #475569;
+    background: #ffffff;
+    border: 1px solid var(--border-light);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .btn-more-menu:hover { background: #f8fafc; color: #0f172a; }
+
+  /* =========================================================================
+     LAYER 3: UNIFIED TAB & CONTEXT-SENSITIVE TOOLBAR BAND (Height: exactly 42px)
+     ========================================================================= */
+  .unified-control-band {
+    height: 42px;
+    background: #ffffff;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    flex-shrink: 0;
+    z-index: 30;
+  }
+
+  .workspace-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 100%;
+  }
+
+  .ws-tab-btn {
+    border: none;
+    background: transparent;
+    height: 100%;
+    padding: 0 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #64748b;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+    border-bottom: 2px solid transparent;
+    transition: all 120ms;
+  }
+  .ws-tab-btn:hover { color: #0f172a; }
+  .ws-tab-btn.active {
+    color: #15803d;
+    border-bottom-color: #15803d;
+    font-weight: 700;
+  }
+
+  .tab-badge {
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 10px;
+    border: 1px solid #e2e8f0;
+  }
+  .ws-tab-btn.active .tab-badge {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #bbf7d0;
+  }
+
+  /* Right-Side Context-Sensitive Toolbar */
+  .context-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .autosave-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #15803d;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    padding: 3px 8px;
+    border-radius: 12px;
+  }
+  .autosave-pill .dot {
+    width: 6px;
+    height: 6px;
+    background: #16a34a;
+    border-radius: 50%;
+  }
+
+  .view-mode-toggle {
+    display: flex;
+    background: #f1f5f9;
+    padding: 2px;
+    border-radius: 5px;
+    border: 1px solid var(--border-subtle);
+  }
+
+  .view-btn {
+    border: none;
+    background: transparent;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #64748b;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .view-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  }
+
+  .btn-tb {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 120ms ease;
+  }
+
+  .btn-tb-ghost {
+    background: #ffffff;
+    border-color: var(--border-light);
+    color: #334155;
+  }
+  .btn-tb-ghost:hover { background: #f8fafc; border-color: #94a3b8; }
+
+  .btn-tb-secondary {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #0f172a;
+  }
+  .btn-tb-secondary:hover { background: #e2e8f0; }
+
+  .btn-tb-primary {
+    background: #15803d;
+    border-color: #166534;
+    color: #ffffff;
+  }
+  .btn-tb-primary:hover { background: #166534; }
+
+  .btn-tb-send {
+    background: #0284c7;
+    border-color: #0369a1;
+    color: #ffffff;
+    font-weight: 700;
+  }
+  .btn-tb-send:hover { background: #0369a1; }
+
+  /* =========================================================================
+     MAIN WORKSPACE CONTENT (Height: exactly calc(768px - 148px) = 620px)
+     ========================================================================= */
+  .workspace-main-area {
+    display: flex;
+    height: calc(768px - 148px); /* 620px total height */
+    overflow: hidden;
+    position: relative;
+    background: var(--bg-workbench);
+  }
+
+  /* LEFT 60%: THE CONTINUOUS OFFICIAL GREEN SHEET WORKBENCH */
+  .noting-surface-container {
+    flex: 6;
+    background: #cbd5e1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px 20px 40px 20px;
+    display: flex;
+    justify-content: center;
+    position: relative;
+    transition: flex 180ms ease;
+  }
+
+  .workspace-main-area.focus-mode .noting-surface-container {
+    flex: 1;
+    padding: 16px 40px 40px 40px;
+    background: #cbd5e1;
+  }
+
+  /* THE PHYSICAL OFFICIAL GREEN SHEET */
+  .official-green-sheet {
+    width: 100%;
+    max-width: 780px;
+    min-height: calc(100% - 10px);
+    background: #f0faf3;
+    background-image: 
+      linear-gradient(90deg, transparent 44px, var(--paper-gutter) 45px, transparent 46px);
+    border-radius: 2px;
+    box-shadow: 
+      0 1px 3px rgba(0,0,0,0.1),
+      0 6px 18px rgba(0,0,0,0.08);
+    position: relative;
+    padding: 28px 32px 32px 56px; /* 56px left margin gives 45mm binding margin */
+    font-family: "Cambria", "Georgia", "Times New Roman", serif;
+    color: #0f172a;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .workspace-main-area.focus-mode .official-green-sheet {
+    max-width: 860px;
+    padding: 32px 40px 40px 60px;
+  }
+
+  /* Hole punches simulating file tag binding */
+  .official-green-sheet::before {
+    content: "";
+    position: absolute;
+    left: 18px;
+    top: 36px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    border: 1px solid #94a3b8;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+  }
+
+  .official-green-sheet::after {
+    content: "";
+    position: absolute;
+    left: 18px;
+    top: 160px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    border: 1px solid #94a3b8;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.3);
+  }
+
+  /* Sheet Docket Header */
+  .sheet-docket-header {
+    border-bottom: 2px solid #15803d;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+
+  .docket-dept-title {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #166534;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .docket-matter-title {
+    font-family: "Cambria", "Georgia", serif;
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #064e3b;
+    margin-top: 2px;
+  }
+
+  .docket-meta-block {
+    text-align: right;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 11px;
+    color: #475569;
+  }
+
+  .docket-page-stamp {
+    font-weight: 700;
+    color: #166534;
+    background: #dcfce7;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #bbf7d0;
+  }
+
+  /* OFFICIAL SUBMITTED NOTE ENTRIES */
+  .note-record-entry {
+    margin-bottom: 20px;
+    position: relative;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #d1fae5;
+  }
+
+  .note-record-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+
+  .note-number-heading {
+    font-size: 14px;
+    font-weight: 700;
+    color: #14532d;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1.5px solid #16a34a;
+    padding-bottom: 1px;
+    display: inline-block;
+  }
+
+  .note-timestamp-meta {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 11px;
+    color: #64748b;
+  }
+
+  .note-record-text {
+    font-size: 14px;
+    line-height: 1.62;
+    color: #0f172a;
+    text-align: justify;
+    word-break: break-word;
+    user-select: text;
+  }
+
+  .note-record-text p {
+    margin-bottom: 8px;
+    text-indent: 22px;
+  }
+
+  .note-record-text p:first-of-type {
+    text-indent: 0;
+  }
+
+  /* Government Minute / Signature Block */
+  .note-signature-block {
+    margin-top: 12px;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .signature-box {
+    text-align: right;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    border-top: 1px dashed #86efac;
+    padding-top: 4px;
+    min-width: 190px;
+  }
+
+  .signature-sign {
+    font-style: italic;
+    font-size: 11px;
+    color: #166534;
+  }
+
+  .signature-name {
+    font-weight: 700;
+    font-size: 12px;
+    color: #0f172a;
+  }
+
+  .signature-designation {
+    font-size: 11px;
+    color: #334155;
+    font-weight: 500;
+  }
+
+  .signature-desk {
+    font-size: 10px;
+    color: #64748b;
+  }
+
+  /* Citations */
+  .citation-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    background: #e0f2fe;
+    border: 1px solid #7dd3fc;
+    color: #0369a1;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    vertical-align: middle;
+    margin: 0 2px;
+    text-decoration: none;
+  }
+  .citation-pill:hover { background: #bae6fd; color: #075985; }
+
+  /* Anchored Supervisory Remark */
+  .remark-highlight {
+    background-color: #fef08a;
+    border-bottom: 2px solid #eab308;
+    padding: 1px 3px;
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+    display: inline-block;
+  }
+
+  .remark-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 290px;
+    background: #ffffff;
+    border: 1px solid #fde047;
+    border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.08);
+    padding: 10px 12px;
+    z-index: 100;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-align: left;
+  }
+
+  .remark-popover::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 20px;
+    width: 10px;
+    height: 10px;
+    background: #ffffff;
+    border-left: 1px solid #fde047;
+    border-top: 1px solid #fde047;
+    transform: rotate(45deg);
+  }
+
+  .remark-popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+  }
+
+  .remark-author-name {
+    font-weight: 700;
+    font-size: 11.5px;
+    color: #0f172a;
+  }
+
+  .remark-badge-status {
+    background: #fef3c7;
+    color: #b45309;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    border: 1px solid #fde68a;
+  }
+
+  .remark-text-body {
+    font-size: 11.5px;
+    color: #334155;
+    line-height: 1.45;
+    margin-bottom: 8px;
+    font-style: italic;
+  }
+
+  .remark-actions-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .remark-btn-action {
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .remark-btn-action.resolve {
+    background: #15803d;
+    border-color: #166534;
+    color: #ffffff;
+  }
+
+  /* ACTIVE WORKING DRAFT AREA */
+  .active-working-note-area {
+    margin-top: 8px;
+    padding-top: 8px;
+    position: relative;
+  }
+
+  .active-note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .active-note-title-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .active-note-title-badge span {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #166534;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .active-note-officer-pill {
+    font-size: 11px;
+    font-weight: 600;
+    color: #065f46;
+    background: #d1fae5;
+    border: 1px solid #a7f3d0;
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
+  .green-sheet-editor {
+    font-size: 14.5px;
+    line-height: 1.65;
+    color: #0f172a;
+    outline: none;
+    min-height: 120px;
+    text-align: justify;
+    word-break: break-word;
+  }
+
+  .green-sheet-editor p {
+    margin-bottom: 8px;
+    text-indent: 22px;
+  }
+
+  .green-sheet-editor p:first-of-type {
+    text-indent: 0;
+  }
+
+  .editor-placeholder {
+    color: #64748b;
+    font-style: italic;
+  }
+
+  /* Floating Selection Toolbar */
+  .floating-selection-toolbar {
+    position: absolute;
+    top: 52px;
+    left: 200px;
+    background: #0f172a;
+    color: #ffffff;
+    border-radius: 5px;
+    padding: 4px 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    z-index: 80;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .toolbar-btn-attach {
+    background: #0284c7;
+    border: none;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .toolbar-tool {
+    background: transparent;
+    border: none;
+    color: #cbd5e1;
+    font-size: 11.5px;
+    padding: 2px 5px;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+  .toolbar-tool:hover { color: #ffffff; background: #334155; }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 14px;
+    background: #334155;
+    margin: 0 2px;
+  }
+
+  /* RIGHT 40%: DOCUMENTS & EVIDENCE SPLIT PANEL */
+  .documents-surface-panel {
+    flex: 4;
+    background: #ffffff;
+    border-left: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    box-shadow: -2px 0 6px rgba(0,0,0,0.03);
+  }
+
+  .workspace-main-area.focus-mode .documents-surface-panel {
+    display: none;
+  }
+
+  .documents-panel-header {
+    height: 38px;
+    background: #f8fafc;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    flex-shrink: 0;
+  }
+
+  .doc-tab-group {
+    display: flex;
+    gap: 4px;
+  }
+
+  .doc-tab-btn {
+    border: none;
+    background: transparent;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #64748b;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .doc-tab-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+    border: 1px solid var(--border-subtle);
+  }
+
+  .doc-badge-count {
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 8px;
+  }
+
+  .document-selector-strip {
+    background: #f1f5f9;
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+  }
+
+  .doc-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: #ffffff;
+    border: 1px solid var(--border-subtle);
+    padding: 2.5px 7px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: #334155;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .doc-chip.active {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1d4ed8;
+    font-weight: 600;
+  }
+
+  /* PDF CANVAS AREA */
+  .pdf-viewer-canvas-area {
+    flex: 1;
+    background: #475569;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .pdf-toolbar {
+    height: 32px;
+    background: #1e293b;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .pdf-tools-left, .pdf-tools-right {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .pdf-tool-btn {
+    background: #334155;
+    border: none;
+    color: #f8fafc;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .pdf-canvas-mockup {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background: #64748b;
+  }
+
+  .mock-pdf-page {
+    width: 440px;
+    min-height: 520px;
+    background: #ffffff;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+    padding: 16px;
+    position: relative;
+    border: 1px solid #94a3b8;
+  }
+
+  .map-graphic {
+    width: 100%;
+    height: 290px;
+    border: 1px solid #cbd5e1;
+    background: #fefce8;
+    margin: 8px 0;
+    position: relative;
+  }
+
+  .pdf-highlight-marker {
+    position: absolute;
+    left: 25%;
+    top: 42%;
+    width: 48%;
+    height: 22%;
+    background: rgba(254, 240, 138, 0.45);
+    border: 1.5px dashed #ca8a04;
+    border-radius: 2px;
+  }
+
+  .pdf-highlight-tag {
+    position: absolute;
+    top: -18px;
+    left: 0;
+    background: #ca8a04;
+    color: #ffffff;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+
+  /* ONLYOFFICE LETTER DRAFTING VIEW */
+  .onlyoffice-view-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: #f8fafc;
+    padding: 16px;
+    overflow-y: auto;
+  }
+
+  .onlyoffice-draft-card {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+
+  .office-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+  }
+
+  /* Focus Mode Peek Drawer Tab */
+  .focus-drawer-peek-btn {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #0f172a;
+    color: #ffffff;
+    border: none;
+    padding: 10px 5px;
+    font-size: 10.5px;
+    font-weight: 700;
+    border-top-left-radius: 6px;
+    border-bottom-left-radius: 6px;
+    cursor: pointer;
+    box-shadow: -2px 0 6px rgba(0,0,0,0.25);
+    display: none;
+    z-index: 70;
+  }
+  .workspace-main-area.focus-mode .focus-drawer-peek-btn {
+    display: block;
+  }
+
+  /* =========================================================================
+     FLOATING INTERACTIVE SCENARIO CONTROLLER FOR USER VISUAL INSPECTION
+     ========================================================================= */
+  .scenario-control-bar {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 30px;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    z-index: 9999;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  .scenario-title-label {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0 4px;
+    white-space: nowrap;
+  }
+
+  .scenario-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #f1f5f9;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 120ms ease;
+    white-space: nowrap;
+  }
+  .scenario-btn:hover {
+    background: rgba(255, 255, 255, 0.22);
+    color: #ffffff;
+    transform: translateY(-1px);
+  }
+  .scenario-btn.active {
+    background: #15803d;
+    border-color: #22c55e;
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.35);
+  }
+
+  .scenario-hide-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 12px;
+    padding: 4px 6px;
+    cursor: pointer;
+    border-radius: 12px;
+  }
+  .scenario-hide-btn:hover { color: #f8fafc; background: rgba(255, 255, 255, 0.1); }
+
+  .scenario-minimized-trigger {
+    position: fixed;
+    bottom: 12px;
+    right: 14px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #38bdf8;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 20px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 9999;
+    display: none;
+  }
+  .scenario-minimized-trigger:hover {
+    background: #1e293b;
+    color: #7dd3fc;
+  }
+
+</style>
+</head>
+<body>
+
+  <!-- =========================================================================
+       LAYER 1: MAIN LAC PLATFORM TOP SHELL HEADER (48px)
+       ========================================================================= */ -->
+  <header class="lac-platform-header">
+    <div class="lac-header-left">
+      <a href="#" class="lac-brand">
+        <span class="lac-brand-badge">LAC</span>
+        <span class="lac-brand-title">LAC Platform</span>
+      </a>
+      <a href="#" class="lac-nav-link active">Home</a>
+      <button class="lac-launcher-btn">Apps ▾</button>
+    </div>
+
+    <div class="lac-header-center">
+      <div class="lac-search-box">
+        <span style="font-size:12px; color:#94a3b8;">🔍</span>
+        <input type="text" placeholder="Search village, khasra, award, or file…" readonly value="Galib Pur">
+        <span class="lac-search-shortcut">Ctrl + K</span>
+      </div>
+    </div>
+
+    <div class="lac-header-right">
+      <div class="user-badge">
+        <div class="user-avatar">AB</div>
+        <div class="user-details">
+          <span class="user-name">Ashwani Baghel</span>
+          <span class="user-role">ADM / LAC Desk</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- =========================================================================
+       LAYER 2: COMPACT MATTER IDENTITY STRIP (58px)
+       ========================================================================= */ -->
+  <section class="matter-identity-strip">
+    <div class="identity-left">
+      <div class="identity-top-line">
+        <a href="#" class="breadcrumb-back-btn">← Matters</a>
+        <span class="matter-code-tag">MTR-2026-GALIBPUR-0042</span>
+        <span class="badge-village">GALIB PUR</span>
+        <span class="badge-status-open">● OPEN</span>
+        <span class="revision-pill">Rev 4</span>
+      </div>
+      <div class="identity-bottom-line">
+        <h1 class="matter-title-main" title="Acquisition of Land in Galib Pur for 100ft Master Plan Road">
+          Acquisition of Land in Galib Pur for 100ft Master Plan Road
+        </h1>
+        <div class="controlling-dak-badge">
+          <span>📁</span>
+          <span>Controlling Dak: DAK-2026-0892 (Held by Kanungo Desk)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="identity-right">
+      <button class="btn-more-menu" title="Access secondary matter metadata, reclassify workstream, or view file audit history">
+        <span>⋮ More</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- =========================================================================
+       LAYER 3: UNIFIED TAB & CONTEXT-SENSITIVE TOOLBAR BAND (42px)
+       ========================================================================= */ -->
+  <nav class="unified-control-band" aria-label="Workspace Context Controls">
+    <div class="workspace-tabs">
+      <button id="ws-tab-overview" class="ws-tab-btn" onclick="switchMainTab('overview')">
+        <span>Overview</span>
+      </button>
+      <button id="ws-tab-noting" class="ws-tab-btn active" onclick="switchMainTab('noting')">
+        <span>Green Noting</span>
+      </button>
+      <button id="ws-tab-documents" class="ws-tab-btn" onclick="switchMainTab('documents')">
+        <span>Documents</span>
+        <span class="tab-badge">3</span>
+      </button>
+      <button id="ws-tab-drafts" class="ws-tab-btn" onclick="switchMainTab('drafts')">
+        <span>Drafts / Letters</span>
+        <span class="tab-badge">1</span>
+      </button>
+      <button id="ws-tab-activity" class="ws-tab-btn" onclick="switchMainTab('activity')">
+        <span>Activity</span>
+      </button>
+    </div>
+
+    <!-- DYNAMIC CONTEXT-SENSITIVE TOOLBARS -->
+    <div class="context-toolbar-right">
+      
+      <!-- Toolbar: GREEN NOTING TAB -->
+      <div id="toolbar-noting" style="display:flex; align-items:center; gap:8px;">
+        <div class="autosave-pill">
+          <span class="dot"></span>
+          <span>✓ All changes saved</span>
+        </div>
+
+        <div class="view-mode-toggle">
+          <button id="btn-split" class="view-btn active" onclick="switchSplitFocus('split')">◫ 60/40 Split</button>
+          <button id="btn-focus" class="view-btn" onclick="switchSplitFocus('focus')">⛶ Full Focus</button>
+        </div>
+
+        <button class="btn-tb btn-tb-ghost" title="Save draft without submitting to chain">Save Draft</button>
+        <button class="btn-tb btn-tb-secondary" title="Permanently submits this note to the official green sheet chain">
+          Submit Note (Internal)
+        </button>
+        <button class="btn-tb btn-tb-send" title="Atomically submits note and dispatches controlling Dak to recipient desk">
+          Send / Return File ➔
+        </button>
+      </div>
+
+      <!-- Toolbar: DOCUMENTS TAB -->
+      <div id="toolbar-documents" style="display:none; align-items:center; gap:8px;">
+        <button class="btn-tb btn-tb-ghost">🔍 Search Documents</button>
+        <button class="btn-tb btn-tb-secondary">📄 Extract / Link Doc</button>
+        <button class="btn-tb btn-tb-primary">↥ + Upload Document</button>
+      </div>
+
+      <!-- Toolbar: DRAFTS / LETTERS TAB -->
+      <div id="toolbar-drafts" style="display:none; align-items:center; gap:8px;">
+        <button class="btn-tb btn-tb-ghost">Download .docx</button>
+        <button class="btn-tb btn-tb-secondary" style="background:#0284c7; border-color:#0369a1; color:#fff;">
+          Open in ONLYOFFICE ↗
+        </button>
+        <button class="btn-tb btn-tb-primary">+ New Official Letter</button>
+      </div>
+
+      <!-- Toolbar: OVERVIEW TAB -->
+      <div id="toolbar-overview" style="display:none; align-items:center; gap:8px;">
+        <button class="btn-tb btn-tb-ghost">Reclassify Workstream</button>
+        <button class="btn-tb btn-tb-secondary">✏ Edit Metadata</button>
+        <button class="btn-tb btn-tb-primary">🔗 Manage Linked Records</button>
+      </div>
+
+      <!-- Toolbar: ACTIVITY TAB -->
+      <div id="toolbar-activity" style="display:none; align-items:center; gap:8px;">
+        <button class="btn-tb btn-tb-ghost">Filter Events</button>
+        <button class="btn-tb btn-tb-secondary">Export Audit Trail</button>
+      </div>
+
+    </div>
+  </nav>
+
+  <!-- =========================================================================
+     WORKSPACE MAIN AREA (620px height)
+     ========================================================================= */ -->
+  <main id="workspace-main" class="workspace-main-area">
+
+    <!-- LEFT 60%: OFFICIAL CONTINUOUS GREEN NOTE SHEET -->
+    <section class="noting-surface-container">
+      <article class="official-green-sheet">
+        
+        <!-- Sheet Docket Header -->
+        <div class="sheet-docket-header">
+          <div>
+            <div class="docket-dept-title">Government of NCT of Delhi · Land Acquisition Collectorate (South-West)</div>
+            <div class="docket-matter-title">Noting Sheet — File No. LAC/SW/2026/892</div>
+          </div>
+          <div class="docket-meta-block">
+            <div>Village: <strong>Galib Pur</strong></div>
+            <div style="margin-top:2px;">Sheet No: <span class="docket-page-stamp">PAGE 1</span></div>
+          </div>
+        </div>
+
+        <!-- SUBMITTED NOTES CONTAINER -->
+        <div id="submitted-notes-container">
+          
+          <!-- NOTE NO. 1 -->
+          <div id="note-1" class="note-record-entry">
+            <div class="note-record-header">
+              <span class="note-number-heading">NOTE NO. 1</span>
+              <span class="note-timestamp-meta">Submitted on 09-Oct-2026 at 11:30 AM</span>
+            </div>
+            <div class="note-record-text">
+              <p>
+                1. Submitted for <span id="remark-anchor-phrase" class="remark-highlight">physical site inspection report<span id="remark-popover" class="remark-popover" style="display:none;">
+                  <span class="remark-popover-header">
+                    <span class="remark-author-name">Tehsildar (Acquisition)</span>
+                    <span class="remark-badge-status">Open Remark</span>
+                  </span>
+                  <span class="remark-text-body">
+                    "Please attach the joint demarcation sign-off sheet signed by the village Patwari and both co-sharers."
+                  </span>
+                  <span class="remark-actions-row">
+                    <button class="remark-btn-action">Reply</button>
+                    <button class="remark-btn-action resolve">Mark Addressed</button>
+                  </span>
+                </span></span> and revenue record verification of Galib Pur khasras. Field inspection reveals that Khasra 102 is currently under agricultural possession, with boundary demarcation confirmed as per <a href="#" class="citation-pill" onclick="return false;">📎 [Doc: evidence-revenue-map.pdf (p.1)]</a>.
+              </p>
+
+              <p>
+                2. As per Jamabandi for the year 2024-2025, the land stands registered in the names of Sh. Ram Chander and Sh. Ishwar Singh, having equal half-shares. No civil court injunction or stay order u/s 52 of Transfer of Property Act is found recorded in the Tehsil register.
+              </p>
+              <p>
+                3. The case is accordingly placed before Tehsildar (LA) for perusal and recommendation for onward submission to ADM/LAC.
+              </p>
+            </div>
+
+            <!-- Signature Block -->
+            <div class="note-signature-block">
+              <div class="signature-box">
+                <div class="signature-sign">(Sd/-)</div>
+                <div class="signature-name">Ramesh Kumar</div>
+                <div class="signature-designation">Field Kanungo (Land Records)</div>
+                <div class="signature-desk">Kanungo Desk · LAC South-West</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NOTE NO. 2 -->
+          <div id="note-2" class="note-record-entry">
+            <div class="note-record-header">
+              <span class="note-number-heading">NOTE NO. 2</span>
+              <span class="note-timestamp-meta">Submitted on 10-Oct-2026 at 03:15 PM</span>
+            </div>
+            <div class="note-record-text">
+              <p>
+                4. Perused Note 1 of Kanungo above. Demarcation report and khasra verification confirmed. Section 11 preliminary notification has been duly published in the Official Gazette on 14-Aug-2026.
+              </p>
+              <p>
+                5. Submitted to ADM / Land Acquisition Collector for administrative approval and sanction of draft declaration under Section 19.
+              </p>
+            </div>
+            <div class="note-signature-block">
+              <div class="signature-box">
+                <div class="signature-sign">(Sd/-)</div>
+                <div class="signature-name">Suresh Sharma, DANICS</div>
+                <div class="signature-designation">Tehsildar (Acquisition)</div>
+                <div class="signature-desk">Tehsildar Desk · LAC South-West</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ACTIVE DRAFT SECTION ON SAME CONTINUOUS GREEN SHEET -->
+        <div id="active-draft-section" class="active-working-note-area">
+          <div class="active-note-header">
+            <div class="active-note-title-badge">
+              <span id="active-note-title-text">NOTE NO. 3 (Working Draft)</span>
+            </div>
+            <span id="active-officer-pill" class="active-note-officer-pill">Drafting as: ADM / LAC (Acquisition)</span>
+          </div>
+
+          <!-- TipTap Editor Surface -->
+          <div id="editor-surface" class="green-sheet-editor" contenteditable="true" spellcheck="false">
+            <p id="editor-para-1">
+              6. The award estimate and compensation assessment have been examined in light of First Schedule parameters of RFCTLARR Act 2013. Market value at the notified circle rate plus 100% solatium and 12% additional interest stands approved.
+            </p>
+            <p id="editor-para-2">
+              7. Issued directions to issue statutory notices to interested parties and list matter for final award pronouncement on 28-Oct-2026.
+            </p>
+          </div>
+
+          <!-- Contextual Floating Selection Toolbar -->
+          <div id="floating-toolbar" class="floating-selection-toolbar" style="display:none;">
+            <button class="toolbar-btn-attach">
+              📎 Attach Reference
+            </button>
+            <span class="toolbar-divider"></span>
+            <button class="toolbar-tool"><b>B</b></button>
+            <button class="toolbar-tool"><i>I</i></button>
+            <button class="toolbar-tool"><u>U</u></button>
+          </div>
+        </div>
+
+      </article>
+    </section>
+
+    <!-- RIGHT 40%: DOCUMENTS SPLIT PANEL -->
+    <section id="documents-panel" class="documents-surface-panel">
+      
+      <!-- Panel Header & View Tabs -->
+      <div class="documents-panel-header">
+        <div class="doc-tab-group">
+          <button id="tab-all-docs" class="doc-tab-btn active" onclick="switchDocTab('pdf')">
+            <span>📄 Matter Documents</span>
+            <span class="doc-badge-count">3</span>
+          </button>
+          <button id="tab-letters" class="doc-tab-btn" onclick="switchDocTab('letters')">
+            <span>✉ Letters & ONLYOFFICE</span>
+            <span class="doc-badge-count">1</span>
+          </button>
+        </div>
+        <button class="btn-tb btn-tb-ghost" style="padding: 2px 7px; font-size: 11px;">+ Upload</button>
+      </div>
+
+      <!-- Document Selector Strip -->
+      <div class="document-selector-strip">
+        <div class="doc-chip active">
+          <span>🗺️ evidence-revenue-map.pdf</span>
+        </div>
+        <div class="doc-chip">
+          <span>📜 section-11-gazette.pdf</span>
+        </div>
+        <div class="doc-chip">
+          <span>📋 khasra-girdawari-102.pdf</span>
+        </div>
+      </div>
+
+      <!-- PDF Canvas View -->
+      <div id="pdf-view-container" class="pdf-viewer-canvas-area">
+        <div class="pdf-toolbar">
+          <div class="pdf-tools-left">
+            <span>Page <strong>1</strong> of 4</span>
+            <button class="pdf-tool-btn">◀</button>
+            <button class="pdf-tool-btn">▶</button>
+          </div>
+          <div class="pdf-tools-right">
+            <button class="pdf-tool-btn">−</button>
+            <span>100%</span>
+            <button class="pdf-tool-btn">+</button>
+            <button class="pdf-tool-btn">Fit Width</button>
+            <button class="pdf-tool-btn" style="background:#0284c7;">+ Highlight</button>
+          </div>
+        </div>
+
+        <div class="pdf-canvas-mockup">
+          <div class="mock-pdf-page">
+            <div style="font-size:11px; font-weight:700; color:#1e293b; text-align:center; border-bottom:1px solid #cbd5e1; padding-bottom:4px; margin-bottom:8px;">
+              OFFICE OF THE CHIEF COMMISSIONER / LAC — REVENUE AKS SHAJRA MAP
+              <br><span style="font-size:9.5px; font-weight:500; color:#64748b;">Village: Galib Pur · Khasra Nos: 101, 102, 103, 104 · Scale: 1:2500</span>
+            </div>
+
+            <!-- Revenue Cadastral Map Graphic (SVG) -->
+            <div class="map-graphic">
+              <svg width="100%" height="100%" viewBox="0 0 400 290" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" stroke-width="0.5"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="#fefce8" />
+                <rect width="100%" height="100%" fill="url(#grid)" />
+
+                <!-- Cadastral Parcels -->
+                <!-- Khasra 101 -->
+                <polygon points="30,35 160,30 150,130 25,120" fill="#fef3c7" stroke="#475569" stroke-width="1.5" />
+                <text x="75" y="80" font-family="sans-serif" font-size="11" font-weight="700" fill="#334155">Kh. 101 (2-04)</text>
+
+                <!-- Khasra 102 (Target Parcel) -->
+                <polygon points="160,30 340,25 330,140 150,130" fill="#dcfce7" stroke="#16a34a" stroke-width="2" />
+                <text x="210" y="75" font-family="sans-serif" font-size="13" font-weight="800" fill="#14532d">Kh. 102 (4-16)</text>
+                <text x="200" y="95" font-family="sans-serif" font-size="9.5" fill="#15803d">Acquisition Target u/s 11</text>
+
+                <!-- Khasra 103 -->
+                <polygon points="25,120 150,130 140,240 20,230" fill="#f1f5f9" stroke="#475569" stroke-width="1.5" />
+                <text x="75" y="180" font-family="sans-serif" font-size="11" font-weight="700" fill="#334155">Kh. 103 (3-12)</text>
+
+                <!-- Khasra 104 -->
+                <polygon points="150,130 330,140 320,250 140,240" fill="#fef3c7" stroke="#475569" stroke-width="1.5" />
+                <text x="215" y="185" font-family="sans-serif" font-size="11" font-weight="700" fill="#334155">Kh. 104 (5-00)</text>
+
+                <!-- 100ft Master Plan Road Corridor -->
+                <path d="M 10,110 Q 180,115 380,100" stroke="#dc2626" stroke-width="5" stroke-dasharray="6,4" fill="none" opacity="0.85" />
+                <text x="120" y="126" font-family="sans-serif" font-size="9" font-weight="700" fill="#b91c1c" transform="rotate(-2 120 126)">100 FT MASTER PLAN ROAD CORRIDOR</text>
+
+                <!-- North Arrow -->
+                <g transform="translate(360, 20)">
+                  <polygon points="0,-12 4,0 -4,0" fill="#dc2626" />
+                  <polygon points="0,0 4,8 -4,8" fill="#334155" />
+                  <text x="-4" y="-15" font-size="9" font-weight="700" fill="#dc2626">N</text>
+                </g>
+              </svg>
+
+              <!-- Synchronized Highlight Overlay -->
+              <div class="pdf-highlight-marker">
+                <span class="pdf-highlight-tag">Ref: Aks Shajra Khasra 102 Demarcation</span>
+              </div>
+            </div>
+
+            <div style="font-size:10px; color:#475569; line-height:1.4; border-top:1px dashed #cbd5e1; padding-top:5px;">
+              <strong>Field Verification Note:</strong> Total demarcated area for acquisition under Khasra 102 comprises 4 Bighas 16 Biswas out of total holding. Demarcation pegs fixed on ground.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LETTERS & ONLYOFFICE VIEW -->
+      <div id="letters-view-container" class="onlyoffice-view-container" style="display:none;">
+        <div class="onlyoffice-draft-card">
+          <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+              <div style="font-size:13.5px; font-weight:700; color:#0f172a;">Statutory Landowner Notice u/s 11</div>
+              <div style="font-size:11.5px; color:#64748b; margin-top:2px;">Notice_to_Landowners_Sec11.docx · Official Matter Draft</div>
+            </div>
+            <span class="office-status-pill">● Document Server Ready</span>
+          </div>
+
+          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:4px; padding:10px; font-size:11.5px; color:#334155;">
+            <div><strong>Page Layout:</strong> Delhi LAC Letterhead (A4 Portrait, 25mm Top / 20mm Side Margins)</div>
+            <div style="margin-top:4px;"><strong>Intended Recipients:</strong> Sh. Ram Chander & Sh. Ishwar Singh (Co-sharers)</div>
+            <div style="margin-top:4px; color:#64748b;">Notice calls upon landowners to submit claims for compensation within 30 days.</div>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:4px;">
+            <button class="btn-tb btn-tb-secondary" style="background:#0284c7; border-color:#0369a1; color:#fff; padding:6px 14px; font-size:12px;">
+              Open in ONLYOFFICE ↗
+            </button>
+            <button class="btn-tb btn-tb-ghost" style="padding:6px 12px; font-size:12px;">Download .docx</button>
+            <button class="btn-tb btn-tb-ghost" style="padding:6px 12px; font-size:12px;">Print Preview</button>
+          </div>
+
+          <div style="font-size:11px; color:#64748b; font-style:italic; border-top:1px dashed #cbd5e1; padding-top:8px;">
+            ℹ Statutory letters and correspondence are edited in ONLYOFFICE with independent letterhead layouts. Canonical Green Noting retains numbered sequential notes.
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Peek Documents Drawer Button (Visible in Focus Mode) -->
+    <button class="focus-drawer-peek-btn" onclick="switchSplitFocus('split')">
+      ◀<br>D<br>O<br>C<br>S
+    </button>
+
+  </main>
+
+  <!-- =========================================================================
+       FLOATING INTERACTIVE SCENARIO CONTROLLER FOR USER DIRECT BROWSER REVIEW
+       ========================================================================= -->
+  <div id="scenario-bar" class="scenario-control-bar">
+    <span class="scenario-title-label">Review Scenarios:</span>
+    <button id="sc-btn-empty-note1" class="scenario-btn" onclick="loadScenario('empty-note1')">1. Empty Note 1</button>
+    <button id="sc-btn-multiple-notes" class="scenario-btn active" onclick="loadScenario('multiple-notes')">2. Multiple Notes</button>
+    <button id="sc-btn-split-pdf" class="scenario-btn" onclick="loadScenario('split-pdf')">3. 60/40 Split & PDF</button>
+    <button id="sc-btn-supervisory-remark" class="scenario-btn" onclick="loadScenario('supervisory-remark')">4. Anchored Remark</button>
+    <button id="sc-btn-letter-drafting" class="scenario-btn" onclick="loadScenario('letter-drafting')">5. ONLYOFFICE</button>
+    <button id="sc-btn-focus-mode" class="scenario-btn" onclick="loadScenario('focus-mode')">6. Focus Mode</button>
+    <button id="sc-btn-tab-documents" class="scenario-btn" onclick="loadScenario('tab-documents')">7. Docs Toolbar</button>
+    <button id="sc-btn-tab-overview" class="scenario-btn" onclick="loadScenario('tab-overview')">8. Overview Toolbar</button>
+    <button class="scenario-hide-btn" onclick="toggleScenarioBar(false)" title="Hide toolbar to inspect unhindered 1366x768 layout">✕</button>
+  </div>
+
+  <button id="scenario-restore-btn" class="scenario-minimized-trigger" onclick="toggleScenarioBar(true)">
+    👁 Switch Scenario (1–8)
+  </button>
+
+  <script>
+    function getQueryParam(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
+    }
+
+    function switchSplitFocus(mode) {
+      const main = document.getElementById("workspace-main");
+      const btnSplit = document.getElementById("btn-split");
+      const btnFocus = document.getElementById("btn-focus");
+      if (mode === "focus") {
+        main.classList.add("focus-mode");
+        btnSplit.classList.remove("active");
+        btnFocus.classList.add("active");
+      } else {
+        main.classList.remove("focus-mode");
+        btnSplit.classList.add("active");
+        btnFocus.classList.remove("active");
+      }
+    }
+
+    function switchDocTab(tab) {
+      const pdfContainer = document.getElementById("pdf-view-container");
+      const lettersContainer = document.getElementById("letters-view-container");
+      const tabAll = document.getElementById("tab-all-docs");
+      const tabLetters = document.getElementById("tab-letters");
+
+      if (tab === "letters") {
+        pdfContainer.style.display = "none";
+        lettersContainer.style.display = "flex";
+        tabAll.classList.remove("active");
+        tabLetters.classList.add("active");
+      } else {
+        pdfContainer.style.display = "flex";
+        lettersContainer.style.display = "none";
+        tabAll.classList.add("active");
+        tabLetters.classList.remove("active");
+      }
+    }
+
+    function switchMainTab(tab) {
+      const tabs = ["overview", "noting", "documents", "drafts", "activity"];
+      tabs.forEach(t => {
+        const btn = document.getElementById("ws-tab-" + t);
+        const tb = document.getElementById("toolbar-" + t);
+        if (btn) btn.classList.toggle("active", t === tab);
+        if (tb) tb.style.display = (t === tab ? "flex" : "none");
+      });
+
+      if (tab === "drafts") {
+        switchDocTab("letters");
+      } else if (tab === "documents" || tab === "noting") {
+        switchDocTab("pdf");
+      }
+    }
+
+    function toggleScenarioBar(show) {
+      document.getElementById("scenario-bar").style.display = show ? "flex" : "none";
+      document.getElementById("scenario-restore-btn").style.display = show ? "none" : "block";
+    }
+
+    // Interactive Scenario Controller
+    function loadScenario(viewName) {
+      const note1 = document.getElementById("note-1");
+      const note2 = document.getElementById("note-2");
+      const activeTitle = document.getElementById("active-note-title-text");
+      const activeOfficer = document.getElementById("active-officer-pill");
+      const editor = document.getElementById("editor-surface");
+      const popover = document.getElementById("remark-popover");
+      const floatingToolbar = document.getElementById("floating-toolbar");
+
+      // Reset base active pills
+      document.querySelectorAll(".scenario-btn").forEach(btn => btn.classList.remove("active"));
+      const currentBtn = document.getElementById("sc-btn-" + viewName);
+      if (currentBtn) currentBtn.classList.add("active");
+
+      // Default state reset
+      switchSplitFocus("split");
+      popover.style.display = "none";
+      floatingToolbar.style.display = "none";
+
+      if (viewName === "empty-note1") {
+        note1.style.display = "none";
+        note2.style.display = "none";
+        activeTitle.textContent = "NOTE NO. 1 (Initiating Note)";
+        activeOfficer.textContent = "Drafting as: Kanungo (Land Records)";
+        editor.innerHTML = "<p class='editor-placeholder'>Start writing official Note 1 here... Enter revenue record summary, khasra demarcation status, and village possession details.</p>";
+        switchMainTab("noting");
+        switchDocTab("pdf");
+      } 
+      else if (viewName === "multiple-notes") {
+        note1.style.display = "block";
+        note2.style.display = "block";
+        activeTitle.textContent = "NOTE NO. 3 (Working Draft)";
+        activeOfficer.textContent = "Drafting as: ADM / LAC (Acquisition)";
+        editor.innerHTML = "<p>6. The award estimate and compensation assessment have been examined in light of First Schedule parameters of RFCTLARR Act 2013. Market value at the notified circle rate plus 100% solatium and 12% additional interest stands approved.</p><p>7. Issued directions to issue statutory notices to interested parties and list matter for final award pronouncement on 28-Oct-2026.</p>";
+        floatingToolbar.style.display = "flex";
+        switchMainTab("noting");
+        switchDocTab("pdf");
+      } 
+      else if (viewName === "split-pdf") {
+        note1.style.display = "block";
+        note2.style.display = "none";
+        activeTitle.textContent = "NOTE NO. 2 (Working Draft)";
+        activeOfficer.textContent = "Drafting as: Tehsildar (Acquisition)";
+        editor.innerHTML = "<p>4. Perused Note 1 above and examined Aks Shajra demarcation map in right panel. Verification confirmed u/s 11.</p>";
+        switchMainTab("noting");
+        switchDocTab("pdf");
+      } 
+      else if (viewName === "supervisory-remark") {
+        note1.style.display = "block";
+        note2.style.display = "none";
+        popover.style.display = "block";
+        activeTitle.textContent = "NOTE NO. 2 (Working Draft)";
+        activeOfficer.textContent = "Drafting as: Tehsildar (Acquisition)";
+        editor.innerHTML = "<p>6. The award estimate and compensation assessment have been examined in light of First Schedule parameters of RFCTLARR Act 2013.</p>";
+        switchMainTab("noting");
+        switchDocTab("pdf");
+      } 
+      else if (viewName === "letter-drafting") {
+        note1.style.display = "block";
+        note2.style.display = "block";
+        activeTitle.textContent = "NOTE NO. 3 (Working Draft)";
+        activeOfficer.textContent = "Drafting as: ADM / LAC (Acquisition)";
+        switchMainTab("drafts");
+      } 
+      else if (viewName === "focus-mode") {
+        note1.style.display = "block";
+        note2.style.display = "block";
+        activeTitle.textContent = "NOTE NO. 3 (Working Draft)";
+        activeOfficer.textContent = "Drafting as: ADM / LAC (Acquisition)";
+        switchMainTab("noting");
+        switchSplitFocus("focus");
+      }
+      else if (viewName === "tab-documents") {
+        note1.style.display = "block";
+        note2.style.display = "block";
+        switchMainTab("documents");
+        switchDocTab("pdf");
+      }
+      else if (viewName === "tab-overview") {
+        note1.style.display = "block";
+        note2.style.display = "block";
+        switchMainTab("overview");
+      }
+    }
+
+    // Keyboard shortcuts (1-8)
+    window.addEventListener("keydown", (e) => {
+      const map = {
+        "1": "empty-note1",
+        "2": "multiple-notes",
+        "3": "split-pdf",
+        "4": "supervisory-remark",
+        "5": "letter-drafting",
+        "6": "focus-mode",
+        "7": "tab-documents",
+        "8": "tab-overview"
+      };
+      if (map[e.key] && document.activeElement.tagName !== "INPUT") {
+        loadScenario(map[e.key]);
+      }
+    });
+
+    // Initial load from URL or default to multiple-notes
+    const initialView = getQueryParam("view") || "multiple-notes";
+    loadScenario(initialView);
+  </script>
+</body>
+</html>

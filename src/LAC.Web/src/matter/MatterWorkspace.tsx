@@ -951,6 +951,14 @@ export const MatterWorkspace: React.FC<{ MatterOutwardSection: React.ComponentTy
             <span className="tab-green-dot" />
             Green Noting
           </button>
+          <Link
+            to={`/matters/${id}/noting-v3`}
+            className="matter-tab-btn"
+            style={{ color: "#166534", fontWeight: 700, background: "#f0fdf4", border: "1px solid #bbf7d0", textDecoration: "none" }}
+            title="Open Single Continuous Official Noting File Workspace Prototype"
+          >
+            ★ Noting V3 (Single Sheet)
+          </Link>
           <button
             type="button"
             className={`matter-tab-btn ${activeTab === "overview" ? "active" : ""}`}

@@ -37,6 +37,7 @@ import { OutwardRegistration } from "./outward/OutwardRegistration";
 import { OutwardDetailWorkspace } from "./outward/OutwardDetailWorkspace";
 import { MatterDirectory } from "./matter/MatterDirectory";
 import { MatterWorkspace } from "./matter/MatterWorkspace";
+import { GreenNotingV3Workspace } from "./matter/GreenNotingV3Workspace";
 import { groupMattersByType } from "./matter/matterTypeGroups";
 import { MyWork } from "./work/MyWork";
 import { WorkItemCreate } from "./work/WorkItemCreate";
@@ -4091,6 +4092,7 @@ function AuthenticatedApp() {
         <Route path="/villages/:id" element={<LandRecordsRoute><Village /></LandRecordsRoute>} />
         <Route path="/matters" element={<MatterDirectory />} />
         <Route path="/matters/:id" element={<Matter />} />
+        <Route path="/matters/:id/noting-v3" element={<GreenNotingV3Workspace />} />
         <Route path="/matter-drafts/:id" element={<OnlyOfficeDraftEditorPage />} />
         <Route path="/court-cases" element={<CourtRoute><CourtDirectory /></CourtRoute>} />
         <Route path="/court-cases/imports" element={<CourtRoute><CourtImportPreview /></CourtRoute>} />
