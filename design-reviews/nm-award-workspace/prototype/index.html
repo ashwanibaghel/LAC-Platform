@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1366, height=768, initial-scale=1.0">
+  <title>LAC Platform — Naksha Muntazamin &amp; Award Data Entry Workspace</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top App Header: LAC Shell -->
+  <header class="lac-topbar">
+    <div class="lac-topbar-left">
+      <span class="lac-badge">LAC PLATFORM</span>
+      <nav class="lac-breadcrumbs">
+        <a href="#projects">Delhi Revenue</a>
+        <span class="sep">/</span>
+        <a href="#southwest">South-West District</a>
+        <span class="sep">/</span>
+        <a href="#pochanpur">Village Pochanpur</a>
+        <span class="sep">/</span>
+        <a href="#awards">Award 30/2002-03</a>
+        <span class="sep">/</span>
+        <span class="current" id="breadcrumbWorkspaceTitle">Naksha Muntazamin (NM) Register</span>
+      </nav>
+    </div>
+
+    <div class="lac-topbar-right">
+      <div class="lac-view-switcher">
+        <button class="lac-view-btn active" id="btnClassicView">NM Register</button>
+        <button class="lac-view-btn" id="btnAwardView">Award Master</button>
+        <button class="lac-view-btn" id="btnAuditView">Audit Matrix</button>
+      </div>
+      <div class="officer-pill">
+        <span class="officer-dot"></span>
+        <span>Demo Officer, ADM / LAC (SW)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Sub-Header: Compact Award Identity & Telemetry Context -->
+  <section class="award-subbar">
+    <div class="award-ident-group">
+      <div class="award-code">
+        <span>Award No. 30/2002-03</span>
+        <span class="award-tag">FINAL GAZETTE</span>
+      </div>
+      <div class="award-meta-item">
+        <span>Village:</span>
+        <strong>Pochanpur (SW Delhi)</strong>
+      </div>
+      <div class="award-meta-item">
+        <span>Sec 4 Notification:</span>
+        <strong>13.12.2000</strong>
+      </div>
+      <div class="award-meta-item">
+        <span>Award Date:</span>
+        <strong>09.12.2002</strong>
+      </div>
+      <div class="award-meta-item" id="subbarScopeItem">
+        <span>Total NM Scope:</span>
+        <strong>51-13 B-B (13 Khasras)</strong>
+      </div>
+    </div>
+
+    <div class="toolbar-telemetry" id="subbarTelemetry">
+      <div class="telemetry-stat">Khatas: <strong>5</strong></div>
+      <div class="telemetry-stat">Claimants: <strong>164</strong></div>
+      <div class="telemetry-stat">Awarded Area: <strong>84-18-00 B-B</strong></div>
+      <div class="telemetry-stat">Total Payable: <strong>₹6,48,22,940</strong></div>
+    </div>
+  </section>
+
+  <!-- Toolbar: Search, Filters, and New Compact Primary Actions -->
+  <section class="nm-toolbar">
+    <div class="search-filter-box">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="nmSearchInput" class="search-input" placeholder="Search Item #, Khata #, Claimant, Khasra...">
+        <span class="search-kbd">/</span>
+      </div>
+
+      <div class="filter-pills" id="toolbarFilterPills">
+        <button class="filter-pill active" data-filter="all">All Khatas</button>
+        <button class="filter-pill" data-filter="red-notes">
+          <span class="filter-dot-red"></span>
+          <span>Red Ink Remarks (1)</span>
+        </button>
+        <button class="filter-pill" data-filter="mismatches">
+          <span class="filter-badge-amber">!</span>
+          <span>Scope Review (1)</span>
+        </button>
+        <button class="filter-pill" data-filter="mixed-class">
+          <span>Mixed Land Class (1)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Primary Action Area: Compact Office Data Entry Options -->
+    <div class="nm-actions-group" id="primaryActionsGroup">
+      <button class="action-btn primary" id="btnOpenManualEntry" title="Add record via manual data entry form">
+        <span class="icon">+</span>
+        <span>Add Entry</span>
+      </button>
+      <button class="action-btn secondary" id="btnOpenExcelImport" title="Bulk upload records via validated Excel template">
+        <span class="icon">📥</span>
+        <span>Import Excel</span>
+      </button>
+      <button class="action-btn secondary" id="btnOpenTemplateDownload" title="Download official Excel workbook template">
+        <span class="icon">📄</span>
+        <span>Download Template</span>
+      </button>
+      <button class="action-btn secondary" id="btnOpenPdfExtract" title="Extract records from scanned gazette PDF">
+        <span class="icon">⚡</span>
+        <span>Extract PDF</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Workspace: Table Container + Flyout Drawers -->
+  <main class="nm-workspace" id="nmWorkspace">
+
+    <!-- Table Outer Container with Contained Scroll -->
+    <div class="table-outer-container" id="tableOuterContainer">
+      <table class="nm-table" id="nmTable">
+        <thead>
+          <!-- High-Level Statutory Groups Header -->
+          <tr class="header-groups">
+            <th colspan="3" class="sticky-col-group-ident">Claimant Identification</th>
+            <th colspan="4" style="text-align: center; border-right: 2px solid var(--slate-300);">Land Assessment</th>
+            <th colspan="2" style="text-align: center; border-right: 2px solid var(--slate-300);">Structural Appraisals</th>
+            <th colspan="1" style="text-align: center; border-right: 2px solid var(--slate-300);">Subtotal</th>
+            <th colspan="3" style="text-align: center; border-right: 2px solid var(--slate-300);">Statutory Enhancements (LAA 1894)</th>
+            <th colspan="1" style="text-align: center; border-right: 2px solid var(--slate-300);">Net Settlement</th>
+            <th colspan="3" style="text-align: center;">Administrative Provenance</th>
+          </tr>
+
+          <!-- Individual Column Titles -->
+          <tr class="header-columns">
+            <th class="sticky-col-item center" style="width: 48px;">Item #</th>
+            <th class="sticky-col-claimant" style="width: 190px;">Claimant &amp; Parentage</th>
+            <th class="sticky-col-share center" style="width: 76px;">Share</th>
+
+            <th style="width: 82px;" class="num">Alloc. Area</th>
+            <th style="width: 90px;" class="center">Land Class</th>
+            <th style="width: 92px;" class="num">Rate / Bigha</th>
+            <th style="width: 110px;" class="num" style="border-right: 2px solid var(--slate-300);">Land Comp (₹)</th>
+
+            <th style="width: 115px;">Structure Asset</th>
+            <th style="width: 92px;" class="num" style="border-right: 2px solid var(--slate-300);">Struct Val (₹)</th>
+
+            <th style="width: 102px;" class="num" style="border-right: 2px solid var(--slate-300);">Subtotal (A+B)</th>
+
+            <th style="width: 102px;" class="num">Solatium 30%</th>
+            <th style="width: 102px;" class="num">Sec 23(1A) 12%</th>
+            <th style="width: 92px;" class="num" style="border-right: 2px solid var(--slate-300);">Interest 9%</th>
+
+            <th style="width: 118px;" class="num total-cell" style="border-right: 2px solid var(--slate-300);">Total Payable (₹)</th>
+
+            <th style="width: 72px;" class="center">Source</th>
+            <th style="width: 135px;">Remarks / Directives</th>
+            <th style="width: 60px;" class="center">Action</th>
+          </tr>
+        </thead>
+        <tbody id="nmTableBody">
+          <!-- Dynamically generated via app.js -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Side Detail Flyout Drawer (440px) -->
+    <aside class="nm-drawer closed" id="nmDrawer">
+      <div class="drawer-header">
+        <div class="drawer-title-box">
+          <div class="drawer-item-title">
+            <span id="drawerItemNum">Item 10</span>
+            <span class="share-pill" id="drawerSharePill">Share 1/9</span>
+          </div>
+          <div class="drawer-sub" id="drawerClaimantSubtitle">Anand Verma (Demo) S/o B. L. Verma &bull; Khata 4</div>
+        </div>
+        <button class="drawer-close-btn" id="drawerCloseBtn" title="Close Drawer">&times;</button>
+      </div>
+
+      <div class="drawer-tabs">
+        <button class="drawer-tab active" data-tab="statutory">Statutory Calculation</button>
+        <button class="drawer-tab" data-tab="parcels">Parcel Allocation</button>
+        <button class="drawer-tab" data-tab="source">Source &amp; Red Notes</button>
+      </div>
+
+      <div class="drawer-body" id="drawerBody">
+        <!-- Rendered by app.js based on active tab and item -->
+      </div>
+    </aside>
+
+    <!-- Manual Data Entry Slide Drawer (540px wide) -->
+    <aside class="entry-drawer closed" id="manualEntryDrawer">
+      <!-- Populated dynamically by app.js based on state (Khata/Schedule, New Schedule, Claimant Entry) -->
+    </aside>
+
+  </main>
+
+  <!-- Award Workspace Container (Rendered during States 15 & 16) -->
+  <main class="nm-workspace" id="awardWorkspace" style="display: none;">
+    <div class="table-outer-container" id="awardTableContainer">
+      <table class="nm-table" id="awardTable" style="min-width: 1400px;">
+        <thead>
+          <tr class="header-groups">
+            <th colspan="3" class="sticky-col-group-ident" style="width: 280px;">Award Master Identification</th>
+            <th colspan="3" style="text-align: center; border-right: 2px solid var(--slate-300);">Cadastral Parcel Extents</th>
+            <th colspan="2" style="text-align: center; border-right: 2px solid var(--slate-300);">Valuation Parameters</th>
+            <th colspan="2" style="text-align: center; border-right: 2px solid var(--slate-300);">Statutory Dates</th>
+            <th colspan="3" style="text-align: center;">Administrative Provenance</th>
+          </tr>
+          <tr class="header-columns">
+            <th class="sticky-col-item center" style="width: 48px;">Sr #</th>
+            <th class="sticky-col-claimant" style="width: 140px;">Khasra Number</th>
+            <th class="sticky-col-share center" style="width: 92px;">Village</th>
+
+            <th style="width: 110px;" class="num">Awarded Area</th>
+            <th style="width: 110px;" class="center">Land Class</th>
+            <th style="width: 130px;" class="center" style="border-right: 2px solid var(--slate-300);">Village Master Match</th>
+
+            <th style="width: 120px;" class="num">Circle Rate / Bigha</th>
+            <th style="width: 140px;" class="num" style="border-right: 2px solid var(--slate-300);">Parcel Base Land Comp</th>
+
+            <th style="width: 110px;" class="center">Sec 4 Date</th>
+            <th style="width: 110px;" class="center" style="border-right: 2px solid var(--slate-300);">Possession Date</th>
+
+            <th style="width: 110px;" class="center">Gazette Ref</th>
+            <th style="width: 110px;" class="center">Entry Method</th>
+            <th style="width: 70px;" class="center">Action</th>
+          </tr>
+        </thead>
+        <tbody id="awardTableBody">
+          <!-- Populated by app.js -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Award Manual Entry Drawer -->
+    <aside class="entry-drawer closed" id="awardEntryDrawer">
+      <!-- Populated dynamically by app.js -->
+    </aside>
+  </main>
+
+  <!-- Modal 1: Excel Template Download & Structure Preview -->
+  <div class="modal-backdrop closed" id="modalTemplateDownload">
+    <div class="modal-dialog" style="width: 880px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <span>📄 Official Excel Bulk Entry Template</span>
+          <span class="share-pill" style="font-size: 11px;">Version 2.1 (Multi-Schedule Compliant)</span>
+        </div>
+        <button class="modal-close-btn" onclick="closeModals()">&times;</button>
+      </div>
+
+      <div class="modal-body" id="templateModalBody">
+        <!-- Rendered by app.js -->
+      </div>
+
+      <div class="modal-footer">
+        <div style="font-size: 11px; color: var(--slate-600);">
+          <span>Workbook Format: <strong>Microsoft Excel OpenXML (.xlsx)</strong> &bull; Size: ~24 KB</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="action-btn secondary" onclick="closeModals()">Close</button>
+          <button class="action-btn primary" onclick="alert('Downloading Blank Template: Award-30-2002-03-NM-Template-v2.1.xlsx')">
+            <span>⬇ Download Blank Template</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Excel Import Validation, Preview & Conflict Resolution -->
+  <div class="modal-backdrop closed" id="modalExcelImport">
+    <div class="modal-dialog" style="width: 960px;">
+      <div class="modal-header">
+        <div class="modal-title" id="importModalTitle">
+          <span>📥 Excel Bulk Import &amp; Validation Engine</span>
+        </div>
+        <button class="modal-close-btn" onclick="closeModals()">&times;</button>
+      </div>
+
+      <div class="modal-body" id="importModalBody">
+        <!-- Rendered by app.js based on state (Valid preview or Conflict matrix) -->
+      </div>
+
+      <div class="modal-footer" id="importModalFooter">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- QA & Testing Floating Control Bar (16 Canonical States) -->
+  <footer class="qa-state-bar">
+    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+      <span style="font-weight: 700; color: #94a3b8; font-size: 10px;">STATE:</span>
+      <span id="activeStateLabel" style="color: #38bdf8; font-weight: 600; font-size: 10.5px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">1-collapsed-khatas</span>
+    </div>
+
+    <div class="qa-state-buttons">
+      <button class="qa-btn active" data-state="1-collapsed-khatas">1. Collapsed</button>
+      <button class="qa-btn" data-state="2-expanded-khata-4">2. Exp. Khata 4</button>
+      <button class="qa-btn" data-state="3-claimant-financial-details">3. Details</button>
+      <button class="qa-btn" data-state="4-item-search">4. Search</button>
+      <button class="qa-btn" data-state="5-mixed-land-class">5. Mixed Soil</button>
+      <button class="qa-btn" data-state="6-red-handwritten-remarks">6. Red Notes</button>
+      <button class="qa-btn" data-state="7-mismatch-review-state">7. Scope Review</button>
+      <span style="color: #475569; margin: 0 2px;">|</span>
+      <button class="qa-btn" data-state="8-nm-entry-actions">8. Entry Actions</button>
+      <button class="qa-btn" data-state="9-manual-nm-khata-schedule">9. Manual: Khata/Sched</button>
+      <button class="qa-btn" data-state="10-manual-nm-new-schedule">10. Manual: New Sched</button>
+      <button class="qa-btn" data-state="11-manual-nm-claimant-financial">11. Manual: Claimant</button>
+      <button class="qa-btn" data-state="12-excel-template-download">12. Excel Template</button>
+      <button class="qa-btn" data-state="13-excel-import-preview-valid">13. Import Valid</button>
+      <button class="qa-btn" data-state="14-excel-import-conflicts">14. Import Conflicts</button>
+      <span style="color: #475569; margin: 0 2px;">|</span>
+      <button class="qa-btn" data-state="15-award-manual-entry">15. Award Entry</button>
+      <button class="qa-btn" data-state="16-award-excel-import">16. Award Excel</button>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
